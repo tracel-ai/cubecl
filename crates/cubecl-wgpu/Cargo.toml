@@ -55,6 +55,9 @@ cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", features = [
     "export_tests",
 ] }
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.4.0", features = [
+    "export_tests",
+] }
 half = { workspace = true }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }

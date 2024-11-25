@@ -10,7 +10,7 @@ use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
-use cubecl_runtime::{memory_management::TopologyProperties, DeviceProperties};
+use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
@@ -52,6 +52,10 @@ impl Runtime for WgpuRuntime<WgslCompiler> {
     fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
     }
+
+    fn extension() -> &'static str {
+        "wgsl"
+    }
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.
@@ -67,7 +71,7 @@ impl Default for RuntimeOptions {
         #[cfg(test)]
         const DEFAULT_MAX_TASKS: usize = 1;
         #[cfg(not(test))]
-        const DEFAULT_MAX_TASKS: usize = 16;
+        const DEFAULT_MAX_TASKS: usize = 32;
 
         let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value
@@ -155,13 +159,16 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     options: RuntimeOptions,
 ) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
     let limits = setup.device.limits();
+    let adapter_limits = setup.adapter.limits();
+
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
-    let topology = TopologyProperties {
-        subcube_size_min: setup.adapter.limits().min_subgroup_size,
-        subcube_size_max: setup.adapter.limits().max_subgroup_size,
+    let hardware_props = HardwareProperties {
+        plane_size_min: adapter_limits.min_subgroup_size,
+        plane_size_max: adapter_limits.max_subgroup_size,
+        max_bindings: limits.max_storage_buffers_per_shader_stage,
     };
 
     let memory_management = {
@@ -171,8 +178,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         let storage = WgpuStorage::new(device.clone());
         MemoryManagement::from_configuration(storage, mem_props, config)
     };
+    let compilation_options = Default::default();
     let server = WgpuServer::new(
         memory_management,
+        compilation_options,
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
@@ -180,12 +189,19 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     let channel = MutexComputeChannel::new(server);
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props, topology);
+    let mut device_props = DeviceProperties::new(&[], mem_props, hardware_props);
+
+    // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
+    // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
+    // For now just disable subgroups on WebGPU, until this information is added.
+    let fake_plane_info =
+        adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
 
     if features.contains(wgpu::Features::SUBGROUP)
         && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
+        && !fake_plane_info
     {
-        device_props.register_feature(Feature::Subcube);
+        device_props.register_feature(Feature::Plane);
     }
     C::register_features(&setup.adapter, &setup.device, &mut device_props);
     ComputeClient::new(channel, device_props)

@@ -4,7 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_wgpu::WgpuRuntime;
 use execute_unary_kernel::ExecuteUnaryKernel;
+use half::bf16;
+use kernel_elect::KernelElect;
 use kernel_sum::KernelSum;
+use naming_kernel::NamingKernel;
 use pretty_assertions::assert_eq;
 use sequence_for_loop_kernel::SequenceForLoopKernel;
 use slice_assign_kernel::SliceAssignKernel;
@@ -14,7 +17,7 @@ mod common;
 #[cube(launch_unchecked, create_dummy_kernel)]
 pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
     if UNIT_POS == 0 {
-        let slice_1 = output.slice_mut(2, 3);
+        let mut slice_1 = output.slice_mut(2, 3);
         slice_1[0] = input[0];
     }
 }
@@ -22,14 +25,14 @@ pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 #[test]
 pub fn slice_assign() {
     let kernel = SliceAssignKernel::<WgpuRuntime>::new(settings(1, 1), tensor(), tensor());
-    let expected = include_str!("slice_assign.wgsl").replace("\r\n", "\n");
+    let expected = load_kernel_string!("slice_assign.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
 pub fn kernel_sum(output: &mut Tensor<f32>) {
     let val = output[UNIT_POS];
-    let val2 = cubecl_core::prelude::subcube_sum(val);
+    let val2 = cubecl_core::prelude::plane_sum(val);
 
     if UNIT_POS == 0 {
         output[0] = val2;
@@ -37,9 +40,22 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 }
 
 #[test]
-pub fn subcube_sum() {
+pub fn plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
-    let expected = include_str!("subcube_sum.wgsl").replace("\r\n", "\n");
+    let expected = load_kernel_string!("plane_sum.wgsl");
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube(launch, create_dummy_kernel)]
+pub fn kernel_elect(output: &mut Tensor<u32>) {
+    let elected = cubecl_core::prelude::plane_elect();
+    output[UNIT_POS] = elected as u32;
+}
+
+#[test]
+pub fn plane_elect() {
+    let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
+    let expected = load_kernel_string!("plane_elect.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -61,7 +77,7 @@ pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
 #[test]
 pub fn sequence_for_loop() {
     let kernel = SequenceForLoopKernel::<WgpuRuntime>::new(settings(16, 16), array());
-    let expected = include_str!("sequence_for_loop.wgsl").replace("\r\n", "\n");
+    let expected = load_kernel_string!("sequence_for_loop.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -86,7 +102,7 @@ pub fn unary_bench() {
         tensor_vec(4),
         tensor_vec(4),
     );
-    let expected = include_str!("unary_bench.wgsl").replace("\r\n", "\n");
+    let expected = load_kernel_string!("unary_bench.wgsl");
     assert_eq!(compile(kernel), expected);
 }
 
@@ -104,6 +120,22 @@ pub fn constant_array() {
     let data: Vec<u32> = vec![3, 5, 1];
 
     let kernel = ConstantArrayKernel::<f32, WgpuRuntime>::new(settings(16, 16), tensor(), data);
-    let expected = include_str!("constant_array.wgsl").replace("\r\n", "\n");
+    let expected = load_kernel_string!("constant_array.wgsl");
+    assert_eq!(compile(kernel), expected);
+}
+
+// This kernel just exists to have a few generics in order to observe
+// that the generics get propagated into the WGSL kernel name
+#[cube(launch, create_dummy_kernel)]
+fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array<F1>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F1::from_int(0);
+    }
+}
+
+#[test]
+pub fn naming() {
+    let kernel = NamingKernel::<f32, u8, bf16, i64, WgpuRuntime>::new(settings(16, 16), array());
+    let expected = load_kernel_string!("naming.wgsl");
     assert_eq!(compile(kernel), expected);
 }

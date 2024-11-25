@@ -24,10 +24,21 @@ pub trait SpirvTarget:
         name: String,
         index: u32,
     ) -> Word;
+    fn set_kernel_name(&mut self, name: impl Into<String>);
 }
 
-#[derive(Clone, Default)]
-pub struct GLCompute;
+#[derive(Clone)]
+pub struct GLCompute {
+    kernel_name: String,
+}
+
+impl Default for GLCompute {
+    fn default() -> Self {
+        Self {
+            kernel_name: "main".into(),
+        }
+    }
+}
 
 impl Debug for GLCompute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -66,7 +77,12 @@ impl SpirvTarget for GLCompute {
         }
 
         b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);
-        b.entry_point(ExecutionModel::GLCompute, main, "main", interface);
+        b.entry_point(
+            ExecutionModel::GLCompute,
+            main,
+            &self.kernel_name,
+            interface,
+        );
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
     }
 
@@ -109,5 +125,9 @@ impl SpirvTarget for GLCompute {
 
     fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word> {
         vec![b.ext_inst_import("GLSL.std.450")]
+    }
+
+    fn set_kernel_name(&mut self, name: impl Into<String>) {
+        self.kernel_name = name.into();
     }
 }

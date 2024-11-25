@@ -104,11 +104,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     id
                 }))
             }
-            Builtin::SubcubeDim => {
+            Builtin::PlaneDim => {
                 let id = self.get_or_insert_global(Globals::SubgroupSize, |b| {
                     let id =
                         b.load_builtin(BuiltIn::SubgroupSize, Item::Scalar(Elem::Int(32, false)));
-                    b.debug_name(id, "SUBCUBE_DIM");
+                    b.debug_name(id, "PLANE_DIM");
+                    id
+                });
+                Variable::SubgroupSize(id)
+            }
+            Builtin::UnitPosPlane => {
+                let id = self.get_or_insert_global(Globals::SubgroupInvocationId, |b| {
+                    let id = b.load_builtin(
+                        BuiltIn::SubgroupLocalInvocationId,
+                        Item::Scalar(Elem::Int(32, false)),
+                    );
+                    b.debug_name(id, "UNIT_POS_PLANE");
                     id
                 });
                 Variable::SubgroupSize(id)

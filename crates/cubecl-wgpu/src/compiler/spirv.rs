@@ -46,7 +46,6 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
-        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let (module, layout) = kernel
             .repr
@@ -102,23 +101,20 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             })
             .unwrap_or_else(|| {
                 let source = &kernel.source;
-                let module = match mode {
-                    ExecutionMode::Checked => {
-                        server
-                            .device
-                            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                                label: None,
-                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                            })
-                    }
-                    ExecutionMode::Unchecked => unsafe {
-                        server
-                            .device
-                            .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                                label: None,
-                                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                            })
-                    },
+                // Cube always in principle uses unchecked modules. Certain operations like
+                // indexing are instead checked by cube. The WebGPU specification only makes
+                // incredibly loose gaurantees that Cube can't rely on. Additionally, kernels
+                // can opt in/out per operation whether checks should be performed which can be faster.
+                //
+                // SAFETY: Cube gaurantees OOB safety when launching in checked mode. Launching in unchecked mode
+                // is only availble through the use of unsafe code.
+                let module = unsafe {
+                    server
+                        .device
+                        .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+                        })
                 };
                 (module, None)
             });
@@ -130,7 +126,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: Some("main"),
+                    entry_point: Some(&kernel.entrypoint_name),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
@@ -153,7 +149,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             mode
         };
         log::debug!("Compiling {}", kernel.name());
-        let compiled = kernel.compile(mode);
+        let compiled = kernel.compile(&server.compilation_options, mode);
         #[cfg(feature = "spirv-dump")]
         dump_spirv(&compiled, kernel.name(), kernel.id());
         compiled
@@ -390,6 +386,10 @@ impl Runtime for WgpuRuntime<VkSpirvCompiler> {
 
     fn supported_line_sizes() -> &'static [u8] {
         &[4, 2]
+    }
+
+    fn extension() -> &'static str {
+        "spv"
     }
 }
 

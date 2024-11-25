@@ -14,15 +14,8 @@ pub use crate::frontend::{
 };
 pub use crate::pod::CubeElement;
 
-/// Topology
-pub use crate::frontend::{
-    ABSOLUTE_POS, ABSOLUTE_POS_X, ABSOLUTE_POS_Y, ABSOLUTE_POS_Z, CUBE_COUNT, CUBE_COUNT_X,
-    CUBE_COUNT_Y, CUBE_COUNT_Z, CUBE_DIM, CUBE_DIM_X, CUBE_DIM_Y, CUBE_DIM_Z, CUBE_POS, CUBE_POS_X,
-    CUBE_POS_Y, CUBE_POS_Z, SUBCUBE_DIM, UNIT_POS, UNIT_POS_X, UNIT_POS_Y, UNIT_POS_Z,
-};
-
-/// Export subcube operations.
-pub use crate::frontend::{subcube_all, subcube_max, subcube_min, subcube_prod, subcube_sum};
+/// Export plane operations.
+pub use crate::frontend::{plane_all, plane_max, plane_min, plane_prod, plane_sum};
 pub use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::server::CubeCount;
 

@@ -20,7 +20,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(16, 16, 1)
-fn main(
+fn execute_unary_kernel_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
@@ -33,21 +33,45 @@ for (var l_2_2: u32 = 0u; l_2_2 < 256u; l_2_2++) {
 let _3 = l_2_2 % 2u;
 let _4 = _3 == 0u;
 if _4 {
-let _5 = input_0_global[id];
-let _6 = input_1_global[id];
+var l_3_0: u32;
+l_3_0 = info[0u];
+let _5 = select(vec4<f32>(0), input_0_global[id], id < l_3_0);
+var l_3_1: u32;
+l_3_1 = info[1u];
+let _6 = select(vec4<f32>(0), input_1_global[id], id < l_3_1);
 let _7 = _5 * _6;
 let _8 = cos(_7);
-let _9 = output_0_global[id];
+var l_3_2: u32;
+l_3_2 = info[2u];
+let _9 = select(vec4<f32>(0), output_0_global[id], id < l_3_2);
 let _10 = _9 - _8;
+var l_3_3: u32;
+var l_3_4: bool;
+l_3_3 = info[2u];
+l_3_4 = id < l_3_3;
+if l_3_4 {
 output_0_global[id] = _10;
+}
 } else {
-let _11 = input_0_global[id];
-let _12 = input_1_global[id];
+var l_3_0: u32;
+l_3_0 = info[0u];
+let _11 = select(vec4<f32>(0), input_0_global[id], id < l_3_0);
+var l_3_1: u32;
+l_3_1 = info[1u];
+let _12 = select(vec4<f32>(0), input_1_global[id], id < l_3_1);
 let _13 = _11 * _12;
 let _14 = cos(_13);
-let _15 = output_0_global[id];
+var l_3_2: u32;
+l_3_2 = info[2u];
+let _15 = select(vec4<f32>(0), output_0_global[id], id < l_3_2);
 let _16 = _15 + _14;
+var l_3_3: u32;
+var l_3_4: bool;
+l_3_3 = info[2u];
+l_3_4 = id < l_3_3;
+if l_3_4 {
 output_0_global[id] = _16;
+}
 }
 }
 }

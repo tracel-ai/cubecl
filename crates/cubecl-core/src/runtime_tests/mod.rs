@@ -5,11 +5,12 @@ pub mod cmma;
 pub mod const_match;
 pub mod constants;
 pub mod different_rank;
+pub mod index;
 pub mod launch;
 pub mod metadata;
+pub mod plane;
 pub mod sequence;
 pub mod slice;
-pub mod subcube;
 pub mod topology;
 pub mod unary;
 
@@ -23,6 +24,7 @@ macro_rules! testgen_all {
         type IntType = i32;
         type UintType = u32;
 
+        cubecl_core::testgen_index!();
         cubecl_core::testgen_assign!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();
@@ -71,9 +73,9 @@ macro_rules! testgen_float {
         cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_launch!();
+        cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
-        cubecl_core::testgen_subcube!();
         cubecl_core::testgen_unary!();
     };
 }

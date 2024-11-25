@@ -1,20 +1,24 @@
 use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
 
-use cubecl_cpp::{register_supported_types, HipCompiler};
+use cubecl_cpp::{
+    hip::HipDialect,
+    register_supported_types,
+    shared::{register_wmma_features, Architecture, CompilationOptions, CppCompiler, WmmaCompiler},
+};
 
 use cubecl_core::{Feature, MemoryConfiguration, Runtime};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{MemoryDeviceProperties, MemoryManagement, TopologyProperties},
+    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
-    arch::AMDArchitecture,
     compute::{HipContext, HipServer, HipStorage},
     device::HipDevice,
+    HipWmmaCompiler,
 };
 
 /// The values that control how a HIP Runtime will perform its calculations.
@@ -30,12 +34,17 @@ pub struct HipRuntime;
 static RUNTIME: ComputeRuntime<HipDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
+pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
+
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
 
 const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
-fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+fn create_client<M: WmmaCompiler<HipDialect<M>>>(
+    device: &HipDevice,
+    options: RuntimeOptions,
+) -> ComputeClient<Server, Channel> {
     let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
 
     #[allow(unused_assignments)]
@@ -55,8 +64,8 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
             .to_str()
             .unwrap();
     };
-    let arch = AMDArchitecture::from_str(prop_arch_name).unwrap();
-    assert_eq!(prop_warp_size, arch.warp_size());
+    let arch = M::Architecture::from_str(prop_arch_name).unwrap();
+    assert_eq!(prop_warp_size as u32, arch.warp_size());
 
     unsafe {
         let status =
@@ -89,21 +98,28 @@ fn create_client(device: &HipDevice, options: RuntimeOptions) -> ComputeClient<S
         max_page_size: max_memory as u64 / 4,
         alignment: MEMORY_OFFSET_ALIGNMENT,
     };
-    let topology = TopologyProperties {
-        subcube_size_min: prop_warp_size as u32,
-        subcube_size_max: prop_warp_size as u32,
+    let topology = HardwareProperties {
+        plane_size_min: prop_warp_size as u32,
+        plane_size_max: prop_warp_size as u32,
+        // This is a guess - not clear if ROCM has a limit on the number of bindings,
+        // but it's dubious it's more than this.
+        max_bindings: 1024,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,
         mem_properties.clone(),
         options.memory_config,
     );
-    let hip_ctx = HipContext::new(memory_management, stream, ctx);
-    let server = HipServer::new(hip_ctx);
-    let mut device_props = DeviceProperties::new(&[Feature::Subcube], mem_properties, topology);
+    let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
-    arch.register_wmma_features(&mut device_props);
+    let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
+    register_wmma_features(supported_wmma_combinations, &mut device_props);
 
+    let comp_opts = CompilationOptions {
+        warp_size: arch.warp_size(),
+    };
+    let hip_ctx = HipContext::new(memory_management, comp_opts, stream, ctx);
+    let server = HipServer::new(hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
 
@@ -115,7 +131,7 @@ impl Runtime for HipRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            create_client(device, RuntimeOptions::default())
+            create_client::<HipWmmaCompiler>(device, RuntimeOptions::default())
         })
     }
 
@@ -129,5 +145,9 @@ impl Runtime for HipRuntime {
 
     fn supported_line_sizes() -> &'static [u8] {
         &[8, 4, 2]
+    }
+
+    fn extension() -> &'static str {
+        "hip"
     }
 }

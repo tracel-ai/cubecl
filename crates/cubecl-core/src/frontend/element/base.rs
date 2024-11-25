@@ -23,6 +23,7 @@ use std::{marker::PhantomData, num::NonZero};
 /// This allows Cube code to not necessitate cloning, which is cumbersome
 /// in algorithmic code. The necessary cloning will automatically appear in
 /// the generated code.
+#[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
     type ExpandType: Clone + Init;
 
@@ -57,6 +58,7 @@ pub trait Init: Sized {
 /// Once for the reference and the other for the mutable reference. Often time, the reference
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
+#[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArgExpand: CubeType {
     /// Compilation argument.
     type CompilationArg: Clone

@@ -15,7 +15,8 @@ pub struct WgpuStream {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     poll: WgpuPoll,
-    sync_buffer: Option<wgpu::Buffer>,
+    sync_buffer: Option<Arc<wgpu::Buffer>>,
+    submission_load: SubmissionLoad,
 }
 
 pub enum PipelineDispatch {
@@ -34,7 +35,7 @@ impl WgpuStream {
         let encoder = create_encoder(&device);
 
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+        let sync_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 32,
             usage: wgpu::BufferUsages::COPY_DST
@@ -42,7 +43,7 @@ impl WgpuStream {
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::INDIRECT,
             mapped_at_creation: false,
-        }));
+        })));
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
@@ -56,6 +57,7 @@ impl WgpuStream {
             tasks_max,
             poll,
             sync_buffer,
+            submission_load: SubmissionLoad::default(),
         }
     }
 
@@ -133,60 +135,87 @@ impl WgpuStream {
         }
     }
 
-    pub fn read_buffer(
+    pub fn read_buffers(
         &mut self,
-        buffer: &wgpu::Buffer,
-        offset: u64,
-        size: u64,
-    ) -> impl Future<Output = Vec<u8>> + 'static {
+        buffers: Vec<(Arc<wgpu::Buffer>, u64, u64)>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
         self.pass = None;
-        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT;
-        let aligned_len = size.div_ceil(align) * align;
+        let mut staging_buffers = Vec::with_capacity(buffers.len());
+        let mut callbacks = Vec::with_capacity(buffers.len());
 
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: aligned_len,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        for (buffer, offset, size) in buffers {
+            // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+            // memory is 32 bytes aligned (see WgpuStorage).
+            let align = wgpu::COPY_BUFFER_ALIGNMENT;
+            let aligned_len = size.div_ceil(align) * align;
 
-        self.encoder
-            .copy_buffer_to_buffer(buffer, offset, &staging_buffer, 0, aligned_len);
+            let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: aligned_len,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.encoder
+                .copy_buffer_to_buffer(&buffer, offset, &staging_buffer, 0, aligned_len);
+            staging_buffers.push((staging_buffer, size));
+        }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
         self.flush();
 
-        let (sender, receiver) = async_channel::bounded(1);
-        staging_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |v| {
-                sender
-                    .try_send(v)
-                    .expect("Unable to send buffer slice result to async channel.");
-            });
+        for (staging_buffer, _size) in staging_buffers.iter() {
+            let (sender, receiver) = async_channel::bounded(1);
+            staging_buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    sender
+                        .try_send(v)
+                        .expect("Unable to send buffer slice result to async channel.");
+                });
+
+            callbacks.push(receiver);
+        }
 
         let poll = self.poll.start_polling();
 
         async move {
-            receiver
-                .recv()
-                .await
-                .expect("Unable to receive buffer slice result.")
-                .expect("Failed to map buffer");
+            for callback in callbacks {
+                callback
+                    .recv()
+                    .await
+                    .expect("Unable to receive buffer slice result.")
+                    .expect("Failed to map buffer");
+            }
 
             // Can stop polling now.
             core::mem::drop(poll);
 
             let result = {
-                let data = staging_buffer.slice(..).get_mapped_range();
-                bytemuck::cast_slice(&data[0..(size as usize)]).to_vec()
+                staging_buffers
+                    .iter()
+                    .map(|(staging_buffer, size)| {
+                        let data = staging_buffer.slice(..).get_mapped_range();
+                        bytemuck::cast_slice(&data[0..(*size as usize)]).to_vec()
+                    })
+                    .collect()
             };
 
-            staging_buffer.unmap();
+            for (staging_buffer, _size) in staging_buffers {
+                staging_buffer.unmap();
+            }
             result
         }
+    }
+
+    pub fn read_buffer(
+        &mut self,
+        buffer: Arc<wgpu::Buffer>,
+        offset: u64,
+        size: u64,
+    ) -> impl Future<Output = Vec<u8>> + 'static {
+        let fut = self.read_buffers(vec![(buffer, offset, size)]);
+
+        async move { fut.await.remove(0) }
     }
 
     pub fn sync_elapsed(
@@ -241,7 +270,7 @@ impl WgpuStream {
         match method {
             TimestampMethod::Buffer(resolved, size) => {
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffer(&resolved, 0, size);
+                let fut = self.read_buffer(Arc::new(resolved), 0, size);
 
                 Box::pin(async move {
                     let data = fut
@@ -279,7 +308,7 @@ impl WgpuStream {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_buffer(buf, 0, 32);
+                let fut = self.read_buffer(buf.clone(), 0, 32);
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
 
                 Box::pin(async move {
@@ -307,10 +336,89 @@ impl WgpuStream {
         let new_encoder = create_encoder(&self.device);
         let encoder = std::mem::replace(&mut self.encoder, new_encoder);
 
-        self.queue.submit([encoder.finish()]);
+        let index = self.queue.submit([encoder.finish()]);
+
+        self.submission_load
+            .regulate(&self.device, self.tasks_count, index);
+
         self.tasks_count = 0;
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+mod __submission_load {
+
+    #[derive(Default, Debug)]
+    pub enum SubmissionLoad {
+        Init {
+            last_index: wgpu::SubmissionIndex,
+            tasks_count_submitted: usize,
+        },
+        #[default]
+        Empty,
+    }
+
+    impl SubmissionLoad {
+        pub fn regulate(
+            &mut self,
+            device: &wgpu::Device,
+            tasks_count: usize,
+            mut index: wgpu::SubmissionIndex,
+        ) {
+            match self {
+                SubmissionLoad::Init {
+                    last_index,
+                    tasks_count_submitted,
+                } => {
+                    *tasks_count_submitted += tasks_count;
+
+                    // Enough to keep the GPU busy.
+                    //
+                    // - Too much can hang the GPU and create slowdown.
+                    // - Too little and GPU utilization is really bad.
+                    //
+                    // TODO: Could be smarter and dynamic based on stats.
+                    const MAX_TOTAL_TASKS: usize = 512;
+
+                    if *tasks_count_submitted >= MAX_TOTAL_TASKS {
+                        core::mem::swap(last_index, &mut index);
+                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
+
+                        *tasks_count_submitted = 0;
+                    }
+                }
+                SubmissionLoad::Empty => {
+                    *self = Self::Init {
+                        last_index: index,
+                        tasks_count_submitted: 0,
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_family = "wasm")]
+mod __submission_load_wasm {
+    #[derive(Default, Debug)]
+    pub struct SubmissionLoad;
+
+    impl SubmissionLoad {
+        pub fn regulate(
+            &mut self,
+            _device: &wgpu::Device,
+            _tasks_count: usize,
+            _index: wgpu::SubmissionIndex,
+        ) {
+            // Nothing to do.
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+use __submission_load::*;
+#[cfg(target_family = "wasm")]
+use __submission_load_wasm::*;
 
 fn create_encoder(device: &wgpu::Device) -> wgpu::CommandEncoder {
     device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

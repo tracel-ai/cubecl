@@ -18,10 +18,14 @@ impl OptimizerPass for CopyTransform {
             let mut reads = HashMap::new();
             let mut writes = HashMap::new();
             let ops = opt.program[block].ops.clone();
-            for (idx, inst) in ops.borrow().iter() {
+            let indices = ops.borrow().indices().collect::<Vec<_>>();
+            for idx in indices {
+                let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
                     Operation::Operator(Operator::Index(op))
-                        if op.lhs.is_array() && item_compatible(op.lhs.item, inst.item()) =>
+                        if op.lhs.is_array()
+                            && item_compatible(op.lhs.item, inst.item())
+                            && !is_reused(opt, &inst.out) =>
                     {
                         if let Some(id) = as_versioned(&inst.out()) {
                             reads.insert(id, (idx, op.lhs, op.rhs));
@@ -61,5 +65,22 @@ fn as_versioned(var: &Variable) -> Option<(u16, u8, u16)> {
         VariableKind::LocalBinding { id, depth } => Some((id, depth, 0)),
         VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
         _ => None,
+    }
+}
+
+fn is_reused(opt: &mut Optimizer, var: &Option<Variable>) -> bool {
+    if let Some(var) = var.as_ref() {
+        let count = AtomicCounter::new(0);
+        opt.visit_all(
+            |_, other| {
+                if other == var {
+                    count.inc();
+                }
+            },
+            |_, _| {},
+        );
+        count.get() > 1
+    } else {
+        false
     }
 }

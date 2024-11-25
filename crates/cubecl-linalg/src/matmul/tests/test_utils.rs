@@ -17,7 +17,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -116,7 +116,10 @@ impl CastInto<flex32> for f32 {
 ///
 /// This is a naive CPU implementation with fixed seed,
 /// not designed to be used for other purposes than testing.
-pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) -> Vec<F> {
+pub(crate) fn generate_random_data<F: Float + CubeElement>(
+    num_elements: usize,
+    mut seed: u64,
+) -> Vec<F> {
     fn lcg(seed: &mut u64) -> f32 {
         const A: u64 = 1664525;
         const C: u64 = 1013904223;
@@ -125,8 +128,6 @@ pub(crate) fn generate_random_data<F: Float + CubeElement>(num_elements: usize) 
         *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
         (*seed as f64 / M * 2.0 - 1.0) as f32
     }
-
-    let mut seed = 12345;
 
     (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
@@ -189,8 +190,8 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read(lhs.handle.clone().binding());
-        let rhs_binding = &client.read(rhs.handle.clone().binding());
+        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
+        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);
@@ -251,7 +252,7 @@ impl MatmulTestCase {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = generate_random_data::<F>(shape.iter().product());
+        let data = generate_random_data::<F>(shape.iter().product(), 999);
         let handle = client.create(bytemuck::cast_slice(&data));
         TensorHandle::new_contiguous(shape, handle)
     }

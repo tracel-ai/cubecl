@@ -59,6 +59,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub bf16: bool,
     pub f16: bool,
     pub items: HashSet<super::Item<D>>,
+    pub kernel_name: String,
 }
 
 impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
@@ -77,10 +78,7 @@ impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.wmma_activated {
-            D::include_wmma(f)?;
-        }
-
+        D::includes(f)?;
         if self.bf16 {
             D::include_bf16(f)?;
         }
@@ -94,6 +92,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         f.write_str("typedef unsigned int uint;\n")?;
         f.write_str("typedef unsigned long long int uint64;\n")?;
         f.write_str("typedef long long int int64;\n")?;
+        D::deftypes(f)?;
 
         for item in self.items.iter() {
             let elem = item.elem;
@@ -122,8 +121,9 @@ struct __align__({alignment}) {item} {{"
             f,
             "
 
-extern \"C\" __global__ void kernel(
+extern \"C\" __global__ void {}(
 ",
+            self.kernel_name
         )?;
 
         let num_bindings = self.inputs.len() + self.outputs.len() + self.named.len();

@@ -17,7 +17,7 @@ Also requires device support
 
 | Feature | CUDA | ROCm | WGPU (WGSL) | WGPU (SPIR-V) |
 | ------- | ---- | ---- | ----------- | ------------- |
-| Subcube | ✔️   | ✔️   | ✔️          | ✔️            |
+| Plane   | ✔️   | ✔️   | ✔️          | ✔️            |
 | CMMA    | ✔️   | ✔️   | ❌          | ✔️            |
 
 ### Datatypes
@@ -57,15 +57,15 @@ from `f32`, but officially undefined. Use `Cast::cast_from` to safely convert.
 
 ## Feature Details
 
-### Subcube
+### Plane
 
-Subcube level operations, i.e.
-[`subcube_sum`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.subcube_sum.html),
-[`subcube_elect`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.subcube_elect.html).
+Plane level operations, i.e.
+[`plane_sum`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.plane_sum.html),
+[`plane_elect`](https://docs.rs/cubecl/latest/cubecl/frontend/fn.plane_elect.html).
 
 ### Cooperative Matrix Multiply-Add (CMMA)
 
-Subcube-level cooperative matrix multiply-add operations. Maps to `wmma` in CUDA and
+Plane-level cooperative matrix multiply-add operations. Maps to `wmma` in CUDA and
 `CooperativeMatrixMultiply` in SPIR-V. Features are registered for each size and datatype that is
 supported by the hardware. For supported functions, see
 [`cmma`](https://docs.rs/cubecl/latest/cubecl/frontend/cmma/index.html).

@@ -30,6 +30,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     storage_locked: MemoryLock,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
+    pub compilation_options: C::CompilationOptions,
     _compiler: PhantomData<C>,
 }
 
@@ -37,6 +38,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     /// Create a new server.
     pub fn new(
         memory_management: MemoryManagement<WgpuStorage>,
+        compilation_options: C::CompilationOptions,
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         tasks_max: usize,
@@ -52,6 +54,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         Self {
             memory_management,
+            compilation_options,
             device: device.clone(),
             queue: queue.clone(),
             storage_locked: MemoryLock::default(),
@@ -82,7 +85,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = C::create_pipeline(self, compile, mode);
+        let pipeline = C::create_pipeline(self, compile);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
@@ -103,14 +106,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     type Storage = WgpuStorage;
     type Feature = Feature;
 
-    fn read(&mut self, binding: server::Binding) -> impl Future<Output = Vec<u8>> + Send + 'static {
-        let rb = self.get_resource(binding);
-        let resource = rb.resource();
+    fn read(
+        &mut self,
+        bindings: Vec<server::Binding>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+        let resources = bindings
+            .into_iter()
+            .map(|binding| {
+                let rb = self.get_resource(binding);
+                let resource = rb.resource();
+
+                (resource.buffer.clone(), resource.offset(), resource.size())
+            })
+            .collect();
 
         // Clear compute pass.
-        let fut = self
-            .stream
-            .read_buffer(&resource.buffer, resource.offset(), resource.size());
+        let fut = self.stream.read_buffers(resources);
         self.on_flushed();
 
         fut

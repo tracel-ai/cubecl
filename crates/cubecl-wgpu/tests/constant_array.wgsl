@@ -14,7 +14,7 @@ const WORKGROUP_SIZE_Z = 1u;
 
 @compute
 @workgroup_size(16, 16, 1)
-fn main(
+fn constant_array_kernel_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
@@ -23,6 +23,12 @@ let _0 = info[1u];
 let _1 = id < _0;
 if _1 {
 let _2 = arrays_0[id];
+var l_1_0: u32;
+var l_1_1: bool;
+l_1_0 = info[0u];
+l_1_1 = id < l_1_0;
+if l_1_1 {
 output_0_global[id] = _2;
+}
 }
 }

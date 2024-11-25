@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, Subcube,
+    AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, Plane,
     UnaryOperator, Variable,
 };
 
@@ -42,7 +42,7 @@ impl Optimizer {
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
-            Operation::Subcube(subcube) => self.visit_subcube(subcube, visit_read),
+            Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
         }
@@ -196,20 +196,16 @@ impl Optimizer {
         }
     }
 
-    fn visit_subcube(
-        &mut self,
-        subcube: &mut Subcube,
-        visit_read: impl FnMut(&mut Self, &mut Variable),
-    ) {
-        match subcube {
-            Subcube::Elect => {}
-            Subcube::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
-            Subcube::All(unary_operator)
-            | Subcube::Any(unary_operator)
-            | Subcube::Sum(unary_operator)
-            | Subcube::Prod(unary_operator)
-            | Subcube::Min(unary_operator)
-            | Subcube::Max(unary_operator) => self.visit_unop(unary_operator, visit_read),
+    fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut Self, &mut Variable)) {
+        match plane {
+            Plane::Elect => {}
+            Plane::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Plane::All(unary_operator)
+            | Plane::Any(unary_operator)
+            | Plane::Sum(unary_operator)
+            | Plane::Prod(unary_operator)
+            | Plane::Min(unary_operator)
+            | Plane::Max(unary_operator) => self.visit_unop(unary_operator, visit_read),
         }
     }
 

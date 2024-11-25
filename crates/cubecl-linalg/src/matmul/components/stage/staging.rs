@@ -1,5 +1,5 @@
 use crate::matmul::components::stage::tiling_order::{
-    TilingOrderConfig, XMajorTiling, YMajorTiling,
+    ColMajorTiling, RowMajorTiling, TilingOrderConfig,
 };
 use crate::matmul::components::stage::{Config, TilingOrder};
 use crate::matmul::components::Ident;
@@ -20,7 +20,7 @@ impl<ES: Numeric> Stage<ES> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
-            comptime!(config.stage_dim(ident).num_elements() / line_size),
+            comptime!(config.stage_dim(ident).total_elements() / line_size),
             line_size,
         );
 
@@ -34,16 +34,22 @@ impl<ES: Numeric> Stage<ES> {
         y: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>> {
+    ) -> Slice<Line<ES>> {
         let stage_dim = config.stage_dim(ident);
 
-        let nth_tile = match config.tiling_order() {
-            TilingOrderConfig::XMajor => {
-                XMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-            }
-            TilingOrderConfig::YMajor => {
-                YMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-            }
+        let nth_tile = match config.tiling_order(ident) {
+            TilingOrderConfig::RowMajor => RowMajorTiling::to_nth_tile(
+                x,
+                y,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+            TilingOrderConfig::ColMajor => ColMajorTiling::to_nth_tile(
+                x,
+                y,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
         };
 
         let tile_stride = stage_dim.tile_num_elements() / config.line_size(ident);
@@ -53,7 +59,7 @@ impl<ES: Numeric> Stage<ES> {
     }
 
     /// Return the whole stage as a mutable slice, for loading
-    pub fn as_slice_mut(&mut self) -> &mut SliceMut<'_, Line<ES>> {
-        self.smem.as_slice_mut()
+    pub fn as_slice_mut(&mut self) -> SliceMut<Line<ES>> {
+        self.smem.to_slice_mut()
     }
 }

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::stage::{self, StageReader, StageWriter, TilingOrderConfig};
+use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{Ident, MatrixLayout};
@@ -29,9 +29,10 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type Lhs: Loader<EG, ES>;
-    type Rhs: Loader<EG, ES>;
+    type LhsLoader: Loader<EG, ES, Self::Config>;
+    type RhsLoader: Loader<EG, ES, Self::Config>;
     type Out: Unloader<EG>;
+    type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
@@ -40,34 +41,59 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Self::Lhs,
-        rhs_loader: Self::Rhs,
+        lhs_loader: Self::LhsLoader,
+        rhs_loader: Self::RhsLoader,
         unloader: Self::Out,
+        acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
+
+    /// Initialize the loader for Lhs, starting at row m and column k
+    fn init_lhs_loader(
+        lhs: &Tensor<Line<EG>>,
+        m_offset: u32,
+        k_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsLoader;
+
+    /// Initialize the loader for Rhs, starting at row k and column n
+    fn init_rhs_loader(
+        rhs: &Tensor<Line<EG>>,
+        k_offset: u32,
+        n_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsLoader;
+
+    /// Initialize the unloader at row m and column n
+    fn init_unloader(
+        out: &mut Tensor<Line<EG>>,
+        m_offset: u32,
+        n_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Out;
+
+    /// Initialize the accumulator without data
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    /// Fill the accumulator with zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
+pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
-    type StageReader: StageReader<ES>;
+    type StageReader: CubeType;
 
     /// Fills the stage at the current k offset and returns a reader for it.
-    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
-
-    fn new<G: Config>(
-        tensor: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        nth_batch: u32,
-        #[comptime] config: G,
-    ) -> Self;
 }
 
 #[cube]
@@ -81,8 +107,6 @@ pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
     fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
-
-    fn new(tensor: &mut Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self;
 }
 
 /// Configuration for the Global matmul (GMM) level
@@ -100,7 +124,7 @@ pub trait Config: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
@@ -112,10 +136,13 @@ pub trait Config: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self) -> TilingOrderConfig;
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 
     /// Whether it is necessary to add bound checks in the m dimension
     fn check_m_bounds(&self) -> bool;
+
+    /// Whether it is necessary to add bound checks in the k dimension
+    fn check_k_bounds(&self) -> bool;
 
     /// Whether it is necessary to add bound checks in the n dimension
     fn check_n_bounds(&self) -> bool;

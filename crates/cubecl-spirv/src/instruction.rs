@@ -29,7 +29,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Atomic(atomic) => self.compile_atomic(atomic, inst.out),
             Operation::Branch(_) => unreachable!("Branches shouldn't exist in optimized IR"),
             Operation::Metadata(meta) => self.compile_meta(meta, inst.out),
-            Operation::Subcube(subcube) => self.compile_subcube(subcube, inst.out),
+            Operation::Plane(plane) => self.compile_plane(plane, inst.out),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
         }

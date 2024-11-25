@@ -37,9 +37,21 @@ pub fn array() -> ArrayCompilationArg {
 }
 
 pub fn compile(kernel: impl Kernel) -> String {
+    let comp_opts = Default::default();
     <<TestRuntime as Runtime>::Compiler as Compiler>::compile(
         kernel.define(),
+        &comp_opts,
         ExecutionMode::Checked,
     )
     .to_string()
+}
+
+#[macro_export]
+macro_rules! load_kernel_string {
+    ($file:expr) => {
+        include_str!($file)
+            .replace("\r\n", "\n")
+            .trim_end()
+            .to_string()
+    };
 }

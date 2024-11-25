@@ -23,7 +23,7 @@ use super::tiling_order::TilingOrderConfig;
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I>>:
+pub trait Matmul<I: Numeric, O: Numeric>:
     'static + Send + Sync + MatmulKernel<I, O, Config: Config>
 {
     /// Number of rows of LHS
@@ -37,34 +37,37 @@ pub trait Matmul<I: Numeric, O: Numeric, Lhs: StageReader<I>, Rhs: StageReader<I
     /// The same Accumulator will be added to across multiple executions of the stage matmul.
     type Accumulator: CubeType;
 
-    /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
-    fn execute(lhs: &Lhs, rhs: &Rhs, acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+    type LhsReader: CubeType;
+    type RhsReader: CubeType;
 
-    /// Creates an accumulator initialized to zeros
-    fn acc_init_zeros(#[comptime] config: Self::Config) -> Self::Accumulator;
+    type LhsTile: CubeType;
+    type RhsTile: CubeType;
+
+    /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
+    fn execute(
+        lhs: &Self::LhsReader,
+        rhs: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
+
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn acc_read<Out: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<Out: StageWriter<O>, G: global::Config>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
-}
 
-#[cube]
-/// Input to the stage matmul, responsible of handing slices of data
-/// at precise locations in the stage
-pub trait StageReader<ES: Numeric>: CubeType {
-    /// Hands a portion of data from the stage, whose location is function of the
-    /// plane, buffer and accumulator indexes.
-    fn read_tile<S: Config>(
-        this: &Self,
-        compute_plane_offset: u32,
-        buffer_offset: u32,
-        accumulator_offset: u32,
-        #[comptime] config: S,
-    ) -> &Slice<'_, Line<ES>>;
+    /// Create an instance of the accumulator, without data
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    /// Fill the accumulator with zeros
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
 #[cube]
@@ -75,7 +78,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// plane and accumulator indexes.
     fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
-        slice: &Slice<'_, Line<ES>>,
+        slice: Slice<Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: G,
@@ -94,7 +97,7 @@ pub trait Config: MatmulConfig {
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
@@ -106,7 +109,7 @@ pub trait Config: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self) -> TilingOrderConfig;
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 }
 
 pub trait StageSize: 'static + Send + Sync {
@@ -130,8 +133,11 @@ macro_rules! create_cmma_stage {
 // This list is not exhaustive. Add what you need.
 create_cmma_stage!(S1x1x1, 1, 1, 1);
 create_cmma_stage!(S1x1x2, 1, 1, 2);
+create_cmma_stage!(S1x1x3, 1, 1, 3);
 create_cmma_stage!(S1x2x1, 1, 2, 1);
+create_cmma_stage!(S1x2x2, 1, 2, 2);
 create_cmma_stage!(S2x1x1, 2, 1, 1);
+create_cmma_stage!(S2x1x2, 2, 1, 2);
 create_cmma_stage!(S2x2x1, 2, 2, 1);
 create_cmma_stage!(S2x2x2, 2, 2, 2);
 create_cmma_stage!(S4x4x1, 4, 4, 1);

@@ -1,4 +1,4 @@
-use crate::memory_management::{MemoryDeviceProperties, TopologyProperties};
+use crate::memory_management::{HardwareProperties, MemoryDeviceProperties};
 use alloc::collections::BTreeSet;
 
 /// Properties of what the device can do, like what [features](Feature) are
@@ -7,7 +7,7 @@ use alloc::collections::BTreeSet;
 pub struct DeviceProperties<Feature: Ord + Copy> {
     set: alloc::collections::BTreeSet<Feature>,
     memory: MemoryDeviceProperties,
-    topology: TopologyProperties,
+    hardware: HardwareProperties,
 }
 
 impl<Feature: Ord + Copy> DeviceProperties<Feature> {
@@ -15,7 +15,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     pub fn new(
         features: &[Feature],
         memory_props: MemoryDeviceProperties,
-        topology: TopologyProperties,
+        hardware: HardwareProperties,
     ) -> Self {
         let mut set = BTreeSet::new();
         for feature in features {
@@ -25,7 +25,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         DeviceProperties {
             set,
             memory: memory_props,
-            topology,
+            hardware,
         }
     }
 
@@ -47,7 +47,7 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
     }
 
     /// The topology properties of this client.
-    pub fn topology_properties(&self) -> &TopologyProperties {
-        &self.topology
+    pub fn hardware_properties(&self) -> &HardwareProperties {
+        &self.hardware
     }
 }

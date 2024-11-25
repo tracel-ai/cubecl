@@ -1,6 +1,6 @@
 // Tests nomenclature:
 // batch: b[o=one_to_one, m=one_to_many][batch dims, optional]
-// global: g[m]x[n]x[k], with m,n,k the whole matrix dimensions
+// global: g[h=homogeneous, pc=producer_consumer][m]x[n]x[k], with m,n,k the whole matrix dimensions
 // stage: s[m]x[n]x[k], with m,n,k the number of tiles along those dims
 // tile: t[m]x[n]x[k], with m,n,k the tile dimensions. tile algorithm is given by macro arguments
 // layouts: [r/c][r/c], r=row, c=col, respectively for lhs and rhs
@@ -20,11 +20,11 @@ macro_rules! matmul_test_define {
         $plane_dim:expr
     ) => {
         #[test]
-        pub fn bm1_g16x16x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo1_gpc16x16x480_s1x1x3_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
-                k: 16,
+                k: 480,
                 batches: vec![],
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
@@ -39,23 +39,26 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::single_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x3,
                 >;
                 type GlobalMatmul =
-                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
-                    CubeDim::new($plane_dim, 1, 1)
+                    CubeDim::new($plane_dim, 2, 1)
                 }
 
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
@@ -63,19 +66,17 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
-            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
-                problem,
-                advanced_config,
-                &<<TestRuntime as Runtime>::Device>::default(),
-            );
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
         }
 
         #[test]
-        pub fn bm1_g32x16x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo1_gh1000x16x16_s1x1x1_t16x16x16_rr_ln4_transposed_dispatch() {
             let problem = MatmulProblem {
-                m: 32,
+                m: 1024,
                 n: 16,
                 k: 16,
                 batches: vec![],
@@ -92,27 +93,30 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::TransposedDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
                 }
 
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
-                    CubeCount::Static(1, 1, 1)
+                    CubeCount::Static(1, 64, 1)
                 }
             }
 
@@ -126,11 +130,70 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm1_g16x32x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo3x4_gpc300x300x300_s4x4x2_t16x16x16_cc_ln4() {
+            let problem = MatmulProblem {
+                m: 300,
+                n: 300,
+                k: 300,
+                batches: vec![3, 4],
+                lhs_layout: MatrixLayout::ColMajor,
+                rhs_layout: MatrixLayout::ColMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S4x4x2,
+                >;
+                type GlobalMatmul =
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 8, 1)
+                }
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(5, 5, 12)
+                }
+            }
+
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo1_gpc16x32x32_s1x2x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 32,
-                k: 16,
+                k: 32,
                 batches: vec![],
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
@@ -145,23 +208,26 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::single_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x2x2,
                 >;
                 type GlobalMatmul =
-                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
-                    CubeDim::new($plane_dim, 1, 1)
+                    CubeDim::new($plane_dim, 2, 1)
                 }
 
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
@@ -169,7 +235,11 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
@@ -179,7 +249,127 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm1_g16x16x32_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo1_gpc32x16x32_s2x1x2_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 32,
+                n: 16,
+                k: 32,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S2x1x2,
+                >;
+                type GlobalMatmul =
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 3, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo1_gpc16x16x128_s1x1x2_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 128,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x2,
+                >;
+                type GlobalMatmul =
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 2, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo1_gpc16x16x32_s1x1x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -198,20 +388,84 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::single_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x2,
+                >;
+                type GlobalMatmul =
+                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 2, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig {
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::RowMajor,
+                ..Default::default()
+            };
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm1_gh16x16x16_s1x1x1_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -232,7 +486,178 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm6_g16x16x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bm1_gh32x16x16_s1x1x1_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 32,
+                n: 16,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm1_gh16x32x16_s1x1x1_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 32,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm1_gh16x16x32_s1x1x1_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 32,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm6_gh16x16x16_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -251,20 +676,24 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -285,7 +714,292 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bm5_g16x16x16_s1x1x1_t16x16x16_rr_ln4_cubez2() {
+        pub fn bm2_gh32x32x32_s1x1x1_t16x16x16_rr_ln4_colspan() {
+            let problem = MatmulProblem {
+                m: 32,
+                n: 32,
+                k: 16,
+                batches: vec![2],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::ColMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm2_gh32x32x32_s1x1x1_t16x16x16_rr_ln4_swizzlespan() {
+            let problem = MatmulProblem {
+                m: 32,
+                n: 32,
+                k: 16,
+                batches: vec![2],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::SwizzleSpanMatmul<2>,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(2, 2, 2)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm2_gh32x32x32_s1x1x1_t16x16x16_rr_ln4_transposed_dispatch() {
+            let problem = MatmulProblem {
+                m: 32,
+                n: 32,
+                k: 16,
+                batches: vec![2],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::SwizzleSpanMatmul<2>,
+                    batch::TransposedDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(2, 2, 2)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm2_gh160x256x16_s1x1x1_t16x16x16_rr_ln4_swizzle_x_dispatch() {
+            let problem = MatmulProblem {
+                m: 160,
+                n: 256,
+                k: 16,
+                batches: vec![2],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::SwizzleSpanMatmul<2>,
+                    batch::SwizzleNaturalDispatch<2>,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(10, 16, 2)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm2_gh160x256x16_s1x1x1_t16x16x16_rr_ln4_swizzle_y_dispatch() {
+            let problem = MatmulProblem {
+                m: 160,
+                n: 256,
+                k: 16,
+                batches: vec![2],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::SwizzleSpanMatmul<2>,
+                    batch::SwizzleTransposedDispatch<2>,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(16, 10, 2)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bm5_gh16x16x16_s1x1x1_t16x16x16_rr_ln4_cubez2() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -304,20 +1018,24 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_many::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_many::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::RowMajorSpanMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -338,7 +1056,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3x4_g300x300x300_s4x4x2_t16x16x16_cc_ln4() {
+        pub fn bo3x4_gh300x300x300_s4x4x2_t16x16x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 300,
                 n: 300,
@@ -357,20 +1075,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
 
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -390,7 +1111,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3x4_g108x108x243_s4x4x2_t16x16x16_cr_ln4() {
+        pub fn bo3x4_gh108x108x243_s4x4x2_t16x16x16_cr_ln4() {
             let problem = MatmulProblem {
                 m: 108,
                 n: 108,
@@ -409,19 +1130,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -440,7 +1165,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3x4_g256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4() {
+        pub fn bo3x4_gh256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
@@ -459,19 +1184,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -490,7 +1219,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3_g256x256x256_s4x4x2_t16x16x16_rc_ln4() {
+        pub fn bo3_gh256x256x256_s4x4x2_t16x16x16_rc_ln4() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
@@ -509,19 +1238,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -540,7 +1273,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3_g16x16x16_s1x1x1_t16x16x16_cc_ln4() {
+        pub fn bo3_gh16x16x16_s1x1x1_t16x16x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -559,19 +1292,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -590,7 +1327,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo3_g16x16x16_s1x1x1_t16x16x16_R() {
+        pub fn bo3_gh16x16x16_s1x1x1_t16x16x16_R() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -609,19 +1346,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -640,7 +1381,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g256x256x256_s4x4x2_t16x16x16_rc_ln4_ymajor() {
+        pub fn bo_gh256x256x256_s4x4x2_t16x16x16_rc_ln4_ColMajor() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
@@ -659,19 +1400,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -682,7 +1427,8 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig {
-                tiling_order: TilingOrderConfig::YMajor,
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::ColMajor,
                 ..Default::default()
             };
 
@@ -694,7 +1440,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s1x1x1_t16x16x16_cc_ln4_ymajor() {
+        pub fn bo_gh32x32x32_s1x1x1_t16x16x16_cc_ln4_ColMajor() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -713,19 +1459,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -736,7 +1486,8 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig {
-                tiling_order: TilingOrderConfig::YMajor,
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::ColMajor,
                 ..Default::default()
             };
 
@@ -748,7 +1499,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s1x1x1_t16x16x16_R() {
+        pub fn bo_gh32x32x32_s1x1x1_t16x16x16_R() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -767,19 +1518,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -798,7 +1553,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x14x16_s1x1x1_t16x16x16_rc_ln4x4x2() {
+        pub fn bo_gh16x14x16_s1x1x1_t16x16x16_rc_ln4x4x2() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 14,
@@ -817,19 +1572,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -848,7 +1607,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x12x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x12x16_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 12,
@@ -867,19 +1626,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -898,7 +1661,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x12_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x16x12_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -917,19 +1680,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -948,7 +1715,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g60x60x120_s4x4x2_t16x16x16_rr_ln4() {
+        pub fn bo_gh60x60x120_s4x4x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 60,
                 n: 60,
@@ -967,19 +1734,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -998,7 +1769,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x36_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x16x36_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1017,19 +1788,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1048,7 +1823,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g12x12x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh12x12x16_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 12,
                 n: 12,
@@ -1067,19 +1842,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1098,7 +1877,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rr_ln1() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rr_ln1() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1117,19 +1896,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1148,7 +1931,169 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rc_ln1() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::ColMajor,
+                lhs_line_size: 1,
+                rhs_line_size: 1,
+                out_line_size: 1,
+            };
+            struct Test {}
+
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_cc_ln1() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::ColMajor,
+                rhs_layout: MatrixLayout::ColMajor,
+                lhs_line_size: 1,
+                rhs_line_size: 1,
+                out_line_size: 1,
+            };
+            struct Test {}
+
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_cr_ln1() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 16,
+                batches: vec![],
+                lhs_layout: MatrixLayout::ColMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 1,
+                rhs_line_size: 1,
+                out_line_size: 1,
+            };
+            struct Test {}
+
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1167,19 +2112,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1198,7 +2147,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rc_ln4() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rc_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1217,19 +2166,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1248,7 +2201,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rr_ln4_lhs_col_enforced() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rr_ln4_lhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1267,19 +2220,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1302,7 +2259,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rr_ln4_rhs_col_enforced() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rr_ln4_rhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1321,19 +2278,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1355,7 +2316,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rc_ln4_rhs_row_enforced() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rc_ln4_rhs_row_enforced() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1374,19 +2335,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1408,7 +2373,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_rr_ln4_lhs_col_enforced() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_rr_ln4_lhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -1427,19 +2392,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1461,7 +2430,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_cr_ln4_lhs_row_enforced() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_cr_ln4_lhs_row_enforced() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -1480,19 +2449,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1514,7 +2487,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_rr_ln4_rhs_col_enforced() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_rr_ln4_rhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -1533,19 +2506,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1567,7 +2544,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_rc_ln4_rhs_row_enforced() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_rc_ln4_rhs_row_enforced() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -1586,19 +2563,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1620,7 +2601,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_rr_ln4_lhs_col_enforced() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_rr_ln4_lhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -1639,19 +2620,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1673,7 +2658,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_cr_ln4_lhs_row_enforced() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_cr_ln4_lhs_row_enforced() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -1692,19 +2677,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1726,7 +2715,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_rr_ln4_rhs_col_enforced() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_rr_ln4_rhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -1745,19 +2734,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1779,7 +2772,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_rc_ln4_rhs_row_enforced() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_rc_ln4_rhs_row_enforced() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -1798,19 +2791,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1832,7 +2829,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4_lhs_row_rhs_col_enforced() {
+        pub fn bo_gh256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4_lhs_row_rhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
@@ -1851,19 +2848,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -1885,7 +2886,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_cr_ln4() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_cr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -1904,19 +2905,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1935,7 +2940,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_rr_ln4() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -1954,19 +2959,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -1985,7 +2994,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_rc_ln1() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_rc_ln1() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -2004,19 +3013,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2035,7 +3048,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_cr_ln4() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_cr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -2054,19 +3067,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2085,7 +3102,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_cc_ln4() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -2104,19 +3121,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2135,7 +3156,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_rr_ln4() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -2154,19 +3175,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2185,7 +3210,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_rc_ln4() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_rc_ln4() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -2204,19 +3229,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2235,7 +3264,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_cr_ln4() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_cr_ln4() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -2254,19 +3283,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2285,7 +3318,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g8x32x16_s1x1x1_t8x32x16_cc_ln4() {
+        pub fn bo_gh8x32x16_s1x1x1_t8x32x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 8,
                 n: 32,
@@ -2304,19 +3337,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_8x32x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2335,7 +3372,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_rr_ln2() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_rr_ln2() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -2354,19 +3391,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2385,7 +3426,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s2x2x2_t16x16x16_rr_ln4_ymajor() {
+        pub fn bo_gh32x32x32_s2x2x2_t16x16x16_rr_ln4_ColMajor() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2404,19 +3445,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2427,7 +3472,8 @@ macro_rules! matmul_test_define {
             }
 
             let advanced_config = AdvancedConfig {
-                tiling_order: TilingOrderConfig::YMajor,
+                lhs_tiling_order: TilingOrderConfig::ColMajor,
+                rhs_tiling_order: TilingOrderConfig::ColMajor,
                 ..Default::default()
             };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
@@ -2438,7 +3484,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x32_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x16x32_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -2457,19 +3503,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2488,7 +3538,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x16_s1x1x1_t16x16x16_cc_ln4() {
+        pub fn bo_gh16x16x16_s1x1x1_t16x16x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -2507,19 +3557,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2538,7 +3592,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x16x128_s1x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x16x128_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
@@ -2557,19 +3611,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2588,7 +3646,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x16x128_s2x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh32x16x128_s2x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 16,
@@ -2607,19 +3665,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2638,7 +3700,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x224_s2x2x2_t16x16x16_rr_ln4() {
+        pub fn bo_gh32x32x224_s2x2x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2657,19 +3719,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2688,7 +3754,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g16x32x16_s1x2x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh16x32x16_s1x2x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 32,
@@ -2707,19 +3773,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x2x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x2x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -2738,7 +3808,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s2x2x2_t16x16x16_rr_ln4() {
+        pub fn bo_gh32x32x32_s2x2x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2757,19 +3827,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2788,7 +3862,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x16_s2x2x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh32x32x16_s2x2x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2807,19 +3881,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2838,7 +3916,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s2x2x2_t16x16x16_rc_ln4() {
+        pub fn bo_gh32x32x32_s2x2x2_t16x16x16_rc_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2857,19 +3935,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2888,7 +3970,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s2x2x2_t16x16x16_cr_ln4() {
+        pub fn bo_gh32x32x32_s2x2x2_t16x16x16_cr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2907,19 +3989,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2938,7 +4024,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x32x32_s2x2x2_t16x16x16_cc_ln4() {
+        pub fn bo_gh32x32x32_s2x2x2_t16x16x16_cc_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -2957,19 +4043,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x2x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x2x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -2988,7 +4078,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x16x16_s2x1x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh32x16x16_s2x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 16,
@@ -3007,19 +4097,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S2x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S2x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 2, 1)
@@ -3038,7 +4132,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g32x8x16_s1x1x1_t32x8x16_cc_ln1() {
+        pub fn bo_gh32x8x16_s1x1x1_t32x8x16_cc_ln1() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 8,
@@ -3057,19 +4151,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S1x1x1;
+
                 type TileMatmul = $t_32x8x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S1x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 1, 1)
@@ -3088,7 +4186,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g128x16x16_s8x1x1_t16x16x16_rr_ln1() {
+        pub fn bo_gh128x16x16_s8x1x1_t16x16x16_rr_ln1() {
             let problem = MatmulProblem {
                 m: 128,
                 n: 16,
@@ -3107,19 +4205,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S8x1x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S8x1x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 8, 1)
@@ -3138,7 +4240,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g64x64x16_s4x4x1_t16x16x16_rr_ln4() {
+        pub fn bo_gh64x64x16_s4x4x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 64,
                 n: 64,
@@ -3157,19 +4259,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x1;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x1,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)
@@ -3188,7 +4294,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_g64x64x32_s4x4x2_t16x16x16_rr_ln4() {
+        pub fn bo_gh64x64x32_s4x4x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 64,
                 n: 64,
@@ -3207,19 +4313,23 @@ macro_rules! matmul_test_define {
                 type EG = $eg;
                 type ES = $es;
                 type EA = $ea;
-                type StageSize = S4x4x2;
+
                 type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
-                type StageMatmul = stage::row_accumulate::Matmul<
+                type StageMatmul = stage::multi_buffer::Matmul<
                     Self::ES,
                     Self::EG,
                     Self::EA,
                     Self::TileMatmul,
-                    Self::StageSize,
+                    S4x4x2,
                 >;
                 type GlobalMatmul =
                     global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
-                type BatchMatmul =
-                    batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
 
                 fn cube_dim() -> CubeDim {
                     CubeDim::new($plane_dim, 4, 1)

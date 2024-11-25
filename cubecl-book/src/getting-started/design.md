@@ -48,7 +48,7 @@ often not present in other languages, except WebGPU with `local_invocation_index
 | UNIT_POS_X     | threadIdx.x | local_invocation_id.x  |
 | UNIT_POS_Y     | threadIdx.y | local_invocation_id.y  |
 | UNIT_POS_Z     | threadIdx.z | local_invocation_id.z  |
-| SUBCUBE_DIM    | warpSize    | subgroup_size          |
+| PLANE_DIM      | warpSize    | subgroup_size          |
 | ABSOLUTE_POS   | N/A         | N/A                    |
 | ABSOLUTE_POS_X | N/A         | global_id.x            |
 | ABSOLUTE_POS_Y | N/A         | global_id.y            |

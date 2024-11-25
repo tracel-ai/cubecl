@@ -527,7 +527,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 }
 
 struct Fma<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Fma<D> {
@@ -560,7 +560,7 @@ impl<D: Dialect> Fma<D> {
 }
 
 struct Clamp<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Clamp<D> {
@@ -606,7 +606,7 @@ impl<D: Dialect> Clamp<D> {
 }
 
 struct Remainder<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Remainder<D> {
@@ -616,13 +616,15 @@ impl<D: Dialect> Remainder<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let floor = match out.elem() {
+        let floor = |elem| match elem {
             Elem::F16 | Elem::BF16 => "hfloor",
             Elem::F162 | Elem::BF162 => "h2floor",
             _ => "floor",
         };
 
         if out.item().vectorization == 1 {
+            let floor = floor(out.elem());
+
             let out = out.fmt_left();
             return writeln!(f, "{out} = {lhs} - {rhs} * {floor}({lhs} / {rhs});");
         }
@@ -637,6 +639,8 @@ impl<D: Dialect> Remainder<D> {
             Some(factor) => item_out_original.vectorization / factor,
             None => item_out_optimized.vectorization,
         };
+
+        let floor = floor(*item_out_optimized.elem());
 
         let mut write_op =
             |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
@@ -673,7 +677,7 @@ impl<D: Dialect> Remainder<D> {
 }
 
 struct Magnitude<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Magnitude<D> {
@@ -701,7 +705,7 @@ impl<D: Dialect> Magnitude<D> {
 }
 
 struct Normalize<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Normalize<D> {
@@ -743,7 +747,7 @@ impl<D: Dialect> Normalize<D> {
 }
 
 struct Dot<D: Dialect> {
-    dialect: PhantomData<D>,
+    _dialect: PhantomData<D>,
 }
 
 impl<D: Dialect> Dot<D> {

@@ -23,10 +23,18 @@ macro_rules! constant {
 }
 
 constant!(
-    SUBCUBE_DIM,
-    crate::ir::Builtin::SubcubeDim,
+    PLANE_DIM,
+    crate::ir::Builtin::PlaneDim,
     r"
-The total amount of working units in a subcube.
+The total amount of working units in a plane.
+"
+);
+
+constant!(
+    UNIT_POS_PLANE,
+    crate::ir::Builtin::UnitPosPlane,
+    r"
+The relative position of the working unit inside the plane, without regards to cube dimensions.
 "
 );
 

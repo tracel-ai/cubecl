@@ -42,7 +42,7 @@ pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 #[cube(launch)]
 pub fn slice_mut_len(output: &mut Array<u32>) {
     if UNIT_POS == 0 {
-        let slice = output.slice_mut(0, 2).as_aligned();
+        let slice = output.slice_mut(0, 2).into_aligned();
         let _tmp = slice[0]; // It must be used at least once, otherwise wgpu isn't happy.
         output[0] = slice.len();
     }
@@ -64,7 +64,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(2.0));
@@ -86,7 +86,7 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual, &[2]);
@@ -108,7 +108,7 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -130,7 +130,7 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(
         )
     };
 
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(&actual[0..5], as_type![F: 0.0, 1.0, 15.0, 3.0, 4.0]);
@@ -148,7 +148,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R::Server, R::Channe
         )
     };
 
-    let actual = client.read(output.binding());
+    let actual = client.read_one(output.binding());
     let actual = u32::from_bytes(&actual);
 
     assert_eq!(actual[0], 2);

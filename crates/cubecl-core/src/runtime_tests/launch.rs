@@ -27,7 +27,7 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 2, 1) },
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
     assert_eq!(actual[0], F::new(5.0));
@@ -43,7 +43,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
         unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, 1) },
     );
 
-    let actual = client.read(handle.binding());
+    let actual = client.read_one(handle.binding());
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 5.0);

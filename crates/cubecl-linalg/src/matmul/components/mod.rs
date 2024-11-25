@@ -8,5 +8,5 @@ mod config;
 mod problem;
 
 pub use base::*;
-pub use config::{as_cmma_layout, Ident, MatrixLayout, PlaneMapper, StageDim};
+pub use config::*;
 pub use problem::MatmulProblem;

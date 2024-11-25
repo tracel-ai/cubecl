@@ -1,8 +1,9 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::unloader::Unloader;
+use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{global, MatmulProblem};
@@ -13,16 +14,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::{tensor_view, Config as _};
+use super::loader::{LhsLoader, RhsLoader};
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
-> {
+pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
@@ -33,16 +30,18 @@ impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
 {
-    type Lhs = tensor_view::LhsLoader<EG, ES>;
-    type Rhs = tensor_view::RhsLoader<EG, ES>;
-    type Out = tensor_view::Unloader<EG>;
+    type LhsLoader = LhsLoader<EG, ES, SMM::Config>;
+    type RhsLoader = RhsLoader<EG, ES, SMM::Config>;
+    type Out = Unloader<EG>;
+    type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::Lhs,
-        mut rhs_loader: Self::Rhs,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
+        acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -50,35 +49,72 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let mut acc = SMM::acc_init_zeros(config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader =
-                &tensor_view::LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, config);
-            let rhs_stage_reader =
-                &tensor_view::RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_stage_reader = &Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
-                &mut acc,
+                &mut lhs_tile,
+                &mut rhs_tile,
+                acc,
                 config.to_smm_config(),
             );
 
             sync_units();
 
-            tensor_view::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            tensor_view::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::acc_read::<tensor_view::Unloader<EG>, Self::Config>(
-            &acc,
+        SMM::read_accumulator::<Self::Out, Self::Config>(
+            acc,
             &mut out_unloader,
             config.to_smm_config(),
             config,
         );
+    }
+
+    fn init_lhs_loader(
+        lhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsLoader {
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_rhs_loader(
+        rhs: &Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsLoader {
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+    }
+
+    fn init_unloader(
+        out: &mut Tensor<Line<EG>>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self::Out {
+        Self::Out::new(out, x_offset, y_offset, batch_offset)
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        SMM::init_accumulator(config.to_smm_config())
+    }
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
+        SMM::zero_accumulator(acc, config.to_smm_config());
     }
 }
 
@@ -86,7 +122,7 @@ impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader<ES>, RhsReader<ES>>,
+    SMM: stage::Matmul<ES, EG>,
 {
     type Config = Config<SMM::Config>;
 
@@ -112,6 +148,7 @@ where
             smm_config,
             problem.m as u32 % SMM::M != 0,
             problem.n as u32 % SMM::N != 0,
+            problem.k as u32 % SMM::K != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -127,6 +164,7 @@ pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
+    check_k_bounds: bool,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     lhs_line_size: u32,
@@ -153,7 +191,7 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
+    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
         self.smm_config.stage_dim(ident)
     }
 
@@ -173,8 +211,8 @@ impl<S: stage::Config> global::Config for Config<S> {
         self.smm_config.plane_dim()
     }
 
-    fn tiling_order(&self) -> TilingOrderConfig {
-        self.smm_config.tiling_order()
+    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+        self.smm_config.tiling_order(ident)
     }
 
     fn check_m_bounds(&self) -> bool {
@@ -183,6 +221,10 @@ impl<S: stage::Config> global::Config for Config<S> {
 
     fn check_n_bounds(&self) -> bool {
         self.check_n_bounds
+    }
+
+    fn check_k_bounds(&self) -> bool {
+        self.check_k_bounds
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {
@@ -198,6 +240,7 @@ impl<S: stage::Config> Config<S> {
         smm_config: S,
         check_m_bounds: bool,
         check_n_bounds: bool,
+        check_k_bounds: bool,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
         lhs_line_size: u32,
@@ -208,6 +251,7 @@ impl<S: stage::Config> Config<S> {
             smm_config,
             check_m_bounds,
             check_n_bounds,
+            check_k_bounds,
             lhs_layout,
             rhs_layout,
             lhs_line_size,

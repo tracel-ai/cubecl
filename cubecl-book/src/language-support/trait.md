@@ -30,7 +30,7 @@ Then we can define some implementations:
 
 ```rust
 struct SumBasic;
-struct SumSubcube;
+struct SumPlane;
 
 #[cube]
 impl SumKind for SumBasic {
@@ -50,9 +50,9 @@ impl SumKind for SumBasic {
 }
 
 #[cube]
-impl SumKind for SumSubcube {
+impl SumKind for SumPlane {
     fn sum<F: Float>(input: &Slice<F>, #[comptime] _end: Option<u32>) -> F {
-        subcube_sum(input[UNIT_POS])
+        plane_sum(input[UNIT_POS])
     }
 }
 ```
