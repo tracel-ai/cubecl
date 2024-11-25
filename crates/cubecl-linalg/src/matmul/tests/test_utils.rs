@@ -10,7 +10,7 @@ use cubecl_core::{
 
 use crate::{
     matmul::{
-        components::{batch, Ident, MatmulProblem},
+        components::{Ident, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
