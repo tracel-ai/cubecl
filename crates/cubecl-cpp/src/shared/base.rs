@@ -1,8 +1,8 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
+use cubecl_core::ir::CheckedIndexAssign;
 use cubecl_core::{
-    cpa,
     ir::{self as gpu},
     prelude::CubePrimitive,
     Compiler, Feature,
@@ -522,14 +522,14 @@ impl<D: Dialect> CppCompiler<D> {
                 out: self.compile_variable(out),
             }),
             gpu::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && has_length(&op.lhs) {
+                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
                     let lhs = op.lhs;
                     let rhs = op.rhs;
                     let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
 
                     instructions.extend(self.compile_scope(scope));
 
-                    let length = match has_buffer_length(&lhs) {
+                    let length = match lhs.has_buffer_length() {
                         true => gpu::Metadata::BufferLength { var: lhs },
                         false => gpu::Metadata::Length { var: lhs },
                     };
@@ -550,7 +550,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    if has_length(&out) {
+                    if out.has_length() {
                         CheckedIndexAssign {
                             lhs: op.lhs,
                             rhs: op.rhs,
@@ -970,52 +970,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Elem::Bool => Elem::Bool,
         }
     }
-}
-
-#[allow(missing_docs)]
-struct CheckedIndexAssign {
-    pub lhs: gpu::Variable,
-    pub rhs: gpu::Variable,
-    pub out: gpu::Variable,
-}
-
-impl CheckedIndexAssign {
-    #[allow(missing_docs)]
-    fn expand(self, scope: &mut gpu::Scope) {
-        let lhs = self.lhs;
-        let rhs = self.rhs;
-        let out = self.out;
-        let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
-        let inside_bound = scope.create_local(gpu::Item::new(gpu::Elem::Bool));
-
-        if has_buffer_length(&out) {
-            cpa!(scope, array_len = buffer_len(out));
-        } else {
-            cpa!(scope, array_len = len(out));
-        }
-
-        cpa!(scope, inside_bound = lhs < array_len);
-
-        cpa!(scope, if(inside_bound).then(|scope| {
-            cpa!(scope, unchecked(out[lhs]) = rhs);
-        }));
-    }
-}
-
-fn has_length(var: &gpu::Variable) -> bool {
-    matches!(
-        var.kind,
-        gpu::VariableKind::GlobalInputArray { .. }
-            | gpu::VariableKind::GlobalOutputArray { .. }
-            | gpu::VariableKind::Slice { .. }
-    )
-}
-
-fn has_buffer_length(var: &gpu::Variable) -> bool {
-    matches!(
-        var.kind,
-        gpu::VariableKind::GlobalInputArray { .. } | gpu::VariableKind::GlobalOutputArray { .. }
-    )
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {

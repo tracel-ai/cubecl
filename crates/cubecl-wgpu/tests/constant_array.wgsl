@@ -23,6 +23,12 @@ let _0 = info[1u];
 let _1 = id < _0;
 if _1 {
 let _2 = arrays_0[id];
+var l_1_0: u32;
+var l_1_1: bool;
+l_1_0 = info[0u];
+l_1_1 = id < l_1_0;
+if l_1_1 {
 output_0_global[id] = _2;
+}
 }
 }
