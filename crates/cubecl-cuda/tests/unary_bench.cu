@@ -12,10 +12,10 @@ struct __align__(16) float_4 {
   float i_3;
 };
 
-extern "C" __global__ void execute_unary_kernel(float_4 input_0[],
-                                                float_4 input_1[],
-                                                float_4 output_0[],
-                                                uint info[]) {
+extern "C" __global__ void execute_unary_kernel_f32(float_4 input_0[],
+                                                    float_4 input_1[],
+                                                    float_4 output_0[],
+                                                    uint info[]) {
 
   int3 absoluteIdx = make_int3(blockIdx.x * blockDim.x + threadIdx.x,
                                blockIdx.y * blockDim.y + threadIdx.y,
