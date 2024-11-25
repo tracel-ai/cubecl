@@ -3,6 +3,7 @@ extern crate derive_new;
 extern crate alloc;
 
 mod compute;
+mod constants;
 mod device;
 mod runtime;
 

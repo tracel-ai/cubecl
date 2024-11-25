@@ -23,7 +23,7 @@ use cubecl_cpp::{
     CudaCompiler, WmmaCompiler,
 };
 
-/// The values that control how a WGPU Runtime will perform its calculations.
+/// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
@@ -88,9 +88,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let hardware_props = HardwareProperties {
         plane_size_min: warp_size as u32,
         plane_size_max: warp_size as u32,
-        // This is a guess - not clear if CUDA has a limit on the number of bindings,
-        // but it's dubious it's more than this.
-        max_bindings: 1024,
+        max_bindings: crate::device::CUDA_MAX_BINDINGS,
     };
 
     let memory_management = MemoryManagement::from_configuration(
