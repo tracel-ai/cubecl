@@ -38,12 +38,18 @@ impl<ES: Numeric> Stage<ES> {
         let stage_dim = config.stage_dim(ident);
 
         let nth_tile = match config.tiling_order(ident) {
-            TilingOrderConfig::RowMajor => {
-                RowMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-            }
-            TilingOrderConfig::ColMajor => {
-                ColMajorTiling::to_nth_tile(x, y, stage_dim.num_tiles_x, stage_dim.num_tiles_y)
-            }
+            TilingOrderConfig::RowMajor => RowMajorTiling::to_nth_tile(
+                x,
+                y,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+            TilingOrderConfig::ColMajor => ColMajorTiling::to_nth_tile(
+                x,
+                y,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
         };
 
         let tile_stride = stage_dim.tile_num_elements() / config.line_size(ident);

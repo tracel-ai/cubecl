@@ -1,8 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
@@ -51,29 +49,6 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         #[comptime] config: Self::Config,
     );
 
-    fn init_lhs_loader(
-        lhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        nth_batch: u32,
-        #[comptime] config: Self::Config,
-    ) -> Self::Lhs;
-
-    fn init_rhs_loader(
-        rhs: &Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        nth_batch: u32,
-        #[comptime] config: Self::Config,
-    ) -> Self::Rhs;
-
-    fn init_unloader(
-        out: &mut Tensor<Line<EG>>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self::Out;
-
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
         lhs: &Tensor<Line<EG>>,
@@ -103,6 +78,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
+    /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
@@ -121,14 +97,12 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
 }
 
 #[cube]
-/// Input to the global matmul, responsible of filling the stage and providing a reader for it.
-/// Advances along the k-dimension to fill the stage with further data.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric>: CubeType + 'static + Send + Sync {
-    /// The stage reader which matches the input of the underlying stage matmul.
+pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
+    CubeType + 'static + Send + Sync
+{
     type StageReader: CubeType;
 
-    /// Fills the stage at the current k offset and returns a reader for it.
-    fn fill_stage<G: Config>(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
 
     /// Load accumulator
     fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
@@ -174,12 +148,6 @@ pub trait Config: MatmulConfig {
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
-
-    /// Returns the number of planes in the cube
-    fn num_producers(&self) -> u32;
-
-    /// Returns the number of planes in the cube
-    fn num_consumers(&self) -> u32;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;

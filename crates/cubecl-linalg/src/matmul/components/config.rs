@@ -61,44 +61,6 @@ pub struct StageDims {
     pub out: OutStageDim,
 }
 
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for a stage. A stage has `num_tiles_x` tiles of size `tile_size_x` in
-/// x direction, and `num_tiles_y` tiles of size `tile_size_y` in y dimension.
-///
-/// Dimensions x and y are respectively the row and column dimensions,
-/// regardless of the [super::matrix::MatrixLayout]:
-///  - Lhs: x=m, y=k
-///  - Rhs: x=k, y=n
-///  - Out: x=m, y=n
-pub struct StageDim {
-    pub tile_size_x: u32,
-    pub tile_size_y: u32,
-    pub num_tiles_x: u32,
-    pub num_tiles_y: u32,
-    pub num_tiles_per_buffer: u32,
-}
-
-impl StageDim {
-    pub fn new(
-        ident: Ident,
-        tile_size_x: u32,
-        tile_size_y: u32,
-        num_tiles_x: u32,
-        num_tiles_y: u32,
-    ) -> Self {
-        Self {
-            tile_size_x,
-            tile_size_y,
-            num_tiles_x,
-            num_tiles_y,
-            num_tiles_per_buffer: match ident {
-                Ident::Lhs => num_tiles_x,
-                Ident::Rhs => num_tiles_y,
-                Ident::Out => 0,
-            },
-        }
-    }
-
 pub trait StageDim: 'static + Send + Sync {
     /// Returns the total number of elements of the stage
     fn total_elements(&self) -> u32 {
@@ -226,13 +188,5 @@ impl StageDim for OutStageDim {
 
     fn buffer_num_elements(&self) -> u32 {
         panic!("Out stage has no concept of buffer")
-    }
-
-    pub fn buffer_num_elements(&self) -> u32 {
-        // Would be cleaner with an option, but it's not supported for CubeType
-        if self.num_tiles_per_buffer == 0 {
-            panic!("Should not call buffer_num_elements on output")
-        }
-        self.tile_num_elements() * self.num_tiles_per_buffer
     }
 }

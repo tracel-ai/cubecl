@@ -23,7 +23,7 @@ use super::tiling_order::TilingOrderConfig;
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric>:
+pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
     'static + Send + Sync + MatmulKernel<I, O, Config: Config>
 {
     /// Number of rows of LHS
@@ -39,6 +39,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 
     type LhsReader: CubeType;
     type RhsReader: CubeType;
+    type AccumulatorReader: CubeType;
 
     type LhsTile: CubeType;
     type RhsTile: CubeType;
@@ -71,7 +72,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 
     /// Fill the accumulator with data
     fn fill_accumulator(
-        loader: &mut Self::AccumulatorInit,
+        loader: &mut Self::AccumulatorReader,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );

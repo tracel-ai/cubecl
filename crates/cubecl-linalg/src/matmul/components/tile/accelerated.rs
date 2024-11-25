@@ -17,13 +17,6 @@ impl CmmaValid<f16, f16> for (f16, f16) {}
 impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}
 
-#[derive(CubeType)]
-/// Wrapper over a CMMA matrix, containing the stride which implies the layout
-pub struct Fragment<T: Numeric> {
-    pub matrix: cmma::Matrix<T>,
-    pub stride: u32,
-}
-
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
         pub struct $name<I: Numeric, O: Numeric> {
@@ -197,14 +190,14 @@ fn fill_rhs<C: CubePrimitive, I: Numeric>(
 }
 
 #[cube]
-fn fill_accumulator<C: CubePrimitive, I: Numeric>(
+fn fill_accumulator<C: CubePrimitive, O: Numeric>(
     slice: &Slice<C>,
-    acc: &mut Fragment<I>,
+    acc: &mut cmma::Matrix<O>,
     stride: u32,
     #[comptime] config: Config,
 ) {
-    let layout = as_cmma_layout(config.layout(Ident::Out));
-    cmma::load_with_layout(&acc.matrix, slice, stride, layout);
+    let layout = comptime!(as_cmma_layout(config.layout(Ident::Out)));
+    cmma::load_with_layout(acc, slice, stride, layout);
 }
 
 #[cube]
@@ -214,15 +207,13 @@ fn init_output<O: Numeric>(
     #[comptime] k: u32,
 ) -> cmma::Matrix<O> {
     unsafe {
-        let matrix = cmma::Matrix::<O>::uninitialized(
+        cmma::Matrix::<O>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             m,
             n,
             k,
             cmma::MatrixLayout::Undefined,
-        );
-
-        matrix
+        )
     }
 }
 

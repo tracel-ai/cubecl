@@ -1,4 +1,3 @@
-use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
@@ -6,6 +5,7 @@ use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBuffer
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
@@ -21,18 +21,27 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
+pub struct Matmul<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
+    _acc: PhantomData<Acc>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
+impl<EG, ES, Acc, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, Acc, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
+    Acc: Numeric,
+    SMM: stage::Matmul<
+        ES,
+        EG,
+        Acc,
+        LhsReader = LhsBufferReader<ES>,
+        RhsReader = RhsBufferReader<ES>,
+        AccumulatorReader = ZeroAccumulatorLoader,
+    >,
 {
     type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
     type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
@@ -56,6 +65,8 @@ where
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
         let num_loops = num_stages * num_buffers;
+
+        SMM::zero_accumulator(acc, config.to_smm_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
@@ -143,17 +154,20 @@ where
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
+impl<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>>
+    Matmul<EG, ES, Acc, SMM>
+{
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
         UNIT_POS_Y < config.num_consumers()
     }
 }
 
-impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
+impl<EG, ES, Acc, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, Acc, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG>,
+    Acc: Numeric,
+    SMM: stage::Matmul<ES, EG, Acc>,
 {
     type Config = Config<SMM::Config>;
 
