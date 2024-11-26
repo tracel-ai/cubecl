@@ -155,7 +155,11 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
     let cube_dim = D::cube_dim();
     let cube_count = D::cube_count(&problem);
 
-    let advanced_config = Default::default();
+    let advanced_config = AdvancedConfig {
+        lhs_tiling_order: matmul::components::stage::TilingOrderConfig::ColMajor,
+        rhs_tiling_order: matmul::components::stage::TilingOrderConfig::RowMajor,
+        enforced_tile_layout: (None, None),
+    };
 
     launch_matmul::<R, EG, D>(
         client,

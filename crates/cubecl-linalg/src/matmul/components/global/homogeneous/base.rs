@@ -14,28 +14,39 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsLoader, RhsLoader};
+use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct Matmul<EG: Numeric, ES: Numeric, EA: Numeric, SMM: stage::Matmul<ES, EG, EA>> {
+pub struct Matmul<
+    EG: Numeric,
+    ES: Numeric,
+    EA: Numeric,
+    SMM: stage::Matmul<ES, EG, EA>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
+> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _acc: PhantomData<EA>,
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<EG, ES, EA, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM>
+impl<EG, ES, EA, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<EG, ES, SMM::Config>;
-    type RhsLoader = RhsLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsLoader<EG, ES, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<EG, ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
@@ -56,6 +67,8 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
+            sync_units();
+
             let lhs_stage_reader = &Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             let rhs_stage_reader = &Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
@@ -70,11 +83,11 @@ where
                 config.to_smm_config(),
             );
 
-            sync_units();
-
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
+
+        sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -122,12 +135,14 @@ where
     }
 }
 
-impl<EG, ES, EA, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM>
+impl<EG, ES, EA, SMM, LL, RL> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
     type Config = Config<SMM::Config>;
 

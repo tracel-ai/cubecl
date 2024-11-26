@@ -68,6 +68,10 @@ impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
         f.write_str("#include <cuda_runtime.h>\n")
     }
 
+    fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("#include <mma.h>\n")
+    }
+
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("__nv_bfloat16")
     }

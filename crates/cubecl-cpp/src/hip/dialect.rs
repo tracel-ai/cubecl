@@ -68,7 +68,10 @@ impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")
     }
-
+    fn include_wmma(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // No need
+        Ok(())
+    }
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("hip_bfloat16")
     }

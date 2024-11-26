@@ -14,11 +14,7 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-linalg"
 version.workspace = true
 
 [features]
-default = [
-  "std",
-  "cubecl-runtime/default",
-  "cubecl-core/default",
-]
+default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 

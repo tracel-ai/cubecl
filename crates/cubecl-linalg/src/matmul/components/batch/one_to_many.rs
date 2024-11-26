@@ -53,8 +53,8 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_dim(Ident::Out).height();
-        let stage_y = config.stage_dim(Ident::Out).width();
+        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
+        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
@@ -119,7 +119,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::launch::launch_unchecked::<EG, Self, R>(
+        super::batch_matmul::launch_unchecked::<EG, Self, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }

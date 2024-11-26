@@ -29,8 +29,14 @@ impl<EG: Numeric> base::Algorithm<EG> for PlaneMma<EG> {
     type StageMatmul =
         stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
 
-    type GlobalMatmul =
-        global::homogeneous::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+    type GlobalMatmul = global::homogeneous::Matmul<
+        Self::EG,
+        Self::ES,
+        Self::EA,
+        Self::StageMatmul,
+        global::homogeneous::CyclicLoading,
+        global::homogeneous::CyclicLoading,
+    >;
 
     type BatchMatmul = batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, Dispatch>;
 
