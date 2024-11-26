@@ -1,8 +1,8 @@
-use cubecl::prelude::*;
-
-use crate::kernel::reduce::MeanDim;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 use super::base::ReduceDimNaive;
+use crate::MeanDim;
 
 #[cube]
 impl<EI: Numeric> ReduceDimNaive<EI> for MeanDim {

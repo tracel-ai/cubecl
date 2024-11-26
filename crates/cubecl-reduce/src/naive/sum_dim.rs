@@ -1,6 +1,7 @@
-use cubecl::prelude::*;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
-use crate::kernel::reduce::SumDim;
+use crate::SumDim;
 
 use super::base::ReduceDimNaive;
 

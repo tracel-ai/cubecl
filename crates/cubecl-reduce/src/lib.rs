@@ -1,15 +1,15 @@
-mod base;
+mod instructions;
 mod naive;
-mod prod;
-mod shared;
-mod subcube;
-mod sum;
-mod tune;
+// mod prod;
+// mod shared;
+// mod subcube;
+// mod sum;
+// mod tune;
 
-pub use base::*;
-pub use prod::*;
-pub use sum::*;
-pub use tune::*;
+pub use instructions::*;
+// pub use prod::*;
+// pub use sum::*;
+// pub use tune::*;
 
-#[cfg(export_tests)]
+#[cfg(feature = "export_tests")]
 pub mod test;
