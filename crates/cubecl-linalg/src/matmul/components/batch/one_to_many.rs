@@ -58,10 +58,12 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
+        let batch_index = C::batch_index();
+
         let span = Span::new(
             SpanDim::new(shape_x, stage_x, x_index, cubes_x),
             SpanDim::new(shape_y, stage_y, y_index, cubes_y),
-            SpanDim::new(shape_z, stage_z, C::batch_index(), cubes_z),
+            SpanDim::new(shape_z, stage_z, batch_index, cubes_z),
         );
 
         let k_range = (0, lhs.shape(rank - 1));

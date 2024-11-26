@@ -54,11 +54,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsLoader<EG, ES, S> {
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         LhsLoader::<EG, ES, S> {
             tensor_view,
@@ -98,11 +98,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsLoader<EG, ES, S> {
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         RhsLoader::<EG, ES, S> {
             tensor_view,
