@@ -71,12 +71,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         is_producer: bool,
         #[comptime] config: producer_consumer::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         LhsBufferLoader::<EG, ES, S> {
             tensor_view,
@@ -127,12 +127,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         is_producer: bool,
         #[comptime] config: producer_consumer::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, nth_batch);
+        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         RhsBufferLoader::<EG, ES, S> {
             tensor_view,

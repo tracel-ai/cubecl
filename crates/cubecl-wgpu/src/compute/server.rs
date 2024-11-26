@@ -85,7 +85,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = C::create_pipeline(self, compile, mode);
+        let pipeline = C::create_pipeline(self, compile);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 

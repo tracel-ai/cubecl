@@ -114,6 +114,22 @@ impl Variable {
         )
     }
 
+    pub fn has_length(&self) -> bool {
+        matches!(
+            self.kind,
+            VariableKind::GlobalInputArray { .. }
+                | VariableKind::GlobalOutputArray { .. }
+                | VariableKind::Slice { .. }
+        )
+    }
+
+    pub fn has_buffer_length(&self) -> bool {
+        matches!(
+            self.kind,
+            VariableKind::GlobalInputArray { .. } | VariableKind::GlobalOutputArray { .. }
+        )
+    }
+
     /// Determines if the value is a constant with the specified value (converted if necessary)
     pub fn is_constant(&self, value: i64) -> bool {
         match self.kind {

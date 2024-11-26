@@ -62,6 +62,13 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    // Index handles casting to correct local variable.
+    CheckedIndex {
+        len: Variable,
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     // Index assign handles casting to correct output variable.
     IndexAssign {
         lhs: Variable,
@@ -437,10 +444,28 @@ impl Display for Instruction {
                         item: *item,
                         is_array: true,
                     };
-                    index(f, &lhs, rhs, out, Some(offset))
+                    index(f, &lhs, rhs, out, Some(offset), None)
                 }
-                _ => index(f, lhs, rhs, out, None),
+                _ => index(f, lhs, rhs, out, None, None),
             },
+            Instruction::IndexAssign { lhs, rhs, out } => {
+                if let Variable::Slice { item, .. } = out {
+                    let offset = Variable::Named {
+                        name: format!("{out}_offset"),
+                        item: Item::Scalar(Elem::U32),
+                        is_array: false,
+                    };
+                    let out = Variable::Named {
+                        name: format!("(*{out}_ptr)"),
+                        item: *item,
+                        is_array: true,
+                    };
+
+                    index_assign(f, lhs, rhs, &out, Some(offset))
+                } else {
+                    index_assign(f, lhs, rhs, out, None)
+                }
+            }
             Instruction::Copy {
                 input,
                 in_index,
@@ -654,24 +679,22 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                 f.write_str("}\n")
             }
-            Instruction::IndexAssign { lhs, rhs, out } => {
-                if let Variable::Slice { item, .. } = out {
+            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
+                Variable::Slice { item, .. } => {
                     let offset = Variable::Named {
-                        name: format!("{out}_offset"),
+                        name: format!("{lhs}_offset"),
                         item: Item::Scalar(Elem::U32),
                         is_array: false,
                     };
-                    let out = Variable::Named {
-                        name: format!("(*{out}_ptr)"),
+                    let lhs = Variable::Named {
+                        name: format!("(*{lhs}_ptr)"),
                         item: *item,
                         is_array: true,
                     };
-
-                    index_assign(f, lhs, rhs, &out, Some(offset))
-                } else {
-                    index_assign(f, lhs, rhs, out, None)
+                    index(f, &lhs, rhs, out, Some(offset), Some(len))
                 }
-            }
+                _ => index(f, lhs, rhs, out, None, Some(len)),
+            },
             Instruction::If { cond, instructions } => {
                 writeln!(f, "if {cond} {{")?;
                 for i in instructions {
@@ -1012,6 +1035,7 @@ fn index(
     rhs: &Variable,
     out: &Variable,
     offset: Option<Variable>,
+    len: Option<&Variable>,
 ) -> core::fmt::Result {
     let is_scalar = match lhs {
         Variable::Local { item, .. } => item.vectorization_factor() == 1,
@@ -1019,43 +1043,42 @@ fn index(
         _ => false,
     };
 
-    if out.item().elem().is_atomic() {
-        match offset {
-            Some(offset) => writeln!(f, "let {out} = &{lhs}[{rhs} + {offset}];"),
-            None => writeln!(f, "let {out} = &{lhs}[{rhs}];"),
-        }
-    } else if lhs.elem() != out.elem() {
-        let item = out.item();
-        let out = out.fmt_left();
-        match offset {
-            Some(offset) => {
-                let value = lhs
-                    .item()
-                    .fmt_cast_to(item, format!("{lhs}[{rhs}+{offset}]"));
-                writeln!(f, "{out} = {value};")
-            }
-            None => {
-                if is_scalar {
-                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}"));
-                    writeln!(f, "{out} = {value};")
-                } else {
-                    let value = lhs.item().fmt_cast_to(item, format!("{lhs}[{rhs}]"));
-                    writeln!(f, "{out} = {value};")
-                }
-            }
-        }
+    let (mut value, index) = if is_scalar {
+        (format!("{lhs}"), None)
     } else {
-        let out = out.fmt_left();
-        match offset {
-            Some(offset) => writeln!(f, "{out} = {lhs}[{rhs} + {offset}];"),
-            None => {
-                if is_scalar {
-                    writeln!(f, "{out} = {lhs};")
-                } else {
-                    writeln!(f, "{out} = {lhs}[{rhs}];")
-                }
-            }
+        let index = if let Some(offset) = offset {
+            format!("{rhs}+{offset}")
+        } else {
+            format!("{rhs}")
+        };
+
+        (format!("{lhs}[{index}]"), Some(index))
+    };
+
+    if out.item().elem().is_atomic() {
+        // Atomic values don't support casting or bound checking - we just assign the reference.
+        value = format!("&{value}");
+        writeln!(f, "let {out} = {value};")
+    } else {
+        // Check for casting
+        if lhs.elem() != out.elem() {
+            value = lhs.item().fmt_cast_to(out.item(), value)
+        };
+
+        // Check for bounds.
+        if let Some(ind) = index {
+            if let Some(len) = len {
+                // Note: This is technically not 100% allowed. According to the WebGPU specification,
+                // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
+                // both wgpu and Dawn handle this by either returning dummy data or clamping the index
+                // to valid bounds. This means it's harmless to use in a select.
+                let out_item = out.item();
+                value = format!("select({out_item}(0), {value}, {ind} < {len})");
+            };
         }
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {value};")
     }
 }
 

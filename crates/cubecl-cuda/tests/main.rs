@@ -4,7 +4,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_cuda::CudaRuntime;
 use execute_unary_kernel::ExecuteUnaryKernel;
+use half::bf16;
 use kernel_sum::KernelSum;
+use naming_kernel::NamingKernel;
 use pretty_assertions::assert_eq;
 use sequence_for_loop_kernel::SequenceForLoopKernel;
 use slice_assign_kernel::SliceAssignKernel;
@@ -92,6 +94,7 @@ pub fn unary_bench() {
     );
     let expected = include_str!("unary_bench.cu").replace("\r\n", "\n");
     let expected = expected.trim();
+
     assert_eq!(compile(kernel), expected);
 }
 
@@ -110,5 +113,22 @@ pub fn constant_array() {
 
     let kernel = ConstantArrayKernel::<f32, CudaRuntime>::new(settings(), tensor(), data);
     let expected = include_str!("constant_array.cu").replace("\r\n", "\n");
+    assert_eq!(compile(kernel), expected);
+}
+
+// This kernel just exists to have a few generics in order to observe
+// that the generics get propagated into the WGSL kernel name
+#[allow(clippy::extra_unused_type_parameters)]
+#[cube(launch, create_dummy_kernel)]
+fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array<F1>) {
+    if ABSOLUTE_POS < out.len() {
+        out[ABSOLUTE_POS] = F1::from_int(0);
+    }
+}
+
+#[test]
+pub fn naming() {
+    let kernel = NamingKernel::<f32, u8, bf16, i64, CudaRuntime>::new(settings(), array());
+    let expected = include_str!("naming.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }

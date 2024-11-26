@@ -247,21 +247,35 @@ fn tensor_size(problem: &MatmulProblem, ident: Ident) -> usize {
 
 /// Returns the shape of the identified tensor, inferred by the problem definition
 fn shape(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    problem
-        .batches
-        .iter()
-        .cloned()
-        .chain(match ident {
-            Ident::Lhs => vec![problem.m, problem.k],
-            Ident::Rhs => vec![problem.k, problem.n],
-            Ident::Out => vec![problem.m, problem.n],
-        })
-        .collect()
+    match ident {
+        Ident::Lhs => problem
+            .batches
+            .0
+            .iter()
+            .cloned()
+            .chain(vec![problem.m, problem.k])
+            .collect(),
+        Ident::Rhs => problem
+            .batches
+            .1
+            .iter()
+            .cloned()
+            .chain(vec![problem.k, problem.n])
+            .collect(),
+        Ident::Out => problem
+            .batch_dims()
+            .iter()
+            .cloned()
+            .chain(vec![problem.m, problem.n])
+            .collect(),
+    }
 }
 
 /// Returns the stride of the identified tensor, inferred by the problem definition
 pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    let mut strides = Vec::with_capacity(problem.batches.len() + 2);
+    let shape = shape(problem, ident);
+    let rank = shape.len();
+    let mut strides = Vec::with_capacity(rank);
 
     let (last_batch, x, y) = match ident {
         Ident::Lhs => match problem.lhs_layout {
@@ -278,10 +292,10 @@ pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
     strides.push(y);
     strides.push(x);
 
-    if !problem.batches.is_empty() {
+    if rank > 2 {
         strides.push(last_batch);
 
-        for b in problem.batches.iter().rev().take(problem.batches.len() - 1) {
+        for b in shape.iter().rev().take(rank - 3) {
             strides.push(last_batch * b)
         }
     }
