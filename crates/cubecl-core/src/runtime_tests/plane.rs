@@ -1,5 +1,7 @@
-use crate::Feature;
+use std::fmt::Display;
+
 use crate::{self as cubecl};
+use crate::{runtime_tests::binary::assert_equals_approx, Feature};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -74,7 +76,10 @@ pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
     }
 }
 
-pub fn test_plane_sum<TestRuntime: Runtime, F: Float + CubeElement + Sized>(
+pub fn test_plane_sum<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -108,7 +113,10 @@ pub fn test_plane_sum<TestRuntime: Runtime, F: Float + CubeElement + Sized>(
     );
 }
 
-pub fn test_plane_prod<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_prod<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -147,7 +155,10 @@ pub fn test_plane_prod<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_max<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_max<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -183,7 +194,10 @@ pub fn test_plane_max<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_min<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_min<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -219,7 +233,10 @@ pub fn test_plane_min<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_all<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_all<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -257,7 +274,10 @@ pub fn test_plane_all<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_any<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_any<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -295,7 +315,10 @@ pub fn test_plane_any<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_elect<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_elect<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -324,7 +347,10 @@ pub fn test_plane_elect<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-pub fn test_plane_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
+pub fn test_plane_broadcast<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
     vectorization: u8,
 ) {
@@ -356,7 +382,11 @@ pub fn test_plane_broadcast<TestRuntime: Runtime, F: Float + CubeElement>(
     );
 }
 
-fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
+fn test_plane_operation<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+    Launch,
+>(
     input: &[F],
     expected: &[F],
     vectorization: u8,
@@ -380,10 +410,7 @@ fn test_plane_operation<TestRuntime: Runtime, F: Float + CubeElement, Launch>(
         );
     }
 
-    let actual = client.read_one(handle.binding());
-    let actual = F::from_bytes(&actual);
-
-    assert_eq!(actual, expected);
+    assert_equals_approx::<TestRuntime, F>(&client, handle, expected, 1e-5);
 }
 
 #[allow(missing_docs)]

@@ -20,17 +20,59 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Plane::All(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformVote);
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                    b.group_non_uniform_all(ty, Some(out), subgroup, input)
-                        .unwrap();
-                });
+                match out.vectorization_factor() {
+                    1 => {
+                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                            b.group_non_uniform_all(ty, Some(out), subgroup, input)
+                                .unwrap();
+                        });
+                    }
+                    vec => {
+                        let elem_ty = self.compile_item(op.input.item).elem().id(self);
+                        let bool_ty = self.type_bool();
+
+                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                            let ids = (0..vec)
+                                .map(|i| {
+                                    let elem_i = b
+                                        .composite_extract(elem_ty, None, input, vec![i as u32])
+                                        .unwrap();
+                                    b.group_non_uniform_all(bool_ty, None, subgroup, elem_i)
+                                        .unwrap()
+                                })
+                                .collect::<Vec<_>>();
+                            b.composite_construct(ty, Some(out), ids).unwrap();
+                        });
+                    }
+                };
             }
             Plane::Any(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformVote);
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                    b.group_non_uniform_any(ty, Some(out), subgroup, input)
-                        .unwrap();
-                });
+                match out.vectorization_factor() {
+                    1 => {
+                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                            b.group_non_uniform_any(ty, Some(out), subgroup, input)
+                                .unwrap();
+                        });
+                    }
+                    vec => {
+                        let elem_ty = self.compile_item(op.input.item).elem().id(self);
+                        let bool_ty = self.type_bool();
+
+                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                            let ids = (0..vec)
+                                .map(|i| {
+                                    let elem_i = b
+                                        .composite_extract(elem_ty, None, input, vec![i as u32])
+                                        .unwrap();
+                                    b.group_non_uniform_any(bool_ty, None, subgroup, elem_i)
+                                        .unwrap()
+                                })
+                                .collect::<Vec<_>>();
+                            b.composite_construct(ty, Some(out), ids).unwrap();
+                        });
+                    }
+                };
             }
             Plane::Broadcast(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformBallot);
