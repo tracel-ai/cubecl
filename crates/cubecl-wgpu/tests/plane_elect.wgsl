@@ -17,5 +17,11 @@ fn kernel_elect(
 ) {
 let _0 = subgroupElect();
 let _1 = u32(_0);
+var l_0_0: u32;
+var l_0_1: bool;
+l_0_0 = info[0u];
+l_0_1 = local_idx < l_0_0;
+if l_0_1 {
 output_0_global[local_idx] = _1;
+}
 }

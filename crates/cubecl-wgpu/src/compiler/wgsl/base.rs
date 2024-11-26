@@ -3,7 +3,6 @@ use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    SubgroupSize,
     GlobalInputArray(u16, Item),
     GlobalOutputArray(u16, Item),
     GlobalScalar(u16, Elem, cube::Elem),
@@ -55,6 +54,8 @@ pub enum Variable {
     NumWorkgroupsX,
     NumWorkgroupsY,
     NumWorkgroupsZ,
+    SubgroupSize,
+    SubgroupInvocationId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -117,6 +118,7 @@ impl Variable {
             Variable::WorkgroupSize => true,
             Variable::NumWorkgroups => true,
             Variable::SubgroupSize => true,
+            Variable::SubgroupInvocationId => true,
         }
     }
     pub fn index(&self, index: usize) -> IndexedVariable {
@@ -175,6 +177,7 @@ impl Variable {
             Self::NumWorkgroupsY => Item::Scalar(Elem::U32),
             Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
             Self::SubgroupSize => Item::Scalar(Elem::U32),
+            Self::SubgroupInvocationId => Item::Scalar(Elem::U32),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -340,6 +343,7 @@ impl Display for Variable {
             Variable::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
             Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
             Variable::SubgroupSize => f.write_str("subgroup_size"),
+            Variable::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
         }
     }
 }

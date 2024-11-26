@@ -20,12 +20,129 @@ macro_rules! matmul_test_define {
         $plane_dim:expr
     ) => {
         #[test]
+        pub fn bo1_gpc128x256x256_s4x4x2_t16x16x16_cc_ln4_transposed_cube_count() {
+            let problem = MatmulProblem {
+                m: 128,
+                n: 256,
+                k: 256,
+                batches: (vec![], vec![]),
+                lhs_layout: MatrixLayout::ColMajor,
+                rhs_layout: MatrixLayout::ColMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S4x4x2,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::TransposedDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 4, 1)
+                }
+                fn cube_count(problem: &MatmulProblem) -> CubeCount {
+                    let m_stage = S4x4x2::NUM_M * 16;
+                    let n_stage = S4x4x2::NUM_N * 16;
+                    let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
+                    let cubes_needed_n = (problem.n as u32 + n_stage - 1) / n_stage;
+
+                    use cubecl_linalg::matmul::components::batch::CubeCountDispatch;
+                    batch::TransposedDispatch::cube_count(cubes_needed_m, cubes_needed_n, 1u32)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo4_4x3_gh16x16x16_s1x1x1_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 16,
+                batches: (vec![1, 4], vec![4, 3]),
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::multi_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x1,
+                >;
+                type GlobalMatmul =
+                    global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 16)
+                }
+            }
+
+            let advanced_config = AdvancedConfig::default();
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
         pub fn bo1_gpc16x16x480_s1x1x3_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 16,
                 n: 16,
                 k: 480,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -71,6 +188,12 @@ macro_rules! matmul_test_define {
                 rhs_tiling_order: TilingOrderConfig::RowMajor,
                 ..Default::default()
             };
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                advanced_config,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
         }
 
         #[test]
@@ -79,7 +202,7 @@ macro_rules! matmul_test_define {
                 m: 1024,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -135,7 +258,7 @@ macro_rules! matmul_test_define {
                 m: 300,
                 n: 300,
                 k: 300,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -194,7 +317,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -254,7 +377,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 16,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -314,7 +437,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 128,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -374,7 +497,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -434,7 +557,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -491,7 +614,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -548,7 +671,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -605,7 +728,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -662,7 +785,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![2, 3],
+                batches: (vec![2, 3], vec![2, 3]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -719,7 +842,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 16,
-                batches: vec![2],
+                batches: (vec![2], vec![2]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -776,7 +899,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 16,
-                batches: vec![2],
+                batches: (vec![2], vec![2]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -833,7 +956,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 16,
-                batches: vec![2],
+                batches: (vec![2], vec![2]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -890,7 +1013,7 @@ macro_rules! matmul_test_define {
                 m: 160,
                 n: 256,
                 k: 16,
-                batches: vec![2],
+                batches: (vec![2], vec![2]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -947,7 +1070,7 @@ macro_rules! matmul_test_define {
                 m: 160,
                 n: 256,
                 k: 16,
-                batches: vec![2],
+                batches: (vec![2], vec![2]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1004,7 +1127,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![5],
+                batches: (vec![5], vec![5]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1061,7 +1184,7 @@ macro_rules! matmul_test_define {
                 m: 300,
                 n: 300,
                 k: 300,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1116,7 +1239,7 @@ macro_rules! matmul_test_define {
                 m: 108,
                 n: 108,
                 k: 243,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1170,7 +1293,7 @@ macro_rules! matmul_test_define {
                 m: 256,
                 n: 256,
                 k: 256,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 2,
@@ -1224,7 +1347,7 @@ macro_rules! matmul_test_define {
                 m: 256,
                 n: 256,
                 k: 256,
-                batches: vec![3],
+                batches: (vec![3], vec![3]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1278,7 +1401,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![3],
+                batches: (vec![3], vec![3]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1332,7 +1455,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![3],
+                batches: (vec![3], vec![3]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1386,7 +1509,7 @@ macro_rules! matmul_test_define {
                 m: 256,
                 n: 256,
                 k: 256,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1445,7 +1568,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1504,7 +1627,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1558,7 +1681,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 14,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -1612,7 +1735,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 12,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1666,7 +1789,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 12,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1720,7 +1843,7 @@ macro_rules! matmul_test_define {
                 m: 60,
                 n: 60,
                 k: 120,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1774,7 +1897,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 36,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1828,7 +1951,7 @@ macro_rules! matmul_test_define {
                 m: 12,
                 n: 12,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -1882,7 +2005,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 1,
@@ -1936,7 +2059,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 1,
@@ -1990,7 +2113,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 1,
@@ -2044,7 +2167,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 1,
@@ -2098,7 +2221,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2152,7 +2275,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -2206,7 +2329,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2264,7 +2387,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2321,7 +2444,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -2378,7 +2501,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2435,7 +2558,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2492,7 +2615,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2549,7 +2672,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -2606,7 +2729,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2663,7 +2786,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2720,7 +2843,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2777,7 +2900,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -2829,12 +2952,12 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_gh256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4_lhs_row_rhs_col_enforced() {
+        pub fn bo3x4_gh256x256x256_s4x4x2_t16x16x16_cr_ln2x2x4_lhs_row_rhs_col_enforced() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
                 k: 256,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 2,
@@ -2891,7 +3014,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2945,7 +3068,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -2999,7 +3122,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 1,
@@ -3053,7 +3176,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3107,7 +3230,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -3161,7 +3284,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3215,7 +3338,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -3269,7 +3392,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3323,7 +3446,7 @@ macro_rules! matmul_test_define {
                 m: 8,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -3377,7 +3500,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 2,
@@ -3431,7 +3554,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3489,7 +3612,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3543,7 +3666,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -3597,7 +3720,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 16,
                 k: 128,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3651,7 +3774,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 16,
                 k: 128,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3705,7 +3828,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 224,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3759,7 +3882,7 @@ macro_rules! matmul_test_define {
                 m: 16,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3813,7 +3936,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3867,7 +3990,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -3921,7 +4044,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -3975,7 +4098,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -4029,7 +4152,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 32,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 4,
@@ -4083,7 +4206,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -4137,7 +4260,7 @@ macro_rules! matmul_test_define {
                 m: 32,
                 n: 8,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::ColMajor,
                 lhs_line_size: 1,
@@ -4191,7 +4314,7 @@ macro_rules! matmul_test_define {
                 m: 128,
                 n: 16,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 1,
@@ -4245,7 +4368,7 @@ macro_rules! matmul_test_define {
                 m: 64,
                 n: 64,
                 k: 16,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -4299,7 +4422,7 @@ macro_rules! matmul_test_define {
                 m: 64,
                 n: 64,
                 k: 32,
-                batches: vec![],
+                batches: (vec![], vec![]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,

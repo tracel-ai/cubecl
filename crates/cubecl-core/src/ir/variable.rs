@@ -71,6 +71,7 @@ pub enum Builtin {
     CubeCountY,
     CubeCountZ,
     PlaneDim,
+    UnitPosPlane,
     AbsolutePos,
     AbsolutePosX,
     AbsolutePosY,
@@ -110,6 +111,22 @@ impl Variable {
                 | VariableKind::LocalArray { .. }
                 | VariableKind::Matrix { .. }
                 | VariableKind::Slice { .. }
+        )
+    }
+
+    pub fn has_length(&self) -> bool {
+        matches!(
+            self.kind,
+            VariableKind::GlobalInputArray { .. }
+                | VariableKind::GlobalOutputArray { .. }
+                | VariableKind::Slice { .. }
+        )
+    }
+
+    pub fn has_buffer_length(&self) -> bool {
+        matches!(
+            self.kind,
+            VariableKind::GlobalInputArray { .. } | VariableKind::GlobalOutputArray { .. }
         )
     }
 

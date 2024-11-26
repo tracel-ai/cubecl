@@ -360,7 +360,7 @@ impl CudaContext {
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
-        let options = &[arch.as_str(), include_option.as_str()];
+        let options = &[arch.as_str(), include_option.as_str(), "-lineinfo"];
 
         let kernel_compiled = logger.debug(kernel_compiled);
 

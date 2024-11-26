@@ -94,14 +94,14 @@ where
         lhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )
@@ -111,14 +111,14 @@ where
         rhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )
@@ -301,6 +301,10 @@ impl<S: stage::Config> Config<S> {
     }
 
     pub fn num_producers(&self) -> u32 {
+        assert!(
+            self.num_consumers() <= self.num_planes(),
+            "Producer consumer's underlying matmul consumes more planes than available"
+        );
         self.num_planes() - self.num_consumers()
     }
 

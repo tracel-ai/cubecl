@@ -17,10 +17,20 @@ pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
+    let rank = out.rank();
+    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
+    let mut batch_lhs = 0;
+    let mut batch_rhs = 0;
+    for b in 0..rank - 2 {
+        let tmp = batch_out / out.stride(b);
+        batch_lhs += tmp % lhs.shape(b) * lhs.stride(b);
+        batch_rhs += tmp % rhs.shape(b) * rhs.stride(b);
+    }
+
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, config),
-        GMM::init_unloader(out, x_offset, y_offset, nth_batch),
+        GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, batch_rhs, config),
+        GMM::init_unloader(out, x_offset, y_offset, batch_out),
         acc,
         k_range,
         config,

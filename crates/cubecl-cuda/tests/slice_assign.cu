@@ -1,11 +1,12 @@
+#include <mma.h>
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int uint;
 typedef unsigned long long int uint64;
 typedef long long int int64;
 
-extern "C" __global__ void kernel(float input_0[], float output_0[],
-                                  uint info[]) {
+extern "C" __global__ void slice_assign_kernel(float input_0[],
+                                               float output_0[], uint info[]) {
 
   int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x +
                         threadIdx.z * (blockDim.x * blockDim.y);

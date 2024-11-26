@@ -340,6 +340,7 @@ pub enum Globals {
     NumWorkgroupsY,
     NumWorkgroupsZ,
     SubgroupSize,
+    SubgroupInvocationId,
 
     Metadata(u32),
 }

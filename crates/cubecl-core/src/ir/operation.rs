@@ -1,8 +1,11 @@
 use std::fmt::Display;
 
-use crate::prelude::AtomicOp;
-
-use super::{Branch, CoopMma, Item, Plane, Select, Synchronization, Variable};
+use super::{Branch, CoopMma, Item, Plane, Scope, Select, Synchronization, Variable};
+use crate::{
+    cpa,
+    ir::{Elem, UIntKind},
+    prelude::AtomicOp,
+};
 use serde::{Deserialize, Serialize};
 
 /// All operations that can be used in a GPU compute shader.
@@ -356,6 +359,36 @@ pub struct FmaOperator {
     pub a: Variable,
     pub b: Variable,
     pub c: Variable,
+}
+
+#[allow(missing_docs)]
+pub struct CheckedIndexAssign {
+    pub lhs: Variable,
+    pub rhs: Variable,
+    pub out: Variable,
+}
+
+impl CheckedIndexAssign {
+    #[allow(missing_docs)]
+    pub fn expand(self, scope: &mut Scope) {
+        let lhs = self.lhs;
+        let rhs = self.rhs;
+        let out = self.out;
+        let array_len = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
+        let inside_bound = scope.create_local(Item::new(Elem::Bool));
+
+        if out.has_buffer_length() {
+            cpa!(scope, array_len = buffer_len(out));
+        } else {
+            cpa!(scope, array_len = len(out));
+        }
+
+        cpa!(scope, inside_bound = lhs < array_len);
+
+        cpa!(scope, if(inside_bound).then(|scope| {
+            cpa!(scope, unchecked(out[lhs]) = rhs);
+        }));
+    }
 }
 
 impl From<Operator> for Operation {
