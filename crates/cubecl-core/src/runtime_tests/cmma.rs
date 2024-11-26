@@ -87,6 +87,29 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
     );
 }
 
+#[cube(launch)]
+pub fn cast_matrix(input: &Array<f32>, out: &mut Array<f16>) {
+    let acc = unsafe {
+        cmma::Matrix::<f32>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::Undefined,
+        )
+    };
+    cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+
+    let output = cmma::cast::<f32, f16>(&acc);
+
+    cmma::store(
+        &mut out.to_slice_mut(),
+        &output,
+        16,
+        cmma::MatrixLayout::RowMajor,
+    );
+}
+
 pub fn test_simple_1<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     cube_dimensions: CubeDim,
@@ -151,7 +174,7 @@ pub fn test_simple_1<R: Runtime>(
     assert_eq!(expected, actual);
 }
 
-pub fn test_simple_tf32<R: Runtime>(
+pub fn test_cmma_cast_acc<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     cube_dimensions: CubeDim,
 ) {
@@ -161,6 +184,43 @@ pub fn test_simple_tf32<R: Runtime>(
         c: Elem::Float(FloatKind::F32),
         m: 16,
         k: 8,
+        n: 16,
+    }) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
+    let input = client.create(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f16>() * 256);
+
+    unsafe {
+        cast_matrix::launch::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
+        )
+    };
+
+    let actual = client.read_one(out.binding());
+    let actual = f16::from_bytes(&actual);
+    let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
+
+    assert_eq!(actual, expected);
+}
+
+pub fn test_simple_tf32<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cube_dimensions: CubeDim,
+) {
+    if !client.properties().feature_enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
+        c: Elem::Float(FloatKind::F32),
+        m: 16,
+        k: 16,
         n: 16,
     }) {
         // We can't execute the test, skip.
@@ -239,6 +299,16 @@ macro_rules! testgen_cmma {
             #[cfg(not(feature = "is_hip"))]
             let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[test]
+        fn test_cmma_cast_acc() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = CubeDim::new(32, 1, 1);
+            cubecl_core::runtime_tests::cmma::test_cmma_cast_acc::<TestRuntime>(
                 client,
                 cube_dimensions,
             );

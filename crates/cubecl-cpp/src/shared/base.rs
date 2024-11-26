@@ -326,6 +326,10 @@ impl<D: Dialect> CppCompiler<D> {
                     .compile_matrix_layout(layout)
                     .expect("Layout required for store instruction"),
             }),
+            gpu::CoopMma::Cast { input } => Instruction::Wmma(WmmaInstruction::Cast {
+                input: self.compile_variable(input),
+                output: out,
+            }),
         }
     }
 

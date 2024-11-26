@@ -122,6 +122,11 @@ pub enum WmmaInstruction<D: Dialect> {
         stride: Variable<D>,
         layout: FragmentLayout<D>,
     },
+    /// Cast
+    Cast {
+        input: Variable<D>,
+        output: Variable<D>,
+    },
 }
 
 impl<D: Dialect> Display for FragmentLayout<D> {
@@ -286,6 +291,12 @@ pub mod wmma_api_base {
                         "{namespace}::store_matrix_sync({output}, {frag}, {stride}, {layout});"
                     )
                 }
+            }
+            WmmaInstruction::Cast { input, output } => {
+                writeln!(
+                    f,
+                    "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {input}.x[t]; }}"
+                )
             }
         }
     }

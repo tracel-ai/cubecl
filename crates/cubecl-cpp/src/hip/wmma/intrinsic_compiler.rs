@@ -207,6 +207,7 @@ for (uint i = 0; i < uint(8); ++i) {{
  "
                 )
             }
+            WmmaInstruction::Cast { input, output } => todo!(),
         }
     }
 

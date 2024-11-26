@@ -235,6 +235,7 @@ impl Optimizer {
                 visit_read(self, mat);
                 visit_read(self, stride);
             }
+            CoopMma::Cast { input } => todo!(),
         }
     }
 

@@ -69,6 +69,8 @@ pub enum CoopMma {
         stride: Variable,
         layout: MatrixLayout,
     },
+    /// Cast a fragment to another type.
+    Cast { input: Variable },
 }
 
 impl Display for CoopMma {
@@ -99,6 +101,9 @@ impl Display for CoopMma {
                 "matrix_store({}, stride: {}, layout: {:?})",
                 mat, stride, layout
             ),
+            CoopMma::Cast { input } => {
+                write!(f, "matrix_cast(input: {})", input)
+            }
         }
     }
 }

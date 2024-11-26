@@ -207,7 +207,8 @@ fn read_accumulator<O: Numeric, C: Numeric>(
     slice: &mut SliceMut<Line<C>>,
     #[comptime] n: u32,
 ) {
-    cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
+    let acc = cmma::cast::<O, C>(out);
+    cmma::store(slice, &acc, n, cmma::MatrixLayout::RowMajor);
 }
 
 fn check_availability<I: Numeric, O: Numeric, R: Runtime>(

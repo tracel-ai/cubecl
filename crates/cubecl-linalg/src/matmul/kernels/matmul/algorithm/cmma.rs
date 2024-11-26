@@ -24,6 +24,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     type EG = EG;
     type ES = half::f16;
     type EA = f32;
+    // type EA = half::f16;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
