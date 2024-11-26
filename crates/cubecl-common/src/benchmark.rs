@@ -204,7 +204,7 @@ pub trait Benchmark {
             // Warmup
             let args = self.prepare();
 
-            for _ in 0..10 {
+            for _ in 0..self.num_samples() {
                 self.execute(args.clone());
             }
 

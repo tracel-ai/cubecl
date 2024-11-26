@@ -12,7 +12,7 @@ use crate::matmul::components::{batch, global};
 use super::base;
 
 type Stage = stage::S8x8x2;
-type Dispatch = batch::SwizzleTransposedDispatch<2>;
+type Dispatch = batch::TransposedDispatch;
 
 pub struct Cmma<EG: Numeric> {
     pub _eg: PhantomData<EG>,
@@ -24,7 +24,6 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     type EG = EG;
     type ES = half::f16;
     type EA = f32;
-    // type EA = half::f16;
 
     type TileMatmul = Accelerated16x16x16<Self::ES, Self::EA>;
 
