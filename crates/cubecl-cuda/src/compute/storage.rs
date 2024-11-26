@@ -48,7 +48,7 @@ impl core::fmt::Debug for CudaStorage {
     }
 }
 
-/// Keeps actual CUDA buffer references in a hashmap with ids as the key.
+/// Keeps actual CUDA buffer references in a hashmap with ids as keys.
 impl CudaStorage {
     /// Create a new storage on the given [device](cudarc::driver::sys::CUdeviceptr).
     pub fn new(stream: CUstream) -> Self {
