@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch::CubeCountDispatch;
-use crate::matmul::components::stage::{self, S4x4x2, StageSize};
+use crate::matmul::components::stage::{self, StageSize};
 use crate::matmul::components::tile::accelerated::Accelerated16x16x16;
 use crate::matmul::components::tile::Matmul;
 use crate::matmul::components::MatmulProblem;
@@ -11,15 +11,16 @@ use crate::matmul::components::{batch, global};
 
 use super::base;
 
+type Stage = stage::S8x8x2;
+type Dispatch = batch::SwizzleTransposedDispatch<2>;
+
 pub struct Cmma<EG: Numeric> {
     pub _eg: PhantomData<EG>,
 }
 
-type Dispatch = batch::NaturalDispatch;
-type Stage = S4x4x2;
-
 impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     const PLANE_DIM: u32 = 32;
+
     type EG = EG;
     type ES = half::f16;
     type EA = f32;

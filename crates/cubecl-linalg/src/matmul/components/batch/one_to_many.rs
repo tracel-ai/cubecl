@@ -119,7 +119,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::launch::launch_unchecked::<EG, Self, R>(
+        super::batch_matmul::launch_unchecked::<EG, Self, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }

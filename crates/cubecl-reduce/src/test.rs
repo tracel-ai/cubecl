@@ -161,6 +161,8 @@ impl<F> TestCase<F> {
         let values_per_sum = num_values / line_size;
         let partial_sum = values_per_sum * (values_per_sum - 1) / 2;
         let mut sums = vec![0; line_size];
+
+        #[allow(clippy::needless_range_loop)]
         for k in 0..line_size {
             sums[k] = partial_sum + values_per_sum * k;
         }

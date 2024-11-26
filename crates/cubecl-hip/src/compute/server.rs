@@ -314,10 +314,10 @@ impl HipContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        let func_name = CString::new("kernel".to_string()).unwrap();
         // CubeCL compilation
         // jitc = just-in-time compiled
         let mut jitc_kernel = cube_kernel.compile(&self.compilation_options, mode);
+        let func_name = CString::new(jitc_kernel.entrypoint_name.clone()).unwrap();
 
         if logger.is_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
