@@ -31,6 +31,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 {
     type LhsLoader: Loader<EG, ES, Self::Config>;
     type RhsLoader: Loader<EG, ES, Self::Config>;
+    type AccumulatorLoader: CubeType;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
 

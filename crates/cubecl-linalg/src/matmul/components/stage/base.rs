@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, tile, MatmulKernel};
 use crate::matmul::components::{Ident, MatrixLayout};
 
@@ -39,7 +39,6 @@ pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
 
     type LhsReader: CubeType;
     type RhsReader: CubeType;
-    type AccumulatorReader: CubeType;
 
     type LhsTile: CubeType;
     type RhsTile: CubeType;
@@ -71,8 +70,8 @@ pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator(
-        loader: &mut Self::AccumulatorReader,
+    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
+        loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
@@ -170,7 +169,6 @@ create_cmma_stage!(S8x1x1, 8, 1, 1);
 create_cmma_stage!(S8x2x2, 8, 2, 2);
 create_cmma_stage!(S8x4x1, 8, 4, 1);
 create_cmma_stage!(S8x4x2, 8, 4, 2);
-create_cmma_stage!(S8x2x4, 8, 4, 2);
 create_cmma_stage!(S2x2x8, 2, 2, 8);
 create_cmma_stage!(S16x4x4, 16, 4, 4);
 create_cmma_stage!(S8x8x1, 8, 8, 1);

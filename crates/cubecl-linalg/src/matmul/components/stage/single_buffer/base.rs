@@ -27,31 +27,21 @@ use super::{LhsBufferReader, RhsBufferReader};
 ///
 /// # Assumptions
 /// - There are at least as many planes as the stage size in m
-pub struct Matmul<
-    I: Numeric,
-    O: Numeric,
-    Acc: Numeric,
-    AccLoader: AccumulatorLoader<O, Acc, Config<TMM::Config>>,
-    TMM: tile::Matmul<I, Acc>,
-    SS: StageSize,
-> {
+pub struct Matmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Matmul<I, EA>, SS: StageSize> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
-    _accumulator_precision: PhantomData<Acc>,
-    _accumulator_loader: PhantomData<AccLoader>,
+    _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
 }
 
 #[cube]
-impl<I, O, Acc, AccLoader, TMM, SS> stage::Matmul<I, O, Acc>
-    for Matmul<I, O, Acc, AccLoader, TMM, SS>
+impl<I, O, EA, TMM, SS> stage::Matmul<I, O, EA> for Matmul<I, O, EA, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
-    Acc: Numeric,
-    AccLoader: AccumulatorLoader<O, Acc, Config<TMM::Config>>,
-    TMM: tile::Matmul<I, Acc>,
+    EA: Numeric,
+    TMM: tile::Matmul<I, EA>,
     SS: StageSize,
 {
     const M: u32 = SS::NUM_M * TMM::M;
@@ -59,7 +49,6 @@ where
     const K: u32 = SS::NUM_K * TMM::K;
     type LhsReader = LhsBufferReader<I>;
     type RhsReader = RhsBufferReader<I>;
-    type AccumulatorReader = AccLoader;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
@@ -111,15 +100,15 @@ where
         }
     }
 
-    fn fill_accumulator(
-        loader: &mut Self::AccumulatorReader,
+    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+        loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
         for i in 0..SS::NUM_N {
             let acc = acc.index_mut(i);
-            Self::AccumulatorReader::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 
@@ -134,7 +123,7 @@ where
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<Acc>::new_lined(
+        let mut out_smem = SharedMemory::<EA>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -144,7 +133,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<Acc, G>(
+            SW::write::<EA, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,
@@ -155,12 +144,11 @@ where
     }
 }
 
-impl<I, O, Acc, AccLoader, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, AccLoader, TMM, SS>
+impl<I, O, Acc, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
-    AccLoader: AccumulatorLoader<O, Acc, Config<TMM::Config>>,
     TMM: tile::Matmul<I, Acc>,
     SS: StageSize,
 {

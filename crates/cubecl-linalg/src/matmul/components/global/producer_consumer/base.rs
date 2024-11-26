@@ -40,11 +40,11 @@ where
         Acc,
         LhsReader = LhsBufferReader<ES>,
         RhsReader = RhsBufferReader<ES>,
-        AccumulatorReader = ZeroAccumulatorLoader,
     >,
 {
     type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
     type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
+    type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 

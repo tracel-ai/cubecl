@@ -2,14 +2,11 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::stage::{self, S4x4x2, StageSize};
 use crate::matmul::components::tile::plane::PlaneMma16x16x16;
 use crate::matmul::components::tile::Matmul;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
-use crate::matmul::components::{
-    global::ZeroAccumulatorLoader,
-    stage::{self, S4x4x2, StageSize},
-};
 
 use super::base;
 
@@ -25,14 +22,8 @@ impl<EG: Numeric> base::Algorithm<EG> for PlaneMma<EG> {
 
     type TileMatmul = PlaneMma16x16x16<Self::ES, Self::EA>;
 
-    type StageMatmul = stage::multi_buffer::Matmul<
-        Self::ES,
-        Self::EG,
-        Self::EA,
-        ZeroAccumulatorLoader,
-        Self::TileMatmul,
-        S4x4x2,
-    >;
+    type StageMatmul =
+        stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, S4x4x2>;
 
     type GlobalMatmul =
         global::homogeneous::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;

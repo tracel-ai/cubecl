@@ -45,7 +45,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x3,
                 >;
@@ -104,7 +103,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -161,7 +159,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -225,7 +222,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x2x2,
                 >;
@@ -290,7 +286,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x1x2,
                 >;
@@ -355,7 +350,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x2,
                 >;
@@ -420,7 +414,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x2,
                 >;
@@ -485,7 +478,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -543,7 +535,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -601,7 +592,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -659,7 +649,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -717,7 +706,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -775,7 +763,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -833,7 +820,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -891,7 +877,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -949,7 +934,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1007,7 +991,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1065,7 +1048,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1123,7 +1105,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1179,7 +1160,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1234,7 +1214,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1289,7 +1268,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1344,7 +1322,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1399,7 +1376,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1454,7 +1430,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1514,7 +1489,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1574,7 +1548,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1629,7 +1602,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1684,7 +1656,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1739,7 +1710,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1794,7 +1764,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -1849,7 +1818,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1904,7 +1872,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -1959,7 +1926,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2014,7 +1980,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2069,7 +2034,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2124,7 +2088,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2179,7 +2142,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2234,7 +2196,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2289,7 +2250,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2348,7 +2308,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2406,7 +2365,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2464,7 +2422,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2522,7 +2479,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2580,7 +2536,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2638,7 +2593,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2696,7 +2650,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2754,7 +2707,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2812,7 +2764,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2870,7 +2821,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -2928,7 +2878,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;
@@ -2986,7 +2935,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3041,7 +2989,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3096,7 +3043,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3151,7 +3097,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3206,7 +3151,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3261,7 +3205,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3316,7 +3259,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3371,7 +3313,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3426,7 +3367,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3481,7 +3421,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3536,7 +3475,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -3595,7 +3533,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3650,7 +3587,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3705,7 +3641,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -3760,7 +3695,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x1x1,
                 >;
@@ -3815,7 +3749,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -3870,7 +3803,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x2x1,
                 >;
@@ -3925,7 +3857,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -3980,7 +3911,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x1,
                 >;
@@ -4035,7 +3965,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -4090,7 +4019,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -4145,7 +4073,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x2x2,
                 >;
@@ -4200,7 +4127,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S2x1x1,
                 >;
@@ -4255,7 +4181,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S1x1x1,
                 >;
@@ -4310,7 +4235,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S8x1x1,
                 >;
@@ -4365,7 +4289,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x1,
                 >;
@@ -4420,7 +4343,6 @@ macro_rules! matmul_test_define {
                     Self::ES,
                     Self::EG,
                     Self::EA,
-                    global::ZeroAccumulatorLoader,
                     Self::TileMatmul,
                     S4x4x2,
                 >;

@@ -32,17 +32,11 @@ where
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
-    SMM: stage::Matmul<
-        ES,
-        EG,
-        EA,
-        LhsReader = LhsReader<ES>,
-        RhsReader = RhsReader<ES>,
-        AccumulatorReader = ZeroAccumulatorLoader,
-    >,
+    SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
 {
     type LhsLoader = LhsLoader<EG, ES, SMM::Config>;
     type RhsLoader = RhsLoader<EG, ES, SMM::Config>;
+    type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
