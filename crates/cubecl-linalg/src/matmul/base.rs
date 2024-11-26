@@ -12,19 +12,14 @@ use super::kernels::{
     tiling2d::{self, Tiling2dConfig},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Strategy {
+    #[default]
     Accelerated,
     PlaneMma,
     Simple,
     CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
-}
-
-impl Default for Strategy {
-    fn default() -> Self {
-        Strategy::Accelerated
-    }
 }
 
 pub fn launch<R: Runtime, EG: Float>(

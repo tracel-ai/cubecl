@@ -55,7 +55,8 @@ struct MatmulBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
-    for (b, m, n, k) in [(2, 4096, 4096, 4096)] {
+    {
+        let (b, m, n, k) = (2, 4096, 4096, 4096);
         let bench = MatmulBench::<R, E> {
             b,
             m,

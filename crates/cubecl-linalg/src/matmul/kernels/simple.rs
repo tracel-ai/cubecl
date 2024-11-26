@@ -146,7 +146,7 @@ fn launch<R: Runtime, E: Float>(
     let cube_count = simple_cube_count(
         &lhs.shape,
         &rhs_original_shape,
-        &out.shape,
+        out.shape,
         cube_dim_x,
         cube_dim_y,
     );
@@ -158,7 +158,7 @@ fn launch<R: Runtime, E: Float>(
 
     unsafe {
         matmul_kernel::launch_unchecked::<E, R>(
-            &client,
+            client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
             lhs.as_arg(vectorization_factor),
@@ -188,6 +188,8 @@ fn simple_cube_count(
     let cubes_x = f32::ceil(num_rows as f32 / cube_dim_x as f32) as u32;
     let cubes_y = f32::ceil(num_cols as f32 / cube_dim_y as f32) as u32;
     let mut num_iter = 1;
+
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndims - 2 {
         num_iter *= output_shape[i];
     }
