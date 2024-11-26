@@ -23,7 +23,6 @@ pub enum Strategy {
 
 impl Default for Strategy {
     fn default() -> Self {
-        // Strategy::CmmaOld(cmma_old::PredefinedCmmaConfig::M128K16.into())
         Strategy::Accelerated
     }
 }
