@@ -1,4 +1,15 @@
-pub mod sum;
+mod base;
+mod naive;
+mod prod;
+mod shared;
+mod subcube;
+mod sum;
+mod tune;
 
-#[cfg(feature = "export_tests")]
+pub use base::*;
+pub use prod::*;
+pub use sum::*;
+pub use tune::*;
+
+#[cfg(export_tests)]
 pub mod test;
