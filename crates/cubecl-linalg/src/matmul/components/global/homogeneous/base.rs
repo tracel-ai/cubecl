@@ -84,20 +84,20 @@ where
         lhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, nth_batch, config)
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
         rhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, nth_batch, config)
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(

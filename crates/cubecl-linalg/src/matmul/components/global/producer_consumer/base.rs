@@ -94,14 +94,14 @@ where
         lhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )
@@ -111,14 +111,14 @@ where
         rhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )

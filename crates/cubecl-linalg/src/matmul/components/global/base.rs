@@ -54,7 +54,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         lhs: &Tensor<Line<EG>>,
         m_offset: u32,
         k_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
@@ -63,7 +63,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         rhs: &Tensor<Line<EG>>,
         k_offset: u32,
         n_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
