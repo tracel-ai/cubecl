@@ -50,8 +50,7 @@ impl Profile {
             let pattern = format!("./target/release/deps/{}-*", bench);
             let files: Vec<_> = glob(&pattern)
                 .into_iter()
-                .map(|r| r.filter_map(|f| f.ok()))
-                .flatten()
+                .flat_map(|r| r.filter_map(|f| f.ok()))
                 .collect();
 
             files
