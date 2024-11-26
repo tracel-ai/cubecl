@@ -301,6 +301,10 @@ impl<S: stage::Config> Config<S> {
     }
 
     pub fn num_producers(&self) -> u32 {
+        assert!(
+            self.num_consumers() <= self.num_planes(),
+            "Producer consumer's underlying matmul consumes more planes than available"
+        );
         self.num_planes() - self.num_consumers()
     }
 
