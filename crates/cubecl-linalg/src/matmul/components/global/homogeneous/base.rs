@@ -14,26 +14,36 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsLoader, RhsLoader};
+use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
+pub struct Matmul<
+    EG: Numeric,
+    ES: Numeric,
+    SMM: stage::Matmul<ES, EG>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
+> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
+impl<EG, ES, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
     SMM: stage::Matmul<ES, EG, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<EG, ES, SMM::Config>;
-    type RhsLoader = RhsLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsLoader<EG, ES, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<EG, ES, SMM::Config, RL>;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
@@ -120,11 +130,13 @@ where
     }
 }
 
-impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
+impl<EG, ES, SMM, LL, RL> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
     SMM: stage::Matmul<ES, EG>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
     type Config = Config<SMM::Config>;
 
