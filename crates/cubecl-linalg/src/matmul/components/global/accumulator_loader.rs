@@ -5,14 +5,13 @@ use crate::matmul::components::{stage::Config, tile};
 
 use super::AccumulatorLoader;
 
+/// Accumulator loader that zeros the accumulator
 #[derive(CubeType)]
 pub struct ZeroAccumulatorLoader;
 
 #[cube]
 impl<O: Numeric, Acc: Numeric, G: Config> AccumulatorLoader<O, Acc, G> for ZeroAccumulatorLoader {
-    type StageReader = ();
-
-    fn fill_stage(_this: &mut Self, #[comptime] _config: G) -> Self::StageReader {}
+    fn fill_stage(_this: &mut Self, #[comptime] _config: G) {}
 
     fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
         _this: &mut Self,

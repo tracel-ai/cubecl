@@ -98,18 +98,19 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
 }
 
 #[cube]
+/// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
+/// for it.
 pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
     CubeType + 'static + Send + Sync
 {
-    type StageReader: CubeType;
+    fn fill_stage(this: &mut Self, #[comptime] config: G);
 
-    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
-
-    /// Load accumulator
+    /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
+    /// for the underlying tile.
     fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
-        n_tile: u32,
+        tile_n: u32,
         #[comptime] config: Tile::Config,
     );
 }
