@@ -64,7 +64,7 @@ pub struct StageDims {
 pub trait StageDim: 'static + Send + Sync {
     /// Returns the total number of elements of the stage
     fn total_elements(&self) -> u32 {
-        self.height() * self.width()
+        self.num_elements_x_dim() * self.num_elements_y_dim()
     }
 
     /// Returns the number of elements within one tile
@@ -72,14 +72,18 @@ pub trait StageDim: 'static + Send + Sync {
         self.tile_size_x_dim() * self.tile_size_y_dim()
     }
 
-    /// Returns the height of the stage, i.e. the number of elements across the x dimension
-    fn height(&self) -> u32 {
+    /// Returns the number of elements across the x dimension
+    fn num_elements_x_dim(&self) -> u32 {
         self.num_tiles_x_dim() * self.tile_size_x_dim()
     }
 
-    /// Returns the width of the stage, i.e. the number of elements across the y dimension
-    fn width(&self) -> u32 {
+    /// Returns the number of elements across the y dimension
+    fn num_elements_y_dim(&self) -> u32 {
         self.num_tiles_y_dim() * self.tile_size_y_dim()
+    }
+
+    fn num_tiles(&self) -> u32 {
+        self.num_tiles_x_dim() * self.num_tiles_y_dim()
     }
 
     /// Number of elements in a buffer
