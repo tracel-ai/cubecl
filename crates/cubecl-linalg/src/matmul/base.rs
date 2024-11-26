@@ -8,7 +8,7 @@ use crate::tensor::TensorHandle;
 
 use super::kernels::{
     cmma_old::{self, CmmaConfig},
-    matmul,
+    matmul, simple,
     tiling2d::{self, Tiling2dConfig},
 };
 
@@ -16,6 +16,7 @@ use super::kernels::{
 pub enum Strategy {
     Accelerated,
     PlaneMma,
+    Simple,
     CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
 }
@@ -53,5 +54,6 @@ pub fn launch_ref<R: Runtime, EG: Float>(
         Strategy::Tiling2D(config) => {
             tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
         }
+        Strategy::Simple => simple::launch_ref::<R, EG>(client, lhs, rhs, out),
     };
 }
