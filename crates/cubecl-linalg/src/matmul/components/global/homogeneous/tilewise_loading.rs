@@ -25,8 +25,11 @@ impl LoadingStrategy for TilewiseLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let _ = comptime!(check_num_planes(config.num_planes(), stage_dim.num_tiles()));
-        let _ = comptime!(check_line_sizes(line_size, config.stage_line_size(ident)));
+        #[clippy::allow(all)]
+        let _ = comptime! {
+            check_num_planes(config.num_planes(), stage_dim.num_tiles());
+            check_line_sizes(line_size, config.stage_line_size(ident))
+        };
 
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
 
@@ -64,6 +67,7 @@ impl LoadingStrategy for TilewiseLoading {
             match config.transpose_load(ident) {
                 false => slice[offset] = Line::cast_from(line_read),
                 true => {
+                    #[clippy::allow(all)]
                     let _ = comptime!(unsupported_transpose_load());
                 }
             }
