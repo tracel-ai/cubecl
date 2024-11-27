@@ -45,8 +45,8 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
         MatrixLayout::HighlyPermuted => false,
     };
 
-    let lhs_correct_layout = check_layout(&lhs);
-    let rhs_correct_layout = check_layout(&rhs);
+    let lhs_correct_layout = check_layout(lhs);
+    let rhs_correct_layout = check_layout(rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
         (true, true) => matmul_cmma_ref_no_check::<R, F>(client, lhs, rhs, out, cmma_config),

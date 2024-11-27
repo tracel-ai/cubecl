@@ -41,7 +41,7 @@ pub trait Algorithm<EG: Numeric> {
 
     fn cube_dim() -> CubeDim;
     fn cube_count(problem: &MatmulProblem) -> CubeCount;
-
+    #[allow(clippy::type_complexity)]
     fn make_config(
         problem: &MatmulProblem,
         cube_dim: &CubeDim,

@@ -60,8 +60,8 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
         MatrixLayout::HighlyPermuted => (true, false),
     };
 
-    let (lhs_make_contiguous, lhs_transposed) = check_layout(&lhs);
-    let (rhs_make_contiguous, rhs_transposed) = check_layout(&rhs);
+    let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs);
+    let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
         (false, false) => matmul_cmma_ref_no_check::<R, EG>(
