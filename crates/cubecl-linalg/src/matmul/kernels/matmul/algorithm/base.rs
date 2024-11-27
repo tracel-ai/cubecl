@@ -4,6 +4,7 @@ use crate::matmul::components::stage::{self};
 use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 
 type LhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<
     EG,
@@ -46,15 +47,16 @@ pub trait Algorithm<EG: Numeric> {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-    ) -> <Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config {
+    ) -> Result<<Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config, MatmulInvalidProblem>
+    {
         let config = Self::BatchMatmul::make_config(problem, cube_dim, cube_count, advanced_config);
-        problem.check_config(&config);
-        config
+        problem.check_config(&config)?;
+        Ok(config)
     }
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulAvailabilityError> {
         Self::BatchMatmul::check_availability::<R>(client)
     }
 

@@ -13,7 +13,7 @@ use crate::matmul::{
         },
         MatmulProblem,
     },
-    kernels::matmul::base::matmul_cube_preparation,
+    kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
 };
 
 use super::standard::StandardAlgorithm;
@@ -26,11 +26,11 @@ pub struct CmmaSelector;
 impl CmmaSelector {
     pub fn select_kernel<R: Runtime, EG: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
-        lhs: TensorHandleRef<'_, R>,
-        rhs: TensorHandleRef<'_, R>,
-        out: TensorHandleRef<'_, R>,
+        lhs: &TensorHandleRef<'_, R>,
+        rhs: &TensorHandleRef<'_, R>,
+        out: &TensorHandleRef<'_, R>,
         problem: MatmulProblem,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulLaunchError> {
         type ES = half::f16;
         type EA = f32;
 
@@ -190,11 +190,11 @@ pub struct PlaneMmaSelector;
 impl PlaneMmaSelector {
     pub fn select_kernel<R: Runtime, EG: Numeric>(
         client: &ComputeClient<R::Server, R::Channel>,
-        lhs: TensorHandleRef<'_, R>,
-        rhs: TensorHandleRef<'_, R>,
-        out: TensorHandleRef<'_, R>,
+        lhs: &TensorHandleRef<'_, R>,
+        rhs: &TensorHandleRef<'_, R>,
+        out: &TensorHandleRef<'_, R>,
         problem: MatmulProblem,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulLaunchError> {
         type ES = f32;
         type EA = f32;
 

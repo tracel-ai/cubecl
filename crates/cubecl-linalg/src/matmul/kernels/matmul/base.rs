@@ -8,6 +8,7 @@ use cubecl_core::{
 
 use crate::matmul;
 use crate::matmul::components::{MatmulLaunch, MatmulProblem};
+use crate::matmul::kernels::MatmulLaunchError;
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 use super::algorithm::{CmmaSelector, PlaneMmaSelector};
@@ -24,12 +25,12 @@ pub fn launch<R: Runtime, EG: Numeric>(
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
     disable_cmma: bool,
-) -> Result<TensorHandle<R, EG>, String> {
+) -> Result<TensorHandle<R, EG>, MatmulLaunchError> {
     let result = launch_ref::<R, EG>(
         client,
-        lhs.as_ref(),
-        rhs.as_ref(),
-        out.as_ref(),
+        &lhs.as_ref(),
+        &rhs.as_ref(),
+        &out.as_ref(),
         disable_cmma,
     );
 
@@ -45,11 +46,11 @@ pub fn launch<R: Runtime, EG: Numeric>(
 /// otherwise it will fall back on a non-cmma implementation
 pub fn launch_ref<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     disable_cmma: bool,
-) -> Result<(), String> {
+) -> Result<(), MatmulLaunchError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),
         MatrixLayout::MildlyPermuted {
@@ -74,14 +75,14 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
         (false, true) => matmul_cmma_ref_no_check::<R, EG>(
             client,
             lhs,
-            into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
             disable_cmma,
         ),
         (true, false) => matmul_cmma_ref_no_check::<R, EG>(
             client,
-            into_contiguous::<R, EG>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
@@ -89,8 +90,8 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
         ),
         (true, true) => matmul_cmma_ref_no_check::<R, EG>(
             client,
-            into_contiguous::<R, EG>(client, lhs).as_ref(),
-            into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
             disable_cmma,
@@ -100,12 +101,12 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
 
 fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
     disable_cmma: bool,
-) -> Result<(), String> {
+) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
 
     let m = lhs.shape[rank - 2] as u32;
@@ -146,12 +147,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
 
 fn matmul_select_kernel<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     disable_cmma: bool,
-) -> Result<(), String> {
+) -> Result<(), MatmulLaunchError> {
     if disable_cmma {
         PlaneMmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem)
     } else {
@@ -161,14 +162,12 @@ fn matmul_select_kernel<R: Runtime, EG: Numeric>(
 
 pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
-) -> Result<(), String> {
-    if let Err(e) = D::check_availability::<R>(client) {
-        return Err(e.to_string());
-    }
+) -> Result<(), MatmulLaunchError> {
+    D::check_availability::<R>(client)?;
 
     let cube_dim = D::cube_dim();
     let cube_count = D::cube_count(&problem);
@@ -183,23 +182,21 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
         cube_dim,
         cube_count,
         advanced_config,
-    );
-
-    Ok(())
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
-) {
-    let config = D::make_config(&problem, &cube_dim, &cube_count, &advanced_config);
+) -> Result<(), MatmulLaunchError> {
+    let config = D::make_config(&problem, &cube_dim, &cube_count, &advanced_config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<R>(
@@ -226,5 +223,7 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
             ),
             config,
         );
-    }
+    };
+
+    Ok(())
 }

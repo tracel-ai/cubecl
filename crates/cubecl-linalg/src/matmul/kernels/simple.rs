@@ -80,9 +80,9 @@ fn matmul_kernel<F: Float>(
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
 pub fn launch_ref<R: Runtime, E: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
 ) {
     let lhs =
         TensorHandle::<R, E>::new(lhs.shape.to_vec(), lhs.strides.to_vec(), lhs.handle.clone());
@@ -96,7 +96,7 @@ fn launch<R: Runtime, E: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
-    out: TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
 ) {
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let ndims = lhs.shape.len();
@@ -107,7 +107,7 @@ fn launch<R: Runtime, E: Float>(
     let rhs_layout = matrix_layout(&rhs.strides);
 
     let lhs = if !matches!(lhs_layout, MatrixLayout::Contiguous) {
-        into_contiguous::<R, E>(client, lhs.as_ref())
+        into_contiguous::<R, E>(client, &lhs.as_ref())
     } else {
         lhs
     };
@@ -120,7 +120,7 @@ fn launch<R: Runtime, E: Float>(
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        let rhs = into_contiguous::<R, E>(client, rhs.as_ref());
+        let rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
 
         (rhs_original_shape, rhs)
     };

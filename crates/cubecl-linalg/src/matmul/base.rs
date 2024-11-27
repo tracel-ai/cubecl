@@ -14,12 +14,13 @@ use super::kernels::{
 
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
-    #[default]
     Accelerated,
     PlaneMma,
     Simple,
     CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
+    #[default]
+    Auto,
 }
 
 pub fn launch<R: Runtime, EG: Float>(
@@ -29,15 +30,21 @@ pub fn launch<R: Runtime, EG: Float>(
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
 ) {
-    launch_ref::<R, EG>(strategy, client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
+    launch_ref::<R, EG>(
+        strategy,
+        client,
+        &lhs.as_ref(),
+        &rhs.as_ref(),
+        &out.as_ref(),
+    );
 }
 
 pub fn launch_ref<R: Runtime, EG: Float>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<R>,
-    rhs: TensorHandleRef<R>,
-    out: TensorHandleRef<R>,
+    lhs: &TensorHandleRef<R>,
+    rhs: &TensorHandleRef<R>,
+    out: &TensorHandleRef<R>,
 ) {
     match strategy {
         Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false)
@@ -51,5 +58,10 @@ pub fn launch_ref<R: Runtime, EG: Float>(
             tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
         }
         Strategy::Simple => simple::launch_ref::<R, EG>(client, lhs, rhs, out),
+        Strategy::Auto => {
+            if let Err(_) = matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false) {
+                tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, Tiling2dConfig::default())
+            }
+        }
     };
 }

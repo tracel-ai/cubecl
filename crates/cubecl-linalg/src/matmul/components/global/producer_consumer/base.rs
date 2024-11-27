@@ -9,6 +9,7 @@ use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoa
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -182,7 +183,7 @@ where
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R>(client)
     }
 
