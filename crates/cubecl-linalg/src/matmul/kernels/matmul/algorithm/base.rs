@@ -29,6 +29,7 @@ pub trait Algorithm<EG: Numeric> {
     type StageMatmul: stage::Matmul<
             Self::ES,
             Self::EG,
+            Self::EA,
             LhsReader = LhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
             RhsReader = RhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
         > + MatmulKernel<Self::ES, Self::EG>;
@@ -55,5 +56,9 @@ pub trait Algorithm<EG: Numeric> {
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), &str> {
         Self::BatchMatmul::check_availability::<R>(client)
+    }
+
+    fn advanced_config() -> AdvancedConfig {
+        AdvancedConfig::default()
     }
 }

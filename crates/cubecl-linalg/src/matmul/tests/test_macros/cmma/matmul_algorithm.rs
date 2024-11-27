@@ -51,6 +51,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -76,11 +77,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -117,6 +115,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -137,11 +136,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -175,8 +171,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x3,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -191,17 +191,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -238,6 +239,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -258,11 +260,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -296,8 +295,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S4x4x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -311,17 +314,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(5, 5, 12)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -355,8 +359,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x2x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -371,17 +379,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -415,8 +424,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S2x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -431,17 +444,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -475,8 +489,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -491,17 +509,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -535,8 +554,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -551,17 +574,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::RowMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -598,6 +622,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -619,11 +644,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -660,6 +682,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -681,11 +704,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -722,6 +742,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -743,11 +764,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -784,6 +802,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -805,11 +824,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -846,6 +862,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -867,11 +884,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -908,6 +922,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -929,11 +944,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -970,6 +982,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -991,11 +1004,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1032,6 +1042,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1053,11 +1064,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1094,6 +1102,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1115,11 +1124,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1156,6 +1162,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1177,11 +1184,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1218,6 +1222,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1239,11 +1244,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1280,6 +1282,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1299,11 +1302,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
-
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1340,6 +1340,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1359,10 +1360,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1399,6 +1398,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1418,10 +1418,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1458,6 +1456,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1477,10 +1476,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1517,6 +1514,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1536,10 +1534,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1576,6 +1572,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1595,10 +1592,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1635,6 +1630,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1652,17 +1648,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(4, 4, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::ColMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::ColMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1699,6 +1696,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1716,17 +1714,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(2, 2, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::ColMajor,
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::ColMajor,
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1763,6 +1762,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1782,10 +1782,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1822,6 +1820,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1841,10 +1840,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1881,6 +1878,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1900,10 +1898,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1940,6 +1936,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1959,10 +1956,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -1999,6 +1994,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2018,10 +2014,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2058,6 +2052,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2077,10 +2072,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2117,6 +2110,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2136,10 +2130,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2176,6 +2168,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2195,10 +2188,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2235,6 +2226,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2254,10 +2246,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2294,6 +2284,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2313,10 +2304,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2353,6 +2342,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2372,10 +2362,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2412,6 +2400,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2431,10 +2420,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2471,6 +2458,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2490,10 +2478,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2530,6 +2516,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2547,16 +2534,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
-            }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
-                ..Default::default()
-            };
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
+                        ..Default::default()
+                    }
+                }
+            }
 
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2593,6 +2581,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2610,15 +2599,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2655,6 +2646,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2672,15 +2664,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2717,6 +2711,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2734,15 +2729,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2779,6 +2776,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2796,15 +2794,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2841,6 +2841,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2858,15 +2859,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2903,6 +2906,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2920,15 +2924,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -2965,6 +2971,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2982,15 +2989,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::ColMajor), None),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3027,6 +3036,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3044,15 +3054,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::RowMajor), None),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3089,6 +3101,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3106,15 +3119,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::ColMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3151,6 +3166,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3168,15 +3184,17 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (None, Some(MatrixLayout::RowMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3213,6 +3231,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3230,15 +3249,20 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(4, 4, 12)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        enforced_tile_layout: (
+                            Some(MatrixLayout::RowMajor),
+                            Some(MatrixLayout::ColMajor),
+                        ),
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                enforced_tile_layout: (Some(MatrixLayout::RowMajor), Some(MatrixLayout::ColMajor)),
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3275,6 +3299,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3294,10 +3319,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3334,6 +3357,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3353,10 +3377,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3393,6 +3415,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3412,10 +3435,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3452,6 +3473,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3471,10 +3493,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3511,6 +3531,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3530,10 +3551,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3570,6 +3589,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3589,10 +3609,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3629,6 +3647,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3648,10 +3667,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3688,6 +3705,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3707,10 +3725,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3747,6 +3763,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3766,10 +3783,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3806,6 +3821,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3825,10 +3841,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3865,6 +3879,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3882,16 +3897,18 @@ macro_rules! matmul_test_define {
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
                     CubeCount::Static(1, 1, 1)
                 }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::ColMajor,
+                        ..Default::default()
+                    }
+                }
             }
 
-            let advanced_config = AdvancedConfig {
-                lhs_tiling_order: TilingOrderConfig::ColMajor,
-                rhs_tiling_order: TilingOrderConfig::ColMajor,
-                ..Default::default()
-            };
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3928,6 +3945,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3947,10 +3965,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -3987,6 +4003,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4006,10 +4023,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4046,6 +4061,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4065,10 +4081,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4105,6 +4119,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4124,10 +4139,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4164,6 +4177,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4183,10 +4197,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4223,6 +4235,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4242,10 +4255,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4282,6 +4293,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4301,10 +4313,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4341,6 +4351,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4360,10 +4371,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4400,6 +4409,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4419,10 +4429,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4459,6 +4467,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4478,10 +4487,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4518,6 +4525,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4537,10 +4545,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4577,6 +4583,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4596,10 +4603,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4636,6 +4641,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4655,10 +4661,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4695,6 +4699,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4714,10 +4719,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4754,6 +4757,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4773,10 +4777,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4813,6 +4815,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4832,10 +4835,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4872,6 +4873,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::TilewiseLoading,
                     global::homogeneous::CyclicLoading,
@@ -4891,10 +4893,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4931,6 +4931,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::TilewiseLoading,
@@ -4950,10 +4951,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }
@@ -4990,6 +4989,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::TilewiseLoading,
                     global::homogeneous::TilewiseLoading,
@@ -5009,10 +5009,8 @@ macro_rules! matmul_test_define {
                 }
             }
 
-            let advanced_config = AdvancedConfig::default();
             test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
                 problem,
-                advanced_config,
                 &<<TestRuntime as Runtime>::Device>::default(),
             );
         }

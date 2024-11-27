@@ -10,7 +10,7 @@ use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
 use crate::matmul::{
     components::{
         config::MatmulConfig,
-        global,
+        global::{self, AccumulatorLoader},
         stage::{self, Config as _, StageWriter},
         tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, StageDim,
     },
@@ -27,21 +27,21 @@ use super::{LhsBufferReader, RhsBufferReader};
 ///
 /// # Assumptions
 /// - There are at least as many planes as the stage size in m
-pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc>, SS: StageSize> {
+pub struct Matmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Matmul<I, EA>, SS: StageSize> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
-    _accumulator_precision: PhantomData<Acc>,
+    _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, EA, TMM, SS> stage::Matmul<I, O, EA> for Matmul<I, O, EA, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
-    Acc: Numeric,
-    TMM: tile::Matmul<I, Acc>,
+    EA: Numeric,
+    TMM: tile::Matmul<I, EA>,
     SS: StageSize,
 {
     const M: u32 = SS::NUM_M * TMM::M;
@@ -97,6 +97,18 @@ where
         #[unroll]
         for i in 0..SS::NUM_N {
             TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
+        }
+    }
+
+    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+        loader: &mut L,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    ) {
+        #[unroll]
+        for i in 0..SS::NUM_N {
+            let acc = acc.index_mut(i);
+            L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 

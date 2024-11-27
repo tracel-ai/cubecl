@@ -40,8 +40,10 @@ pub fn launch_ref<R: Runtime, EG: Float>(
     out: TensorHandleRef<R>,
 ) {
     match strategy {
-        Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
+        Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false)
+            .expect("Accelerated strategy should be available on your device"),
+        Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true)
+            .expect("PlaneMma strategy should be available on your device"),
         Strategy::CmmaOld(config) => {
             cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
         }
