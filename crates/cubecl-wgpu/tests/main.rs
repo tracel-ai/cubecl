@@ -126,6 +126,7 @@ pub fn constant_array() {
 
 // This kernel just exists to have a few generics in order to observe
 // that the generics get propagated into the WGSL kernel name
+#[allow(clippy::extra_unused_type_parameters)]
 #[cube(launch, create_dummy_kernel)]
 fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array<F1>) {
     if ABSOLUTE_POS < out.len() {

@@ -63,6 +63,14 @@ pub trait Matmul<I: Numeric, O: Numeric>:
     /// Fill the container of RHS with data
     fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
+    /// Fill the accumulator with data
+    fn fill_accumulator(
+        slice: &Slice<Line<O>>,
+        acc: &mut Self::Accumulator,
+        stride: u32,
+        #[comptime] config: Self::Config,
+    );
+
     /// Write the content of the output container to the given slice
     fn read_accumulator<C: Numeric>(
         out: &Self::Accumulator,

@@ -16,7 +16,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
-    type Device;
+    type Device: Default + Clone + core::fmt::Debug;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
@@ -35,6 +35,8 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the supported line sizes for the current runtime's compiler.
     fn supported_line_sizes() -> &'static [u8];
+    /// Returns the maximum cube count on each dimension that can be launched.
+    fn max_cube_count() -> (u32, u32, u32);
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

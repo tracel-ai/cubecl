@@ -7,15 +7,17 @@ use cubecl_core::{
 use crate::tensor::TensorHandle;
 
 use super::kernels::{
-    cmma_old::{self, config::PredefinedCmmaConfig, is_available, CmmaConfig},
-    matmul,
+    cmma_old::{self, CmmaConfig},
+    matmul, simple,
     tiling2d::{self, Tiling2dConfig},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub enum Strategy {
+    #[default]
     Accelerated,
     PlaneMma,
+    Simple,
     CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
 }
@@ -27,24 +29,27 @@ pub fn launch<R: Runtime, EG: Float>(
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
 ) {
-    match strategy {
-        Strategy::Accelerated => matmul::launch(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => matmul::launch(client, lhs, rhs, out, true),
-        Strategy::CmmaOld(config) => cmma_old::launch(client, lhs, rhs, out, config.clone()),
-        Strategy::Tiling2D(config) => tiling2d::launch(client, lhs, rhs, out, config.clone()),
-    };
+    launch_ref::<R, EG>(strategy, client, lhs.as_ref(), rhs.as_ref(), out.as_ref());
 }
 
 pub fn launch_ref<R: Runtime, EG: Float>(
+    strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandleRef<R>,
     rhs: TensorHandleRef<R>,
     out: TensorHandleRef<R>,
 ) {
-    let cmma_config = PredefinedCmmaConfig::M128K16.into();
-
-    match is_available::<R, EG>(client, &cmma_config) {
-        Ok(_) => cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, cmma_config),
-        Err(_) => tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, Default::default()),
-    }
+    match strategy {
+        Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false)
+            .expect("Accelerated strategy should be available on your device"),
+        Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true)
+            .expect("PlaneMma strategy should be available on your device"),
+        Strategy::CmmaOld(config) => {
+            cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
+        }
+        Strategy::Tiling2D(config) => {
+            tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone())
+        }
+        Strategy::Simple => simple::launch_ref::<R, EG>(client, lhs, rhs, out),
+    };
 }

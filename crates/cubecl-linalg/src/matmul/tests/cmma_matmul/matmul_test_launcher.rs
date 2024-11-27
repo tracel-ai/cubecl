@@ -10,7 +10,6 @@ use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::kernels::matmul;
-use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::CastInto;
 use crate::tensor::TensorHandle;
@@ -28,11 +27,8 @@ struct TensorRawParts<F: Float + CubeElement> {
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_algorithm<A, EG, ES, R>(
-    problem: MatmulProblem,
-    advanced_config: AdvancedConfig,
-    device: &R::Device,
-) where
+pub fn test_matmul_algorithm<A, EG, ES, R>(problem: MatmulProblem, device: &R::Device)
+where
     A: Algorithm<EG>,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
@@ -51,7 +47,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
 
     let cube_dim = A::cube_dim();
     let cube_count = A::cube_count(&problem);
-    let config = A::make_config(&problem, &cube_dim, &cube_count, &advanced_config);
+    let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config());
 
     unsafe {
         A::BatchMatmul::launch_unchecked(
@@ -94,7 +90,6 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: Runtime>(
     problem: MatmulProblem,
-    disable_cmma: bool,
     device: &R::Device,
 ) {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
@@ -112,13 +107,20 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
+    let lhs_handle = TensorHandle::new(lhs.shape, lhs.strides, lhs.handle);
+    let rhs_handle = TensorHandle::new(rhs.shape, rhs.strides, rhs.handle);
+    let out_handle = TensorHandle::new(out.shape, out.strides, out.handle);
+
     let out = matmul::launch::<R, EG>(
         &client,
-        TensorHandle::new(lhs.shape, lhs.strides, lhs.handle),
-        TensorHandle::new(rhs.shape, rhs.strides, rhs.handle),
-        TensorHandle::new(out.shape, out.strides, out.handle),
-        disable_cmma,
-    );
+        lhs_handle.clone(),
+        rhs_handle.clone(),
+        out_handle.clone(),
+        false,
+    )
+    .unwrap_or_else(|_| {
+        matmul::launch::<R, EG>(&client, lhs_handle, rhs_handle, out_handle, true).unwrap()
+    });
 
     assert_result::<EG, EG, R>(
         &lhs.original_data.unwrap(),

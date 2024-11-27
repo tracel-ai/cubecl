@@ -7,14 +7,16 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::loader::LoadingStrategy;
+
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
 
 #[cube]
-impl CyclicLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+impl LoadingStrategy for CyclicLoading {
+    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

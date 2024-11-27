@@ -3,33 +3,51 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch::CubeCountDispatch;
-use crate::matmul::components::stage::{self, S4x4x2, StageSize};
-use crate::matmul::components::tile::plane::PlaneMma16x16x16;
-use crate::matmul::components::tile::Matmul;
+use crate::matmul::components::stage::{self, StageSize};
+use crate::matmul::components::tile;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
 
 use super::base;
 
-pub struct PlaneMma<EG> {
+type Dispatch = batch::SwizzleTransposedDispatch<2>;
+
+pub struct StandardAlgorithm<
+    EG: Numeric,
+    ES: Numeric,
+    EA: Numeric,
+    Stage: StageSize,
+    TMM: tile::Matmul<ES, EA>,
+> {
     pub _eg: PhantomData<EG>,
+    pub _es: PhantomData<ES>,
+    pub _ea: PhantomData<EA>,
+    pub _stage: PhantomData<Stage>,
+    pub _tmm: PhantomData<TMM>,
 }
 
-type Dispatch = batch::NaturalDispatch;
-type Stage = S4x4x2;
-
-impl<EG: Numeric> base::Algorithm<EG> for PlaneMma<EG> {
+impl<EG: Numeric, ES: Numeric, EA: Numeric, Stage: StageSize, TMM: tile::Matmul<ES, EA>>
+    base::Algorithm<EG> for StandardAlgorithm<EG, ES, EA, Stage, TMM>
+{
     const PLANE_DIM: u32 = 32;
-    type EG = EG;
-    type ES = f32;
-    type EA = f32;
 
-    type TileMatmul = PlaneMma16x16x16<Self::ES, Self::EA>;
+    type EG = EG;
+    type ES = ES;
+    type EA = EA;
+
+    type TileMatmul = TMM;
 
     type StageMatmul =
         stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
 
-    type GlobalMatmul = global::homogeneous::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+    type GlobalMatmul = global::homogeneous::Matmul<
+        Self::EG,
+        Self::ES,
+        Self::EA,
+        Self::StageMatmul,
+        global::homogeneous::CyclicLoading,
+        global::homogeneous::CyclicLoading,
+    >;
 
     type BatchMatmul = batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, Dispatch>;
 

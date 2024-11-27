@@ -26,6 +26,8 @@ pub enum Command {
     Test(commands::test::CubeCLTestCmdArgs),
     /// Run commands to manage the book.
     Book(commands::book::BookArgs),
+    /// Profile kernels.
+    Profile(commands::profile::ProfileArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,6 +38,7 @@ fn main() -> anyhow::Result<()> {
         Command::Check(cmd_args) => commands::check::handle_command(cmd_args),
         Command::Test(cmd_args) => commands::test::handle_command(cmd_args),
         Command::Book(cmd_args) => cmd_args.parse(),
+        Command::Profile(cmd_args) => cmd_args.run(),
         Command::Validate(cmd_args) => commands::validate::handle_command(&cmd_args),
         _ => dispatch_base_commands(args),
     }?;
