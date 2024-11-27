@@ -19,7 +19,7 @@ macro_rules! testgen_matmul_launch {
                 out_line_size: 4,
             };
 
-            test_matmul_launch::<EG, TestRuntime>(problem, false, &Default::default());
+            test_matmul_launch::<EG, TestRuntime>(problem, &Default::default());
         }
     };
 }

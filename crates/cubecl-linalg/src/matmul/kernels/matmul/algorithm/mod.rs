@@ -1,8 +1,7 @@
 mod base;
-mod selection;
+mod selector;
 
-pub mod cmma;
-pub mod plane_mma;
+pub mod standard;
 
 pub use base::Algorithm;
-pub use selection::*;
+pub use selector::*;

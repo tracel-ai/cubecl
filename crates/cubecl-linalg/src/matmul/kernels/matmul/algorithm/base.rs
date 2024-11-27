@@ -57,4 +57,8 @@ pub trait Algorithm<EG: Numeric> {
     ) -> Result<(), &str> {
         Self::BatchMatmul::check_availability::<R>(client)
     }
+
+    fn advanced_config() -> AdvancedConfig {
+        AdvancedConfig::default()
+    }
 }
