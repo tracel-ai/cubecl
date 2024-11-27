@@ -207,7 +207,15 @@ for (uint i = 0; i < uint(8); ++i) {{
  "
                 )
             }
-            WmmaInstruction::Cast { input, output } => todo!(),
+            WmmaInstruction::Cast { input, output } => {
+                write!(
+                    f,
+                    "for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
+  {output}[elemIdx] = {input}[elemIdx];
+}}
+ "
+                )
+            }
         }
     }
 
