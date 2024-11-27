@@ -4,9 +4,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::{
-    reduce_naive, ReduceArgMax, ReduceArgMin, ReduceNaiveInstruction, ReduceMean, ReduceProd, ReduceSum,
+    reduce_naive, ReduceArgMax, ReduceArgMin, ReduceMean, ReduceNaiveInstruction, ReduceProd,
+    ReduceSum,
 };
 
+// Simple kernel to launch tests.
 #[cube(launch_unchecked)]
 pub fn naive_reduce_dim_kernel<I: Numeric, O: Numeric, R: ReduceNaiveInstruction<I>>(
     input: &Tensor<Line<I>>,
@@ -16,8 +18,10 @@ pub fn naive_reduce_dim_kernel<I: Numeric, O: Numeric, R: ReduceNaiveInstruction
     reduce_naive::<R, I, O>(input, output, dim)
 }
 
+// This macro generate all the tests.
 #[macro_export]
 macro_rules! testgen_reduce {
+    // Generate all the tests for a list of types.
     ([$($float:ident), *]) => {
         mod test_reduce {
             use super::*;
@@ -31,6 +35,7 @@ macro_rules! testgen_reduce {
         }
     };
 
+    // Generate all the tests for a specific float type.
     ($float:ident) => {
         use cubecl_reduce::test::TestCase;
         use cubecl_core::prelude::CubeCount;
@@ -97,6 +102,10 @@ macro_rules! testgen_reduce {
     };
 }
 
+// For a given tensor description and cube settings
+// run the tests for `ReduceSum`, `ReduceProd`, `ReduceMean`, `ReduceArgMax` and `ReduceArgMin`
+// for all implementations.
+// For each test, a reference reduction is computed on the CPU to compare the outcome of the kernel.
 #[macro_export]
 macro_rules! impl_test_reduce {
     (
@@ -265,6 +274,8 @@ impl TestCase {
 
         let input_handle = client.create(I::as_bytes(&input_values));
 
+        // Zero initialize a tensor with the same shape as input
+        // except for the `self.reduce_dim` axis where the shape is 1.
         let output_handle =
             client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
         let mut output_shape = self.shape.clone();
@@ -410,7 +421,6 @@ impl TestCase {
 
         let mut seed = 123456789; // Not really important for testing.
         (0..size).map(|_| F::new(lcg(&mut seed))).collect()
-        // (0..size).map(|x| F::new(x as f32)).collect()
     }
 }
 
