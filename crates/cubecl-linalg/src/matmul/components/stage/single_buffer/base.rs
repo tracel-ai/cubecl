@@ -123,7 +123,7 @@ where
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<EA>::new_lined(
+        let mut out_smem = SharedMemory::<O>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -133,7 +133,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<EA, G>(
+            SW::write::<O, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,

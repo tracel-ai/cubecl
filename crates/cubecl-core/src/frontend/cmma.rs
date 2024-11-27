@@ -405,6 +405,57 @@ pub mod execute {
     }
 }
 
+/// Store the matrix in the given array following the given stride and layout.
+#[allow(unused_variables)]
+pub fn cast<C: CubePrimitive, O: CubePrimitive>(input: &Matrix<C>) -> Matrix<O> {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [store()].
+pub mod cast {
+    use super::*;
+
+    /// Expand method of [store()].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubePrimitive, O: CubePrimitive>(
+        context: &mut CubeContext,
+        input: MatrixExpand<C>,
+    ) -> MatrixExpand<O> {
+        let ident = input.ident;
+
+        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() {
+            return MatrixExpand {
+                elem: input.elem,
+                ident,
+                _c: PhantomData,
+            };
+        }
+        let input = *input.elem;
+        let input_mat = match input.kind {
+            ir::VariableKind::Matrix { id, mat, depth } => mat,
+            _ => unreachable!(),
+        };
+
+        let elem = context.create_matrix(ir::Matrix {
+            ident,
+            m: input_mat.m,
+            n: input_mat.n,
+            k: input_mat.k,
+            elem: O::as_elem(),
+            layout: MatrixLayout::Undefined,
+        });
+
+        let output = MatrixExpand {
+            ident,
+            elem,
+            _c: PhantomData,
+        };
+        context.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
+
+        output
+    }
+}
+
 impl From<ir::CoopMma> for Operation {
     fn from(value: ir::CoopMma) -> Self {
         Operation::CoopMma(value)
