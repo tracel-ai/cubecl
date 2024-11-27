@@ -164,8 +164,6 @@ macro_rules! impl_test_reduce {
                     test.test_mean_dim_naive::<$float, TestRuntime>(&Default::default());
                 }
 
-                // Fix the line issue in argmax before running the test.
-                #[ignore]
                 #[test]
                 pub fn [< reduce_argmax_dim_naive_ $id >]() {
                     let test = TestCase {
@@ -179,8 +177,6 @@ macro_rules! impl_test_reduce {
                     test.test_argmax_dim_naive::<$float, TestRuntime>(&Default::default());
                 }
 
-                // Fix the line issue in argmin before running the test.
-                #[ignore]
                 #[test]
                 pub fn [< reduce_argmin_dim_naive_ $id >]() {
                     let test = TestCase {
@@ -345,7 +341,7 @@ impl TestCase {
             let (best, _) = expected[output_index];
             let candidate = values[input_index];
             if candidate > best {
-                let coordinate = self.to_input_coordinate(input_index);
+                let coordinate = self.to_input_coordinate(input_index / self.line_size as usize);
                 expected[output_index] = (candidate, coordinate[self.reduce_dim as usize] as u32);
             }
         }
@@ -359,7 +355,7 @@ impl TestCase {
             let (best, _) = expected[output_index];
             let candidate = values[input_index];
             if candidate < best {
-                let coordinate = self.to_input_coordinate(input_index);
+                let coordinate = self.to_input_coordinate(input_index / self.line_size as usize);
                 expected[output_index] = (candidate, coordinate[self.reduce_dim as usize] as u32);
             }
         }

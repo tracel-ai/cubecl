@@ -152,13 +152,19 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
-        // FIX: There is an issue when line_size is 1 on wgpu.
         let (max, index) = accumulator;
-        #[unroll]
-        for k in 0..current_value.size() {
-            if current_value[k] > max[k] {
-                max[k] = current_value[k];
-                index[k] = i;
+        if comptime!(current_value.size() > 1) {
+            #[unroll]
+            for k in 0..current_value.size() {
+                if current_value[k] > max[k] {
+                    max[k] = current_value[k];
+                    index[k] = i;
+                }
+            }
+        } else {
+            if current_value > *max {
+                *max = current_value;
+                *index = Line::new(i);
             }
         }
     }
@@ -187,13 +193,19 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
-        // FIX: There is an issue when line_size is 1 on wgpu.
         let (min, index) = accumulator;
-        #[unroll]
-        for k in 0..current_value.size() {
-            if current_value[k] < min[k] {
-                min[k] = current_value[k];
-                index[k] = i;
+        if comptime!(current_value.size() > 1) {
+            #[unroll]
+            for k in 0..current_value.size() {
+                if current_value[k] < min[k] {
+                    min[k] = current_value[k];
+                    index[k] = i;
+                }
+            }
+        } else {
+            if current_value < *min {
+                *min = current_value;
+                *index = Line::new(i);
             }
         }
     }
@@ -205,9 +217,6 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
         _shape_reduce_dim: u32,
     ) {
         let (_, position) = accumulator;
-        #[unroll]
-        for k in 0..output.line_size() {
-            output[index][k] = EO::cast_from(position[k]);
-        }
+        output[index] = Line::cast_from(position)
     }
 }
