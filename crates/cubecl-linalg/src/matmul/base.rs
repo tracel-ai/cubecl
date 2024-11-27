@@ -59,8 +59,19 @@ pub fn launch_ref<R: Runtime, EG: Float>(
         }
         Strategy::Simple => simple::launch_ref::<R, EG>(client, lhs, rhs, out),
         Strategy::Auto => {
-            if matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false).is_err() {
-                tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, Tiling2dConfig::default())
+            if let Err(err) = matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false) {
+                match err {
+                    super::kernels::MatmulLaunchError::Unavailable(_) => {
+                        tiling2d::launch_ref::<R, EG>(
+                            client,
+                            lhs,
+                            rhs,
+                            out,
+                            Tiling2dConfig::default(),
+                        )
+                    }
+                    _ => panic!("{err:?}"),
+                }
             }
         }
     };
