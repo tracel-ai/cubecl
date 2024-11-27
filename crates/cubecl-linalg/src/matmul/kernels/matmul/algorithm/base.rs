@@ -54,7 +54,7 @@ pub trait Algorithm<EG: Numeric> {
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), String> {
         Self::BatchMatmul::check_availability::<R>(client)
     }
 

@@ -100,7 +100,7 @@ macro_rules! instruction {
 
             fn check_availability<R: Runtime>(
                 client: &ComputeClient<R::Server, R::Channel>,
-            ) -> Result<(), &str> {
+            ) -> Result<(), String> {
                 check_availability::<I, O, R>(Self::M, Self::N, Self::K, client)
             }
 
@@ -232,7 +232,7 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
     n: u32,
     k: u32,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> Result<(), &str> {
+) -> Result<(), String> {
     if !client.properties().feature_enabled(Feature::Cmma {
         a: I::as_elem(),
         b: I::as_elem(),
@@ -241,7 +241,14 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
         k: k as u8,
         n: n as u8,
     }) {
-        return Err("Cmma not supported.");
+        return Err(format!(
+            "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
+            I::as_elem(),
+            O::as_elem(),
+            m,
+            n,
+            k
+        ));
     }
 
     if !(client
@@ -251,7 +258,11 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
             .properties()
             .feature_enabled(Feature::Type(O::as_elem())))
     {
-        return Err("Types not supported.");
+        return Err(format!(
+            "Types {:?} and/or {:?} not supported.",
+            I::as_elem(),
+            O::as_elem()
+        ));
     }
 
     Ok(())

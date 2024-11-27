@@ -361,9 +361,9 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), String> {
         if !client.properties().feature_enabled(Feature::Plane) {
-            return Err("Planes not supported.");
+            return Err("Plane operations not supported.".to_string());
         }
 
         if !(client
@@ -373,7 +373,11 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
                 .properties()
                 .feature_enabled(Feature::Type(O::as_elem())))
         {
-            return Err("Types not supported.");
+            return Err(format!(
+                "Types {:?} and/or {:?} not supported.",
+                I::as_elem(),
+                O::as_elem()
+            ));
         }
 
         Ok(())

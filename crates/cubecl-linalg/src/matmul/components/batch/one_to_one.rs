@@ -65,7 +65,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> Mat
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), String> {
         GMM::check_availability::<R>(client)
     }
 

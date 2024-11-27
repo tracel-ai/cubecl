@@ -152,7 +152,7 @@ where
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), String> {
         SMM::check_availability::<R>(client)
     }
 

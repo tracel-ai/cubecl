@@ -15,7 +15,7 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
     /// Checks if the client can handle the features used in this computation
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str>;
+    ) -> Result<(), String>;
 
     /// Create config for this matmul, given launch information
     fn make_config(
