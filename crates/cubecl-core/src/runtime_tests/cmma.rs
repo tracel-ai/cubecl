@@ -216,8 +216,8 @@ pub fn test_simple_tf32<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
+        a: Elem::Float(FloatKind::TF32),
+        b: Elem::Float(FloatKind::TF32),
         c: Elem::Float(FloatKind::F32),
         m: 16,
         k: 16,
