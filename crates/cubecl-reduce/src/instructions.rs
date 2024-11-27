@@ -1,5 +1,5 @@
-pub struct ArgMax;
-pub struct ArgMin;
-pub struct MeanDim;
-pub struct SumDim;
-pub struct ProdDim;
+pub struct ReduceArgMax;
+pub struct ReduceArgMin;
+pub struct ReduceMean;
+pub struct ReduceSum;
+pub struct ReduceProd;

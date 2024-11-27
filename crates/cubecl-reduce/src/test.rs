@@ -3,16 +3,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::naive::base::{reduce_dim_naive, ReduceDimNaive};
-use crate::{ArgMax, ArgMin, MeanDim, ProdDim, SumDim};
+use crate::{
+    reduce_naive, ReduceArgMax, ReduceArgMin, ReduceNaiveInstruction, ReduceMean, ReduceProd, ReduceSum,
+};
 
 #[cube(launch_unchecked)]
-pub fn naive_reduce_dim_kernel<I: Numeric, O: Numeric, R: ReduceDimNaive<I>>(
+pub fn naive_reduce_dim_kernel<I: Numeric, O: Numeric, R: ReduceNaiveInstruction<I>>(
     input: &Tensor<Line<I>>,
     output: &mut Tensor<Line<O>>,
     dim: u32,
 ) {
-    reduce_dim_naive::<R, I, O>(input, output, dim)
+    reduce_naive::<R, I, O>(input, output, dim)
 }
 
 #[macro_export]
@@ -206,7 +207,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_sum_dim(&input_values);
-        self.run_test::<F, F, R, SumDim>(device, input_values, expected_values)
+        self.run_test::<F, F, R, ReduceSum>(device, input_values, expected_values)
     }
 
     pub fn test_prod_dim_naive<F, R>(&self, device: &R::Device)
@@ -216,7 +217,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_prod_dim(&input_values);
-        self.run_test::<F, F, R, ProdDim>(device, input_values, expected_values)
+        self.run_test::<F, F, R, ReduceProd>(device, input_values, expected_values)
     }
 
     pub fn test_mean_dim_naive<F, R>(&self, device: &R::Device)
@@ -226,7 +227,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_mean_dim(&input_values);
-        self.run_test::<F, F, R, MeanDim>(device, input_values, expected_values)
+        self.run_test::<F, F, R, ReduceMean>(device, input_values, expected_values)
     }
 
     pub fn test_argmax_dim_naive<F, R>(&self, device: &R::Device)
@@ -236,7 +237,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_argmax_dim(&input_values);
-        self.run_test::<F, u32, R, ArgMax>(device, input_values, expected_values)
+        self.run_test::<F, u32, R, ReduceArgMax>(device, input_values, expected_values)
     }
 
     pub fn test_argmin_dim_naive<F, R>(&self, device: &R::Device)
@@ -246,7 +247,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_argmin_dim(&input_values);
-        self.run_test::<F, u32, R, ArgMin>(device, input_values, expected_values)
+        self.run_test::<F, u32, R, ReduceArgMin>(device, input_values, expected_values)
     }
 
     pub fn run_test<I, O, R, K>(
@@ -258,7 +259,7 @@ impl TestCase {
         I: Numeric + CubeElement + std::fmt::Display,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: ReduceDimNaive<I>,
+        K: ReduceNaiveInstruction<I>,
     {
         let client = R::client(device);
 
