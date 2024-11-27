@@ -6,18 +6,21 @@ use crate::MeanDim;
 
 #[cube]
 impl<EI: Numeric> ReduceDimNaive<EI> for MeanDim {
-    type Accumulator = EI;
+    type Accumulator = Line<EI>;
 
-    fn initialize_naive() -> EI {
-        EI::from_int(0)
+    fn initialize_naive(line_size: u32) -> Self::Accumulator {
+        Line::empty(line_size).fill(EI::from_int(0))
     }
 
-    fn inner_loop_naive(accumulator: &mut EI, current_value: EI, _i: u32) {
+    fn inner_loop_naive(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
         *accumulator += current_value;
     }
 
-    fn assign_naive<EO: Numeric>(output: &mut Tensor<EO>, accumulator: EI, shape_reduce_dim: u32) {
-        let mean = accumulator / EI::cast_from(shape_reduce_dim);
-        output[ABSOLUTE_POS] = EO::cast_from(mean);
+    fn assign_naive<EO: Numeric>(
+        output: &mut Tensor<Line<EO>>,
+        accumulator: Self::Accumulator,
+        shape_reduce_dim: u32,
+    ) {
+        output[ABSOLUTE_POS] = Line::cast_from(accumulator / Line::empty(output.line_size()).fill(EI::cast_from(shape_reduce_dim)));
     }
 }

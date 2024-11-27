@@ -8,14 +8,14 @@ pub trait ReduceDimNaive<EI: Numeric>: Send + Sync + 'static {
     type Accumulator: CubeType;
 
     /// Initialization for naive algorithm
-    fn initialize_naive() -> Self::Accumulator;
+    fn initialize_naive(line_size: u32) -> Self::Accumulator;
 
     /// Inner loop for naive algorithm
-    fn inner_loop_naive(accumulator: &mut Self::Accumulator, current_value: EI, i: u32);
+    fn inner_loop_naive(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32);
 
     /// Assignation for naive algorithm
     fn assign_naive<EO: Numeric>(
-        output: &mut Tensor<EO>,
+        output: &mut Tensor<Line<EO>>,
         accumulator: Self::Accumulator,
         shape_reduce_dim: u32,
     );
@@ -23,11 +23,11 @@ pub trait ReduceDimNaive<EI: Numeric>: Send + Sync + 'static {
 
 #[cube]
 pub fn reduce_dim_naive<RD: ReduceDimNaive<EI>, EI: Numeric, EO: Numeric>(
-    input: &Tensor<EI>,
-    output: &mut Tensor<EO>,
+    input: &Tensor<Line<EI>>,
+    output: &mut Tensor<Line<EO>>,
     dim: u32,
 ) {
-    if ABSOLUTE_POS >= output.len() {
+    if ABSOLUTE_POS >= output.len() * output.line_size() {
         return;
     };
 
@@ -41,7 +41,7 @@ pub fn reduce_dim_naive<RD: ReduceDimNaive<EI>, EI: Numeric, EO: Numeric>(
         }
     }
 
-    let mut accumulator = RD::initialize_naive();
+    let mut accumulator = RD::initialize_naive(input.line_size());
 
     for i in 0..input.shape(dim) {
         let index = i * input.stride(dim) + offset_input;

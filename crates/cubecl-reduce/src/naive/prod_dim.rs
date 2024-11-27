@@ -1,5 +1,5 @@
-use cubecl_core::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
 
 use crate::ProdDim;
 
@@ -7,17 +7,21 @@ use super::base::ReduceDimNaive;
 
 #[cube]
 impl<EI: Numeric> ReduceDimNaive<EI> for ProdDim {
-    type Accumulator = EI;
+    type Accumulator = Line<EI>;
 
-    fn initialize_naive() -> EI {
-        EI::from_int(1)
+    fn initialize_naive(line_size: u32) -> Line<EI> {
+        Line::empty(line_size).fill(EI::from_int(1))
     }
 
-    fn inner_loop_naive(accumulator: &mut EI, current_value: EI, _i: u32) {
+    fn inner_loop_naive(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
         *accumulator *= current_value;
     }
 
-    fn assign_naive<EO: Numeric>(output: &mut Tensor<EO>, accumulator: EI, _shape_reduce_dim: u32) {
-        output[ABSOLUTE_POS] = EO::cast_from(accumulator);
+    fn assign_naive<EO: Numeric>(
+        output: &mut Tensor<Line<EO>>,
+        accumulator: Self::Accumulator,
+        _shape_reduce_dim: u32,
+    ) {
+        output[ABSOLUTE_POS] = Line::cast_from(accumulator);
     }
 }
