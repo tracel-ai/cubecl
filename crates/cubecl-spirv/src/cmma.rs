@@ -32,7 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 layout,
                 ..
             } => self.compile_store(mat, out, stride, layout),
-            CoopMma::Cast { input } => self.compile_cast(out, input),
+            CoopMma::Cast { input } => self.compile_cast(input, out),
         }
     }
 
@@ -151,11 +151,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let input = self.matrix_var(&input).2;
         let output = self.matrix_var(&output).2;
 
-        let result_ty = self.item(&input);
-        let ty = result_ty.id(self);
-        let fragment_id = self.load(ty, None, input.id, None, vec![]).unwrap();
+        let input_ty = self.item(&input).id(self);
+        let output_ty = self.item(&output).id(self);
 
-        let frag_new = self.f_convert(ty, None, fragment_id).unwrap();
+        let fragment_id = self.load(input_ty, None, input.id, None, vec![]).unwrap();
+
+        let frag_new = self.f_convert(output_ty, None, fragment_id).unwrap();
 
         self.store(output.id, frag_new, None, vec![]).unwrap();
     }
