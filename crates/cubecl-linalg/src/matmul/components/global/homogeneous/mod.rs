@@ -4,5 +4,6 @@ mod loader;
 mod tilewise_loading;
 
 pub use base::*;
-pub use cyclic_loading::CyclicLoading;
-pub use tilewise_loading::TilewiseLoading;
+pub use cyclic_loading::*;
+pub use loader::*;
+pub use tilewise_loading::*;

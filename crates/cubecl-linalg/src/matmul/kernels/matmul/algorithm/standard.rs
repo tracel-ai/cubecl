@@ -43,6 +43,7 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric, Stage: StageSize, TMM: tile::Matmul<
     type GlobalMatmul = global::homogeneous::Matmul<
         Self::EG,
         Self::ES,
+        Self::EA,
         Self::StageMatmul,
         global::homogeneous::CyclicLoading,
         global::homogeneous::CyclicLoading,
