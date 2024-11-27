@@ -11,29 +11,32 @@ use crate::matmul::components::{MatmulLaunch, MatmulProblem};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 use super::algorithm::{CmmaSelector, PlaneMmaSelector};
-use super::cmma::Cmma;
 use super::config::AdvancedConfig;
 use super::Algorithm;
 
 /// Launch a matrix multiplication kernel.
 ///
-/// Cmma will be used if available and enabled,
-/// otherwise it will fall back on a non-cmma implementation
+/// Cmma will be used if enabled
+/// Will fail if unavailable
 pub fn launch<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG>,
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
     disable_cmma: bool,
-) -> TensorHandle<R, EG> {
-    launch_ref::<R, EG>(
+) -> Result<TensorHandle<R, EG>, String> {
+    let result = launch_ref::<R, EG>(
         client,
         lhs.as_ref(),
         rhs.as_ref(),
         out.as_ref(),
-        disable_cmma || Cmma::<EG>::check_availability::<R>(client).is_err(),
+        disable_cmma,
     );
-    out
+
+    match result {
+        Ok(_) => Ok(out),
+        Err(e) => Err(e),
+    }
 }
 
 /// Launch a matrix multiplication kernel.
@@ -46,7 +49,7 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
     disable_cmma: bool,
-) {
+) -> Result<(), String> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),
         MatrixLayout::MildlyPermuted {
@@ -102,7 +105,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     out: TensorHandleRef<'_, R>,
     transposed: (bool, bool),
     disable_cmma: bool,
-) {
+) -> Result<(), String> {
     let rank = lhs.strides.len();
 
     let m = lhs.shape[rank - 2] as u32;
@@ -138,10 +141,21 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         out_line_size,
     };
 
+    matmul_select_kernel::<R, EG>(client, lhs, rhs, out, problem, disable_cmma)
+}
+
+fn matmul_select_kernel<R: Runtime, EG: Numeric>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: TensorHandleRef<'_, R>,
+    rhs: TensorHandleRef<'_, R>,
+    out: TensorHandleRef<'_, R>,
+    problem: MatmulProblem,
+    disable_cmma: bool,
+) -> Result<(), String> {
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem);
+        PlaneMmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem)
     } else {
-        CmmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem);
+        CmmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem)
     }
 }
 
@@ -151,15 +165,14 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
     rhs: TensorHandleRef<'_, R>,
     out: TensorHandleRef<'_, R>,
     problem: MatmulProblem,
-) {
+) -> Result<(), String> {
+    if let Err(e) = D::check_availability::<R>(client) {
+        return Err(e.to_string());
+    }
+
     let cube_dim = D::cube_dim();
     let cube_count = D::cube_count(&problem);
-
-    let advanced_config = AdvancedConfig {
-        lhs_tiling_order: matmul::components::stage::TilingOrderConfig::ColMajor,
-        rhs_tiling_order: matmul::components::stage::TilingOrderConfig::RowMajor,
-        enforced_tile_layout: (None, None),
-    };
+    let advanced_config = D::advanced_config();
 
     launch_matmul::<R, EG, D>(
         client,
@@ -171,6 +184,8 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
         cube_count,
         advanced_config,
     );
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
