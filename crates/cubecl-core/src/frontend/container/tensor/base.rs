@@ -18,7 +18,10 @@ pub struct Tensor<T: CubeType> {
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
     use super::*;
-    use crate::{ir::Instruction, prelude::Array};
+    use crate::{
+        ir::{BinaryOperator, Instruction, Operator},
+        prelude::Array,
+    };
 
     impl<T: CubeType> Tensor<T> {
         /// Obtain the stride of input at dimension dim
@@ -28,6 +31,11 @@ mod metadata {
 
         /// Obtain the shape of input at dimension dim
         pub fn shape<C: Index>(&self, _dim: C) -> u32 {
+            unexpanded!()
+        }
+
+        /// Obtain the coordinate corresponding to the given `index` of input at dimension `dim`.
+        pub fn coordinate<I: Index, D: Index>(&self, _index: I, _dim: D) -> u32 {
             unexpanded!()
         }
 
@@ -74,6 +82,16 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_shape_method(context, dim)
+        }
+
+        // Expand function of [coordinate](Tensor::coordinate).
+        pub fn __expand_coordinate<I: Index, D: Index>(
+            context: &mut CubeContext,
+            expand: ExpandElementTyped<Tensor<T>>,
+            index: ExpandElementTyped<u32>,
+            dim: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<u32> {
+            expand.__expand_coordinate_method(context, index, dim)
         }
 
         // Expand function of [len](Tensor::len).
@@ -136,6 +154,40 @@ mod metadata {
                 out.clone().into(),
             ));
             out.into()
+        }
+
+        // Expand method of [coordinate](Tensor::coordinate).
+        pub fn __expand_coordinate_method(
+            self,
+            context: &mut CubeContext,
+            index: ExpandElementTyped<u32>,
+            dim: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<u32> {
+            let index: ExpandElement = index.into();
+            let stride = self.clone().__expand_stride_method(context, dim.clone());
+            let shape = self.clone().__expand_shape_method(context, dim.clone());
+
+            // Compute `num_strides = index / stride`.
+            let num_strides = context.create_local_binding(Item::new(u32::as_elem()));
+            context.register(Instruction::new(
+                Operator::Div(BinaryOperator {
+                    lhs: *index,
+                    rhs: stride.expand.into(),
+                }),
+                num_strides.clone().into(),
+            ));
+
+            // Compute `coordinate = num_strides % shape `.
+            let coordinate = context.create_local_binding(Item::new(u32::as_elem()));
+            context.register(Instruction::new(
+                Operator::Modulo(BinaryOperator {
+                    lhs: *index,
+                    rhs: shape.expand.into(),
+                }),
+                coordinate.clone().into(),
+            ));
+
+            coordinate.into()
         }
 
         // Expand method of [len](Tensor::len).
