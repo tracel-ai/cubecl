@@ -51,6 +51,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -117,6 +118,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -175,8 +177,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x3,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -238,6 +244,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -296,8 +303,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S4x4x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -355,8 +366,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x2x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -415,8 +430,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S2x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -475,8 +494,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -535,8 +558,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::producer_consumer::Matmul<Self::EG, Self::ES, Self::StageMatmul>;
+                type GlobalMatmul = global::producer_consumer::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -598,6 +625,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -660,6 +688,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -722,6 +751,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -784,6 +814,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -846,6 +877,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -908,6 +940,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -970,6 +1003,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1032,6 +1066,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1094,6 +1129,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1156,6 +1192,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1218,6 +1255,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1280,6 +1318,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1340,6 +1379,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1399,6 +1439,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1458,6 +1499,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1517,6 +1559,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1576,6 +1619,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1635,6 +1679,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1699,6 +1744,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1763,6 +1809,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1822,6 +1869,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1881,6 +1929,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1940,6 +1989,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -1999,6 +2049,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2058,6 +2109,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2117,6 +2169,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2176,6 +2229,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2235,6 +2289,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2294,6 +2349,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2353,6 +2409,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2412,6 +2469,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2471,6 +2529,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2530,6 +2589,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2593,6 +2653,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2655,6 +2716,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2717,6 +2779,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2779,6 +2842,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2841,6 +2905,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2903,6 +2968,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -2965,6 +3031,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3027,6 +3094,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3089,6 +3157,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3151,6 +3220,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3213,6 +3283,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3275,6 +3346,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3334,6 +3406,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3393,6 +3466,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3452,6 +3526,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3511,6 +3586,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3570,6 +3646,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3629,6 +3706,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3688,6 +3766,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3747,6 +3826,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3806,6 +3886,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3865,6 +3946,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3928,6 +4010,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -3987,6 +4070,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4046,6 +4130,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4105,6 +4190,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4164,6 +4250,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4223,6 +4310,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4282,6 +4370,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4341,6 +4430,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4400,6 +4490,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4459,6 +4550,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4518,6 +4610,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4577,6 +4670,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4636,6 +4730,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4695,6 +4790,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4754,6 +4850,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4813,6 +4910,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::CyclicLoading,
@@ -4872,6 +4970,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::TilewiseLoading,
                     global::homogeneous::CyclicLoading,
@@ -4931,6 +5030,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::CyclicLoading,
                     global::homogeneous::TilewiseLoading,
@@ -4990,6 +5090,7 @@ macro_rules! matmul_test_define {
                 type GlobalMatmul = global::homogeneous::Matmul<
                     Self::EG,
                     Self::ES,
+                    Self::EA,
                     Self::StageMatmul,
                     global::homogeneous::TilewiseLoading,
                     global::homogeneous::TilewiseLoading,

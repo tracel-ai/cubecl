@@ -33,6 +33,7 @@ impl<EG: Numeric> base::Algorithm<EG> for Cmma<EG> {
     type GlobalMatmul = global::homogeneous::Matmul<
         Self::EG,
         Self::ES,
+        Self::EA,
         Self::StageMatmul,
         global::homogeneous::CyclicLoading,
         global::homogeneous::CyclicLoading,
