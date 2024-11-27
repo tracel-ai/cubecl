@@ -148,39 +148,40 @@ fn find_stage_size_m_n(
     instruction_m: usize,
     instruction_n: usize,
 ) -> usize {
-    let mut stage_num_tiles = max_tensor_cores;
+    let mut dim_num_tiles = max_tensor_cores;
 
     let total_tiles_m = (m + instruction_m - 1) / instruction_m;
     let total_tiles_n = (n + instruction_n - 1) / instruction_n;
 
     let total_tiles = total_tiles_m * total_tiles_n * num_batches;
 
-    let mut tiles_squared = stage_num_tiles * stage_num_tiles;
-    let mut num_cubes_expected = (total_tiles + tiles_squared - 1) / tiles_squared;
+    let mut stage_num_tiles = dim_num_tiles * dim_num_tiles;
+    let mut num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
 
-    // Keep track of the previous configuration
-    let mut previous_stage_num_tiles = stage_num_tiles;
+    // We keep track of two configurations to select the closest to `num_sm`, whether it's a bit over or under
+    let mut previous_dim_num_tiles = dim_num_tiles;
     let mut previous_num_cubes = num_cubes_expected;
 
     // Refine tensor core usage to stay as close as possible to `num_sm`
-    while num_cubes_expected > num_sm {
-        // Update previous values
-        previous_stage_num_tiles = stage_num_tiles;
+    while num_cubes_expected < num_sm {
+        previous_dim_num_tiles = dim_num_tiles;
         previous_num_cubes = num_cubes_expected;
 
         // Reduce tensor core usage
-        stage_num_tiles = (stage_num_tiles + 1) / 2;
-        tiles_squared = stage_num_tiles * stage_num_tiles;
-        num_cubes_expected = (total_tiles + tiles_squared - 1) / tiles_squared;
+        dim_num_tiles = (dim_num_tiles + 1) / 2;
+        stage_num_tiles = dim_num_tiles * dim_num_tiles;
+
+        // Number of cubes grows as a consequence of smaller stage
+        num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
     }
 
     // Compare previous and current values to determine the closest to `num_sm`
     if (previous_num_cubes as isize - num_sm as isize).abs()
         <= (num_cubes_expected as isize - num_sm as isize).abs()
     {
-        previous_stage_num_tiles
+        previous_dim_num_tiles
     } else {
-        stage_num_tiles
+        dim_num_tiles
     }
 }
 
