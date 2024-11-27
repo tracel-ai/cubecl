@@ -151,9 +151,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let input = self.matrix_var(&input).2;
         let output = self.matrix_var(&output).2;
 
-        let result_ty = self.item(&output);
+        let result_ty = self.item(&input);
         let ty = result_ty.id(self);
         let fragment_id = self.load(ty, None, input.id, None, vec![]).unwrap();
+
         let frag_new = self.f_convert(ty, None, fragment_id).unwrap();
 
         self.store(output.id, frag_new, None, vec![]).unwrap();

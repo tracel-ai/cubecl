@@ -179,11 +179,11 @@ pub fn test_cmma_cast_acc<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::TF32),
-        b: Elem::Float(FloatKind::TF32),
+        a: Elem::Float(FloatKind::F16),
+        b: Elem::Float(FloatKind::F16),
         c: Elem::Float(FloatKind::F32),
         m: 16,
-        k: 8,
+        k: 16,
         n: 16,
     }) {
         // We can't execute the test, skip.
