@@ -6,4 +6,3 @@ pub mod test;
 
 pub use instructions::*;
 pub use naive::*;
-
