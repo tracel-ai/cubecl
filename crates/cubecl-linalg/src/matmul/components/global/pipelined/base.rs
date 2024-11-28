@@ -83,8 +83,10 @@ where
 
         ///////////////
         // Load A
-        let lhs_buffer_reader_a = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        let rhs_buffer_reader_a = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader);
+        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader);
         sync_units();
 
         ///////////////
@@ -99,8 +101,10 @@ where
         );
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
         Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-        let lhs_buffer_reader_b = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        let rhs_buffer_reader_b = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader);
+        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader);
         sync_units();
 
         for _ in 0..num_loops {
@@ -116,8 +120,8 @@ where
             );
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-            let lhs_buffer_reader_a = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_buffer_reader_a = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
             sync_units();
 
             ///////////////
@@ -132,8 +136,8 @@ where
             );
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-            let lhs_buffer_reader_b = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_buffer_reader_b = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
             sync_units();
         }
 

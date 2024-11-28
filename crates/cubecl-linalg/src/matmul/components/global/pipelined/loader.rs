@@ -37,7 +37,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
 {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) -> Self::StageReader {
+    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -45,7 +45,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
             Ident::Lhs,
             config,
         );
+    }
 
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsBufferReader::<ES> {
             stage: this.stage,
             buffer: this.buffer_iter,
@@ -86,7 +88,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
 {
     type StageReader = RhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) -> Self::StageReader {
+    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -94,7 +96,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
             Ident::Rhs,
             config,
         );
+    }
 
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsBufferReader::<ES> {
             stage: this.stage,
             buffer: this.buffer_iter,

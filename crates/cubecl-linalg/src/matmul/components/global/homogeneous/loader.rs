@@ -31,16 +31,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 {
     type StageReader = LhsReader<ES>;
 
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] config: homogeneous::Config<S>,
-    ) -> Self::StageReader {
+    fn fill_stage(this: &mut Self, #[comptime] config: homogeneous::Config<S>) {
         L::load_to_slice::<EG, ES, homogeneous::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Lhs,
             config,
         );
+    }
+
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
 
@@ -76,16 +76,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 {
     type StageReader = RhsReader<ES>;
 
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] config: homogeneous::Config<S>,
-    ) -> Self::StageReader {
+    fn fill_stage(this: &mut Self, #[comptime] config: homogeneous::Config<S>) {
         L::load_to_slice::<EG, ES, homogeneous::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Rhs,
             config,
         );
+    }
+
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
     }
 

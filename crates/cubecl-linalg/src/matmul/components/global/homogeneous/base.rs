@@ -70,8 +70,10 @@ where
         for _ in 0..num_loops {
             sync_units();
 
-            let lhs_stage_reader = &Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = &Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             sync_units();
 

@@ -90,8 +90,11 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
-    /// Fills the stage at the current k offset and returns a reader for it.
-    fn fill_stage(this: &mut Self, #[comptime] config: G) -> Self::StageReader;
+    /// Fills the stage at the current k offset.
+    fn fill_stage(this: &mut Self, #[comptime] config: G);
+
+    /// Returns a reader for the stage at the current k offset
+    fn as_stage_reader(this: &Self) -> Self::StageReader;
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
