@@ -76,19 +76,25 @@ macro_rules! testgen_line {
         #[test]
         fn test_line_greater_than() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::line::test_line_greater_than::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::line::test_line_greater_than::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
         fn test_line_less_equal() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::line::test_line_less_equal::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::line::test_line_less_equal::<TestRuntime, FloatType>(
+                client,
+            );
         }
 
         #[test]
         fn test_line_greater_equal() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::line::test_line_greater_equal::<TestRuntime, FloatType>(client);
+            cubecl_core::runtime_tests::line::test_line_greater_equal::<TestRuntime, FloatType>(
+                client,
+            );
         }
     };
 }
