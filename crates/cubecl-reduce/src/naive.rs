@@ -50,7 +50,7 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
     // in the input tensor.
     let mut offset_input = 0;
     for axis in 0..input.rank() {
-        let coordinate = (ABSOLUTE_POS / output.stride(axis)) % output.shape(axis);
+        let coordinate = output.coordinate(ABSOLUTE_POS, axis);
         offset_input += coordinate * input.stride(axis);
     }
 
