@@ -181,7 +181,7 @@ mod metadata {
             let coordinate = context.create_local_binding(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Operator::Modulo(BinaryOperator {
-                    lhs: *index,
+                    lhs: *num_strides,
                     rhs: shape.expand.into(),
                 }),
                 coordinate.clone().into(),
