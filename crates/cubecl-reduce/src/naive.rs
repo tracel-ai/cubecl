@@ -153,6 +153,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
 
     fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
         let (max, index) = accumulator;
+        #[allow(clippy::collapsible_else_if)]
         if comptime!(current_value.size() > 1) {
             #[unroll]
             for k in 0..current_value.size() {
@@ -194,6 +195,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
 
     fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
         let (min, index) = accumulator;
+        #[allow(clippy::collapsible_else_if)]
         if comptime!(current_value.size() > 1) {
             #[unroll]
             for k in 0..current_value.size() {
