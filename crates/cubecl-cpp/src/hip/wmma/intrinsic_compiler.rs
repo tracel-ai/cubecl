@@ -18,9 +18,11 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     }
 
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("typedef _Float16 half8 __attribute__((ext_vector_type(8)));\n")?;
-        f.write_str("typedef _Float16 half16 __attribute__((ext_vector_type(16)));\n")?;
-        f.write_str("typedef float float8 __attribute__((ext_vector_type(8)));\n")
+        f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
+        f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+        f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
+        f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
     fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -51,10 +53,16 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match fragment.ident {
-            FragmentIdent::A | FragmentIdent::B => write!(f, "half16"),
+            FragmentIdent::A | FragmentIdent::B => match fragment.elem {
+                Elem::F16 => write!(f, "half16_t"),
+                Elem::BF16 => write!(f, "bhalf16_t"),
+                other => panic!("unsupported type {other} for {fragment}"),
+            }
             FragmentIdent::Accumulator => match fragment.elem {
-                Elem::F16 => write!(f, "half8"),
-                _ => write!(f, "float8"),
+                Elem::F16 => write!(f, "half16_t"),
+                Elem::BF16 => write!(f, "bhalf16_t"),
+                Elem::F32 => write!(f, "float8_t"),
+                other => panic!("unsupported type {other} for {fragment}"),
             },
             FragmentIdent::_Dialect(_) => Ok(()),
         }
