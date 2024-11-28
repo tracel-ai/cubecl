@@ -218,7 +218,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                             Elem::F16 | Elem::BF16 if inner.ident == FragmentIdent::A || inner.ident == FragmentIdent::B   => "elemIdx * 2",
                             Elem::F16 | Elem::BF16 if inner.ident == FragmentIdent::Accumulator  => "elemIdx",
                             Elem::F32 => "elemIdx",
-                            other => panic!("C fragment format can be {other}. Only f16, bf16 and f32 are supported."),
+                            other => panic!("C fragment format cannot be {other}. Only f16, bf16 and f32 are supported."),
                         }
                     },
                     other => panic!("{frag} is not a WMMA fragment (it is a {other})!")
