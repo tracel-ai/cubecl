@@ -334,8 +334,8 @@ fn get_output_accumulator_index_step(
     output: &Fragment<HipDialect<WmmaIntrinsicCompiler>>,
 ) -> u32 {
     // Each VGPR is 32 bit wide and there is 8 VGPR per lane, an accumulator can then be either:
-    // - a vector of 8 floats
-    // - a vector of 16 halfs
+    // - a vector of 8 float
+    // - a vector of 16 half
     // Depending on the precision used for the input, the whole 32 bits per register will be used or
     // just only 16 bits. In such a case we always use the lower 16 bits (opsel set to false) which means
     // that we only assign values to even indexes of the accumulator (0, 2, 4, ...)
