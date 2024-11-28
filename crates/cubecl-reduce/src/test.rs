@@ -295,10 +295,10 @@ impl TestCase {
             naive_reduce_dim_kernel::launch_unchecked::<I, O, K, R>(
                 &client,
                 self.cube_count.clone(),
-                self.cube_dim.clone(),
+                self.cube_dim,
                 input_tensor,
                 output_tensor,
-                ScalarArg::new(self.reduce_dim.clone()),
+                ScalarArg::new(self.reduce_dim),
             );
         }
 
