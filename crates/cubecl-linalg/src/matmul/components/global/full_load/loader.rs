@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::homogeneous;
+use crate::matmul::components::global::full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
@@ -27,20 +27,20 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrat
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, homogeneous::Config<S>> for LhsLoader<EG, ES, S, L>
+    Loader<EG, ES, full_load::Config<S>> for LhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES>;
 
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] config: homogeneous::Config<S>,
-    ) -> Self::StageReader {
-        L::load_to_slice::<EG, ES, homogeneous::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
+        L::load_to_slice::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Lhs,
             config,
         );
+    }
+
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
 
@@ -72,20 +72,20 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> LhsLoader<E
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, homogeneous::Config<S>> for RhsLoader<EG, ES, S, L>
+    Loader<EG, ES, full_load::Config<S>> for RhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES>;
 
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] config: homogeneous::Config<S>,
-    ) -> Self::StageReader {
-        L::load_to_slice::<EG, ES, homogeneous::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
+        L::load_to_slice::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Rhs,
             config,
         );
+    }
+
+    fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
     }
 

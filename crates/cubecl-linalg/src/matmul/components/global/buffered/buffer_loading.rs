@@ -1,37 +1,43 @@
 use crate::matmul::components::config::InputIdent;
+use crate::matmul::components::global;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{producer_consumer, Config as _};
-use crate::matmul::components::{stage, Ident};
+use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes,
+/// Loads the content of tiles from one buffer in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct BufferLoading {}
 
 #[cube]
 impl BufferLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, S: stage::Config>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
         buffer_slice: &mut SliceMut<Line<ES>>,
+        #[comptime] num_producer_planes: u32,
+        #[comptime] producer_plane_offset: u32,
         #[comptime] ident: Ident,
-        #[comptime] config: producer_consumer::Config<S>,
+        #[comptime] config: G,
     ) {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
         let num_buffer_elements = stage_dim.buffer_num_elements();
 
-        let num_planes = config.num_producers();
-        let total_units = comptime!(num_planes * config.plane_dim());
+        let total_units = comptime!(num_producer_planes * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        let plane_id = UNIT_POS_Y - config.num_consumers();
+        let plane_id = if comptime!(producer_plane_offset > 0) {
+            UNIT_POS_Y - producer_plane_offset
+        } else {
+            UNIT_POS_Y
+        };
+
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
@@ -44,13 +50,8 @@ impl BufferLoading {
 
             let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
 
-            let line_read = read_view.load_coalesced::<producer_consumer::Config<S>>(
-                tile_x,
-                tile_y,
-                pos_within_tile,
-                ident,
-                config,
-            );
+            let line_read =
+                read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             match config.transpose_load(ident) {
                 false => {
@@ -80,7 +81,7 @@ fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
 }
 
 fn unsupported_transpose_load() {
-    panic!("Transpose load not yet supported in producer consumer setup")
+    panic!("Transpose load not yet supported in buffered setup")
 }
 
 fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {

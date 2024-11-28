@@ -1,7 +1,7 @@
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
@@ -15,36 +15,39 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
 
-/// Performs matrix multiplication at the global level, with planes split between two roles:
-/// - First n planes are used in the stage matmul computation, with n the number of planes needed by the underlying stage matmul
-/// - Remaining planes load data to the stage
-///
-/// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>> {
+/// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
+/// - All planes load data to the stage
+/// - All planes are used in the stage matmul computation
+pub struct Matmul<
+    EG: Numeric,
+    ES: Numeric,
+    EA: Numeric,
+    SMM: stage::Matmul<ES, EG, EA>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
+> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
-    _acc: PhantomData<Acc>,
+    _acc: PhantomData<EA>,
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<EG, ES, Acc, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, Acc, SMM>
+impl<EG, ES, EA, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
-    Acc: Numeric,
-    SMM: stage::Matmul<
-        ES,
-        EG,
-        Acc,
-        LhsReader = LhsBufferReader<ES>,
-        RhsReader = RhsBufferReader<ES>,
-    >,
+    EA: Numeric,
+    SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
-    type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsLoader<EG, ES, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<EG, ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
@@ -57,49 +60,44 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let is_consumer = Self::is_consumer(config);
-
-        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y_dim();
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
-        let k_step = num_buffers * buffer_step; // equal to SMM::K
-
+        let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
-        let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages * num_buffers;
-
-        SMM::zero_accumulator(acc, config.to_smm_config());
+        let num_loops = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            sync_units();
+
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             sync_units();
 
-            if is_consumer {
-                SMM::execute(
-                    &lhs_stage_reader,
-                    &rhs_stage_reader,
-                    &mut lhs_tile,
-                    &mut rhs_tile,
-                    acc,
-                    config.to_smm_config(),
-                );
-            }
-
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-        }
-
-        if is_consumer {
-            SMM::read_accumulator::<Self::Out, Self::Config>(
+            SMM::execute(
+                lhs_stage_reader,
+                rhs_stage_reader,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
-                &mut out_unloader,
                 config.to_smm_config(),
-                config,
             );
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
+
+        sync_units();
+
+        SMM::read_accumulator::<Self::Out, Self::Config>(
+            acc,
+            &mut out_unloader,
+            config.to_smm_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
@@ -109,14 +107,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -126,14 +117,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(
@@ -154,30 +138,18 @@ where
     }
 }
 
-#[cube]
-impl<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>>
-    Matmul<EG, ES, Acc, SMM>
-{
-    fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
-        UNIT_POS_Y < config.num_consumers()
-    }
-}
-
-impl<EG, ES, Acc, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, Acc, SMM>
+impl<EG, ES, EA, SMM, LL, RL> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
-    Acc: Numeric,
-    SMM: stage::Matmul<ES, EG, Acc>,
+    EA: Numeric,
+    SMM: stage::Matmul<ES, EG, EA>,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
 {
     type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
-        assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
-            "Producer-consumer needs at least 2 buffers."
-        );
         SMM::check_config(config.to_smm_config());
     }
 
@@ -205,13 +177,12 @@ where
             problem.lhs_line_size as u32,
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
-            cube_dim.y,
         )
     }
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the HomogeneousGlobalMatmul
+/// Configuration for the full load matmul
 pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
@@ -222,7 +193,6 @@ pub struct Config<S: stage::Config> {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
-    num_planes: u32,
 }
 
 impl<S: stage::Config> global::Config for Config<S> {
@@ -257,7 +227,7 @@ impl<S: stage::Config> global::Config for Config<S> {
     }
 
     fn num_planes(&self) -> u32 {
-        self.num_planes
+        self.smm_config.num_planes()
     }
 
     fn plane_dim(&self) -> u32 {
@@ -299,7 +269,6 @@ impl<S: stage::Config> Config<S> {
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
-        num_planes: u32,
     ) -> Self {
         Self {
             smm_config,
@@ -311,19 +280,6 @@ impl<S: stage::Config> Config<S> {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
-            num_planes,
         }
-    }
-
-    pub fn num_producers(&self) -> u32 {
-        assert!(
-            self.num_consumers() <= self.num_planes(),
-            "Producer consumer's underlying matmul consumes more planes than available"
-        );
-        self.num_planes() - self.num_consumers()
-    }
-
-    pub fn num_consumers(&self) -> u32 {
-        self.smm_config.num_planes()
     }
 }
