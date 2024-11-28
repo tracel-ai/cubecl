@@ -20,12 +20,12 @@ macro_rules! matmul_test_define {
         $plane_dim:expr
     ) => {
         #[test]
-        pub fn bo1_gpl64x64x256_s4x4x2_t16x16x16_rr_ln4() {
+        pub fn bo4_gpl256x256x256_s4x4x2_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
-                m: 64,
-                n: 64,
+                m: 256,
+                n: 256,
                 k: 256,
-                batches: (vec![], vec![]),
+                batches: (vec![4], vec![4]),
                 lhs_layout: MatrixLayout::RowMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -62,7 +62,7 @@ macro_rules! matmul_test_define {
                 }
 
                 fn cube_count(_problem: &MatmulProblem) -> CubeCount {
-                    CubeCount::Static(1, 1, 1)
+                    CubeCount::Static(4, 4, 4)
                 }
 
                 fn advanced_config() -> AdvancedConfig {
