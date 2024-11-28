@@ -27,7 +27,7 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server, R::Ch
     let output_size = shape.len() * input_size;
 
     // The result is independant of the line size
-    for line_size in [1, 2, 4] {
+    for &line_size in R::supported_line_sizes() {
         let output = client.empty(core::mem::size_of::<u32>() * output_size);
         unsafe {
             tensor_coordinate::launch::<R>(
