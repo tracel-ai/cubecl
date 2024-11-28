@@ -5,7 +5,7 @@ use cubecl_core::{
 use half::{bf16, f16};
 use std::fmt::Display;
 
-use super::{Dialect, Fragment, COUNTER_TMP_VAR};
+use super::{Dialect, Fragment, FragmentIdent, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem<D: Dialect> {
@@ -290,9 +290,17 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::ThreadIdxWarp => f.write_str("threadIdxGlobal % warpSize"),
             Variable::WmmaFragment {
                 id: index,
-                frag: _,
+                frag,
                 depth,
-            } => write!(f, "frag_{index}_{depth}"),
+            } => {
+                let name = match frag.ident {
+                    FragmentIdent::A => "a",
+                    FragmentIdent::B => "b",
+                    FragmentIdent::Accumulator => "acc",
+                    FragmentIdent::_Dialect(_) => "",
+                };
+                write!(f, "frag_{name}_{index}_{depth}")
+            },
             Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
             Self::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }
