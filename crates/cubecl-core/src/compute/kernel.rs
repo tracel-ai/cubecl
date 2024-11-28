@@ -7,7 +7,6 @@ use cubecl_runtime::ExecutionMode;
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
     /// The name of the kernel entrypoint.
-
     /// For example
     ///
     /// ```text
