@@ -55,7 +55,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let shift = stride_item.const_u32(self, line_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
-                .shift_left_logical(stride_ty, None, stride, shift)
+                .shift_right_logical(stride_ty, None, stride, shift)
                 .unwrap();
         }
 
@@ -121,7 +121,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let shift = stride_item.const_u32(self, line_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
-                .shift_left_logical(stride_ty, None, stride, shift)
+                .shift_right_logical(stride_ty, None, stride, shift)
                 .unwrap();
         }
 

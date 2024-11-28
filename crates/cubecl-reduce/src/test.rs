@@ -295,10 +295,10 @@ impl TestCase {
             naive_reduce_dim_kernel::launch_unchecked::<I, O, K, R>(
                 &client,
                 self.cube_count.clone(),
-                self.cube_dim.clone(),
+                self.cube_dim,
                 input_tensor,
                 output_tensor,
-                ScalarArg::new(self.reduce_dim.clone()),
+                ScalarArg::new(self.reduce_dim),
             );
         }
 
@@ -311,6 +311,7 @@ impl TestCase {
 
     fn cpu_sum_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
         let mut expected = vec![F::new(0.0); self.num_output_values()];
+        #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
             let output_index = self.to_output_index(input_index);
             expected[output_index] += values[input_index];
@@ -320,6 +321,7 @@ impl TestCase {
 
     fn cpu_prod_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
         let mut expected = vec![F::new(1.0); self.num_output_values()];
+        #[allow(clippy::needless_range_loop)]
         for value_index in 0..values.len() {
             let output_index = self.to_output_index(value_index);
             expected[output_index] *= values[value_index];
@@ -336,6 +338,7 @@ impl TestCase {
 
     fn cpu_argmax_dim<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::MIN, 0_u32); self.num_output_values()];
+        #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
             let output_index = self.to_output_index(input_index);
             let (best, _) = expected[output_index];
@@ -350,6 +353,7 @@ impl TestCase {
 
     fn cpu_argmin_dim<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::MAX, 0_u32); self.num_output_values()];
+        #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
             let output_index = self.to_output_index(input_index);
             let (best, _) = expected[output_index];
@@ -382,6 +386,7 @@ impl TestCase {
             .collect()
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_output_coordinate(&self, coordinate: Vec<usize>) -> usize {
         coordinate
             .into_iter()

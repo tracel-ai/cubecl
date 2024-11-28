@@ -16,6 +16,7 @@ pub trait CmmaValid<I: Numeric, O: Numeric> {}
 impl CmmaValid<f16, f16> for (f16, f16) {}
 impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}
+impl CmmaValid<tf32, f32> for (tf32, f32) {}
 
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
