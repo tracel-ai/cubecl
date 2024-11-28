@@ -280,7 +280,7 @@ pub fn test_simple_tf32<R: Runtime>(
         b: Elem::Float(FloatKind::TF32),
         c: Elem::Float(FloatKind::F32),
         m: 16,
-        k: 16,
+        k: 8,
         n: 16,
     }) {
         // We can't execute the test, skip.

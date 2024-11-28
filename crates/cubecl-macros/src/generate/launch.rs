@@ -69,7 +69,7 @@ impl Launch {
                     #(#args),*
                 ) -> () {
                     #body
-                    launcher.launch(__cube_count, kernel, __client);
+                    launcher.launch(__cube_count, __kernel, __client);
                 }
             }
         } else {
@@ -101,7 +101,7 @@ impl Launch {
                     #(#args),*
                 ) -> () {
                     #body
-                    launcher.launch_unchecked(__cube_count, kernel, __client);
+                    launcher.launch_unchecked(__cube_count, __kernel, __client);
                 }
             }
         } else {
@@ -136,7 +136,7 @@ impl Launch {
             #settings
             #compilation_args
 
-            let kernel = #kernel_name #kernel_generics::new(__settings, #args #(#comptime_args),*);
+            let __kernel = #kernel_name #kernel_generics::new(__settings, #args #(#comptime_args),*);
 
             let mut launcher = #kernel_launcher::<__R>::default();
 
