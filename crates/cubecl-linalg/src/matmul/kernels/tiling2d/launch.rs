@@ -20,7 +20,7 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
     out: TensorHandle<R, F>,
     config: Tiling2dConfig,
 ) -> TensorHandle<R, F> {
-    matmul_tiling_2d_ref::<R, F>(client, lhs.as_ref(), rhs.as_ref(), out.as_ref(), config);
+    matmul_tiling_2d_ref::<R, F>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref(), config);
 
     out
 }
@@ -28,9 +28,9 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
 /// Matrix multiplication using tiling 2d algorithm.
 pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     config: Tiling2dConfig,
 ) {
     assert!(
@@ -46,29 +46,29 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
         } => true,
         MatrixLayout::HighlyPermuted => false,
     };
-    let lhs_correct_layout = check_layout(&lhs);
-    let rhs_correct_layout = check_layout(&rhs);
+    let lhs_correct_layout = check_layout(lhs);
+    let rhs_correct_layout = check_layout(rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
         (true, true) => matmul_tiling_2d_ref_no_check::<R, F>(client, lhs, rhs, out, config),
         (true, false) => matmul_tiling_2d_ref_no_check::<R, F>(
             client,
             lhs,
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
             config,
         ),
         (false, true) => matmul_tiling_2d_ref_no_check::<R, F>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
+            &into_contiguous::<R, F>(client, lhs).as_ref(),
             rhs,
             out,
             config,
         ),
         (false, false) => matmul_tiling_2d_ref_no_check::<R, F>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, F>(client, lhs).as_ref(),
+            &into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
             config,
         ),
@@ -78,9 +78,9 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
 /// Matrix multiplication using tiling 2d algorithm.
 fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     config: Tiling2dConfig,
 ) {
     let rank = lhs.strides.len();

@@ -3,6 +3,7 @@ use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{tile, Ident, MatmulKernel, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use std::marker::PhantomData;
@@ -361,9 +362,9 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulAvailabilityError> {
         if !client.properties().feature_enabled(Feature::Plane) {
-            return Err("Plane operations not supported.".to_string());
+            return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
         }
 
         if !(client
@@ -373,11 +374,10 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
                 .properties()
                 .feature_enabled(Feature::Type(O::as_elem())))
         {
-            return Err(format!(
-                "Types {:?} and/or {:?} not supported.",
-                I::as_elem(),
-                O::as_elem()
-            ));
+            return Err(MatmulAvailabilityError::TypesUnavailable {
+                input: I::as_elem(),
+                output: O::as_elem(),
+            });
         }
 
         Ok(())

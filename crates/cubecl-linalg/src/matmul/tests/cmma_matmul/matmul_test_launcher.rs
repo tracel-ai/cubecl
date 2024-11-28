@@ -47,7 +47,7 @@ where
 
     let cube_dim = A::cube_dim();
     let cube_count = A::cube_count(&problem);
-    let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config());
+    let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config()).unwrap();
 
     unsafe {
         A::BatchMatmul::launch_unchecked(
