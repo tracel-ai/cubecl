@@ -132,9 +132,7 @@ fn launch<R: Runtime, E: Float>(
             batch_swap,
         } => {
             if transposed && !batch_swap {
-                let mut rhs_original_shape = rhs.shape.clone();
-                rhs_original_shape.swap(dim1, dim2);
-
+                let rhs_original_shape = rhs.shape.clone();
                 (rhs_original_shape, rhs)
             } else {
                 correct_rhs_layout(rhs)
