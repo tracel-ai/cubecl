@@ -163,7 +163,7 @@ fn find_stage_size_m_n(
     let mut previous_num_cubes = num_cubes_expected;
 
     // Refine tensor core usage to stay as close as possible to `num_sm`
-    while num_cubes_expected < num_sm {
+    while num_cubes_expected < num_sm && stage_num_tiles > 1 {
         previous_dim_num_tiles = dim_num_tiles;
         previous_num_cubes = num_cubes_expected;
 
