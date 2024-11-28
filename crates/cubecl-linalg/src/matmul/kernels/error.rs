@@ -91,7 +91,7 @@ impl Debug for MatmulInvalidProblem {
             ),
             MatmulInvalidProblem::InvalidLineSizeOut { size, line_size } => write!(
                 f,
-                "The out tensor can't be read with line size={line_size} and dimension={size}"
+                "The out tensor can't be written with line size={line_size} and dimension={size}"
             ),
         }
     }

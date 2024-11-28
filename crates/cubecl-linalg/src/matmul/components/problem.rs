@@ -98,7 +98,7 @@ impl MatmulProblem {
             }
         }
 
-        if self.n % self.out_line_size as usize == 1 {
+        if self.n % self.out_line_size as usize != 0 {
             return Err(MatmulInvalidProblem::InvalidLineSizeOut {
                 size: self.n as u32,
                 line_size: self.out_line_size,
