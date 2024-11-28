@@ -169,13 +169,15 @@ for (uint i = 0; i < uint(8); ++i) {{
                 } else {
                     panic!("{frag_a} is not a WMMA fragment!")
                 };
-                let cd_format = if let Variable::WmmaFragment { frag: inner_c, .. } = frag_c {
-                    if let Variable::WmmaFragment { frag: inner_d, .. } = frag_d {
+                let (cd_format, opsel) = if let Variable::WmmaFragment { frag: mut inner_c, .. } = frag_c {
+                    if let Variable::WmmaFragment { frag: mut inner_d, .. } = frag_d {
                         if inner_c.elem == inner_d.elem {
+                            inner_c.amd_intrinsic_computed = true;
+                            inner_d.amd_intrinsic_computed = true;
                             match inner_c.elem {
-                                Elem::F32 => "f32",
-                                Elem::F16 => "f16",
-                                Elem::BF16 => "bf16",
+                                Elem::F32 => ("f32", ""),
+                                Elem::F16 => ("f16", ", false"),
+                                Elem::BF16 => ("bf16", ", false"),
                                 other => {
                                     panic!("{other} format not supported for {frag_c} and {frag_d}")
                                 }
@@ -191,7 +193,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                 };
                 writeln!(
                     f,
-                    "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}({frag_a}, {frag_b}, {frag_c});"
+                    "{frag_d} = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}({frag_a}, {frag_b}, {frag_c}{opsel});"
                 )
             }
             WmmaInstruction::Store {
@@ -215,8 +217,8 @@ for (uint i = 0; i < uint(8); ++i) {{
                 let frag_idx = match frag {
                     Variable::WmmaFragment { frag: inner, .. } => {
                         match inner.elem {
-                            Elem::F16 | Elem::BF16 if inner.ident == FragmentIdent::A || inner.ident == FragmentIdent::B   => "elemIdx * 2",
-                            Elem::F16 | Elem::BF16 if inner.ident == FragmentIdent::Accumulator  => "elemIdx",
+                            Elem::F16 | Elem::BF16 if inner.amd_intrinsic_computed => "elemIdx * 2",
+                            Elem::F16 | Elem::BF16 if !inner.amd_intrinsic_computed => "elemIdx",
                             Elem::F32 => "elemIdx",
                             other => panic!("C fragment format cannot be {other}. Only f16, bf16 and f32 are supported."),
                         }
