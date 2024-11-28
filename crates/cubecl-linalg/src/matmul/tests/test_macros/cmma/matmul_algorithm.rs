@@ -48,8 +48,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S4x4x2,
                 >;
-                type GlobalMatmul =
-                    global::buffered::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type GlobalMatmul = global::buffered::pipelined::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -109,8 +113,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::buffered::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type GlobalMatmul = global::buffered::pipelined::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,
@@ -170,8 +178,12 @@ macro_rules! matmul_test_define {
                     Self::TileMatmul,
                     S1x1x2,
                 >;
-                type GlobalMatmul =
-                    global::buffered::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type GlobalMatmul = global::buffered::pipelined::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::EA,
+                    Self::StageMatmul,
+                >;
                 type BatchMatmul = batch::one_to_one::Matmul<
                     Self::EG,
                     Self::ES,

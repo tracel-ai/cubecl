@@ -182,7 +182,7 @@ where
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the full load matmul 
+/// Configuration for the full load matmul
 pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,

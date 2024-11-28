@@ -56,7 +56,7 @@ where
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages - 1; // one stage is computed outside the loop
+        let num_loops = num_stages;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
 
@@ -67,52 +67,31 @@ where
         // Load A
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
         let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader);
         let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-        sync_units();
-
         ///////////////
-        // Compute A & Load B
-        SMM::execute(
-            &lhs_buffer_reader_a,
-            &rhs_buffer_reader_a,
-            &mut lhs_tile_a,
-            &mut rhs_tile_a,
-            acc,
-            config.to_smm_config(),
-        );
-
+        // Get B
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
         Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
         let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader);
         let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-        sync_units();
-
         for _ in 0..num_loops {
-            ///////////////
-            // Compute B & Load A
-            SMM::execute(
-                &lhs_buffer_reader_b,
-                &rhs_buffer_reader_b,
-                &mut lhs_tile_b,
-                &mut rhs_tile_b,
-                acc,
-                config.to_smm_config(),
-            );
-
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
             sync_units();
 
             ///////////////
-            // Compute A & Load B
+            // Load B & Advance
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+
+            ///////////////
+            // Execute A
             SMM::execute(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -122,24 +101,27 @@ where
                 config.to_smm_config(),
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            sync_units();
+
+            ///////////////
+            // Load Next A
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
-            sync_units();
-        }
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
 
-        ///////////////
-        // Compute B
-        SMM::execute(
-            &lhs_buffer_reader_b,
-            &rhs_buffer_reader_b,
-            &mut lhs_tile_b,
-            &mut rhs_tile_b,
-            acc,
-            config.to_smm_config(),
-        );
+            ///////////////
+            // Execute B
+            SMM::execute(
+                &lhs_buffer_reader_b,
+                &rhs_buffer_reader_b,
+                &mut lhs_tile_b,
+                &mut rhs_tile_b,
+                acc,
+                config.to_smm_config(),
+            );
+        }
 
         sync_units();
 
