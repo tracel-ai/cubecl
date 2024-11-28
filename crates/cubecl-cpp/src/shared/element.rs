@@ -300,7 +300,7 @@ impl<D: Dialect> Display for Variable<D> {
                     FragmentIdent::_Dialect(_) => "",
                 };
                 write!(f, "frag_{name}_{index}_{depth}")
-            },
+            }
             Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
             Self::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }

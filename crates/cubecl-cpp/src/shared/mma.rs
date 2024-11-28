@@ -88,7 +88,6 @@ pub struct Fragment<D: Dialect> {
     pub k: u8,
     pub elem: Elem<D>,
     pub layout: Option<FragmentLayout<D>>,
-    pub amd_intrinsic_computed: bool,
 }
 
 /// Warp Matrix-Multiply and Accumulate Instruction.

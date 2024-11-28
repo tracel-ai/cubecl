@@ -892,7 +892,6 @@ impl<D: Dialect> CppCompiler<D> {
             k: matrix.k,
             elem: self.compile_elem(matrix.elem),
             layout: self.compile_matrix_layout(matrix.layout),
-            amd_intrinsic_computed: false,
         }
     }
 
