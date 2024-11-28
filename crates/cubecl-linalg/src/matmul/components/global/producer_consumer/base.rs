@@ -81,8 +81,8 @@ where
 
             if is_consumer {
                 SMM::execute(
-                    &lhs_stage_reader,
-                    &rhs_stage_reader,
+                    lhs_stage_reader,
+                    rhs_stage_reader,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
