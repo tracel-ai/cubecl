@@ -63,34 +63,17 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        // PSEUDO CODE
-        // load_a();
-        // sync_units();
-
-        // compute_a_load_b();
-        // sync_units();
-
-        // for _ in 0..num_loops {
-        //     compute_b_load_a();
-        //     sync_units();
-
-        //     compute_a_load_b();
-        //     sync_units();
-        // }
-
-        // compute_b();
-        // sync_units();
-
         ///////////////
         // Load A
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, config);
         let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader);
         let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader);
+
         sync_units();
 
         ///////////////
-        // Compute A / Load B
+        // Compute A & Load B
         SMM::execute(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
@@ -99,17 +82,19 @@ where
             acc,
             config.to_smm_config(),
         );
+
         Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
         Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, config);
         let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader);
         let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader);
+
         sync_units();
 
         for _ in 0..num_loops {
             ///////////////
-            // Compute B / Load A
+            // Compute B & Load A
             SMM::execute(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -118,14 +103,16 @@ where
                 acc,
                 config.to_smm_config(),
             );
+
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
             sync_units();
 
             ///////////////
-            // Compute A / Load B
+            // Compute A & Load B
             SMM::execute(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -134,10 +121,12 @@ where
                 acc,
                 config.to_smm_config(),
             );
+
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
             sync_units();
         }
 
@@ -151,6 +140,7 @@ where
             acc,
             config.to_smm_config(),
         );
+
         sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
@@ -198,48 +188,6 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
     }
 }
-
-// #[cube]
-// impl<EG, ES, EA, SMM> Matmul<EG, ES, EA, SMM>
-// where
-//     EG: Numeric,
-//     ES: Numeric,
-//     EA: Numeric,
-//     SMM: stage::Matmul<ES, EG, EA>,
-// {
-//     fn load_a(
-//         lhs_loader: &mut LhsBufferLoader<EG, ES, SMM::Config>,
-//         rhs_loader: &mut RhsBufferLoader<EG, ES, SMM::Config>,
-//         config: Config<SMM::Config>,
-//     ) {
-//         let lhs_buffer_reader =
-//             LhsBufferLoader::<EG, ES, SMM::Config>::fill_stage(lhs_loader, config);
-//         let rhs_buffer_reader =
-//             RhsBufferLoader::<EG, ES, SMM::Config>::fill_stage(rhs_loader, config);
-//     }
-
-//     fn compute_a_load_b() {}
-
-//     fn compute_b_load_a() {}
-
-//     fn compute_b(
-//         lhs_buffer_reader: <SMM as stage::Matmul<ES, EG, EA>>::LhsReader,
-//         rhs_buffer_reader: <SMM as stage::Matmul<ES, EG, EA>>::RhsReader,
-//         lhs_tile: &mut <SMM as stage::Matmul<ES, EG, EA>>::LhsTile,
-//         rhs_tile: &mut <SMM as stage::Matmul<ES, EG, EA>>::RhsTile,
-//         acc: &mut SMM::Accumulator,
-//         config: Config<SMM::Config>,
-//     ) {
-//         SMM::execute(
-//             &lhs_buffer_reader,
-//             &rhs_buffer_reader,
-//             lhs_tile,
-//             rhs_tile,
-//             acc,
-//             config.to_smm_config(),
-//         );
-//     }
-// }
 
 impl<EG, ES, EA, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM>
 where
