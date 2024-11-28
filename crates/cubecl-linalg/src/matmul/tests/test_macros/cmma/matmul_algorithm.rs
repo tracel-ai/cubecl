@@ -1,6 +1,6 @@
 // Tests nomenclature:
 // batch: b[o=one_to_one, m=one_to_many][batch dims, optional]
-// global: g[h=homogeneous, pc=producer_consumer][m]x[n]x[k], with m,n,k the whole matrix dimensions
+// global: g[h=homogeneous, pc=producer_consumer, pl=pipelined][m]x[n]x[k], with m,n,k the whole matrix dimensions
 // stage: s[m]x[n]x[k], with m,n,k the number of tiles along those dims
 // tile: t[m]x[n]x[k], with m,n,k the tile dimensions. tile algorithm is given by macro arguments
 // layouts: [r/c][r/c], r=row, c=col, respectively for lhs and rhs
@@ -19,6 +19,189 @@ macro_rules! matmul_test_define {
         $ea:ty,
         $plane_dim:expr
     ) => {
+        #[test]
+        pub fn bo1_gpl64x64x256_s4x4x2_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 64,
+                n: 64,
+                k: 256,
+                batches: (vec![], vec![]),
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S4x4x2,
+                >;
+                type GlobalMatmul =
+                    global::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 4, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo1_gpl16x16x256_s1x1x2_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 256,
+                batches: (vec![], vec![]),
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x2,
+                >;
+                type GlobalMatmul =
+                    global::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
+        #[test]
+        pub fn bo1_gpl16x16x32_s1x1x2_t16x16x16_rr_ln4() {
+            let problem = MatmulProblem {
+                m: 16,
+                n: 16,
+                k: 32,
+                batches: (vec![], vec![]),
+                lhs_layout: MatrixLayout::RowMajor,
+                rhs_layout: MatrixLayout::RowMajor,
+                lhs_line_size: 4,
+                rhs_line_size: 4,
+                out_line_size: 4,
+            };
+
+            struct Test {}
+            impl matmul::Algorithm<$eg> for Test {
+                const PLANE_DIM: u32 = $plane_dim;
+                type EG = $eg;
+                type ES = $es;
+                type EA = $ea;
+
+                type TileMatmul = $t_16x16x16<Self::ES, Self::EA>;
+                type StageMatmul = stage::single_buffer::Matmul<
+                    Self::ES,
+                    Self::EG,
+                    Self::EA,
+                    Self::TileMatmul,
+                    S1x1x2,
+                >;
+                type GlobalMatmul =
+                    global::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
+                type BatchMatmul = batch::one_to_one::Matmul<
+                    Self::EG,
+                    Self::ES,
+                    Self::GlobalMatmul,
+                    batch::NaturalDispatch,
+                >;
+
+                fn cube_dim() -> CubeDim {
+                    CubeDim::new($plane_dim, 1, 1)
+                }
+
+                fn cube_count(_problem: &MatmulProblem) -> CubeCount {
+                    CubeCount::Static(1, 1, 1)
+                }
+
+                fn advanced_config() -> AdvancedConfig {
+                    AdvancedConfig {
+                        lhs_tiling_order: TilingOrderConfig::ColMajor,
+                        rhs_tiling_order: TilingOrderConfig::RowMajor,
+                        ..Default::default()
+                    }
+                }
+            }
+
+            test_matmul_algorithm::<Test, $eg, $es, TestRuntime>(
+                problem,
+                &<<TestRuntime as Runtime>::Device>::default(),
+            );
+        }
+
         #[test]
         pub fn bo1_gpc128x256x256_s4x4x2_t16x16x16_cc_ln4_transposed_cube_count() {
             let problem = MatmulProblem {

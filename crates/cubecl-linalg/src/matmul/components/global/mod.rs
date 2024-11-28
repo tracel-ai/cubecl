@@ -1,4 +1,5 @@
 pub mod homogeneous;
+pub mod pipelined;
 pub mod producer_consumer;
 pub mod tensor_view;
 

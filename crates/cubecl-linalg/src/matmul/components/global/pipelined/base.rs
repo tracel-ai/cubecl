@@ -17,31 +17,24 @@ use std::marker::PhantomData;
 
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
-/// Performs matrix multiplication at the global level, with planes split between two roles:
-/// - First n planes are used in the stage matmul computation, with n the number of planes needed by the underlying stage matmul
-/// - Remaining planes load data to the stage
-///
-/// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>> {
+/// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
+/// While they trigger a load event from global memory to shared memory on buffer A,
+/// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
+pub struct Matmul<EG: Numeric, ES: Numeric, EA: Numeric, SMM: stage::Matmul<ES, EG, EA>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
-    _acc: PhantomData<Acc>,
+    _acc: PhantomData<EA>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<EG, ES, Acc, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, Acc, SMM>
+impl<EG, ES, EA, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    Acc: Numeric,
-    SMM: stage::Matmul<
-        ES,
-        EG,
-        Acc,
-        LhsReader = LhsBufferReader<ES>,
-        RhsReader = RhsBufferReader<ES>,
-    >,
+    EA: Numeric,
+    SMM:
+        stage::Matmul<ES, EG, EA, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
 {
     type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
     type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
@@ -57,49 +50,111 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let is_consumer = Self::is_consumer(config);
-
-        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y_dim();
+        let num_buffers = 2;
         let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages * num_buffers;
+        let num_loops = num_stages - 1; // one stage is computed outside the loop
 
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
+        let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
+
+        // PSEUDO CODE
+        // load_a();
+        // sync_units();
+
+        // compute_a_load_b();
+        // sync_units();
+
+        // for _ in 0..num_loops {
+        //     compute_b_load_a();
+        //     sync_units();
+
+        //     compute_a_load_b();
+        //     sync_units();
+        // }
+
+        // compute_b();
+        // sync_units();
+
+        ///////////////
+        // Load A
+        let lhs_buffer_reader_a = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        let rhs_buffer_reader_a = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        sync_units();
+
+        ///////////////
+        // Compute A / Load B
+        SMM::execute(
+            &lhs_buffer_reader_a,
+            &rhs_buffer_reader_a,
+            &mut lhs_tile_a,
+            &mut rhs_tile_a,
+            acc,
+            config.to_smm_config(),
+        );
+        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+        Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+        let lhs_buffer_reader_b = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        let rhs_buffer_reader_b = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        sync_units();
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
-            sync_units();
-
-            if is_consumer {
-                SMM::execute(
-                    &lhs_stage_reader,
-                    &rhs_stage_reader,
-                    &mut lhs_tile,
-                    &mut rhs_tile,
-                    acc,
-                    config.to_smm_config(),
-                );
-            }
-
+            ///////////////
+            // Compute B / Load A
+            SMM::execute(
+                &lhs_buffer_reader_b,
+                &rhs_buffer_reader_b,
+                &mut lhs_tile_b,
+                &mut rhs_tile_b,
+                acc,
+                config.to_smm_config(),
+            );
             Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            let lhs_buffer_reader_a = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_buffer_reader_a = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            sync_units();
+
+            ///////////////
+            // Compute A / Load B
+            SMM::execute(
+                &lhs_buffer_reader_a,
+                &rhs_buffer_reader_a,
+                &mut lhs_tile_a,
+                &mut rhs_tile_a,
+                acc,
+                config.to_smm_config(),
+            );
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            let lhs_buffer_reader_b = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            let rhs_buffer_reader_b = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            sync_units();
         }
 
-        if is_consumer {
-            SMM::read_accumulator::<Self::Out, Self::Config>(
-                acc,
-                &mut out_unloader,
-                config.to_smm_config(),
-                config,
-            );
-        }
+        ///////////////
+        // Compute B
+        SMM::execute(
+            &lhs_buffer_reader_b,
+            &rhs_buffer_reader_b,
+            &mut lhs_tile_b,
+            &mut rhs_tile_b,
+            acc,
+            config.to_smm_config(),
+        );
+        sync_units();
+
+        SMM::read_accumulator::<Self::Out, Self::Config>(
+            acc,
+            &mut out_unloader,
+            config.to_smm_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
@@ -109,14 +164,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -126,14 +174,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(
@@ -154,29 +195,61 @@ where
     }
 }
 
-#[cube]
-impl<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>>
-    Matmul<EG, ES, Acc, SMM>
-{
-    fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
-        UNIT_POS_Y < config.num_consumers()
-    }
-}
+// #[cube]
+// impl<EG, ES, EA, SMM> Matmul<EG, ES, EA, SMM>
+// where
+//     EG: Numeric,
+//     ES: Numeric,
+//     EA: Numeric,
+//     SMM: stage::Matmul<ES, EG, EA>,
+// {
+//     fn load_a(
+//         lhs_loader: &mut LhsBufferLoader<EG, ES, SMM::Config>,
+//         rhs_loader: &mut RhsBufferLoader<EG, ES, SMM::Config>,
+//         config: Config<SMM::Config>,
+//     ) {
+//         let lhs_buffer_reader =
+//             LhsBufferLoader::<EG, ES, SMM::Config>::fill_stage(lhs_loader, config);
+//         let rhs_buffer_reader =
+//             RhsBufferLoader::<EG, ES, SMM::Config>::fill_stage(rhs_loader, config);
+//     }
 
-impl<EG, ES, Acc, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, Acc, SMM>
+//     fn compute_a_load_b() {}
+
+//     fn compute_b_load_a() {}
+
+//     fn compute_b(
+//         lhs_buffer_reader: <SMM as stage::Matmul<ES, EG, EA>>::LhsReader,
+//         rhs_buffer_reader: <SMM as stage::Matmul<ES, EG, EA>>::RhsReader,
+//         lhs_tile: &mut <SMM as stage::Matmul<ES, EG, EA>>::LhsTile,
+//         rhs_tile: &mut <SMM as stage::Matmul<ES, EG, EA>>::RhsTile,
+//         acc: &mut SMM::Accumulator,
+//         config: Config<SMM::Config>,
+//     ) {
+//         SMM::execute(
+//             &lhs_buffer_reader,
+//             &rhs_buffer_reader,
+//             lhs_tile,
+//             rhs_tile,
+//             acc,
+//             config.to_smm_config(),
+//         );
+//     }
+// }
+
+impl<EG, ES, EA, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    Acc: Numeric,
-    SMM: stage::Matmul<ES, EG, Acc>,
+    EA: Numeric,
+    SMM: stage::Matmul<ES, EG, EA>,
 {
     type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
-        assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
         assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
-            "Producer-consumer needs at least 2 buffers."
+            config.stage_dim(Ident::Lhs).num_tiles_y_dim() == 2,
+            "Pipelined matmul needs exactly 2 buffers."
         );
         SMM::check_config(config.to_smm_config());
     }
@@ -211,7 +284,7 @@ where
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the producer consumer global matmul
+/// Configuration for the homogeneous global matmul
 pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
@@ -313,17 +386,5 @@ impl<S: stage::Config> Config<S> {
             out_line_size,
             num_planes,
         }
-    }
-
-    pub fn num_producers(&self) -> u32 {
-        assert!(
-            self.num_consumers() <= self.num_planes(),
-            "Producer consumer's underlying matmul consumes more planes than available"
-        );
-        self.num_planes() - self.num_consumers()
-    }
-
-    pub fn num_consumers(&self) -> u32 {
-        self.smm_config.num_planes()
     }
 }
