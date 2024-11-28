@@ -48,7 +48,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let value = self.compile_variable(value);
         let stride = self.compile_variable(stride);
-        let stride = self.read(&stride);
+        let stride_item = stride.item();
+        let mut stride = self.read(&stride);
+
+        if let Item::Vector(_, line_size) = value.item() {
+            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+            let stride_ty = stride_item.id(self);
+            stride = self
+                .shift_right_logical(stride_ty, None, stride, shift)
+                .unwrap();
+        }
+
         let layout = layout
             .and_then(compile_layout)
             .or(mat.layout)
@@ -101,10 +111,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let out = self.compile_variable(out);
         let stride = self.compile_variable(stride);
-        let stride = self.read(&stride);
+        let stride_item = stride.item();
+        let mut stride = self.read(&stride);
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let ptr = self.deref_slice(&out);
+
+        if let Item::Vector(_, line_size) = out.item() {
+            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+            let stride_ty = stride_item.id(self);
+            stride = self
+                .shift_right_logical(stride_ty, None, stride, shift)
+                .unwrap();
+        }
 
         self.cooperative_matrix_store_khr(ptr, mat_obj, memory_layout, Some(stride), None, vec![])
             .unwrap();
