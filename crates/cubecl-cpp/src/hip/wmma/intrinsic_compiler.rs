@@ -151,18 +151,14 @@ for (uint i = 0; i < uint(8); ++i) {{
                                 } else {
                                     "i + wmmaLane * uint(16)"
                                 };
-                                (index.to_string(), length, step)
+                                (index, length, step)
                             }
                             FragmentIdent::Accumulator => {
                                 let length = 8;
                                 let step = get_output_accumulator_index_step(value, inner);
                                 let index = match layout {
-                                    Some(FragmentLayout::ColMajor) => {
-                                        format!("(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * uint(16)")
-                                    },
-                                    Some(FragmentLayout::RowMajor) => {
-                                        format!("(i * uint(2) + threadIdx.x / uint(16)) * uint(16) + wmmaLane")
-                                    },
+                                    Some(FragmentLayout::ColMajor) => "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * uint(16)",
+                                    Some(FragmentLayout::RowMajor) => "(i * uint(2) + threadIdx.x / uint(16)) * uint(16) + wmmaLane",
                                     _ => panic!("cannot load data to an accumulator without knowing the layout of the data"),
                                 };
                                 (index, length, step)
@@ -349,7 +345,7 @@ fn get_output_accumulator_index_step(
         FragmentIdent::<HipDialect<WmmaIntrinsicCompiler>>::Accumulator
     );
 
-    let step = match input.elem() {
+    match input.elem() {
         Elem::F16 | Elem::BF16 | Elem::F32 => {
             match output.elem {
                 // loading into accumulator of 16 half precision
@@ -360,6 +356,5 @@ fn get_output_accumulator_index_step(
             }
         }
         other => panic!("unsupported format {other} for {input}"),
-    };
-    step
+    }
 }
