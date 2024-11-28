@@ -34,7 +34,10 @@ mod metadata {
             unexpanded!()
         }
 
-        /// Obtain the coordinate corresponding to the given `index` of input at dimension `dim`.
+        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
+        ///
+        /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
+        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
         pub fn coordinate<I: Index, D: Index>(&self, _index: I, _dim: D) -> u32 {
             unexpanded!()
         }
