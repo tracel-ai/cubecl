@@ -77,11 +77,15 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let fill_with_zeros =
                     matches!(value, Variable::ConstantScalar(number, _) if number.is_zero());
                 if fill_with_zeros {
-                    writeln!(f, "{frag} = {{}};")
+                    write!(
+                        f,
+                        "// fill
+{frag} = {{}};
+")
                 } else {
                     write!(
                         f,
-                        "
+                        "// fill
 for (uint i = 0; i < uint(8); ++i) {{
   {frag}[i] = {value};
 }}
@@ -145,7 +149,8 @@ for (uint i = 0; i < uint(8); ++i) {{
                 };
                 write!(
                     f,
-                    "for (uint i = 0; i < uint({length}); ++i) {{
+                    "// load
+for (uint i = 0; i < uint({length}); ++i) {{
   {frag}[i] = {value_ident}[{index}];
 }}
 "
@@ -241,7 +246,8 @@ for (uint i = 0; i < uint(8); ++i) {{
                 };
                 write!(
                     f,
-                    "for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
+                    "// store
+for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
   const uint rowIdx = elemIdx * uint(2) + threadIdx.x / uint(16);
   {output_ident}[{output_idx}] = {frag}[{frag_idx}];
 }}
@@ -251,7 +257,8 @@ for (uint i = 0; i < uint(8); ++i) {{
             WmmaInstruction::Cast { input, output } => {
                 write!(
                     f,
-                    "for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
+                    "// cast
+for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
   {output}[elemIdx] = {input}[elemIdx];
 }}
  "
