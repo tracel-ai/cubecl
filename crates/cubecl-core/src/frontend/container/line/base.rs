@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 use crate::{
-    ir::{ConstantScalarValue, Item, Operator},
+    ir::{BinaryOperator, ConstantScalarValue, Instruction, Item, Operator},
     prelude::{binary_expand_fixed_output, CubeContext, Dot, ExpandElement, Numeric},
     unexpanded,
 };
@@ -167,6 +167,69 @@ mod size {
         }
     }
 }
+
+// Implement a comparison operator define in
+macro_rules! impl_line_comparison {
+    ($name:ident, $operator:ident, $comment:literal) => {
+        ::paste::paste! {
+            /// Module that contains the implementation details of the $name function.
+            mod $name {
+
+                use super::*;
+
+                impl<P: CubePrimitive> Line<P> {
+                    #[doc = concat!(
+                        "Return a new line with the element-wise comparison of the first line being ",
+                        $comment,
+                        " the second line."
+                    )]
+                    pub fn $name(self, _other: Self) -> Line<bool> {
+                        unexpanded!()
+                    }
+
+                    /// Expand function of [$name](Self::$name).
+                    pub fn [< __expand_ $name >](
+                        context: &mut CubeContext,
+                        lhs: ExpandElementTyped<Self>,
+                        rhs: ExpandElementTyped<Self>,
+                    ) -> ExpandElementTyped<Line<bool>> {
+                        lhs.[< __expand_ $name _method >](context, rhs)
+                    }
+                }
+
+                impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
+                    /// Expand method of [equal](Line::equal).
+                    pub fn [< __expand_ $name _method >](
+                        self,
+                        context: &mut CubeContext,
+                        rhs: Self,
+                    ) -> ExpandElementTyped<Line<bool>> {
+                        let size = self.expand.item.vectorization;
+                        let lhs = self.expand.into();
+                        let rhs = rhs.expand.into();
+
+                        let output = context.create_local_binding(Item::vectorized(bool::as_elem(), size));
+
+                        context.register(Instruction::new(
+                            Operator::$operator(BinaryOperator { lhs, rhs }),
+                            output.clone().into(),
+                        ));
+
+                        output.into()
+                    }
+                }
+            }
+        }
+
+    };
+}
+
+impl_line_comparison!(equal, Equal, "equal to");
+impl_line_comparison!(not_equal, NotEqual, "not equal to");
+impl_line_comparison!(less_than, Lower, "less than");
+impl_line_comparison!(greater_than, Greater, "greater than");
+impl_line_comparison!(less_equal, LowerEqual, "less than or equal to");
+impl_line_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
 
 impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
