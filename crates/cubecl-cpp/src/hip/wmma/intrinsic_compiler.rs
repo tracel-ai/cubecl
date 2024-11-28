@@ -52,11 +52,9 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     ) -> std::fmt::Result {
         match fragment.ident {
             FragmentIdent::A | FragmentIdent::B => write!(f, "half16"),
-            FragmentIdent::Accumulator => {
-                match fragment.elem {
-                    Elem::F16 => write!(f, "half8"),
-                    _ => write!(f, "float8"),
-                }
+            FragmentIdent::Accumulator => match fragment.elem {
+                Elem::F16 => write!(f, "half8"),
+                _ => write!(f, "float8"),
             },
             FragmentIdent::_Dialect(_) => Ok(()),
         }
@@ -83,7 +81,12 @@ for (uint i = 0; i < uint(8); ++i) {{
                     )
                 }
             }
-            WmmaInstruction::Load { frag, value, layout, .. } => {
+            WmmaInstruction::Load {
+                frag,
+                value,
+                layout,
+                ..
+            } => {
                 // Matrix A must be in column major layout
                 // Matrices B, C and D must be in row major layout
                 let item = value.item();
@@ -100,7 +103,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                         match inner.ident {
                             FragmentIdent::A | FragmentIdent::B => {
                                 let index = if (inner.ident == FragmentIdent::A
-                                                && inner.layout.unwrap() == FragmentLayout::ColMajor)
+                                    && inner.layout.unwrap() == FragmentLayout::ColMajor)
                                     || (inner.ident == FragmentIdent::B
                                         && inner.layout.unwrap() == FragmentLayout::RowMajor)
                                 {
@@ -111,7 +114,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                                     "i + wmmaLane * uint(16)"
                                 };
                                 (index, 16)
-                            },
+                            }
                             FragmentIdent::Accumulator => {
                                 let length = 8;
                                 // For the acc we check layout of the source
@@ -126,8 +129,8 @@ for (uint i = 0; i < uint(8); ++i) {{
                                     },
                                     _ => panic!("cannot load data to an accumulator without knowing the layout of the data "),
                                 }
-                            },
-                            other => panic!("unknown matrix identifier {other}")
+                            }
+                            other => panic!("unknown matrix identifier {other}"),
                         }
                     }
                     other => panic!("{other} is not a WMMMA fragment!"),
