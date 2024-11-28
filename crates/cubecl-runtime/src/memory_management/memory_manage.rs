@@ -280,6 +280,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
+
+        // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
+        // requested allocation
+        if pool_ind >= self.pools.len() {
+            panic!("Unable to find valid pool partition point: No memory pool big enough to reserve {size} bytes.");
+        }
+
         let pool = &mut self.pools[pool_ind];
         if pool.max_alloc_size() < size {
             panic!("No memory pool big enough to reserve {size} bytes.");
