@@ -777,7 +777,7 @@ struct EnsureBoolArg<'a, V: Display, D: Dialect> {
     elem: &'a Elem<D>,
 }
 
-impl<'a, V: Display, D: Dialect> Display for EnsureBoolArg<'a, V, D> {
+impl<V: Display, D: Dialect> Display for EnsureBoolArg<'_, V, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.elem != &Elem::Bool {
             write!(f, "bool({})", self.var)

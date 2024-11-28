@@ -64,7 +64,7 @@ pub enum ArrayArg<'a, R: Runtime> {
     },
 }
 
-impl<'a, R: Runtime> ArgSettings<R> for ArrayArg<'a, R> {
+impl<R: Runtime> ArgSettings<R> for ArrayArg<'_, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_array(self)
     }

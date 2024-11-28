@@ -7,10 +7,12 @@ pub mod constants;
 pub mod different_rank;
 pub mod index;
 pub mod launch;
+pub mod line;
 pub mod metadata;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
+pub mod tensor;
 pub mod topology;
 pub mod unary;
 
@@ -73,6 +75,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_launch!();
+        cubecl_core::testgen_line!();
         cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
@@ -103,6 +106,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_topology!();
 
         cubecl_core::testgen_constants!();
+        cubecl_core::testgen_tensor_indexing!();
     };
 }
 

@@ -36,7 +36,7 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<'a, R: Runtime> core::fmt::Debug for TensorHandleRef<'a, R> {
+impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
@@ -153,7 +153,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
     }
 }
 
-impl<'a, R: Runtime> ArgSettings<R> for TensorArg<'a, R> {
+impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor(self)
     }

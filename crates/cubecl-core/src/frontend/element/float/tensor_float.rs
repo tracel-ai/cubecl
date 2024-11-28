@@ -1,3 +1,6 @@
+#![allow(clippy::transmute_int_to_float)] // Not yet stable in previous version. To be removed when
+#![allow(clippy::transmute_float_to_int)] // prev=1.83.
+
 use bytemuck::{Pod, Zeroable};
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use half::f16;

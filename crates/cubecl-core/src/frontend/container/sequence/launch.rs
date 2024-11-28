@@ -12,7 +12,7 @@ pub struct SequenceArg<'a, R: Runtime, T: LaunchArg> {
     pub values: Vec<T::RuntimeArg<'a, R>>,
 }
 
-impl<'a, R: Runtime, T: LaunchArg> Default for SequenceArg<'a, R, T> {
+impl<R: Runtime, T: LaunchArg> Default for SequenceArg<'_, R, T> {
     fn default() -> Self {
         Self::new()
     }
@@ -72,7 +72,7 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
     }
 }
 
-impl<'a, R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'a, R, T> {
+impl<R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'_, R, T> {
     fn register(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
         self.values.iter().for_each(|arg| arg.register(launcher));
     }
