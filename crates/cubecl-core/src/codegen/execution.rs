@@ -162,7 +162,7 @@ where
     }
 }
 
-impl<'h, 'a, 'b, 'c, K, R, E1, E2, E3> Execution<'h, K, R, (&'a [E1], &'b [E2], &'c [E3])>
+impl<K, R, E1, E2, E3> Execution<'_, K, R, (&[E1], &[E2], &[E3])>
 where
     K: Kernel + 'static,
     R: Runtime,
