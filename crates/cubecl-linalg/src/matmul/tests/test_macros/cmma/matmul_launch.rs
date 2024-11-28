@@ -11,7 +11,7 @@ macro_rules! testgen_matmul_launch {
                 m: 300,
                 n: 200,
                 k: 250,
-                batches: vec![3, 4],
+                batches: (vec![3, 4], vec![3, 4]),
                 lhs_layout: MatrixLayout::ColMajor,
                 rhs_layout: MatrixLayout::RowMajor,
                 lhs_line_size: 4,
@@ -19,7 +19,7 @@ macro_rules! testgen_matmul_launch {
                 out_line_size: 4,
             };
 
-            test_matmul_launch::<EG, TestRuntime>(problem, false, &Default::default());
+            test_matmul_launch::<EG, TestRuntime>(problem, &Default::default());
         }
     };
 }

@@ -3,6 +3,7 @@ use crate::matmul::components::tile::Config as TileConfig;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{tile, Ident, MatmulKernel, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use std::marker::PhantomData;
@@ -126,6 +127,40 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         }
     }
 
+    fn fill_accumulator(
+        slice: &Slice<Line<O>>,
+        acc: &mut Self::Accumulator,
+        stride: u32,
+        #[comptime] config: Config,
+    ) {
+        let unit = UNIT_POS_X;
+        let n = Self::N;
+        let line_size = config.line_size(Ident::Out);
+        let plane_dim = config.plane_dim();
+
+        let m_row_alt = unit / n;
+        let col = unit % n;
+
+        let num_lines = stride / line_size;
+        let col_idx = col / line_size;
+        let line_idx = col % line_size;
+
+        let row_jump = plane_dim / n;
+
+        #[unroll]
+        for m_iter in 0..Self::M / row_jump {
+            let m_row = row_jump * m_iter + m_row_alt;
+            let offset = m_row * num_lines + col_idx;
+            let line = slice[offset];
+
+            acc[m_iter] = if comptime!(line_size == 1) {
+                O::cast_from(line)
+            } else {
+                line[line_idx]
+            };
+        }
+    }
+
     fn read_accumulator<C: Numeric>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<C>>,
@@ -184,14 +219,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
     fn init_accumulator(#[comptime] config: Config) -> Self::Accumulator {
         let len = Self::M * Self::N / (config.plane_dim());
-        let mut acc = Array::new(len);
-
-        #[unroll]
-        for i in 0..len {
-            acc[i] = O::from_int(0);
-        }
-
-        acc
+        Array::new(len)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
@@ -334,9 +362,9 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), MatmulAvailabilityError> {
         if !client.properties().feature_enabled(Feature::Plane) {
-            return Err("Planes not supported.");
+            return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
         }
 
         if !(client
@@ -346,7 +374,10 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
                 .properties()
                 .feature_enabled(Feature::Type(O::as_elem())))
         {
-            return Err("Types not supported.");
+            return Err(MatmulAvailabilityError::TypesUnavailable {
+                input: I::as_elem(),
+                output: O::as_elem(),
+            });
         }
 
         Ok(())

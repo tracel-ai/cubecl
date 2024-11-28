@@ -1,4 +1,3 @@
-use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
@@ -6,9 +5,11 @@ use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBuffer
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,21 +22,30 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> {
+pub struct Matmul<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
+    _acc: PhantomData<Acc>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<EG, ES, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, SMM>
+impl<EG, ES, Acc, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, Acc, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
+    Acc: Numeric,
+    SMM: stage::Matmul<
+        ES,
+        EG,
+        Acc,
+        LhsReader = LhsBufferReader<ES>,
+        RhsReader = RhsBufferReader<ES>,
+    >,
 {
     type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
     type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
+    type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
@@ -57,18 +67,22 @@ where
         let num_stages = (range + k_step - 1) / k_step;
         let num_loops = num_stages * num_buffers;
 
+        SMM::zero_accumulator(acc, config.to_smm_config());
+
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         for _ in 0..num_loops {
-            let lhs_stage_reader = Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            let rhs_stage_reader = Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             sync_units();
 
             if is_consumer {
                 SMM::execute(
-                    &lhs_stage_reader,
-                    &rhs_stage_reader,
+                    lhs_stage_reader,
+                    rhs_stage_reader,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
@@ -94,14 +108,14 @@ where
         lhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
             lhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )
@@ -111,14 +125,14 @@ where
         rhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
             rhs,
             x_offset,
             y_offset,
-            nth_batch,
+            batch_offset,
             !Self::is_consumer(config),
             config,
         )
@@ -143,17 +157,20 @@ where
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, SMM: stage::Matmul<ES, EG>> Matmul<EG, ES, SMM> {
+impl<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES, EG, Acc>>
+    Matmul<EG, ES, Acc, SMM>
+{
     fn is_consumer(#[comptime] config: <Self as MatmulKernel<EG, EG>>::Config) -> bool {
         UNIT_POS_Y < config.num_consumers()
     }
 }
 
-impl<EG, ES, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, SMM>
+impl<EG, ES, Acc, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, Acc, SMM>
 where
     EG: Numeric,
     ES: Numeric,
-    SMM: stage::Matmul<ES, EG>,
+    Acc: Numeric,
+    SMM: stage::Matmul<ES, EG, Acc>,
 {
     type Config = Config<SMM::Config>;
 
@@ -168,7 +185,7 @@ where
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R>(client)
     }
 
@@ -196,7 +213,7 @@ where
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the HomogeneousGlobalMatmul
+/// Configuration for the producer consumer global matmul
 pub struct Config<S: stage::Config> {
     smm_config: S,
     check_m_bounds: bool,
@@ -301,6 +318,10 @@ impl<S: stage::Config> Config<S> {
     }
 
     pub fn num_producers(&self) -> u32 {
+        assert!(
+            self.num_consumers() <= self.num_planes(),
+            "Producer consumer's underlying matmul consumes more planes than available"
+        );
         self.num_planes() - self.num_consumers()
     }
 

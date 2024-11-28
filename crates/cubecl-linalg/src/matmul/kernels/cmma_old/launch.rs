@@ -20,9 +20,9 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 ) -> TensorHandle<R, F> {
     matmul_cmma_ref::<R, F>(
         client,
-        lhs.as_ref(),
-        rhs.as_ref(),
-        out.as_ref(),
+        &lhs.as_ref(),
+        &rhs.as_ref(),
+        &out.as_ref(),
         cmma_config,
     );
     out
@@ -31,9 +31,9 @@ pub fn matmul_cmma<R: Runtime, F: Float>(
 /// Matrix multiplication using [cooperative matrix-multiply and accumulate operations](cubecl_core::cmma).
 pub fn matmul_cmma_ref<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     cmma_config: CmmaConfig,
 ) {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
@@ -45,29 +45,29 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
         MatrixLayout::HighlyPermuted => false,
     };
 
-    let lhs_correct_layout = check_layout(&lhs);
-    let rhs_correct_layout = check_layout(&rhs);
+    let lhs_correct_layout = check_layout(lhs);
+    let rhs_correct_layout = check_layout(rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
         (true, true) => matmul_cmma_ref_no_check::<R, F>(client, lhs, rhs, out, cmma_config),
         (true, false) => matmul_cmma_ref_no_check::<R, F>(
             client,
             lhs,
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
             cmma_config,
         ),
         (false, true) => matmul_cmma_ref_no_check::<R, F>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
+            &into_contiguous::<R, F>(client, lhs).as_ref(),
             rhs,
             out,
             cmma_config,
         ),
         (false, false) => matmul_cmma_ref_no_check::<R, F>(
             client,
-            into_contiguous::<R, F>(client, lhs).as_ref(),
-            into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, F>(client, lhs).as_ref(),
+            &into_contiguous::<R, F>(client, rhs).as_ref(),
             out,
             cmma_config,
         ),
@@ -76,9 +76,9 @@ pub fn matmul_cmma_ref<R: Runtime, F: Float>(
 
 fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandleRef<'_, R>,
-    rhs: TensorHandleRef<'_, R>,
-    out: TensorHandleRef<'_, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     cmma_config: CmmaConfig,
 ) {
     let rank = lhs.strides.len();

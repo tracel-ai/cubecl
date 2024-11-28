@@ -6,6 +6,7 @@ use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -53,15 +54,17 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_dim(Ident::Out).height();
-        let stage_y = config.stage_dim(Ident::Out).width();
+        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
+        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
+        let batch_index = C::batch_index();
+
         let span = Span::new(
             SpanDim::new(shape_x, stage_x, x_index, cubes_x),
             SpanDim::new(shape_y, stage_y, y_index, cubes_y),
-            SpanDim::new(shape_z, stage_z, C::batch_index(), cubes_z),
+            SpanDim::new(shape_z, stage_z, batch_index, cubes_z),
         );
 
         let k_range = (0, lhs.shape(rank - 1));
@@ -83,7 +86,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), MatmulAvailabilityError> {
         GMM::check_availability::<R>(client)
     }
 
@@ -117,7 +120,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, S: SpanMatmul, C: Cu
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::launch::launch_unchecked::<EG, Self, R>(
+        super::batch_matmul::launch_unchecked::<EG, Self, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }

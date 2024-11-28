@@ -42,13 +42,12 @@ unsafe impl<E: Numeric> Send for TensorWriter<E> {}
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(tensor: &Tensor<Line<EG>>, x_offset: u32, y_offset: u32, nth_batch: u32) -> Self {
+    pub fn new(tensor: &Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
         let rank = tensor.rank();
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
-        let stride_b = tensor.stride(rank - 3);
 
         TensorReader::<EG> {
             tensor,
@@ -58,7 +57,7 @@ impl<EG: Numeric> TensorReader<EG> {
             stride_y,
             shape_x,
             shape_y,
-            batch_offset: nth_batch * stride_b,
+            batch_offset,
         }
     }
 
@@ -146,14 +145,13 @@ impl<EG: Numeric> TensorWriter<EG> {
         tensor: &mut Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
-        nth_batch: u32,
+        batch_offset: u32,
     ) -> Self {
         let rank = tensor.rank();
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
-        let stride_b = tensor.stride(rank - 3);
 
         TensorWriter::<EG> {
             tensor,
@@ -163,7 +161,7 @@ impl<EG: Numeric> TensorWriter<EG> {
             stride_y,
             shape_x,
             shape_y,
-            batch_offset: nth_batch * stride_b,
+            batch_offset,
         }
     }
 

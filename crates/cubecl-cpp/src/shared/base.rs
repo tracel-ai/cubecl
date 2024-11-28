@@ -24,6 +24,7 @@ pub trait Dialect:
     // includes
     fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // types
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
@@ -324,6 +325,10 @@ impl<D: Dialect> CppCompiler<D> {
                 layout: self
                     .compile_matrix_layout(layout)
                     .expect("Layout required for store instruction"),
+            }),
+            gpu::CoopMma::Cast { input } => Instruction::Wmma(WmmaInstruction::Cast {
+                input: self.compile_variable(input),
+                output: out,
             }),
         }
     }

@@ -15,6 +15,10 @@ pub trait CubeDispatch: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32;
 }
 
+pub trait CubeCountDispatch {
+    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount;
+}
+
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 /// Operates on data further along the m dimension as `cube_pos_x` increases,
 /// and further along the n dimension as `cube_pos_y` increases.
@@ -62,6 +66,12 @@ impl CubeDispatch for NaturalDispatch {
     }
 }
 
+impl CubeCountDispatch for NaturalDispatch {
+    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
+        CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)
+    }
+}
+
 #[cube]
 impl CubeDispatch for TransposedDispatch {
     fn x_y_indices() -> (u32, u32) {
@@ -82,6 +92,12 @@ impl CubeDispatch for TransposedDispatch {
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
         cube_count.2
+    }
+}
+
+impl CubeCountDispatch for TransposedDispatch {
+    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
+        CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)
     }
 }
 
@@ -110,6 +126,12 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
     }
 }
 
+impl<const W: u32> CubeCountDispatch for SwizzleNaturalDispatch<W> {
+    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
+        CubeCount::Static(cubes_for_m, cubes_for_n, cubes_for_batches)
+    }
+}
+
 #[cube]
 impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
     fn x_y_indices() -> (u32, u32) {
@@ -132,5 +154,11 @@ impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
         cube_count.2
+    }
+}
+
+impl<const W: u32> CubeCountDispatch for SwizzleTransposedDispatch<W> {
+    fn cube_count(cubes_for_m: u32, cubes_for_n: u32, cubes_for_batches: u32) -> CubeCount {
+        CubeCount::Static(cubes_for_n, cubes_for_m, cubes_for_batches)
     }
 }

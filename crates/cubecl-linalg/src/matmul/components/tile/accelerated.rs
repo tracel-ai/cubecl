@@ -5,6 +5,7 @@ use crate::matmul::components::{
     as_cmma_layout, tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 use half::{bf16, f16};
@@ -16,6 +17,7 @@ pub trait CmmaValid<I: Numeric, O: Numeric> {}
 impl CmmaValid<f16, f16> for (f16, f16) {}
 impl CmmaValid<f16, f32> for (f16, f32) {}
 impl CmmaValid<bf16, f32> for (bf16, f32) {}
+impl CmmaValid<tf32, f32> for (tf32, f32) {}
 
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
@@ -62,6 +64,15 @@ macro_rules! instruction {
                 fill_rhs(slice, rhs, config, Self::N, Self::K);
             }
 
+            fn fill_accumulator(
+                slice: &Slice<Line<O>>,
+                acc: &mut Self::Accumulator,
+                stride: u32,
+                #[comptime] config: Config,
+            ) {
+                fill_accumulator(slice, acc, stride, config);
+            }
+
             fn read_accumulator<C: Numeric>(
                 out: &Self::Accumulator,
                 slice: &mut SliceMut<Line<C>>,
@@ -91,7 +102,7 @@ macro_rules! instruction {
 
             fn check_availability<R: Runtime>(
                 client: &ComputeClient<R::Server, R::Channel>,
-            ) -> Result<(), &str> {
+            ) -> Result<(), MatmulAvailabilityError> {
                 check_availability::<I, O, R>(Self::M, Self::N, Self::K, client)
             }
 
@@ -181,23 +192,30 @@ fn fill_rhs<C: CubePrimitive, I: Numeric>(
 }
 
 #[cube]
+fn fill_accumulator<C: CubePrimitive, O: Numeric>(
+    slice: &Slice<C>,
+    acc: &mut cmma::Matrix<O>,
+    stride: u32,
+    #[comptime] config: Config,
+) {
+    let layout = comptime!(as_cmma_layout(config.layout(Ident::Out)));
+    cmma::load_with_layout(acc, slice, stride, layout);
+}
+
+#[cube]
 fn init_output<O: Numeric>(
     #[comptime] m: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
 ) -> cmma::Matrix<O> {
     unsafe {
-        let matrix = cmma::Matrix::<O>::uninitialized(
+        cmma::Matrix::<O>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             m,
             n,
             k,
             cmma::MatrixLayout::Undefined,
-        );
-
-        cmma::fill(&matrix, O::from_int(0));
-
-        matrix
+        )
     }
 }
 
@@ -207,7 +225,8 @@ fn read_accumulator<O: Numeric, C: Numeric>(
     slice: &mut SliceMut<Line<C>>,
     #[comptime] n: u32,
 ) {
-    cmma::store(slice, out, n, cmma::MatrixLayout::RowMajor);
+    let acc = cmma::cast::<O, C>(out);
+    cmma::store(slice, &acc, n, cmma::MatrixLayout::RowMajor);
 }
 
 fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
@@ -215,7 +234,7 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
     n: u32,
     k: u32,
     client: &ComputeClient<R::Server, R::Channel>,
-) -> Result<(), &str> {
+) -> Result<(), MatmulAvailabilityError> {
     if !client.properties().feature_enabled(Feature::Cmma {
         a: I::as_elem(),
         b: I::as_elem(),
@@ -224,7 +243,13 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
         k: k as u8,
         n: n as u8,
     }) {
-        return Err("Cmma not supported.");
+        return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
+            input: I::as_elem(),
+            output: O::as_elem(),
+            m,
+            n,
+            k,
+        });
     }
 
     if !(client
@@ -234,7 +259,10 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
             .properties()
             .feature_enabled(Feature::Type(O::as_elem())))
     {
-        return Err("Types not supported.");
+        return Err(MatmulAvailabilityError::TypesUnavailable {
+            input: I::as_elem(),
+            output: O::as_elem(),
+        });
     }
 
     Ok(())

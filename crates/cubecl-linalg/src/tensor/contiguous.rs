@@ -59,7 +59,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: TensorHandleRef<'_, R>,
+    input: &TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
     let num_elems: usize = input.shape.iter().product();
     // Vectorization is only enabled when the last dimension is contiguous.
@@ -87,7 +87,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: TensorHandleRef<'_, R>,
+    input: &TensorHandleRef<'_, R>,
     elems_per_unit: u32,
 ) -> TensorHandle<R, E> {
     // Vectorization is only enabled when the last dimension is contiguous.

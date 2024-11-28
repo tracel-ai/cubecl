@@ -32,6 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 layout,
                 ..
             } => self.compile_store(mat, out, stride, layout),
+            CoopMma::Cast { input } => self.compile_cast(input, out),
         }
     }
 
@@ -47,7 +48,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let value = self.compile_variable(value);
         let stride = self.compile_variable(stride);
-        let stride = self.read(&stride);
+        let stride_item = stride.item();
+        let mut stride = self.read(&stride);
+
+        if let Item::Vector(_, line_size) = value.item() {
+            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+            let stride_ty = stride_item.id(self);
+            stride = self
+                .shift_right_logical(stride_ty, None, stride, shift)
+                .unwrap();
+        }
+
         let layout = layout
             .and_then(compile_layout)
             .or(mat.layout)
@@ -100,10 +111,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let out = self.compile_variable(out);
         let stride = self.compile_variable(stride);
-        let stride = self.read(&stride);
+        let stride_item = stride.item();
+        let mut stride = self.read(&stride);
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let ptr = self.deref_slice(&out);
+
+        if let Item::Vector(_, line_size) = out.item() {
+            let shift = stride_item.const_u32(self, line_size.trailing_zeros());
+            let stride_ty = stride_item.id(self);
+            stride = self
+                .shift_right_logical(stride_ty, None, stride, shift)
+                .unwrap();
+        }
 
         self.cooperative_matrix_store_khr(ptr, mat_obj, memory_layout, Some(stride), None, vec![])
             .unwrap();
@@ -141,6 +161,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
 
         self.store(mat_d.id, mat_d_id, None, vec![]).unwrap();
+    }
+
+    fn compile_cast(&mut self, input: core::Variable, output: core::Variable) {
+        let input = self.compile_variable(input);
+        let output = self.compile_variable(output);
+
+        let input = self.matrix_var(&input).2;
+        let output = self.matrix_var(&output).2;
+
+        let input_ty = self.item(&input).id(self);
+        let output_ty = self.item(&output).id(self);
+
+        let fragment_id = self.load(input_ty, None, input.id, None, vec![]).unwrap();
+
+        let frag_new = self.f_convert(output_ty, None, fragment_id).unwrap();
+
+        self.store(output.id, frag_new, None, vec![]).unwrap();
     }
 
     fn matrix_var(&mut self, var: &Variable) -> (u16, u8, Matrix) {

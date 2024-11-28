@@ -6,6 +6,7 @@ use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -34,8 +35,8 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> bat
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
-        let x_offset = x_index * config.stage_dim(Ident::Lhs).height();
-        let y_offset = y_index * config.stage_dim(Ident::Rhs).width();
+        let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
+        let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
         let nth_batch = C::batch_index();
         let k_range = (0, lhs.shape(lhs.rank() - 1));
 
@@ -65,7 +66,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> Mat
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), MatmulAvailabilityError> {
         GMM::check_availability::<R>(client)
     }
 
@@ -99,7 +100,7 @@ impl<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>, C: CubeDispatch> Mat
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::launch::launch_unchecked::<EG, Self, R>(
+        super::batch_matmul::launch_unchecked::<EG, Self, R>(
             client, cube_count, cube_dim, lhs, rhs, out, config,
         );
     }
@@ -125,11 +126,11 @@ impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
     }
 
     fn max_m(&self) -> u32 {
-        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).height()
+        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).num_elements_x_dim()
     }
 
     fn max_n(&self) -> u32 {
-        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).width()
+        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).num_elements_y_dim()
     }
 
     fn max_batches(&self) -> u32 {

@@ -299,9 +299,9 @@ pub mod load {
 /// Load the matrix with the provided array using the stride with an explicit layout.
 /// Explicit layouts are required when loading accumulators.
 #[allow(unused_variables)]
-pub fn load_with_layout<C: CubeType>(
+pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive>(
     mat: &Matrix<C>,
-    value: &Slice<C>,
+    value: &Slice<V>,
     stride: u32,
     layout: MatrixLayout,
 ) {
@@ -314,10 +314,10 @@ pub mod load_with_layout {
 
     /// Expand method of [load_with_layout()].
     #[allow(unused_variables)]
-    pub fn expand<C: CubeType>(
+    pub fn expand<C: CubeType, V: CubePrimitive>(
         context: &mut CubeContext,
         mat: MatrixExpand<C>,
-        value: ExpandElementTyped<Slice<C>>,
+        value: ExpandElementTyped<Slice<V>>,
         stride: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) {
@@ -402,6 +402,57 @@ pub mod execute {
             },
             *mat_d.elem,
         ));
+    }
+}
+
+/// Store the matrix in the given array following the given stride and layout.
+#[allow(unused_variables)]
+pub fn cast<C: CubePrimitive, O: CubePrimitive>(input: &Matrix<C>) -> Matrix<O> {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [store()].
+pub mod cast {
+    use super::*;
+
+    /// Expand method of [store()].
+    #[allow(unused_variables)]
+    pub fn expand<C: CubePrimitive, O: CubePrimitive>(
+        context: &mut CubeContext,
+        input: MatrixExpand<C>,
+    ) -> MatrixExpand<O> {
+        let ident = input.ident;
+
+        if core::any::TypeId::of::<C>() == core::any::TypeId::of::<O>() {
+            return MatrixExpand {
+                elem: input.elem,
+                ident,
+                _c: PhantomData,
+            };
+        }
+        let input = *input.elem;
+        let input_mat = match input.kind {
+            ir::VariableKind::Matrix { id, mat, depth } => mat,
+            _ => unreachable!(),
+        };
+
+        let elem = context.create_matrix(ir::Matrix {
+            ident,
+            m: input_mat.m,
+            n: input_mat.n,
+            k: input_mat.k,
+            elem: O::as_elem(),
+            layout: MatrixLayout::Undefined,
+        });
+
+        let output = MatrixExpand {
+            ident,
+            elem,
+            _c: PhantomData,
+        };
+        context.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
+
+        output
     }
 }
 

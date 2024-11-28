@@ -4,9 +4,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::{global::AccumulatorLoader, stage::base::Matmul as _};
 use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
+use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -25,21 +26,21 @@ use super::reader::{LhsReader, RhsReader};
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct Matmul<I: Numeric, O: Numeric, Acc: Numeric, TMM: tile::Matmul<I, Acc>, SS: StageSize> {
+pub struct Matmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Matmul<I, EA>, SS: StageSize> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
-    _accumulator_precision: PhantomData<Acc>,
+    _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
     _block_size: PhantomData<SS>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM, SS> stage::Matmul<I, O> for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, EA, TMM, SS> stage::Matmul<I, O, EA> for Matmul<I, O, EA, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
-    Acc: Numeric,
-    TMM: tile::Matmul<I, Acc>,
+    EA: Numeric,
+    TMM: tile::Matmul<I, EA>,
     SS: StageSize,
 {
     const M: u32 = SS::NUM_M * TMM::M;
@@ -99,7 +100,7 @@ where
             stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<Acc>::new_lined(
+        let mut out_smem = SharedMemory::<O>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -109,7 +110,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<Acc, G>(
+            SW::write::<O, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,
@@ -136,6 +137,18 @@ where
             TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
         }
     }
+
+    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+        loader: &mut L,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    ) {
+        #[unroll]
+        for i in 0..SS::NUM_N {
+            let acc = acc.index_mut(i);
+            L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
+        }
+    }
 }
 
 impl<I, O, Acc, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS>
@@ -158,7 +171,7 @@ where
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), &str> {
+    ) -> Result<(), MatmulAvailabilityError> {
         TMM::check_availability::<R>(client)
     }
 

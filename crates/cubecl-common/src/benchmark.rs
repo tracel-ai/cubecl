@@ -160,7 +160,19 @@ pub trait Benchmark {
     fn execute(&self, args: Self::Args);
     /// Number of samples per run required to have a statistical significance.
     fn num_samples(&self) -> usize {
-        10
+        const DEFAULT: usize = 10;
+
+        #[cfg(feature = "std")]
+        {
+            std::env::var("BENCH_NUM_SAMPLES")
+                .map(|val| str::parse::<usize>(&val).unwrap_or(DEFAULT))
+                .unwrap_or(DEFAULT)
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            DEFAULT
+        }
     }
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
@@ -192,7 +204,9 @@ pub trait Benchmark {
             // Warmup
             let args = self.prepare();
 
-            self.execute(args.clone());
+            for _ in 0..self.num_samples() {
+                self.execute(args.clone());
+            }
 
             match timing_method {
                 TimingMethod::Full => self.sync(),
@@ -200,6 +214,7 @@ pub trait Benchmark {
                     let _ = self.sync_elapsed();
                 }
             }
+            std::thread::sleep(Duration::from_secs(1));
 
             let mut durations = Vec::with_capacity(self.num_samples());
 

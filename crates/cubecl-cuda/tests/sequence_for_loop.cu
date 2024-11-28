@@ -5,8 +5,8 @@ typedef unsigned int uint;
 typedef unsigned long long int uint64;
 typedef long long int int64;
 
-extern "C" __global__ void sequence_for_loop_kernel(float output_0[], 
-                                                    uint info[]) { 
+extern "C" __global__ void sequence_for_loop_kernel(float output_0[],
+                                                    uint info[]) {
 
   int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x +
                         threadIdx.z * (blockDim.x * blockDim.y);

@@ -312,6 +312,9 @@ impl ScopeProcessing {
                     CoopMma::Store { stride, .. } => {
                         sanitize_constant_scalar_ref_elem(stride, u32::as_elem());
                     }
+                    CoopMma::Cast { .. } => {
+                        // Nothing to do.
+                    }
                 },
             });
         self

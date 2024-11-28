@@ -59,8 +59,7 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
     fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations {
         let mut result: SupportedWmmaCombinations = vec![];
         if arch.version >= WMMA_MINIMUM_VERSION {
-            //                                   m   n   k
-            let tdims = vec![(16, 16, 16), (32, 16, 8), (8, 16, 32)];
+            let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];
             // Types fully supported.
             let types = vec![
                 (
@@ -91,7 +90,7 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::TF32),
                 gpu::Elem::Float(gpu::FloatKind::F32),
-                vec![(16, 8, 16)],
+                vec![(16, 16, 8)],
             ));
         }
         result

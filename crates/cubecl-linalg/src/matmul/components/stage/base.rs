@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::StageDim;
+use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, tile, MatmulKernel};
 use crate::matmul::components::{Ident, MatrixLayout};
 
@@ -23,7 +23,7 @@ use super::tiling_order::TilingOrderConfig;
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric>:
+pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
     'static + Send + Sync + MatmulKernel<I, O, Config: Config>
 {
     /// Number of rows of LHS
@@ -68,6 +68,28 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// Fill the accumulator with data
+    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
+        loader: &mut L,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
+}
+
+#[cube]
+/// Input to the stage matmul, responsible of handing slices of data
+/// at precise locations in the stage
+pub trait StageReader<ES: Numeric>: CubeType {
+    /// Hands a portion of data from the stage, whose location is function of the
+    /// plane, buffer and accumulator indexes.
+    fn read_tile<S: Config>(
+        this: &Self,
+        compute_plane_offset: u32,
+        buffer_offset: u32,
+        accumulator_offset: u32,
+        #[comptime] config: S,
+    ) -> Slice<Line<ES>>;
 }
 
 #[cube]
@@ -142,5 +164,13 @@ create_cmma_stage!(S2x2x1, 2, 2, 1);
 create_cmma_stage!(S2x2x2, 2, 2, 2);
 create_cmma_stage!(S4x4x1, 4, 4, 1);
 create_cmma_stage!(S4x4x2, 4, 4, 2);
+create_cmma_stage!(S4x4x4, 4, 4, 4);
+create_cmma_stage!(S4x2x4, 4, 2, 4);
 create_cmma_stage!(S8x1x1, 8, 1, 1);
+create_cmma_stage!(S8x2x2, 8, 2, 2);
+create_cmma_stage!(S8x4x1, 8, 4, 1);
+create_cmma_stage!(S8x4x2, 8, 4, 2);
+create_cmma_stage!(S2x2x8, 2, 2, 8);
+create_cmma_stage!(S16x4x4, 16, 4, 4);
 create_cmma_stage!(S8x8x1, 8, 8, 1);
+create_cmma_stage!(S8x8x2, 8, 8, 2);
