@@ -20,10 +20,7 @@ struct PtrBindings {
 impl PtrBindings {
     fn new() -> Self {
         Self {
-            // We assume that a CUDA stream will never hold more than 1024 bindings at the same time.
-            // Therefore, we can reuse the oldest pointer slot without having to keep track of bindings
-            // lifetime.
-            slots: uninit_vec(1024),
+            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
             cursor: 0,
         }
     }
@@ -51,9 +48,9 @@ impl core::fmt::Debug for CudaStorage {
     }
 }
 
-/// Keeps actual wgpu buffer references in a hashmap with ids as key.
+/// Keeps actual CUDA buffer references in a hashmap with ids as keys.
 impl CudaStorage {
-    /// Create a new storage on the given [device](wgpu::Device).
+    /// Create a new storage on the given [device](cudarc::driver::sys::CUdeviceptr).
     pub fn new(stream: CUstream) -> Self {
         Self {
             memory: HashMap::new(),
@@ -75,7 +72,7 @@ impl CudaStorage {
     }
 }
 
-/// The memory resource that can be allocated for wgpu.
+/// The memory resource that can be allocated for CUDA.
 #[derive(new, Debug)]
 pub struct CudaResource {
     /// The wgpu buffer.
