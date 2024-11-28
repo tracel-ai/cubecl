@@ -293,9 +293,13 @@ pub mod wmma_api_base {
                 }
             }
             WmmaInstruction::Cast { input, output } => {
+                let ty = match output {
+                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                    _ => panic!("Should be a fragment"),
+                };
                 writeln!(
                     f,
-                    "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {input}.x[t]; }}"
+                    "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]); }}"
                 )
             }
         }

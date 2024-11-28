@@ -7,6 +7,7 @@ use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::stage::base::Matmul as _;
 use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
 use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
+use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         config::MatmulConfig,
@@ -160,7 +161,7 @@ where
 
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), String> {
+    ) -> Result<(), MatmulAvailabilityError> {
         TMM::check_availability::<R>(client)
     }
 

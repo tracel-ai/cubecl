@@ -1,3 +1,5 @@
+use crate::matmul::kernels::MatmulInvalidProblem;
+
 use super::{batch, MatrixLayout};
 
 #[derive(Clone)]
@@ -36,36 +38,73 @@ impl MatmulProblem {
     ///
     ///  - If dimensions of the problem are larger than allowed by the config
     ///  - If line sizes do not divide well the dimension in which they are aligned
-    pub fn check_config<B: batch::Config>(&self, config: &B) {
-        assert!(
-            self.m <= config.max_m() as usize,
-            "Problem has m={} but these configs can only have m<={}",
-            self.m,
-            config.max_m()
-        );
-        assert!(
-            self.n <= config.max_n() as usize,
-            "Problem has n={} but these configs can only have n<={}",
-            self.n,
-            config.max_n()
-        );
-        assert!(
-            self.num_batches() <= config.max_batches() as usize,
-            "Problem has {} batches but these configs can only have batches<={}",
-            self.num_batches(),
-            config.max_batches()
-        );
+    pub fn check_config<B: batch::Config>(&self, config: &B) -> Result<(), MatmulInvalidProblem> {
+        if self.m > config.max_m() as usize {
+            return Err(MatmulInvalidProblem::ExceededMSize {
+                m: self.m as u32,
+                max_m: config.max_m(),
+            });
+        }
 
-        assert!(match self.lhs_layout {
-            MatrixLayout::RowMajor => self.k % self.lhs_line_size as usize == 0,
-            MatrixLayout::ColMajor => self.m % self.lhs_line_size as usize == 0,
-        });
+        if self.n > config.max_n() as usize {
+            return Err(MatmulInvalidProblem::ExceededNSize {
+                n: self.n as u32,
+                max_n: config.max_n(),
+            });
+        }
 
-        assert!(match self.rhs_layout {
-            MatrixLayout::RowMajor => self.n % self.rhs_line_size as usize == 0,
-            MatrixLayout::ColMajor => self.k % self.rhs_line_size as usize == 0,
-        });
+        if self.num_batches() > config.max_batches() as usize {
+            return Err(MatmulInvalidProblem::ExceededBatchSize {
+                b: self.num_batches() as u32,
+                max_b: config.max_batches(),
+            });
+        }
 
-        assert!(self.n % self.out_line_size as usize == 0);
+        match self.lhs_layout {
+            MatrixLayout::RowMajor => {
+                if self.k % self.lhs_line_size as usize != 0 {
+                    return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
+                        size: self.k as u32,
+                        line_size: self.lhs_line_size,
+                    });
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if self.m % self.lhs_line_size as usize != 0 {
+                    return Err(MatmulInvalidProblem::InvalidLineSizeLhs {
+                        size: self.m as u32,
+                        line_size: self.lhs_line_size,
+                    });
+                }
+            }
+        }
+
+        match self.rhs_layout {
+            MatrixLayout::RowMajor => {
+                if self.n % self.rhs_line_size as usize != 0 {
+                    return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
+                        size: self.n as u32,
+                        line_size: self.rhs_line_size,
+                    });
+                }
+            }
+            MatrixLayout::ColMajor => {
+                if self.k % self.rhs_line_size as usize != 0 {
+                    return Err(MatmulInvalidProblem::InvalidLineSizeRhs {
+                        size: self.k as u32,
+                        line_size: self.lhs_line_size,
+                    });
+                }
+            }
+        }
+
+        if self.n % self.out_line_size as usize != 0 {
+            return Err(MatmulInvalidProblem::InvalidLineSizeOut {
+                size: self.n as u32,
+                line_size: self.out_line_size,
+            });
+        }
+
+        Ok(())
     }
 }

@@ -6,3 +6,7 @@ pub mod matmul;
 pub mod simple;
 /// Non-cooperative Matmul
 pub mod tiling2d;
+
+mod error;
+
+pub use error::*;
