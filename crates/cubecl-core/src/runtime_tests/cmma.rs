@@ -5,7 +5,7 @@ use cubecl::{
     ir::{Elem, FloatKind},
     prelude::*,
 };
-use half::f16;
+use half::{bf16, f16};
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
@@ -88,7 +88,7 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
 }
 
 #[cube(launch)]
-pub fn cast_matrix(input: &Array<f32>, out: &mut Array<f16>) {
+pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
     let acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
@@ -101,6 +101,29 @@ pub fn cast_matrix(input: &Array<f32>, out: &mut Array<f16>) {
     cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
 
     let output = cmma::cast::<f32, f16>(&acc);
+
+    cmma::store(
+        &mut out.to_slice_mut(),
+        &output,
+        16,
+        cmma::MatrixLayout::RowMajor,
+    );
+}
+
+#[cube(launch)]
+pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
+    let acc = unsafe {
+        cmma::Matrix::<f32>::uninitialized(
+            cmma::MatrixIdent::Accumulator,
+            16,
+            16,
+            16,
+            cmma::MatrixLayout::Undefined,
+        )
+    };
+    cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+
+    let output = cmma::cast::<f32, bf16>(&acc);
 
     cmma::store(
         &mut out.to_slice_mut(),
@@ -174,7 +197,7 @@ pub fn test_simple_1<R: Runtime>(
     assert_eq!(expected, actual);
 }
 
-pub fn test_cmma_cast_acc<R: Runtime>(
+pub fn test_cmma_cast_f16<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     cube_dimensions: CubeDim,
 ) {
@@ -195,7 +218,7 @@ pub fn test_cmma_cast_acc<R: Runtime>(
     let out = client.empty(core::mem::size_of::<f16>() * 256);
 
     unsafe {
-        cast_matrix::launch::<R>(
+        cast_matrix_f16::launch::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -207,6 +230,43 @@ pub fn test_cmma_cast_acc<R: Runtime>(
     let actual = client.read_one(out.binding());
     let actual = f16::from_bytes(&actual);
     let expected: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
+
+    assert_eq!(actual, expected);
+}
+
+pub fn test_cmma_cast_bf16<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    cube_dimensions: CubeDim,
+) {
+    if !client.properties().feature_enabled(Feature::Cmma {
+        a: Elem::Float(FloatKind::BF16),
+        b: Elem::Float(FloatKind::BF16),
+        c: Elem::Float(FloatKind::F32),
+        m: 16,
+        k: 16,
+        n: 16,
+    }) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
+    let input = client.create(f32::as_bytes(&input));
+    let out = client.empty(core::mem::size_of::<f16>() * 256);
+
+    unsafe {
+        cast_matrix_bf16::launch::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            ArrayArg::from_raw_parts::<f32>(&input, 256, 1),
+            ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
+        )
+    };
+
+    let actual = client.read_one(out.binding());
+    let actual = bf16::from_bytes(&actual);
+    let expected: Vec<bf16> = (0..256).map(|i| bf16::from_f32(i as f32)).collect();
 
     assert_eq!(actual, expected);
 }
@@ -305,10 +365,20 @@ macro_rules! testgen_cmma {
         }
 
         #[test]
-        fn test_cmma_cast_acc() {
+        fn test_cmma_cast_f16() {
             let client = TestRuntime::client(&Default::default());
             let cube_dimensions = CubeDim::new(32, 1, 1);
-            cubecl_core::runtime_tests::cmma::test_cmma_cast_acc::<TestRuntime>(
+            cubecl_core::runtime_tests::cmma::test_cmma_cast_f16::<TestRuntime>(
+                client,
+                cube_dimensions,
+            );
+        }
+
+        #[test]
+        fn test_cmma_cast_bf16() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = CubeDim::new(32, 1, 1);
+            cubecl_core::runtime_tests::cmma::test_cmma_cast_bf16::<TestRuntime>(
                 client,
                 cube_dimensions,
             );

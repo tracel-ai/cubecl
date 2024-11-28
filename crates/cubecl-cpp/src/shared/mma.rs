@@ -188,6 +188,7 @@ pub mod wmma_api_base {
     ) -> std::fmt::Result {
         let elem = match fragment.elem {
             Elem::TF32 => format!("{namespace}::precision::tf32"),
+            Elem::BF16 => format!("{}", Elem::<D>::F16), // Normally not supported except for cast.
             elem => format!("{elem}"),
         };
         match fragment.layout {
@@ -279,8 +280,15 @@ pub mod wmma_api_base {
                 };
 
                 let item = output.item();
-                if item.vectorization > 1 {
-                    let elem = item.elem;
+                let mut reinterpret_cast = item.vectorization > 1;
+                let elem = match item.elem {
+                    Elem::BF16 => {
+                        reinterpret_cast = true;
+                        Elem::F16
+                    }
+                    _ => item.elem,
+                };
+                if reinterpret_cast {
                     writeln!(
                         f,
                         "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output}), {frag}, {stride}, {layout});"
@@ -297,10 +305,24 @@ pub mod wmma_api_base {
                     Variable::WmmaFragment { frag, .. } => frag.elem,
                     _ => panic!("Should be a fragment"),
                 };
-                writeln!(
-                    f,
-                    "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]); }}"
-                )
+                match ty {
+                    Elem::BF16 => {
+                        let elem = Elem::<D>::F16;
+                        writeln!(
+                            f,
+                            "for(int t=0; t<{input}.num_elements; t++) {{
+                                {ty} elem = {ty}({input}.x[t]);
+                                {output}.x[t] = *reinterpret_cast<{elem} *>(&elem);
+                            }}"
+                        )
+                    }
+                    _ => {
+                        writeln!(
+                            f,
+                            "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]); }}"
+                        )
+                    }
+                }
             }
         }
     }
