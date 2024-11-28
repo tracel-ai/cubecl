@@ -38,16 +38,10 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric, Stage: StageSize, TMM: tile::Matmul<
     type TileMatmul = TMM;
 
     type StageMatmul =
-        stage::multi_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
+        stage::single_buffer::Matmul<Self::ES, Self::EG, Self::EA, Self::TileMatmul, Stage>;
 
-    type GlobalMatmul = global::full_load::Matmul<
-        Self::EG,
-        Self::ES,
-        Self::EA,
-        Self::StageMatmul,
-        global::full_load::CyclicLoading,
-        global::full_load::CyclicLoading,
-    >;
+    type GlobalMatmul =
+        global::buffered::pipelined::Matmul<Self::EG, Self::ES, Self::EA, Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::Matmul<Self::EG, Self::ES, Self::GlobalMatmul, Dispatch>;
 
@@ -62,5 +56,13 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric, Stage: StageSize, TMM: tile::Matmul<
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn advanced_config() -> crate::matmul::kernels::matmul::AdvancedConfig {
+        crate::matmul::kernels::matmul::AdvancedConfig {
+            lhs_tiling_order: stage::TilingOrderConfig::ColMajor,
+            rhs_tiling_order: stage::TilingOrderConfig::RowMajor,
+            enforced_tile_layout: (None, None),
+        }
     }
 }
