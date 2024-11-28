@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::Config as _;
-use crate::matmul::components::global::pipelined;
-use crate::matmul::components::global::pipelined::buffer_loading::BufferLoading;
+use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
+use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -152,7 +152,14 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, S>(tensor_view, buffer_slice, ident, config);
+    BufferLoading::load_to_slice::<EG, ES, pipelined::Config<S>>(
+        tensor_view,
+        buffer_slice,
+        config.num_planes(),
+        0u32,
+        ident,
+        config,
+    );
 }
 
 fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {

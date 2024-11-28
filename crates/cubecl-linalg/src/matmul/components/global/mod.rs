@@ -1,6 +1,5 @@
-pub mod homogeneous;
-pub mod pipelined;
-pub mod producer_consumer;
+pub mod buffered;
+pub mod full_load;
 pub mod tensor_view;
 
 mod accumulator_loader;
