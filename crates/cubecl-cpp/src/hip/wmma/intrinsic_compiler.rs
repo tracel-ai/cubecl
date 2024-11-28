@@ -152,7 +152,7 @@ for (uint i = 0; i < uint(8); ++i) {{
                                     "i + wmmaLane * uint(16)"
                                 };
                                 (index.to_string(), length, step)
-                            },
+                            }
                             FragmentIdent::Accumulator => {
                                 let length = 8;
                                 let step = get_output_accumulator_index_step(value, inner);
@@ -280,12 +280,12 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
             }
             WmmaInstruction::Cast { input, output } => {
                 let step = match output {
-                    Variable::WmmaFragment { frag: inner, .. } => {
-                        match inner.ident {
-                            FragmentIdent::Accumulator => get_output_accumulator_index_step(input, inner),
-                            _ => 1,
+                    Variable::WmmaFragment { frag: inner, .. } => match inner.ident {
+                        FragmentIdent::Accumulator => {
+                            get_output_accumulator_index_step(input, inner)
                         }
-                    }
+                        _ => 1,
+                    },
                     _ => 1,
                 };
                 write!(
@@ -335,7 +335,8 @@ for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
 
 fn get_output_accumulator_index_step(
     input: &Variable<HipDialect<WmmaIntrinsicCompiler>>,
-    output: &Fragment<HipDialect<WmmaIntrinsicCompiler>>) -> u32 {
+    output: &Fragment<HipDialect<WmmaIntrinsicCompiler>>,
+) -> u32 {
     // Each VGPR is 32 bit wide and there is 8 VGPR per lane, an accumulator can then be either:
     // - a vector of 8 floats
     // - a vector of 16 halfs
@@ -343,7 +344,10 @@ fn get_output_accumulator_index_step(
     // just only 16 bits. In such a case we always use the lower 16 bits (opsel set to false) which means
     // that we only assign values to even indexes of the accumulator (0, 2, 4, ...)
 
-    assert_eq!(output.ident, FragmentIdent::<HipDialect<WmmaIntrinsicCompiler>>::Accumulator);
+    assert_eq!(
+        output.ident,
+        FragmentIdent::<HipDialect<WmmaIntrinsicCompiler>>::Accumulator
+    );
 
     let step = match input.elem() {
         Elem::F16 | Elem::BF16 | Elem::F32 => {
@@ -354,7 +358,7 @@ fn get_output_accumulator_index_step(
                 Elem::F32 => 1,
                 other => panic!("unsupported format {other} for {output}"),
             }
-        },
+        }
         other => panic!("unsupported format {other} for {input}"),
     };
     step
