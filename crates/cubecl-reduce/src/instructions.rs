@@ -6,7 +6,7 @@ pub struct ReduceArgMax;
 
 #[cube]
 impl ReduceArgMax {
-    /// Compare two pairs of items and coordinates and return a new pair 
+    /// Compare two pairs of items and coordinates and return a new pair
     /// where each element in the lines is the maximal item with its coordinate.
     /// In case of equality, the lowest coordinate is selected.
     pub fn choose_argmax<N: Numeric>(
@@ -31,7 +31,7 @@ pub struct ReduceArgMin;
 
 #[cube]
 impl ReduceArgMin {
-    /// Compare two pairs of items and coordinates and return a new pair 
+    /// Compare two pairs of items and coordinates and return a new pair
     /// where each element in the lines is the minimal item with its coordinate.
     /// In case of equality, the lowest coordinate is selected.
     pub fn choose_argmin<N: Numeric>(
