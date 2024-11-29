@@ -13,6 +13,12 @@ use crate::{
     ReduceProd, ReduceSharedInstruction, ReduceSum,
 };
 
+// All random values generated for tests will be in the set
+// {-1, -1 + E, -1 + 2E, ..., 1 - E, 1} with E = 1 / PRECISION.
+// We choose this set to avoid precision issues with f16 and bf16 and
+// also to add multiple similar values to properly test ArgMax and ArgMin.
+const PRECISION: i32 = 8;
+
 // Simple kernel to launch tests.
 #[cube(launch_unchecked)]
 pub fn kernel_reduce_naive<I: Numeric, O: Numeric, R: ReduceNaiveInstruction<I>>(
@@ -386,7 +392,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1e-6);
+        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
     }
 
     pub fn test_sum_dim_shared<F, R>(&self, device: &R::Device)
@@ -494,7 +500,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / 4.0);
+        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
     }
 
     fn cpu_sum_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -599,8 +605,8 @@ impl TestCase {
     fn random_input_values<F: Float>(&self) -> Vec<F> {
         let size = self.shape.iter().product::<usize>() * self.line_size as usize;
         let rng = StdRng::seed_from_u64(self.pseudo_random_seed());
-        let distribution = Uniform::new_inclusive(-8, 8);
-        let factor = 1.0 / 8.0;
+        let distribution = Uniform::new_inclusive(-PRECISION, PRECISION);
+        let factor = 1.0 / (PRECISION as f32);
         distribution
             .sample_iter(rng)
             .take(size)
