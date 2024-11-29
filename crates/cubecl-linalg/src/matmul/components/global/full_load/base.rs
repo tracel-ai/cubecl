@@ -43,8 +43,8 @@ where
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
-    LL: LoadingStrategy<EG, ES, LoadBuffer = Array<Line<EG>>>,
-    RL: LoadingStrategy<EG, ES, LoadBuffer = Array<Line<EG>>>,
+    LL: LoadingStrategy<EG, ES>,
+    RL: LoadingStrategy<EG, ES>,
 {
     type LhsLoader = LhsLoader<EG, ES, LL>;
     type RhsLoader = RhsLoader<EG, ES, RL>;

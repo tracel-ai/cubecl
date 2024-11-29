@@ -29,11 +29,9 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> {
 // - The index of the loader is in its new, which is not in the trait
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES, LoadBuffer = Array<Line<EG>>>>
-    Loader<EG, ES> for LhsLoader<EG, ES, L>
-{
+impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
-    type LoadBuffer = Array<Line<EG>>;
+    type LoadBuffer = L::LoadBuffer;
 
     fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer {
         L::fetch::<G>(&this.tensor_view, Ident::Lhs, config)
