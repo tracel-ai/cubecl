@@ -1,8 +1,11 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
 use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
+use crate::matmul::components::global::{Loader, LoadingStrategy};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
@@ -14,7 +17,7 @@ use cubecl_core::prelude::*;
 pub struct LhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
-    buffer_iter: u32,
+    buffer_id: u32,
     num_buffers: u32,
 }
 
@@ -22,40 +25,18 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric> {
 pub struct RhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
-    buffer_iter: u32,
+    buffer_id: u32,
     num_buffers: u32,
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
-
-    // fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
-    //     load_buffer::<EG, ES, S>(
-    //         this.buffer_iter,
-    //         &this.tensor_view,
-    //         &mut this.stage,
-    //         Ident::Lhs,
-    //         config,
-    //     );
-    // }
-
-    // fn as_stage_reader(this: &Self) -> Self::StageReader {
-    //     LhsBufferReader::<ES> {
-    //         stage: this.stage,
-    //         buffer: this.buffer_iter,
-    //     }
-    // }
-
-    // fn advance_view(this: &mut Self, k_offset: u32) {
-    //     this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
-    //     this.tensor_view.update_view(k_offset, Ident::Lhs);
-    // }
-
     pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        buffer_id: u32,
         #[comptime] config: pipelined::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
@@ -64,37 +45,53 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
         LhsBufferLoader::<EG, ES> {
             tensor_view,
             stage,
-            buffer_iter: 0,
+            buffer_id,
             num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y_dim(),
         }
     }
 }
 
 #[cube]
+impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
+    type StageReader = LhsBufferReader<ES>;
+    type LoadBuffer = <BufferLoading as LoadingStrategy<EG, ES>>::LoadBuffer;
+
+    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer {
+        todo!()
+    }
+
+    fn fill_stage<G: global::Config>(
+        this: &mut Self,
+        buffer: Self::LoadBuffer,
+        #[comptime] config: G,
+    ) -> Self::StageReader {
+        todo!()
+    }
+
+    fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
+        todo!()
+    }
+}
+
+#[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
-    type Config<S: stage::Config> = pipelined::Config<S>;
+    type LoadBuffer = <BufferLoading as LoadingStrategy<EG, ES>>::LoadBuffer;
 
-    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: Self::Config<S>) {
-        load_buffer::<EG, ES, S>(
-            this.buffer_iter,
-            &this.tensor_view,
-            &mut this.stage,
-            Ident::Rhs,
-            config,
-        );
+    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer {
+        todo!()
     }
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        RhsBufferReader::<ES> {
-            stage: this.stage,
-            buffer: this.buffer_iter,
-        }
+    fn fill_stage<G: global::Config>(
+        this: &mut Self,
+        buffer: Self::LoadBuffer,
+        #[comptime] config: G,
+    ) -> Self::StageReader {
+        todo!()
     }
 
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
-        this.tensor_view.update_view(k_offset, Ident::Rhs);
+    fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
+        todo!()
     }
 }
 
@@ -105,6 +102,7 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        buffer_id: u32,
         #[comptime] config: pipelined::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
@@ -113,7 +111,7 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
         RhsBufferLoader::<EG, ES> {
             tensor_view,
             stage,
-            buffer_iter: 0,
+            buffer_id,
             num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x_dim(),
         }
     }

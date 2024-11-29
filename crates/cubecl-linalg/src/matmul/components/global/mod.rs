@@ -1,4 +1,4 @@
-// pub mod buffered;
+pub mod buffered;
 pub mod full_load;
 pub mod tensor_view;
 

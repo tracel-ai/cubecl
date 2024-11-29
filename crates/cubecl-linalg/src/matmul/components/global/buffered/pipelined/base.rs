@@ -15,6 +15,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
+
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
@@ -34,7 +36,7 @@ where
     SMM:
         stage::Matmul<ES, EG, EA, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
 {
-    type LhsLoader = (LhsBufferLoader<EG, ES>, LhsBufferLoader<EG, ES>);
+    type LhsLoader = LhsBufferLoader<EG, ES>;
     type RhsLoader = RhsBufferLoader<EG, ES>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;

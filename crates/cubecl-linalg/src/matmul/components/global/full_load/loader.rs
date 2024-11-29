@@ -22,12 +22,6 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> {
     _loading: PhantomData<L>,
 }
 
-// What we want
-// - Loader trait should come back
-// - FullLoad's associated Loader is what we see here
-// - Buffered's associated Loader is actually two loaders
-// - The index of the loader is in its new, which is not in the trait
-
 #[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
