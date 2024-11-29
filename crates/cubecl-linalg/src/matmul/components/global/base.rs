@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global;
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
@@ -29,8 +30,8 @@ use crate::matmul::components::{Ident, MatrixLayout};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type LhsLoader: Loader<EG, ES, Self::Config>;
-    type RhsLoader: Loader<EG, ES, Self::Config>;
+    type LhsLoader: Loader<EG, ES>;
+    type RhsLoader: Loader<EG, ES>;
     type AccumulatorLoader: CubeType;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
@@ -86,12 +87,13 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
+pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
+    type Config<S: stage::Config>: global::Config;
 
     /// Fills the stage at the current k offset.
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
+    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: Self::Config<S>);
 
     /// Returns a reader for the stage at the current k offset
     fn as_stage_reader(this: &Self) -> Self::StageReader;
@@ -103,10 +105,8 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
-    CubeType + 'static + Send + Sync
-{
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
+pub trait AccumulatorLoader<O: Numeric, Acc: Numeric>: CubeType + 'static + Send + Sync {
+    fn fill_stage<G>(this: &mut Self, #[comptime] config: G);
 
     /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.

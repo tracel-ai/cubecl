@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, CubeType};
 
-use crate::matmul::components::{stage::Config, tile};
+use crate::matmul::components::tile;
 
 use super::AccumulatorLoader;
 
@@ -10,8 +10,8 @@ use super::AccumulatorLoader;
 pub struct ZeroAccumulatorLoader;
 
 #[cube]
-impl<O: Numeric, Acc: Numeric, G: Config> AccumulatorLoader<O, Acc, G> for ZeroAccumulatorLoader {
-    fn fill_stage(_this: &mut Self, #[comptime] _config: G) {}
+impl<O: Numeric, Acc: Numeric> AccumulatorLoader<O, Acc> for ZeroAccumulatorLoader {
+    fn fill_stage<G>(_this: &mut Self, #[comptime] _config: G) {}
 
     fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
         _this: &mut Self,

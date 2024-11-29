@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::{full_load, Config};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
@@ -10,29 +10,26 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> {
+pub struct LhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
-    _config: PhantomData<S>,
     _loading: PhantomData<L>,
 }
 
 #[derive(CubeType)]
-pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> {
+pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
-    _config: PhantomData<S>,
     _loading: PhantomData<L>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, full_load::Config<S>> for LhsLoader<EG, ES, S, L>
-{
+impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
+    type Config<S: stage::Config> = full_load::Config<S>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
-        L::load_to_slice::<EG, ES, full_load::Config<S>>(
+    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: Self::Config<S>) {
+        L::load_to_slice::<EG, ES, Self::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Lhs,
@@ -50,33 +47,31 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> LhsLoader<EG, ES, S, L> {
-    pub fn new<G: global::Config>(
+impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> LhsLoader<EG, ES, L> {
+    pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: G,
+        #[comptime] config: full_load::Config<S>,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        LhsLoader::<EG, ES, S, L> {
+        LhsLoader::<EG, ES, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
             _loading: PhantomData::<L>.runtime(),
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, full_load::Config<S>> for RhsLoader<EG, ES, S, L>
-{
+impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> Loader<EG, ES> for RhsLoader<EG, ES, L> {
     type StageReader = RhsReader<ES>;
+    type Config<S: stage::Config> = full_load::Config<S>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
+    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: full_load::Config<S>) {
         L::load_to_slice::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
@@ -95,21 +90,20 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> RhsLoader<EG, ES, S, L> {
-    pub fn new<G: global::Config>(
+impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> RhsLoader<EG, ES, L> {
+    pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: G,
+        #[comptime] config: full_load::Config<S>,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        RhsLoader::<EG, ES, S, L> {
+        RhsLoader::<EG, ES, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
             _loading: PhantomData::<L>.runtime(),
         }
     }

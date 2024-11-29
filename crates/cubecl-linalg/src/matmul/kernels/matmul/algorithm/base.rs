@@ -6,16 +6,10 @@ use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 
-type LhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<
-    EG,
-    ES,
-    <GMM as MatmulKernel<EG, EG>>::Config,
->>::StageReader;
-type RhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::RhsLoader as global::Loader<
-    EG,
-    ES,
-    <GMM as MatmulKernel<EG, EG>>::Config,
->>::StageReader;
+type LhsStageReader<GMM, EG, ES> =
+    <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<EG, ES>>::StageReader;
+type RhsStageReader<GMM, EG, ES> =
+    <<GMM as global::Matmul<EG, ES>>::RhsLoader as global::Loader<EG, ES>>::StageReader;
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm<EG: Numeric> {

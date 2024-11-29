@@ -46,8 +46,8 @@ where
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<EG, ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<EG, ES, SMM::Config, RL>;
+    type LhsLoader = LhsLoader<EG, ES, LL>;
+    type RhsLoader = RhsLoader<EG, ES, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
@@ -107,7 +107,13 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -117,7 +123,13 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            config,
+        )
     }
 
     fn init_unloader(

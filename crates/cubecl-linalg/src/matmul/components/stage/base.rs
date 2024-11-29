@@ -70,7 +70,7 @@ pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<O, Acc>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
