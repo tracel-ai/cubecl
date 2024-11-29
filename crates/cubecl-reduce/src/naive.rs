@@ -56,12 +56,12 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
 
     // Reduce all the lines along `dim` for the previously computed offset.
     let mut accumulator = RD::init_accumulator(input.line_size());
-    for i in 0..input.shape(dim) {
-        let index = i * input.stride(dim) + offset_input;
+    for coordinate in 0..input.shape(dim) {
+        let index = coordinate * input.stride(dim) + offset_input;
         RD::accumulate(
             &mut accumulator,
             unsafe { *input.index_unchecked(index) },
-            i,
+            coordinate,
         );
     }
 
