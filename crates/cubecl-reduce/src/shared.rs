@@ -111,12 +111,11 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
             sync_units();
         }
     } else {
-        // 25
-        let mut num_remaining_items = cube_dim; // 25
+        let mut num_remaining_items = cube_dim;
         let mut jump = 1;
         while num_remaining_items > 1 {
-            let destination = jump * 2 * UNIT_POS; // 2 * UP
-            let origin = jump * (2 * UNIT_POS + 1); // (2 * UP + 1)
+            let destination = jump * 2 * UNIT_POS;
+            let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_remaining_items / 2 {
                 RD::merge(&mut accumulator, destination, origin);
             }
