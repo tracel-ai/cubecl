@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Config;
+use crate::matmul::components::global::{self, LoadBuffer};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -16,12 +16,11 @@ pub struct CyclicLoading {}
 
 #[cube]
 impl LoadingStrategy for CyclicLoading {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+    fn fetch<EG: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) {
+    ) -> LoadBuffer<EG> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -35,6 +34,8 @@ impl LoadingStrategy for CyclicLoading {
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
+
+        let mut load_buffer = LoadBuffer::new(num_loads_per_unit, line_size);
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
@@ -59,6 +60,36 @@ impl LoadingStrategy for CyclicLoading {
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
+            load_buffer.index_assign(i, line_read);
+        }
+
+        load_buffer
+    }
+
+    fn store<EG: Numeric, ES: Numeric, G: global::Config>(
+        load_buffer: LoadBuffer<EG>,
+        slice: &mut SliceMut<Line<ES>>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_stage_elements = stage_dim.total_elements();
+        let total_units = comptime!(config.num_planes() * config.plane_dim());
+        let jump_length = comptime!(total_units * line_size);
+        let num_loads_per_unit = num_stage_elements / jump_length;
+
+        #[allow(clippy::all)]
+        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
+
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
+
+        for i in 0..num_loads_per_unit {
+            let unit_position = unit_position_base + i * jump_length;
+            let line_read = load_buffer.index(i);
+
             match config.transpose_load(ident) {
                 false => {
                     slice[unit_position / line_size] = Line::cast_from(line_read);
@@ -67,6 +98,10 @@ impl LoadingStrategy for CyclicLoading {
                     let slice_line_size = config.stage_line_size(ident);
 
                     if comptime!(slice_line_size == 1) {
+                        let tile_num_elements = stage_dim.tile_num_elements();
+                        let nth_tile = unit_position / tile_num_elements;
+                        let pos_within_tile = unit_position % tile_num_elements;
+
                         let tile_offset = nth_tile * tile_num_elements;
 
                         let tile_size_x = config.stage_dim(ident).tile_size_x_dim();

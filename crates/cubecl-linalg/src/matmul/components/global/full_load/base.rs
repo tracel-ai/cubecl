@@ -1,5 +1,5 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::global::Config as _;
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -46,15 +46,15 @@ where
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<EG, ES, LL>;
-    type RhsLoader = RhsLoader<EG, ES, RL>;
+    type LhsLoad = LL;
+    type RhsLoad = RL;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: Self::LhsLoader,
-        mut rhs_loader: Self::RhsLoader,
+        mut lhs_loader: LhsLoader<EG, ES, Self::LhsLoad>,
+        mut rhs_loader: RhsLoader<EG, ES, Self::RhsLoad>,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -70,10 +70,13 @@ where
         for _ in 0..num_loops {
             sync_units();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_load_buffer = LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
+            let rhs_load_buffer = RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+
+            let lhs_stage_reader =
+                &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, lhs_load_buffer, config);
+            let rhs_stage_reader =
+                &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, rhs_load_buffer, config);
 
             sync_units();
 
@@ -86,8 +89,8 @@ where
                 config.to_smm_config(),
             );
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
+            RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
         }
 
         sync_units();
@@ -106,8 +109,8 @@ where
         y_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
+    ) -> LhsLoader<EG, ES, Self::LhsLoad> {
+        LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             lhs,
             x_offset,
             y_offset,
@@ -122,8 +125,8 @@ where
         y_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
+    ) -> RhsLoader<EG, ES, Self::RhsLoad> {
+        RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             rhs,
             x_offset,
             y_offset,

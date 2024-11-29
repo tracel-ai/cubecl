@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Config;
+use crate::matmul::components::global::{self, LoadBuffer};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -16,8 +16,60 @@ pub struct TilewiseLoading {}
 
 #[cube]
 impl LoadingStrategy for TilewiseLoading {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+    fn fetch<EG: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> LoadBuffer<EG> {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        #[allow(clippy::all)]
+        let _ = comptime! {
+            check_num_planes(config.num_planes(), stage_dim.num_tiles());
+            check_line_sizes(line_size, config.stage_line_size(ident))
+        };
+
+        let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
+
+        let nth_tile = UNIT_POS_Y;
+
+        let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
+
+        let (tile_x, tile_y) = match config.tiling_order(ident) {
+            TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
+                nth_tile,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+            TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
+                nth_tile,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+        };
+
+        let mut load_buffer = LoadBuffer::new(num_loads_per_unit, line_size);
+
+        for i in 0..num_loads_per_unit {
+            let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
+
+            let line_read = read_view.load_coalesced::<G>(
+                tile_x,
+                tile_y,
+                pos_within_tile * line_size,
+                ident,
+                config,
+            );
+
+            load_buffer.index_assign(i, line_read);
+        }
+
+        load_buffer
+    }
+
+    fn store<EG: Numeric, ES: Numeric, G: global::Config>(
+        load_buffer: LoadBuffer<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -38,31 +90,10 @@ impl LoadingStrategy for TilewiseLoading {
 
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
-        let (tile_x, tile_y) = match config.tiling_order(ident) {
-            TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
-                nth_tile,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
-            ),
-            TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
-                nth_tile,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
-            ),
-        };
-
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
-
-            let line_read = read_view.load_coalesced::<G>(
-                tile_x,
-                tile_y,
-                pos_within_tile * line_size,
-                ident,
-                config,
-            );
-
             let offset = offset_base + pos_within_tile;
+            let line_read = load_buffer.index(i);
 
             match config.transpose_load(ident) {
                 false => slice[offset] = Line::cast_from(line_read),

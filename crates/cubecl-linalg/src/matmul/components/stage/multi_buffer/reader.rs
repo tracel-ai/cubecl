@@ -59,7 +59,7 @@ impl<ES: Numeric> LhsReader<ES> {
 
 #[cube]
 impl<ES: Numeric> RhsReader<ES> {
-    pub fn new(stage: Stage<ES>) -> RhsReader<ES> {
+    pub fn from_stage(stage: Stage<ES>) -> RhsReader<ES> {
         RhsReader::<ES> { stage }
     }
 }

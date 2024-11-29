@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::LoadBuffer;
 use crate::matmul::components::global::{full_load, Config};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage};
@@ -24,30 +24,26 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> Loader<EG, ES> for LhsLoader<EG, ES, L> {
-    type StageReader = LhsReader<ES>;
-    type Config<S: stage::Config> = full_load::Config<S>;
-
-    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: Self::Config<S>) {
-        L::load_to_slice::<EG, ES, Self::Config<S>>(
-            &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
-            Ident::Lhs,
-            config,
-        );
-    }
-
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-}
-
-#[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> LhsLoader<EG, ES, L> {
+    pub fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> LoadBuffer<EG> {
+        L::fetch::<EG, G>(&this.tensor_view, Ident::Lhs, config)
+    }
+
+    pub fn fill_stage<G: global::Config>(
+        this: &mut Self,
+        buffer: LoadBuffer<EG>,
+        #[comptime] config: G,
+    ) -> LhsReader<ES> {
+        L::store::<EG, ES, G>(buffer, &mut this.stage.as_slice_mut(), Ident::Lhs, config);
+        LhsReader::<ES> { stage: this.stage }
+    }
+
+    pub fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
+        let ident = Ident::Lhs;
+        let k_offset = config.stage_dim(ident).num_elements_y_dim();
+        this.tensor_view.update_view(k_offset, ident);
+    }
+
     pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
@@ -67,30 +63,27 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> LhsLoader<EG, ES, L> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> Loader<EG, ES> for RhsLoader<EG, ES, L> {
-    type StageReader = RhsReader<ES>;
-    type Config<S: stage::Config> = full_load::Config<S>;
-
-    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: full_load::Config<S>) {
-        L::load_to_slice::<EG, ES, full_load::Config<S>>(
-            &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
-            Ident::Rhs,
-            config,
-        );
-    }
-
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        RhsReader::new(this.stage)
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Rhs);
-    }
-}
-
-#[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> RhsLoader<EG, ES, L> {
+    pub fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> LoadBuffer<EG> {
+        L::fetch::<EG, G>(&this.tensor_view, Ident::Rhs, config)
+    }
+
+    pub fn fill_stage<G: global::Config>(
+        this: &mut Self,
+        buffer: LoadBuffer<EG>,
+        #[comptime] config: G,
+    ) -> RhsReader<ES> {
+        // TODO RhsReader should be rhs buffer reader for buffered
+        L::store::<EG, ES, G>(buffer, &mut this.stage.as_slice_mut(), Ident::Rhs, config);
+        RhsReader::<ES> { stage: this.stage }
+    }
+
+    pub fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
+        let ident = Ident::Rhs;
+        let k_offset = config.stage_dim(ident).num_elements_x_dim();
+        this.tensor_view.update_view(k_offset, ident);
+    }
+
     pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
@@ -111,8 +104,14 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy> RhsLoader<EG, ES, L> {
 
 #[cube]
 pub trait LoadingStrategy: 'static + Send + Sync + Clone {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
+    fn fetch<EG: Numeric, G: global::Config>(
         read_view: &TensorReader<EG>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> LoadBuffer<EG>;
+
+    fn store<EG: Numeric, ES: Numeric, G: global::Config>(
+        load_buffer: LoadBuffer<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

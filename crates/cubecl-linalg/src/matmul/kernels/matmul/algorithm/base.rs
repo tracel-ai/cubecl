@@ -1,15 +1,16 @@
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self};
 use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 
-type LhsStageReader<GMM, EG, ES> =
-    <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<EG, ES>>::StageReader;
-type RhsStageReader<GMM, EG, ES> =
-    <<GMM as global::Matmul<EG, ES>>::RhsLoader as global::Loader<EG, ES>>::StageReader;
+// type LhsStageReader<GMM, EG, ES> =
+//     <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<EG, ES>>::StageReader;
+// type RhsStageReader<GMM, EG, ES> =
+//     <<GMM as global::Matmul<EG, ES>>::RhsLoader as global::Loader<EG, ES>>::StageReader;
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm<EG: Numeric> {
@@ -25,8 +26,8 @@ pub trait Algorithm<EG: Numeric> {
             Self::ES,
             Self::EG,
             Self::EA,
-            LhsReader = LhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
-            RhsReader = RhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
+            LhsReader = LhsReader<Self::ES>,
+            RhsReader = RhsReader<Self::ES>,
         > + MatmulKernel<Self::ES, Self::EG>;
 
     type GlobalMatmul: global::Matmul<Self::EG, Self::ES>;
