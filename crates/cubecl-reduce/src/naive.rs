@@ -152,22 +152,15 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
-        let (max, index) = accumulator;
-        #[allow(clippy::collapsible_else_if)]
-        if comptime!(item.size() > 1) {
-            #[unroll]
-            for k in 0..item.size() {
-                if item[k] > max[k] {
-                    max[k] = item[k];
-                    index[k] = coordinate;
-                }
-            }
-        } else {
-            if item > *max {
-                *max = item;
-                *index = Line::new(coordinate);
-            }
-        }
+        let (acc_item, acc_coordinate) = accumulator;
+        let (new_item, new_coordinate) = Self::choose_argmax(
+            *acc_item,
+            *acc_coordinate,
+            item,
+            Line::empty(item.size()).fill(coordinate),
+        );
+        accumulator.0 = new_item;
+        accumulator.1 = new_coordinate;
     }
 
     fn write<EO: Numeric>(
@@ -194,22 +187,15 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMin {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
-        let (min, index) = accumulator;
-        #[allow(clippy::collapsible_else_if)]
-        if comptime!(item.size() > 1) {
-            #[unroll]
-            for k in 0..item.size() {
-                if item[k] < min[k] {
-                    min[k] = item[k];
-                    index[k] = coordinate;
-                }
-            }
-        } else {
-            if item < *min {
-                *min = item;
-                *index = Line::new(coordinate);
-            }
-        }
+        let (acc_item, acc_coordinate) = accumulator;
+        let (new_item, new_coordinate) = Self::choose_argmin(
+            *acc_item,
+            *acc_coordinate,
+            item,
+            Line::empty(item.size()).fill(coordinate),
+        );
+        accumulator.0 = new_item;
+        accumulator.1 = new_coordinate;
     }
 
     fn write<EO: Numeric>(
