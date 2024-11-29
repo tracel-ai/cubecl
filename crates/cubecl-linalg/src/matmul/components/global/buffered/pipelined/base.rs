@@ -1,5 +1,5 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::global::Config as _;
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -14,8 +14,6 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
-
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,

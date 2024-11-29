@@ -1,5 +1,5 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::Config as _;
+use crate::matmul::components::global::{Config as _, Loader, LoadingStrategy};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -15,7 +15,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
+use super::{LhsLoader, RhsLoader};
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
@@ -25,8 +25,8 @@ pub struct Matmul<
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: LoadingStrategy<EG, ES>,
+    RL: LoadingStrategy<EG, ES>,
 > {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
@@ -43,18 +43,18 @@ where
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: LoadingStrategy<EG, ES, LoadBuffer = Array<Line<EG>>>,
+    RL: LoadingStrategy<EG, ES, LoadBuffer = Array<Line<EG>>>,
 {
-    type LhsLoad = LL;
-    type RhsLoad = RL;
+    type LhsLoader = LhsLoader<EG, ES, LL>;
+    type RhsLoader = RhsLoader<EG, ES, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
-        mut lhs_loader: LhsLoader<EG, ES, Self::LhsLoad>,
-        mut rhs_loader: RhsLoader<EG, ES, Self::RhsLoad>,
+        mut lhs_loader: Self::LhsLoader,
+        mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -109,7 +109,7 @@ where
         y_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> LhsLoader<EG, ES, Self::LhsLoad> {
+    ) -> Self::LhsLoader {
         LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             lhs,
             x_offset,
@@ -125,7 +125,7 @@ where
         y_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> RhsLoader<EG, ES, Self::RhsLoad> {
+    ) -> Self::RhsLoader {
         RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             rhs,
             x_offset,
@@ -159,8 +159,8 @@ where
     ES: Numeric,
     EA: Numeric,
     SMM: stage::Matmul<ES, EG, EA>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: LoadingStrategy<EG, ES>,
+    RL: LoadingStrategy<EG, ES>,
 {
     type Config = Config<SMM::Config>;
 

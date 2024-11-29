@@ -7,7 +7,7 @@ use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 
-use super::full_load::{LhsLoader, LoadingStrategy, RhsLoader};
+use super::tensor_view::TensorReader;
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -31,8 +31,8 @@ use super::full_load::{LhsLoader, LoadingStrategy, RhsLoader};
 pub trait Matmul<EG: Numeric, ES: Numeric>:
     'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
 {
-    type LhsLoad: LoadingStrategy;
-    type RhsLoad: LoadingStrategy;
+    type LhsLoader: Loader<EG, ES>;
+    type RhsLoader: Loader<EG, ES>;
     type AccumulatorLoader: CubeType;
     type Out: Unloader<EG>;
     type Accumulator: CubeType;
@@ -44,8 +44,8 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: LhsLoader<EG, ES, Self::LhsLoad>,
-        rhs_loader: RhsLoader<EG, ES, Self::RhsLoad>,
+        lhs_loader: Self::LhsLoader,
+        rhs_loader: Self::RhsLoader,
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -59,7 +59,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         k_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> LhsLoader<EG, ES, Self::LhsLoad>;
+    ) -> Self::LhsLoader;
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
@@ -68,7 +68,7 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
         n_offset: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> RhsLoader<EG, ES, Self::RhsLoad>;
+    ) -> Self::RhsLoader;
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
@@ -85,43 +85,40 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
-// #[cube]
-// /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
-// /// Advances along the k-dimension to fill the stage with further data.
-// pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
-//     /// The stage reader which matches the input of the underlying stage matmul.
-//     type StageReader: CubeType;
-//     // type Config<S: stage::Config>: global::Config;
+#[cube]
+/// Input to the global matmul, responsible of filling the stage and providing a reader for it.
+/// Advances along the k-dimension to fill the stage with further data.
+pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
+    /// The stage reader which matches the input of the underlying stage matmul.
+    type StageReader: CubeType;
+    type LoadBuffer: CubeType;
 
-//     fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> LoadBuffer;
-//     fn fill_stage<G: global::Config>(
-//         this: &mut Self,
-//         buffer: LoadBuffer,
-//         #[comptime] config: G,
-//     ) -> Self::StageReader;
-//     fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G);
-// }
+    fn fetch_global<G: Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer;
+    fn fill_stage<G: Config>(
+        this: &mut Self,
+        buffer: Self::LoadBuffer,
+        #[comptime] config: G,
+    ) -> Self::StageReader;
 
-#[derive(CubeType)]
-pub struct LoadBuffer<EG: Numeric> {
-    buffer: Array<Line<EG>>,
+    fn to_next_stage<G: Config>(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
-impl<EG: Numeric> LoadBuffer<EG> {
-    pub fn new(length: u32, line_size: u32) -> Self {
-        LoadBuffer::<EG> {
-            buffer: Array::<Line<EG>>::vectorized(length, line_size),
-        }
-    }
+pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clone {
+    type LoadBuffer: CubeType;
 
-    pub fn index_assign(&mut self, index: u32, value: Line<EG>) {
-        self.buffer[index] = value;
-    }
+    fn fetch<G: Config>(
+        read_view: &TensorReader<EG>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Self::LoadBuffer;
 
-    pub fn index(&self, index: u32) -> Line<EG> {
-        self.buffer[index]
-    }
+    fn store<G: Config>(
+        load_buffer: Self::LoadBuffer,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    );
 }
 
 #[cube]

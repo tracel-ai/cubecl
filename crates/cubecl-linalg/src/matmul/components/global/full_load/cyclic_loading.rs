@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, LoadBuffer};
+use crate::matmul::components::global::{self, LoadingStrategy};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -7,20 +7,20 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::loader::LoadingStrategy;
-
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
 
 #[cube]
-impl LoadingStrategy for CyclicLoading {
-    fn fetch<EG: Numeric, G: global::Config>(
+impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
+    type LoadBuffer = Array<Line<EG>>;
+
+    fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> LoadBuffer<EG> {
+    ) -> Array<Line<EG>> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -35,7 +35,7 @@ impl LoadingStrategy for CyclicLoading {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        let mut load_buffer = LoadBuffer::new(num_loads_per_unit, line_size);
+        let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
@@ -60,15 +60,15 @@ impl LoadingStrategy for CyclicLoading {
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
-            load_buffer.index_assign(i, line_read);
+            load_buffer[i] = line_read;
         }
 
         load_buffer
     }
 
-    fn store<EG: Numeric, ES: Numeric, G: global::Config>(
-        load_buffer: LoadBuffer<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+    fn store<G: global::Config>(
+        load_buffer: Array<Line<EG>>,
+        stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -88,11 +88,11 @@ impl LoadingStrategy for CyclicLoading {
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
-            let line_read = load_buffer.index(i);
+            let line_read = load_buffer[i];
 
             match config.transpose_load(ident) {
                 false => {
-                    slice[unit_position / line_size] = Line::cast_from(line_read);
+                    stage_slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
                     let slice_line_size = config.stage_line_size(ident);
@@ -123,7 +123,7 @@ impl LoadingStrategy for CyclicLoading {
                         for iter in 0..config.global_line_size(ident) {
                             let slice_strided_idx = slice_strided_root + iter;
                             let elem = line_read[iter];
-                            slice[tile_offset
+                            stage_slice[tile_offset
                                 + slice_strided_idx * slice_stride
                                 + slice_contiguous_idx] = Line::cast_from(elem);
                         }

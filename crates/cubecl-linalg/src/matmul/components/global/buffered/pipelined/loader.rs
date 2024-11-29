@@ -3,7 +3,6 @@ use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
 use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
@@ -28,35 +27,30 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
-    type StageReader = LhsBufferReader<ES>;
-    type Config<S: stage::Config> = pipelined::Config<S>;
-
-    fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
-        load_buffer::<EG, ES, S>(
-            this.buffer_iter,
-            &this.tensor_view,
-            &mut this.stage,
-            Ident::Lhs,
-            config,
-        );
-    }
-
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        LhsBufferReader::<ES> {
-            stage: this.stage,
-            buffer: this.buffer_iter,
-        }
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
-        this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-}
-
-#[cube]
 impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
+
+    // fn fill_stage<S: stage::Config>(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
+    //     load_buffer::<EG, ES, S>(
+    //         this.buffer_iter,
+    //         &this.tensor_view,
+    //         &mut this.stage,
+    //         Ident::Lhs,
+    //         config,
+    //     );
+    // }
+
+    // fn as_stage_reader(this: &Self) -> Self::StageReader {
+    //     LhsBufferReader::<ES> {
+    //         stage: this.stage,
+    //         buffer: this.buffer_iter,
+    //     }
+    // }
+
+    // fn advance_view(this: &mut Self, k_offset: u32) {
+    //     this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
+    //     this.tensor_view.update_view(k_offset, Ident::Lhs);
+    // }
+
     pub fn new<S: stage::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,

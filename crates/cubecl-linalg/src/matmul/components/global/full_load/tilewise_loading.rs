@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, LoadBuffer};
+use crate::matmul::components::global::{self, LoadingStrategy};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -7,20 +7,20 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::loader::LoadingStrategy;
-
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
 pub struct TilewiseLoading {}
 
 #[cube]
-impl LoadingStrategy for TilewiseLoading {
-    fn fetch<EG: Numeric, G: global::Config>(
+impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
+    type LoadBuffer = Array<Line<EG>>;
+
+    fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> LoadBuffer<EG> {
+    ) -> Array<Line<EG>> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -49,7 +49,7 @@ impl LoadingStrategy for TilewiseLoading {
             ),
         };
 
-        let mut load_buffer = LoadBuffer::new(num_loads_per_unit, line_size);
+        let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
 
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
@@ -62,15 +62,15 @@ impl LoadingStrategy for TilewiseLoading {
                 config,
             );
 
-            load_buffer.index_assign(i, line_read);
+            load_buffer[i] = line_read;
         }
 
         load_buffer
     }
 
-    fn store<EG: Numeric, ES: Numeric, G: global::Config>(
-        load_buffer: LoadBuffer<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+    fn store<G: global::Config>(
+        load_buffer: Array<Line<EG>>,
+        stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -93,10 +93,10 @@ impl LoadingStrategy for TilewiseLoading {
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
             let offset = offset_base + pos_within_tile;
-            let line_read = load_buffer.index(i);
+            let line_read = load_buffer[i];
 
             match config.transpose_load(ident) {
-                false => slice[offset] = Line::cast_from(line_read),
+                false => stage_slice[offset] = Line::cast_from(line_read),
                 true => {
                     #[allow(clippy::all)]
                     let _ = comptime!(unsupported_transpose_load());
