@@ -9,8 +9,8 @@ use rand::{
 };
 
 use crate::{
-    reduce_naive, reduce_shared, ArgMax, ArgMin, Mean, ReduceNaiveInstruction,
-    Prod, ReduceSharedInstruction, Sum,
+    reduce_naive, reduce_shared, ArgMax, ArgMin, Mean, Prod, ReduceNaiveInstruction,
+    ReduceSharedInstruction, Sum,
 };
 
 // All random values generated for tests will be in the set
