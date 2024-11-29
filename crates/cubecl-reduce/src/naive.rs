@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{ReduceArgMax, ReduceArgMin, ReduceMean, ReduceProd, ReduceSum};
+use crate::{ArgMax, ArgMin, Mean, Prod, Sum};
 
 /// An instruction for the [reduce_naive](reduce_naive) algorithm.
 #[cube]
@@ -72,7 +72,7 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
 // Implementations for common instructions.
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceSum {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Sum {
     type Accumulator = Line<EI>;
 
     fn init_accumulator(line_size: u32) -> Line<EI> {
@@ -94,7 +94,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceSum {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceProd {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Prod {
     type Accumulator = Line<EI>;
 
     fn init_accumulator(line_size: u32) -> Line<EI> {
@@ -116,7 +116,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceProd {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceMean {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Mean {
     type Accumulator = Line<EI>;
 
     fn init_accumulator(line_size: u32) -> Self::Accumulator {
@@ -140,7 +140,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceMean {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
     type Accumulator = (Line<EI>, Line<u32>);
 
     fn init_accumulator(line_size: u32) -> Self::Accumulator {
@@ -182,7 +182,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMin {
     type Accumulator = (Line<EI>, Line<u32>);
 
     fn init_accumulator(line_size: u32) -> Self::Accumulator {
