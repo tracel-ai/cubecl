@@ -131,6 +131,7 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
 }
 
 #[cube]
+#[allow(clippy::manual_div_ceil)]
 fn div_ceil(a: u32, b: u32) -> u32 {
     (a + b - 1) / b
 }
