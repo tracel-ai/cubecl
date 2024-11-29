@@ -72,8 +72,8 @@ macro_rules! testgen_reduce {
                     shape: [4, 8],
                     stride: [8, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(4, 8, 1),
+                    cube_count: CubeCount::new_single(),
+                    cube_dim: CubeDim::new_2d(4, 8),
                     line_size: 1,
                 },
                 {
@@ -81,8 +81,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -90,8 +90,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -99,8 +99,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 16, 16],
                     stride: [1, 256, 16],
                     reduce_dim: 2,
-                    cube_count: CubeCount::Static(4, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(4),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -108,8 +108,8 @@ macro_rules! testgen_reduce {
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(4, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(4),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -117,8 +117,8 @@ macro_rules! testgen_reduce {
                     shape: [32, 64],
                     stride: [64, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 4,
                 }
             ]
@@ -133,8 +133,8 @@ macro_rules! testgen_reduce {
                     shape: [4, 8],
                     stride: [8, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(2, 1, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_1d(2),
                     line_size: 1,
                 },
                 {
@@ -142,8 +142,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 1, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_1d(16),
                     line_size: 1,
                 },
                 {
@@ -151,8 +151,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 256],
                     stride: [256, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(256, 1, 1),
-                    cube_dim: CubeDim::new(5, 1, 1),
+                    cube_count: CubeCount::new_1d(256),
+                    cube_dim: CubeDim::new_1d(5),
                     line_size: 1,
                 },
                 {
@@ -160,8 +160,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 16, 16],
                     stride: [1, 256, 16],
                     reduce_dim: 2,
-                    cube_count: CubeCount::Static(16, 16, 1),
-                    cube_dim: CubeDim::new(4, 1, 1),
+                    cube_count: CubeCount::new_2d(16, 16),
+                    cube_dim: CubeDim::new_1d(4),
                     line_size: 1,
                 },
                 {
@@ -169,8 +169,8 @@ macro_rules! testgen_reduce {
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(11, 1, 13),
-                    cube_dim: CubeDim::new(2, 1, 1),
+                    cube_count: CubeCount::new_2d(11, 13),
+                    cube_dim: CubeDim::new_1d(2),
                     line_size: 1,
                 },
                 {
@@ -178,8 +178,8 @@ macro_rules! testgen_reduce {
                     shape: [32, 64],
                     stride: [64, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(64, 1, 1),
-                    cube_dim: CubeDim::new(8, 1, 1),
+                    cube_count: CubeCount::new_1d(64),
+                    cube_dim: CubeDim::new_1d(8),
                     line_size: 4,
                 }
             ]
