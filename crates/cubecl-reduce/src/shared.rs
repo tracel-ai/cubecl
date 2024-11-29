@@ -3,21 +3,34 @@ use cubecl_core::prelude::*;
 
 use crate::{ReduceArgMax, ReduceArgMin, ReduceMean, ReduceProd, ReduceSum};
 
+// /// A naive implementation of the reduction algorithm.
+// ///
+// /// Each thread with absolute position P is responsible
+// /// to compute the reduction corresponding to index P of the output.
 /// An instruction for the [reduce_shared](reduce_shared) algorithm.
 #[cube]
 pub trait ReduceSharedInstruction<EI: Numeric>: Send + Sync + 'static {
     /// The reduction accumulator.
+    /// The implement works on lines. Most likely, the accumulator is Line<T>
+    /// for some CubePrimitive type T instead of simply T.
     type Accumulator: CubeType;
 
+    /// Create an unitialized accumulator containing length item of the given line_size.
     fn create_accumulator(#[comptime] length: u32, #[comptime] line_size: u32)
         -> Self::Accumulator;
 
+    /// Set the null value of the reduction into the accumulator at the given index..
     fn init_accumulator(
         accumulator: &mut Self::Accumulator,
         index: u32,
         #[comptime] line_size: u32,
     );
 
+    // Reduce item and coordinate into the accumulator at the index destination.
+    //
+    // Note that for each call, the coordinate is greater than the coordinate pass in each previous call.
+    // This can be leverage to simplify some implementations.
+    // For example, in ArgMax, this is used to garanty that the smallest coordinate is kept in case of equality.
     fn accumulate(
         accumulator: &mut Self::Accumulator,
         destination: u32,
@@ -25,8 +38,14 @@ pub trait ReduceSharedInstruction<EI: Numeric>: Send + Sync + 'static {
         coordinate: u32,
     );
 
+    // Reduce the items at destination and origin within the accumulator and store the result
+    // and the destination.
+    //
+    // Note that destination is always smaller than origin. This can be leverage to simplify some implementations.
+    // For example, in ArgMax, this is used to garanty that the smallest coordinate is used in case of equality.
     fn merge(accumulator: &mut Self::Accumulator, destination: u32, origin: u32);
 
+    // Write the first item of accumulator into the ouput at the given index.
     fn write_first<EO: Numeric>(
         output: &mut Tensor<Line<EO>>,
         accumulator: &Self::Accumulator,
@@ -73,7 +92,6 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
             }
         }
     }
-
     sync_units();
 
     // Merge the accumulator like this with some padding if CUBE_DIM is not a power of 2.
