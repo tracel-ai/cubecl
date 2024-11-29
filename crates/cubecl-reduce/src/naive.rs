@@ -19,7 +19,7 @@ pub trait ReduceNaiveInstruction<EI: Numeric>: Send + Sync + 'static {
     fn init_accumulator(line_size: u32) -> Self::Accumulator;
 
     /// Reduce `current_value` into `accumulator`.
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32);
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
 
     /// Write the result of the reduction stored in `accumulator` into `output[index]`.
     fn write<EO: Numeric>(
@@ -101,8 +101,8 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for Prod {
         Line::empty(line_size).fill(EI::from_int(1))
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
-        *accumulator *= current_value;
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, _coordinate: u32) {
+        *accumulator *= item;
     }
 
     fn write<EO: Numeric>(
@@ -123,8 +123,8 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for Mean {
         Line::empty(line_size).fill(EI::from_int(0))
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
-        *accumulator += current_value;
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, _coordinate: u32) {
+        *accumulator += item;
     }
 
     fn write<EO: Numeric>(
@@ -151,21 +151,21 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
         )
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
         let (max, index) = accumulator;
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(current_value.size() > 1) {
+        if comptime!(item.size() > 1) {
             #[unroll]
-            for k in 0..current_value.size() {
-                if current_value[k] > max[k] {
-                    max[k] = current_value[k];
-                    index[k] = i;
+            for k in 0..item.size() {
+                if item[k] > max[k] {
+                    max[k] = item[k];
+                    index[k] = coordinate;
                 }
             }
         } else {
-            if current_value > *max {
-                *max = current_value;
-                *index = Line::new(i);
+            if item > *max {
+                *max = item;
+                *index = Line::new(coordinate);
             }
         }
     }
@@ -193,21 +193,21 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMin {
         )
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
         let (min, index) = accumulator;
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(current_value.size() > 1) {
+        if comptime!(item.size() > 1) {
             #[unroll]
-            for k in 0..current_value.size() {
-                if current_value[k] < min[k] {
-                    min[k] = current_value[k];
-                    index[k] = i;
+            for k in 0..item.size() {
+                if item[k] < min[k] {
+                    min[k] = item[k];
+                    index[k] = coordinate;
                 }
             }
         } else {
-            if current_value < *min {
-                *min = current_value;
-                *index = Line::new(i);
+            if item < *min {
+                *min = item;
+                *index = Line::new(coordinate);
             }
         }
     }
