@@ -43,6 +43,7 @@ pub fn handle_command(args: &ValidateCmdArgs) -> anyhow::Result<()> {
         command: Some(TestSubCommand::All),
         ci: true,
         features: None,
+        no_default_features: false,
     })?;
 
     // documentation
