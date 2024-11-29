@@ -16,7 +16,7 @@ pub trait ReduceNaiveInstruction<EI: Numeric>: Send + Sync + 'static {
     /// This could be called many time during reduction. It is required
     /// that reducing the initial accumulator any number of times do not change the outcome
     /// of the reduction. For example, adding 0s in a sum do not change the outcome.
-    fn init_accumulator(line_size: u32) -> Self::Accumulator;
+    fn init_accumulator(#[comptime] ine_size: u32) -> Self::Accumulator;
 
     /// Reduce `current_value` into `accumulator`.
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
@@ -75,7 +75,7 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
 impl<EI: Numeric> ReduceNaiveInstruction<EI> for Sum {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Line<EI> {
+    fn init_accumulator(#[comptime] line_size: u32) -> Line<EI> {
         Line::empty(line_size).fill(EI::from_int(0))
     }
 
@@ -97,7 +97,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for Sum {
 impl<EI: Numeric> ReduceNaiveInstruction<EI> for Prod {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Line<EI> {
+    fn init_accumulator(#[comptime] line_size: u32) -> Line<EI> {
         Line::empty(line_size).fill(EI::from_int(1))
     }
 
@@ -119,7 +119,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for Prod {
 impl<EI: Numeric> ReduceNaiveInstruction<EI> for Mean {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         Line::empty(line_size).fill(EI::from_int(0))
     }
 
@@ -143,7 +143,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for Mean {
 impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
     type Accumulator = (Line<EI>, Line<u32>);
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         (
             // TODO: switch to using f32::NEG_INFINITY when it's supported: https://github.com/tracel-ai/cubecl/issues/68
             Line::empty(line_size).fill(EI::MIN),
@@ -178,7 +178,7 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
 impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMin {
     type Accumulator = (Line<EI>, Line<u32>);
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         (
             // TODO: switch to using f32::INFINITY when it's supported: https://github.com/tracel-ai/cubecl/issues/68
             Line::empty(line_size).fill(EI::MAX),
