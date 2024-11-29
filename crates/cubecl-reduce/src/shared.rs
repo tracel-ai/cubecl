@@ -3,10 +3,6 @@ use cubecl_core::prelude::*;
 
 use crate::{ReduceArgMax, ReduceArgMin, ReduceMean, ReduceProd, ReduceSum};
 
-// /// A naive implementation of the reduction algorithm.
-// ///
-// /// Each thread with absolute position P is responsible
-// /// to compute the reduction corresponding to index P of the output.
 /// An instruction for the [reduce_shared](reduce_shared) algorithm.
 #[cube]
 pub trait ReduceSharedInstruction<EI: Numeric>: Send + Sync + 'static {
@@ -27,10 +23,6 @@ pub trait ReduceSharedInstruction<EI: Numeric>: Send + Sync + 'static {
     );
 
     // Reduce item and coordinate into the accumulator at the index destination.
-    //
-    // Note that for each call, the coordinate is greater than the coordinate pass in each previous call.
-    // This can be leverage to simplify some implementations.
-    // For example, in ArgMax, this is used to garanty that the smallest coordinate is kept in case of equality.
     fn accumulate(
         accumulator: &mut Self::Accumulator,
         destination: u32,
@@ -38,11 +30,7 @@ pub trait ReduceSharedInstruction<EI: Numeric>: Send + Sync + 'static {
         coordinate: u32,
     );
 
-    // Reduce the items at destination and origin within the accumulator and store the result
-    // and the destination.
-    //
-    // Note that destination is always smaller than origin. This can be leverage to simplify some implementations.
-    // For example, in ArgMax, this is used to garanty that the smallest coordinate is used in case of equality.
+    // Reduce the items at destination and origin within the accumulator and store the result at the destination.
     fn merge(accumulator: &mut Self::Accumulator, destination: u32, origin: u32);
 
     // Write the first item of accumulator into the ouput at the given index.
@@ -76,13 +64,17 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
         offset += coordinate * input.stride(axis);
     }
 
-    let num_items_per_unit = div_ceil(input.shape(reduce_dim), cube_dim, exact_shape);
-    // TODO: Change ordering of reduce within cube.
-    offset += UNIT_POS * num_items_per_unit * input.stride(reduce_dim);
+    let num_items_per_unit = if exact_shape {
+        input.shape(reduce_dim) / cube_dim
+    } else {
+        div_ceil(input.shape(reduce_dim), cube_dim)
+    };
 
+    // The unit at UNIT_POS reduces the items with coordinate (UNIT_POS, UNIT_POS + cube_dim, UNIT_POS + 2 * cube_dim, ...).
+    // The result in stored into the accumulator at index UNIT_POS.
     for i in 0..num_items_per_unit {
-        let index = offset + i * input.stride(reduce_dim);
-        let coordinate = i + num_items_per_unit * UNIT_POS;
+        let coordinate = i * cube_dim + UNIT_POS;
+        let index = offset + coordinate * input.stride(reduce_dim);
         #[allow(clippy::collapsible_else_if)]
         if exact_shape {
             RD::accumulate(&mut accumulator, UNIT_POS, input[index], coordinate);
@@ -105,12 +97,6 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
     //       +-------+-------+
     //               |
     //               *
-    //
-    // Be careful if you want to change the ordering as some reduction algorithms
-    // like ArgMax relies on that to be associative without being commutative.
-    // In that case, it allows ArgMax to always return the smallest coordinate when there are
-    // multiple items with the maximum value without having to explicitely check the coordinates
-    // within each call to RD::merge.
     if comptime!(cube_dim.is_power_of_two()) {
         let mut num_active_units = cube_dim;
         let mut jump = 1;
@@ -125,16 +111,16 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
             sync_units();
         }
     } else {
-        let mut num_remaining_items = cube_dim;
+        // 25
+        let mut num_remaining_items = cube_dim; // 25
         let mut jump = 1;
         while num_remaining_items > 1 {
-            let num_active_units = div_ceil(num_remaining_items, 2, false);
-            let destination = jump * 2 * UNIT_POS;
-            let origin = jump * (2 * UNIT_POS + 1);
-            if origin < num_remaining_items {
+            let destination = jump * 2 * UNIT_POS; // 2 * UP
+            let origin = jump * (2 * UNIT_POS + 1); // (2 * UP + 1)
+            if UNIT_POS < num_remaining_items / 2 {
                 RD::merge(&mut accumulator, destination, origin);
             }
-            num_remaining_items = num_active_units;
+            num_remaining_items = div_ceil(num_remaining_items, 2);
             jump *= 2;
             sync_units();
         }
@@ -146,12 +132,8 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
 }
 
 #[cube]
-fn div_ceil(a: u32, b: u32, #[comptime] exact: bool) -> u32 {
-    if exact {
-        a / b
-    } else {
-        (a + b - 1) / b
-    }
+fn div_ceil(a: u32, b: u32) -> u32 {
+    (a + b - 1) / b
 }
 
 // Implementations for common instructions.
@@ -319,21 +301,32 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceArgMax {
         item: Line<EI>,
         coordinate: u32,
     ) {
-        let (currents, indices) = accumulator;
-        let to_replace = item.greater_than(currents[destination]);
-        currents[destination] = select_many(to_replace, item, currents[destination]);
-        indices[destination] = select_many(
-            to_replace,
-            Line::empty(indices[destination].size()).fill(coordinate),
-            indices[destination],
+        let (acc_items, acc_coordinates) = accumulator;
+        let coordinates = Line::empty(acc_items[destination].size()).fill(coordinate);
+
+        let (new_items, new_coordinates) = Self::choose_argmax(
+            acc_items[destination],
+            acc_coordinates[destination],
+            item,
+            coordinates,
         );
+
+        acc_items[destination] = new_items;
+        acc_coordinates[destination] = new_coordinates;
     }
 
     fn merge(accumulator: &mut Self::Accumulator, destination: u32, origin: u32) {
-        let (items, indices) = accumulator;
-        let to_replace = items[origin].greater_than(items[destination]);
-        items[destination] = select_many(to_replace, items[origin], items[destination]);
-        indices[destination] = select_many(to_replace, indices[origin], indices[destination]);
+        let (items, coordinates) = accumulator;
+
+        let (new_items, new_coordinates) = Self::choose_argmax(
+            items[destination],
+            coordinates[destination],
+            items[origin],
+            coordinates[origin],
+        );
+
+        items[destination] = new_items;
+        coordinates[destination] = new_coordinates;
     }
 
     fn write_first<EO: Numeric>(
@@ -376,21 +369,32 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceArgMin {
         item: Line<EI>,
         coordinate: u32,
     ) {
-        let (currents, indices) = accumulator;
-        let to_replace = item.less_than(currents[destination]);
-        currents[destination] = select_many(to_replace, item, currents[destination]);
-        indices[destination] = select_many(
-            to_replace,
-            Line::empty(indices[destination].size()).fill(coordinate),
-            indices[destination],
+        let (acc_items, acc_coordinates) = accumulator;
+        let coordinates = Line::empty(acc_items[destination].size()).fill(coordinate);
+
+        let (new_items, new_coordinates) = Self::choose_argmin(
+            acc_items[destination],
+            acc_coordinates[destination],
+            item,
+            coordinates,
         );
+
+        acc_items[destination] = new_items;
+        acc_coordinates[destination] = new_coordinates;
     }
 
     fn merge(accumulator: &mut Self::Accumulator, destination: u32, origin: u32) {
-        let (items, indices) = accumulator;
-        let to_replace = items[origin].less_than(items[destination]);
-        items[destination] = select_many(to_replace, items[origin], items[destination]);
-        indices[destination] = select_many(to_replace, indices[origin], indices[destination]);
+        let (items, coordinates) = accumulator;
+
+        let (new_items, new_coordinates) = Self::choose_argmin(
+            items[destination],
+            coordinates[destination],
+            items[origin],
+            coordinates[origin],
+        );
+
+        items[destination] = new_items;
+        coordinates[destination] = new_coordinates;
     }
 
     fn write_first<EO: Numeric>(
