@@ -38,6 +38,7 @@ where
 
     if A::check_availability::<R>(&client).is_err() {
         // Can't execute the test.
+        println!("Skipped - not supported!");
         return;
     }
 
