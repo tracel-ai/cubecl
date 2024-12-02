@@ -466,7 +466,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
+        assert_approx_equal(output_values, &expected_values);
     }
 
     pub fn test_sum_shared<F, R>(&self, device: &R::Device)
@@ -574,7 +574,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
+        assert_approx_equal(output_values, &expected_values);
     }
 
     pub fn test_sum_plane<F, R>(&self, device: &R::Device)
@@ -685,7 +685,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
+        assert_approx_equal(output_values, &expected_values);
     }
 
     fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -805,17 +805,29 @@ impl TestCase {
     }
 }
 
-pub fn assert_approx_equal_abs<N: Numeric>(actual: &[N], expected: &[N], epsilon: f32) {
+pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         let a = a.to_f32().unwrap();
         let e = e.to_f32().unwrap();
         let diff = (a - e).abs();
-        assert!(diff < epsilon, "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-            i,
-            a,
-            e,
-            diff,
-            epsilon
+        let rel_diff = diff / e.abs();
+        if e == 0.0 {
+            assert!(
+                diff < 1e-10,
+                "Values are not approx equal: index={} actual={}, expected={}, difference={}",
+                i,
+                a,
+                e,
+                diff,
             );
+        } else {
+            assert!(
+                rel_diff < 0.0625,
+                "Values are not approx equal: index={} actual={}, expected={}",
+                i,
+                a,
+                e
+            );
+        }
     }
 }
