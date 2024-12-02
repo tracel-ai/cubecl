@@ -64,7 +64,8 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
             .to_str()
             .unwrap();
     };
-    let arch = M::Architecture::from_str(prop_arch_name).unwrap();
+    let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
+    let arch = M::Architecture::from_str(normalized_arch_name).unwrap();
     assert_eq!(prop_warp_size as u32, arch.warp_size());
 
     unsafe {
