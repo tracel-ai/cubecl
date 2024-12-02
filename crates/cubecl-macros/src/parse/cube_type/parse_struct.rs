@@ -7,10 +7,11 @@ use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility
 use crate::paths::prelude_type;
 
 #[derive(FromDeriveInput, Debug)]
-#[darling(supports(struct_named, struct_unit), attributes(expand), map = unwrap_fields)]
+#[darling(supports(struct_named, struct_unit), attributes(expand, cube), map = unwrap_fields)]
 pub struct CubeTypeStruct {
     pub ident: Ident,
     pub name_launch: Option<Ident>,
+    pub name_comptime: Option<Ident>,
     pub name_expand: Option<Ident>,
     data: Data<(), TypeField>,
     #[darling(skip)]
@@ -20,7 +21,7 @@ pub struct CubeTypeStruct {
 }
 
 #[derive(FromField, Clone, Debug)]
-#[darling(attributes(expand))]
+#[darling(attributes(expand, cube))]
 pub struct TypeField {
     pub vis: Visibility,
     pub ident: Option<Ident>,
@@ -38,6 +39,8 @@ fn unwrap_fields(mut ty: CubeTypeStruct) -> CubeTypeStruct {
         .get_or_insert_with(|| format_ident!("{name}Expand"));
     ty.name_launch
         .get_or_insert_with(|| format_ident!("{name}Launch"));
+    ty.name_comptime
+        .get_or_insert_with(|| format_ident!("{name}Comptime"));
 
     ty
 }
@@ -55,5 +58,9 @@ impl CubeTypeStruct {
     pub fn assoc_generics(&self) -> Generics {
         let runtime = prelude_type("Runtime");
         parse_quote![<'a, R: #runtime>]
+    }
+
+    pub fn fields_expand(&self) -> impl Iterator<Item = &TypeField> {
+        self.fields.iter()
     }
 }

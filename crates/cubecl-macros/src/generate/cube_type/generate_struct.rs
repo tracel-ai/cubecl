@@ -38,7 +38,7 @@ impl CubeTypeStruct {
         }
     }
     fn expand_ty(&self) -> proc_macro2::TokenStream {
-        let fields = self.fields.iter().map(TypeField::expand_field);
+        let fields = self.fields_expand().map(TypeField::expand_field);
         let name = &self.name_expand;
         let generics = &self.generics;
         let vis = &self.vis;
@@ -53,7 +53,7 @@ impl CubeTypeStruct {
 
     fn launch_ty(&self) -> proc_macro2::TokenStream {
         let name = &self.name_launch;
-        let fields = self.fields.iter().map(TypeField::launch_field);
+        let fields = self.fields_expand().map(TypeField::launch_field);
         let generics = self.expanded_generics();
         let vis = &self.vis;
 
@@ -67,8 +67,8 @@ impl CubeTypeStruct {
     }
 
     fn launch_new(&self) -> proc_macro2::TokenStream {
-        let args = self.fields.iter().map(TypeField::launch_new_arg);
-        let fields = self.fields.iter().map(|field| &field.ident);
+        let args = self.fields_expand().map(TypeField::launch_new_arg);
+        let fields = self.fields_expand().map(|field| &field.ident);
         let name = &self.name_launch;
 
         let generics = self.expanded_generics();
@@ -95,10 +95,16 @@ impl CubeTypeStruct {
         let kernel_launcher = prelude_type("KernelLauncher");
         let name = &self.name_launch;
         let register_body = self
-            .fields
-            .iter()
+            .fields_expand()
+            .filter(|f| !f.comptime.is_present())
             .map(TypeField::split)
-            .map(|(_, ident, _)| quote![self.#ident.register(launcher)]);
+            .map(|(_, ident, _, is_comptime)| {
+                if is_comptime {
+                    quote![self.#ident.clone()]
+                } else {
+                    quote![self.#ident.register(launcher)]
+                }
+            });
 
         let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = generics.split_for_impl();
@@ -135,12 +141,18 @@ impl CubeTypeStruct {
 
     fn compilation_arg_impl(&self, name: &Ident) -> TokenStream {
         let launch_arg = prelude_type("LaunchArg");
-        let fields = self.fields.iter().map(|field| {
+        let fields = self.fields_expand().map(|field| {
             let name = &field.ident;
             let ty = &field.ty;
 
-            quote! {
-               #name: <#ty as #launch_arg>::compilation_arg::<R>(&runtime_arg.#name)
+            if field.comptime.is_present() {
+                quote! {
+                   #name: runtime_arg.#name.clone()
+                }
+            } else {
+                quote! {
+                   #name: <#ty as #launch_arg>::compilation_arg::<R>(&runtime_arg.#name)
+                }
             }
         });
         quote! {
@@ -152,21 +164,30 @@ impl CubeTypeStruct {
 
     fn compilation_ty(&self, name: &Ident) -> proc_macro2::TokenStream {
         let name_debug = &self.ident;
-        let fields = self.fields.iter().map(TypeField::compilation_arg_field);
+        let fields = self.fields_expand().map(TypeField::compilation_arg_field);
         let generics = &self.generics;
         let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
         let vis = &self.vis;
 
-        fn gen<F: Fn(&Ident) -> TokenStream>(fields: &[TypeField], func: F) -> Vec<TokenStream> {
+        fn gen<'a, F: Fn(&Ident) -> TokenStream>(
+            fields: impl Iterator<Item = &'a TypeField>,
+            func: F,
+        ) -> Vec<TokenStream> {
             fields
-                .iter()
                 .map(|field| func(field.ident.as_ref().unwrap()))
                 .collect::<Vec<_>>()
         }
-        let clone = gen(&self.fields, |name| quote!(#name: self.#name.clone()));
-        let hash = gen(&self.fields, |name| quote!(self.#name.hash(state)));
-        let partial_eq = gen(&self.fields, |name| quote!(self.#name.eq(&other.#name)));
-        let debug = gen(&self.fields, |name| {
+
+        let clone = gen(
+            self.fields_expand(),
+            |name| quote!(#name: self.#name.clone()),
+        );
+        let hash = gen(self.fields_expand(), |name| quote!(self.#name.hash(state)));
+        let partial_eq = gen(
+            self.fields_expand(),
+            |name| quote!(self.#name.eq(&other.#name)),
+        );
+        let debug = gen(self.fields_expand(), |name| {
             quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?)
         });
 
@@ -211,12 +232,25 @@ impl CubeTypeStruct {
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let body_input = self.fields.iter().map(TypeField::split).map(|(_vis, name, ty)| {
-            quote![#name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
-        });
-        let body_output = self.fields.iter().map(TypeField::split).map(|(_vis, name, ty)| {
-            quote![#name: <#ty as #launch_arg_expand>::expand_output(&arg.#name, builder)]
-        });
+        let body_input =
+            self.fields_expand()
+                .map(TypeField::split)
+                .map(|(_vis, name, ty, is_comptime)| {
+                    if is_comptime {
+                        quote![#name: arg.#name.clone()]
+                    } else {
+                        quote![#name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
+                    }
+                });
+        let body_output = self.fields_expand().map(TypeField::split).map(
+            |(_vis, name, ty, is_comptime)| {
+                if is_comptime {
+                    quote![#name: arg.#name.clone()]
+                } else {
+                    quote![#name: <#ty as #launch_arg_expand>::expand_output(&arg.#name, builder)]
+                }
+            },
+        );
 
         let name = &self.ident;
         let name_launch = &self.name_launch;
@@ -277,15 +311,25 @@ impl CubeTypeStruct {
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
-            .fields
-            .iter()
+            .fields_expand()
             .map(TypeField::split)
-            .map(|(_, ident, _)| quote![#ident: #init::init(self.#ident, context)]);
-        let fields_to_runtime = self
-            .fields
-            .iter()
-            .map(TypeField::split)
-            .map(|(_, name, _)| quote![#name: #into_runtime::__expand_runtime_method(self.#name, context)]);
+            .map(|(_, ident, _, is_comptime)| {
+                if is_comptime {
+                    quote![#ident: self.#ident]
+                } else {
+                    quote![#ident: #init::init(self.#ident, context)]
+                }
+            });
+        let fields_to_runtime =
+            self.fields_expand()
+                .map(TypeField::split)
+                .map(|(_, name, _, is_comptime)| {
+                    if is_comptime {
+                        quote![#name: self.#name]
+                    } else {
+                        quote![#name: #into_runtime::__expand_runtime_method(self.#name, context)]
+                    }
+                });
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
@@ -326,14 +370,37 @@ impl TypeField {
         let vis = &self.vis;
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
-        quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+
+        if !self.comptime.is_present() {
+            quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+        } else {
+            quote![#vis #name: &'a #ty]
+        }
+    }
+
+    pub fn comptime_field(&self) -> TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let vis = &self.vis;
+        let name = self.ident.as_ref().unwrap();
+        let ty = &self.ty;
+
+        if !self.comptime.is_present() {
+            quote![#vis #name: <#ty as #launch_arg>::ComptimeArg]
+        } else {
+            quote![#vis #name: #ty]
+        }
     }
 
     pub fn launch_new_arg(&self) -> TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
-        quote![#name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+
+        if !self.comptime.is_present() {
+            quote![#name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
+        } else {
+            quote![#name: &'a #ty]
+        }
     }
 
     pub fn compilation_arg_field(&self) -> TokenStream {
@@ -341,10 +408,20 @@ impl TypeField {
         let vis = &self.vis;
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;
-        quote![#vis #name: <#ty as #launch_arg>::CompilationArg]
+
+        if !self.comptime.is_present() {
+            quote![#vis #name: <#ty as #launch_arg>::CompilationArg]
+        } else {
+            quote![#vis #name: #ty]
+        }
     }
 
-    pub fn split(&self) -> (&Visibility, &Ident, &Type) {
-        (&self.vis, self.ident.as_ref().unwrap(), &self.ty)
+    pub fn split(&self) -> (&Visibility, &Ident, &Type, bool) {
+        (
+            &self.vis,
+            self.ident.as_ref().unwrap(),
+            &self.ty,
+            self.comptime.is_present(),
+        )
     }
 }
