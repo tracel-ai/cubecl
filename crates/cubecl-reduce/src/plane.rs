@@ -37,12 +37,11 @@ pub fn reduce_plane<RD: ReducePlaneInstruction<EI>, EI: Numeric, EO: Numeric>(
     output: &mut Tensor<Line<EO>>,
     reduce_dim: u32,
     #[comptime] cube_dim: u32,
-    #[comptime] plane_dim: u32,
     #[comptime] exact_shape: bool,
 ) {
     let line_size = input.line_size();
 
-    let plane_id_global = CUBE_POS * cube_dim / plane_dim + UNIT_POS / PLANE_DIM;
+    let plane_id_global = CUBE_POS * cube_dim / PLANE_DIM + UNIT_POS / PLANE_DIM;
 
     let mut accumulator = RD::init_accumulator(line_size);
 
@@ -57,13 +56,13 @@ pub fn reduce_plane<RD: ReducePlaneInstruction<EI>, EI: Numeric, EO: Numeric>(
     }
 
     let num_items_per_unit = if exact_shape {
-        input.shape(reduce_dim) / plane_dim
+        input.shape(reduce_dim) / PLANE_DIM
     } else {
-        div_ceil(input.shape(reduce_dim), plane_dim)
+        div_ceil(input.shape(reduce_dim), PLANE_DIM)
     };
 
     for i in 0..num_items_per_unit {
-        let coordinate = i * plane_dim + UNIT_POS_PLANE;
+        let coordinate = i * PLANE_DIM + UNIT_POS_PLANE;
         let index = offset + coordinate * input.stride(reduce_dim);
         #[allow(clippy::collapsible_else_if)]
         if exact_shape {

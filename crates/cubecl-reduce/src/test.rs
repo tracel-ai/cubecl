@@ -48,10 +48,9 @@ pub fn kernel_reduce_plane<I: Numeric, O: Numeric, R: ReducePlaneInstruction<I>>
     output: &mut Tensor<Line<O>>,
     reduce_dim: u32,
     #[comptime] cube_dim: u32,
-    #[comptime] plane_dim: u32,
     #[comptime] exact_shape: bool,
 ) {
-    reduce_plane::<R, I, O>(input, output, reduce_dim, cube_dim, plane_dim, exact_shape)
+    reduce_plane::<R, I, O>(input, output, reduce_dim, cube_dim, exact_shape)
 }
 
 // This macro generate all the tests.
@@ -639,6 +638,20 @@ impl TestCase {
         K: ReducePlaneInstruction<I>,
     {
         let client = R::client(device);
+
+        // Check that planes are supported and that plane size is always 32.
+        // The tests are designed for a plane size of 32.
+        let plane_size = 32;
+        let properties = client.properties().hardware_properties();
+        if !client
+            .properties()
+            .feature_enabled(cubecl_core::Feature::Plane)
+            || properties.plane_size_min != 32
+            || properties.plane_size_max != 32
+        {
+            return; 
+        }
+
         let input_handle = client.create(I::as_bytes(&input_values));
 
         // Zero initialize a tensor with the same shape as input
@@ -649,10 +662,7 @@ impl TestCase {
         output_shape[self.reduce_dim as usize] = 1;
         let output_stride = self.output_stride();
 
-        // TODO make this more general
-        let plane_dim = 32;
-
-        let exact_shape = self.shape[self.reduce_dim as usize] % plane_dim as usize == 0;
+        let exact_shape = self.shape[self.reduce_dim as usize] % plane_size as usize == 0;
 
         unsafe {
             let input_tensor = TensorArg::from_raw_parts::<I>(
@@ -676,7 +686,6 @@ impl TestCase {
                 output_tensor,
                 ScalarArg::new(self.reduce_dim),
                 self.cube_dim.num_elems(),
-                32,
                 exact_shape,
             );
         }
