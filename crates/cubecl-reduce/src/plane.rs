@@ -11,20 +11,15 @@ pub trait ReducePlaneInstruction<EI: Numeric>: Send + Sync + 'static {
     /// for some CubePrimitive type T instead of simply T.
     type Accumulator: CubeType;
 
-    // /// Create an unitialized accumulator containing length item of the given line_size.
-    // fn create_accumulator(#[comptime] length: u32, #[comptime] line_size: u32)
-    //     -> Self::Accumulator;
-
-    /// Set the null value of the reduction into the accumulator at the given index.
-    fn init_accumulator(
-        // accumulator: &mut Self::Accumulator,
-        // index: u32,
-        #[comptime] line_size: u32,
-    ) -> Self::Accumulator;
+    /// Initialize an accumulator with a null item.
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
 
     // Reduce item and coordinate into the accumulator using plane operation.
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
 
+    // Return an item `ITEM` such that a call to `Self::accumulator(accumulator, ITEM, coordinate)`
+    // doesn't change the accumulator. This is use to pad a plane when the shape of the reduced dimension
+    // is not exactly a multiple of the plane dimension.
     fn null_item(#[comptime] line_size: u32) -> Line<EI>;
 
     // Write the accumulator into the ouput at the given index.
@@ -47,14 +42,8 @@ pub fn reduce_plane<RD: ReducePlaneInstruction<EI>, EI: Numeric, EO: Numeric>(
 ) {
     let line_size = input.line_size();
 
-    // This is expected to be exact, else it is an error made when calling the kernel.
-    let planes_per_cube = cube_dim / plane_dim;
-    let plane_id_local = UNIT_POS / PLANE_DIM;
-    let plane_id_global = CUBE_POS * planes_per_cube + plane_id_local;
+    let plane_id_global = CUBE_POS * cube_dim / plane_dim + UNIT_POS / PLANE_DIM;
 
-    // NOTE MAYBE cube_dim -> planes_per_cube?
-    // let mut accumulator = RD::create_accumulator(cube_dim, line_size);
-    // RD::init_accumulator(&mut accumulator, UNIT_POS, line_size);
     let mut accumulator = RD::init_accumulator(line_size);
 
     // Compute the first index where to start the reduction for the current cube.
@@ -199,24 +188,11 @@ impl<EI: Numeric> ReducePlaneInstruction<EI> for ArgMax {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
-        let line_size = item.size();
-
-        let (acc_item, acc_coordinate) = accumulator;
-
         let candidate_item = plane_max(item);
-
-        let is_candidate = item.equal(candidate_item);
-
-        let candidate_coordinate = select_many(
-            is_candidate,
-            Line::empty(line_size).fill(coordinate),
-            Line::empty(line_size).fill(u32::MAX),
-        );
-        let candidate_coordinate = plane_min(candidate_coordinate);
-
+        let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
         let (new_item, new_coordinate) = Self::choose_argmax(
-            *acc_item,
-            *acc_coordinate,
+            accumulator.0,
+            accumulator.1,
             candidate_item,
             candidate_coordinate,
         );
@@ -250,15 +226,11 @@ impl<EI: Numeric> ReducePlaneInstruction<EI> for ArgMin {
     }
 
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
-        let (acc_item, acc_coordinate) = accumulator;
-
         let candidate_item = plane_min(item);
-
         let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
-
         let (new_item, new_coordinate) = Self::choose_argmin(
-            *acc_item,
-            *acc_coordinate,
+            accumulator.0,
+            accumulator.1,
             candidate_item,
             candidate_coordinate,
         );
@@ -280,6 +252,8 @@ impl<EI: Numeric> ReducePlaneInstruction<EI> for ArgMin {
     }
 }
 
+// Using plane operations, return the lowest coordinate for each line element
+// for which the item equal the target.
 #[cube]
 fn lowest_coordinate_matching<E: CubePrimitive>(
     target: Line<E>,
