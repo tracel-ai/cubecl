@@ -56,6 +56,9 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
+        // TODO
+        //
+
         // Fetch 0
         let mut lhs_register_0 =
             LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
@@ -64,20 +67,20 @@ where
 
         for _ in 0..num_stages {
             // Fetch 1
-            let lhs_register_1 =
+            let mut lhs_register_1 =
                 LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.1, config);
-            let rhs_register_1 =
+            let mut rhs_register_1 =
                 RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.1, config);
 
             // Fill, compute and advance 0
             let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader.0,
-                lhs_register_0,
+                &mut lhs_register_0,
                 config,
             );
             let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader.0,
-                rhs_register_0,
+                &mut rhs_register_0,
                 config,
             );
             SMM::execute(
@@ -101,12 +104,12 @@ where
             // Fill, compute and advance 1
             let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader.1,
-                lhs_register_1,
+                &mut lhs_register_1,
                 config,
             );
             let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader.1,
-                rhs_register_1,
+                &mut rhs_register_1,
                 config,
             );
             SMM::execute(

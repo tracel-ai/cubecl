@@ -57,7 +57,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: Self::LoadRegister,
+        register: &mut Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader {
         BufferLoading::store::<G>(
@@ -90,7 +90,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: Self::LoadRegister,
+        register: &mut Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader {
         BufferLoading::store::<G>(
@@ -107,7 +107,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
 
     fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
         let ident = Ident::Rhs;
-        let k_offset = config.stage_dim(ident).num_elements_y_dim();
+        let k_offset = config.stage_dim(ident).num_elements_x_dim();
         this.tensor_view.update_view(k_offset, ident);
     }
 }
@@ -150,7 +150,7 @@ impl<EG: Numeric, ES: Numeric, L: Loader<EG, ES>> Loader<EG, ES> for (L, L) {
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: Self::LoadRegister,
+        register: &mut Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader {
         let _ = comptime!(unavailable_method());

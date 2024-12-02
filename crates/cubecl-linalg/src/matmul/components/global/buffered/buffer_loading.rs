@@ -30,22 +30,14 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
 
         let num_buffer_elements = stage_dim.buffer_num_elements();
 
-        let num_producer_planes = config.num_planes();
-        let total_units = comptime!(num_producer_planes * config.plane_dim());
+        let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        let plane_id = UNIT_POS_Y;
-        // let plane_id = if comptime!(producer_plane_offset > 0) {
-        //     UNIT_POS_Y - producer_plane_offset
-        // } else {
-        //     UNIT_POS_Y
-        // };
-
-        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
@@ -69,7 +61,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
     }
 
     fn store<G: global::Config>(
-        load_buffer: Self::LoadBuffer,
+        load_buffer: &mut Self::LoadBuffer,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -79,22 +71,14 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
 
         let num_buffer_elements = stage_dim.buffer_num_elements();
 
-        let num_producer_planes = config.num_planes();
-        let total_units = comptime!(num_producer_planes * config.plane_dim());
+        let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        let plane_id = UNIT_POS_Y;
-        // let plane_id = if comptime!(producer_plane_offset > 0) {
-        //     UNIT_POS_Y - producer_plane_offset
-        // } else {
-        //     UNIT_POS_Y
-        // };
-
-        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {

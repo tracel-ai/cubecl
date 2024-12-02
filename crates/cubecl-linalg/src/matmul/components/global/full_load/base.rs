@@ -67,18 +67,37 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
+        let mut lhs_load_buffer_curr =
+            LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
+        let mut rhs_load_buffer_curr =
+            RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+
         for _ in 0..num_stages {
             sync_units();
 
-            let lhs_load_buffer = LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
-            let rhs_load_buffer = RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+            LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
+            RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
 
-            let lhs_stage_reader =
-                &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, lhs_load_buffer, config);
-            let rhs_stage_reader =
-                &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, rhs_load_buffer, config);
+            let lhs_load_buffer_next =
+                LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
+            let rhs_load_buffer_next =
+                RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+
+            let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader,
+                &mut lhs_load_buffer_curr,
+                config,
+            );
+            let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader,
+                &mut rhs_load_buffer_curr,
+                config,
+            );
 
             sync_units();
+
+            lhs_load_buffer_curr = lhs_load_buffer_next;
+            rhs_load_buffer_curr = rhs_load_buffer_next;
 
             SMM::execute(
                 lhs_stage_reader,
@@ -88,9 +107,6 @@ where
                 acc,
                 config.to_smm_config(),
             );
-
-            LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
-            RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
         }
 
         sync_units();

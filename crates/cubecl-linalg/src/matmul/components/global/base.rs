@@ -96,7 +96,7 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     fn fetch_global<G: Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister;
     fn fill_stage<G: Config>(
         this: &mut Self,
-        register: Self::LoadRegister,
+        register: &mut Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader;
 
@@ -105,7 +105,8 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
 #[cube]
 pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clone {
-    type LoadBuffer: CubeType;
+    type LoadBuffer: CubeType<ExpandType = ExpandElementTyped<Self::LoadBuffer>>
+        + ExpandElementBaseInit;
 
     fn fetch<G: Config>(
         read_view: &TensorReader<EG>,
@@ -114,7 +115,7 @@ pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clo
     ) -> Self::LoadBuffer;
 
     fn store<G: Config>(
-        load_buffer: Self::LoadBuffer,
+        load_buffer: &mut Self::LoadBuffer,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

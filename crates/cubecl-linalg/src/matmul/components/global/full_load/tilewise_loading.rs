@@ -69,7 +69,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
     }
 
     fn store<G: global::Config>(
-        load_buffer: Array<Line<EG>>,
+        load_buffer: &mut Array<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
