@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{ReduceArgMax, ReduceArgMin, ReduceMean, ReduceProd, ReduceSum};
+use crate::{ArgMax, ArgMin, Mean, Prod, Sum};
 
 /// An instruction for the [reduce_shared](reduce_shared) algorithm.
 #[cube]
@@ -139,7 +139,7 @@ fn div_ceil(a: u32, b: u32) -> u32 {
 // Implementations for common instructions.
 
 #[cube]
-impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceSum {
+impl<EI: Numeric> ReduceSharedInstruction<EI> for Sum {
     type Accumulator = SharedMemory<Line<EI>>;
 
     fn create_accumulator(
@@ -183,7 +183,7 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceSum {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceProd {
+impl<EI: Numeric> ReduceSharedInstruction<EI> for Prod {
     type Accumulator = SharedMemory<Line<EI>>;
 
     fn create_accumulator(
@@ -227,7 +227,7 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceProd {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceMean {
+impl<EI: Numeric> ReduceSharedInstruction<EI> for Mean {
     type Accumulator = SharedMemory<Line<EI>>;
 
     fn create_accumulator(
@@ -272,7 +272,7 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceMean {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceArgMax {
+impl<EI: Numeric> ReduceSharedInstruction<EI> for ArgMax {
     type Accumulator = (SharedMemory<Line<EI>>, SharedMemory<Line<u32>>);
 
     fn create_accumulator(
@@ -340,7 +340,7 @@ impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceArgMax {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceSharedInstruction<EI> for ReduceArgMin {
+impl<EI: Numeric> ReduceSharedInstruction<EI> for ArgMin {
     type Accumulator = (SharedMemory<Line<EI>>, SharedMemory<Line<u32>>);
 
     fn create_accumulator(

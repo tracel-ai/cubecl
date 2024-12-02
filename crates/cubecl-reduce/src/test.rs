@@ -9,8 +9,8 @@ use rand::{
 };
 
 use crate::{
-    reduce_naive, reduce_shared, ReduceArgMax, ReduceArgMin, ReduceMean, ReduceNaiveInstruction,
-    ReduceProd, ReduceSharedInstruction, ReduceSum,
+    reduce_naive, reduce_shared, ArgMax, ArgMin, Mean, Prod, ReduceNaiveInstruction,
+    ReduceSharedInstruction, Sum,
 };
 
 // All random values generated for tests will be in the set
@@ -72,8 +72,8 @@ macro_rules! testgen_reduce {
                     shape: [4, 8],
                     stride: [8, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(1, 1, 1),
-                    cube_dim: CubeDim::new(4, 8, 1),
+                    cube_count: CubeCount::new_single(),
+                    cube_dim: CubeDim::new_2d(4, 8),
                     line_size: 1,
                 },
                 {
@@ -81,8 +81,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -90,8 +90,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -99,8 +99,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 16, 16],
                     stride: [1, 256, 16],
                     reduce_dim: 2,
-                    cube_count: CubeCount::Static(4, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(4),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -108,8 +108,8 @@ macro_rules! testgen_reduce {
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(4, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(4),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 1,
                 },
                 {
@@ -117,8 +117,8 @@ macro_rules! testgen_reduce {
                     shape: [32, 64],
                     stride: [64, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 16, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_2d(16, 16),
                     line_size: 4,
                 }
             ]
@@ -133,8 +133,8 @@ macro_rules! testgen_reduce {
                     shape: [4, 8],
                     stride: [8, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(2, 1, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_1d(2),
                     line_size: 1,
                 },
                 {
@@ -142,8 +142,8 @@ macro_rules! testgen_reduce {
                     shape: [8, 256],
                     stride: [256, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(8, 1, 1),
-                    cube_dim: CubeDim::new(16, 1, 1),
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_1d(16),
                     line_size: 1,
                 },
                 {
@@ -151,8 +151,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 256],
                     stride: [256, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(256, 1, 1),
-                    cube_dim: CubeDim::new(5, 1, 1),
+                    cube_count: CubeCount::new_1d(256),
+                    cube_dim: CubeDim::new_1d(5),
                     line_size: 1,
                 },
                 {
@@ -160,8 +160,8 @@ macro_rules! testgen_reduce {
                     shape: [16, 16, 16],
                     stride: [1, 256, 16],
                     reduce_dim: 2,
-                    cube_count: CubeCount::Static(16, 16, 1),
-                    cube_dim: CubeDim::new(4, 1, 1),
+                    cube_count: CubeCount::new_2d(16, 16),
+                    cube_dim: CubeDim::new_1d(4),
                     line_size: 1,
                 },
                 {
@@ -169,8 +169,8 @@ macro_rules! testgen_reduce {
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     reduce_dim: 1,
-                    cube_count: CubeCount::Static(11, 1, 13),
-                    cube_dim: CubeDim::new(2, 1, 1),
+                    cube_count: CubeCount::new_2d(11, 13),
+                    cube_dim: CubeDim::new_1d(2),
                     line_size: 1,
                 },
                 {
@@ -178,8 +178,8 @@ macro_rules! testgen_reduce {
                     shape: [32, 64],
                     stride: [64, 1],
                     reduce_dim: 0,
-                    cube_count: CubeCount::Static(64, 1, 1),
-                    cube_dim: CubeDim::new(8, 1, 1),
+                    cube_count: CubeCount::new_1d(64),
+                    cube_dim: CubeDim::new_1d(8),
                     line_size: 4,
                 }
             ]
@@ -212,7 +212,7 @@ macro_rules! impl_test_reduce {
         ::paste::paste! {
             $(
                 #[test]
-                pub fn [< reduce_sum_dim_ $kind _ $id >]() {
+                pub fn [< reduce_sum_ $kind _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -221,11 +221,11 @@ macro_rules! impl_test_reduce {
                         cube_dim: $cube_dim,
                         line_size:$line_size
                     };
-                    test.[< test_sum_dim_ $kind >]::<$float, TestRuntime>(&Default::default());
+                    test.[< test_sum_ $kind >]::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_prod_dim_ $kind _ $id >]() {
+                pub fn [< reduce_prod_ $kind _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -234,11 +234,11 @@ macro_rules! impl_test_reduce {
                         cube_dim: $cube_dim,
                         line_size:$line_size
                     };
-                    test.[< test_prod_dim_ $kind >]::<$float, TestRuntime>(&Default::default());
+                    test.[< test_prod_ $kind >]::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_mean_dim_ $kind _ $id >]() {
+                pub fn [< reduce_mean_ $kind _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -247,11 +247,11 @@ macro_rules! impl_test_reduce {
                         cube_dim: $cube_dim,
                         line_size:$line_size
                     };
-                    test.[< test_mean_dim_ $kind >]::<$float, TestRuntime>(&Default::default());
+                    test.[< test_mean_ $kind >]::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_argmax_dim_ $kind _ $id >]() {
+                pub fn [< reduce_argmax_ $kind _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -260,11 +260,11 @@ macro_rules! impl_test_reduce {
                         cube_dim: $cube_dim,
                         line_size:$line_size
                     };
-                    test.[< test_argmax_dim_ $kind >]::<$float, TestRuntime>(&Default::default());
+                    test.[< test_argmax_ $kind >]::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_argmin_dim_ $kind _ $id >]() {
+                pub fn [< reduce_argmin_ $kind _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -273,7 +273,7 @@ macro_rules! impl_test_reduce {
                         cube_dim: $cube_dim,
                         line_size:$line_size
                     };
-                    test.[< test_argmin_dim_ $kind >]::<$float, TestRuntime>(&Default::default());
+                    test.[< test_argmin_ $kind >]::<$float, TestRuntime>(&Default::default());
                 }
             )*
         }
@@ -291,54 +291,54 @@ pub struct TestCase {
 }
 
 impl TestCase {
-    pub fn test_sum_dim_naive<F, R>(&self, device: &R::Device)
+    pub fn test_sum_naive<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_sum_dim(&input_values);
-        self.run_test_naive::<F, F, R, ReduceSum>(device, input_values, expected_values)
+        let expected_values = self.cpu_sum(&input_values);
+        self.run_test_naive::<F, F, R, Sum>(device, input_values, expected_values)
     }
 
-    pub fn test_prod_dim_naive<F, R>(&self, device: &R::Device)
+    pub fn test_prod_naive<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_prod_dim(&input_values);
-        self.run_test_naive::<F, F, R, ReduceProd>(device, input_values, expected_values)
+        let expected_values = self.cpu_prod(&input_values);
+        self.run_test_naive::<F, F, R, Prod>(device, input_values, expected_values)
     }
 
-    pub fn test_mean_dim_naive<F, R>(&self, device: &R::Device)
+    pub fn test_mean_naive<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_mean_dim(&input_values);
-        self.run_test_naive::<F, F, R, ReduceMean>(device, input_values, expected_values)
+        let expected_values = self.cpu_mean(&input_values);
+        self.run_test_naive::<F, F, R, Mean>(device, input_values, expected_values)
     }
 
-    pub fn test_argmax_dim_naive<F, R>(&self, device: &R::Device)
+    pub fn test_argmax_naive<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmax_dim(&input_values);
-        self.run_test_naive::<F, u32, R, ReduceArgMax>(device, input_values, expected_values)
+        let expected_values = self.cpu_argmax(&input_values);
+        self.run_test_naive::<F, u32, R, ArgMax>(device, input_values, expected_values)
     }
 
-    pub fn test_argmin_dim_naive<F, R>(&self, device: &R::Device)
+    pub fn test_argmin_naive<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmin_dim(&input_values);
-        self.run_test_naive::<F, u32, R, ReduceArgMin>(device, input_values, expected_values)
+        let expected_values = self.cpu_argmin(&input_values);
+        self.run_test_naive::<F, u32, R, ArgMin>(device, input_values, expected_values)
     }
 
     pub fn run_test_naive<I, O, R, K>(
@@ -395,54 +395,54 @@ impl TestCase {
         assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
     }
 
-    pub fn test_sum_dim_shared<F, R>(&self, device: &R::Device)
+    pub fn test_sum_shared<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_sum_dim(&input_values);
-        self.run_test_shared::<F, F, R, ReduceSum>(device, input_values, expected_values)
+        let expected_values = self.cpu_sum(&input_values);
+        self.run_test_shared::<F, F, R, Sum>(device, input_values, expected_values)
     }
 
-    pub fn test_prod_dim_shared<F, R>(&self, device: &R::Device)
+    pub fn test_prod_shared<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_prod_dim(&input_values);
-        self.run_test_shared::<F, F, R, ReduceProd>(device, input_values, expected_values)
+        let expected_values = self.cpu_prod(&input_values);
+        self.run_test_shared::<F, F, R, Prod>(device, input_values, expected_values)
     }
 
-    pub fn test_mean_dim_shared<F, R>(&self, device: &R::Device)
+    pub fn test_mean_shared<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_mean_dim(&input_values);
-        self.run_test_shared::<F, F, R, ReduceMean>(device, input_values, expected_values)
+        let expected_values = self.cpu_mean(&input_values);
+        self.run_test_shared::<F, F, R, Mean>(device, input_values, expected_values)
     }
 
-    pub fn test_argmax_dim_shared<F, R>(&self, device: &R::Device)
+    pub fn test_argmax_shared<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmax_dim(&input_values);
-        self.run_test_shared::<F, u32, R, ReduceArgMax>(device, input_values, expected_values)
+        let expected_values = self.cpu_argmax(&input_values);
+        self.run_test_shared::<F, u32, R, ArgMax>(device, input_values, expected_values)
     }
 
-    pub fn test_argmin_dim_shared<F, R>(&self, device: &R::Device)
+    pub fn test_argmin_shared<F, R>(&self, device: &R::Device)
     where
         F: Float + CubeElement + std::fmt::Display,
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmin_dim(&input_values);
-        self.run_test_shared::<F, u32, R, ReduceArgMin>(device, input_values, expected_values)
+        let expected_values = self.cpu_argmin(&input_values);
+        self.run_test_shared::<F, u32, R, ArgMin>(device, input_values, expected_values)
     }
 
     pub fn run_test_shared<I, O, R, K>(
@@ -503,7 +503,7 @@ impl TestCase {
         assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
     }
 
-    fn cpu_sum_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
+    fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
         let mut expected = vec![F::new(0.0); self.num_output_values()];
         #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
@@ -513,7 +513,7 @@ impl TestCase {
         expected
     }
 
-    fn cpu_prod_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
+    fn cpu_prod<F: Float>(&self, values: &[F]) -> Vec<F> {
         let mut expected = vec![F::new(1.0); self.num_output_values()];
         #[allow(clippy::needless_range_loop)]
         for value_index in 0..values.len() {
@@ -523,14 +523,14 @@ impl TestCase {
         expected
     }
 
-    fn cpu_mean_dim<F: Float>(&self, values: &[F]) -> Vec<F> {
-        self.cpu_sum_dim(values)
+    fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
+        self.cpu_sum(values)
             .into_iter()
             .map(|sum| sum / F::new(self.shape[self.reduce_dim as usize] as f32))
             .collect()
     }
 
-    fn cpu_argmax_dim<F: Float>(&self, values: &[F]) -> Vec<u32> {
+    fn cpu_argmax<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::MIN, 0_u32); self.num_output_values()];
         #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
@@ -545,7 +545,7 @@ impl TestCase {
         expected.into_iter().map(|(_, i)| i).collect()
     }
 
-    fn cpu_argmin_dim<F: Float>(&self, values: &[F]) -> Vec<u32> {
+    fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::MAX, 0_u32); self.num_output_values()];
         #[allow(clippy::needless_range_loop)]
         for input_index in 0..values.len() {
@@ -590,13 +590,13 @@ impl TestCase {
     }
 
     fn output_stride(&self) -> Vec<usize> {
-        let dim_stride = self.stride[self.reduce_dim as usize];
-        let dim_shape = self.shape[self.reduce_dim as usize];
+        let stride = self.stride[self.reduce_dim as usize];
+        let shape = self.shape[self.reduce_dim as usize];
         self.stride
             .iter()
-            .map(|s| match s.cmp(&dim_stride) {
+            .map(|s| match s.cmp(&stride) {
                 std::cmp::Ordering::Equal => 1,
-                std::cmp::Ordering::Greater => s / dim_shape,
+                std::cmp::Ordering::Greater => s / shape,
                 std::cmp::Ordering::Less => *s,
             })
             .collect()
