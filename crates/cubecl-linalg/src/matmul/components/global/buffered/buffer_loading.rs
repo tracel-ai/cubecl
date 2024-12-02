@@ -22,6 +22,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
 
     fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
+        buffer: &mut SliceMut<Line<EG>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Self::LoadBuffer {
@@ -61,7 +62,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
     }
 
     fn store<G: global::Config>(
-        load_buffer: &mut Self::LoadBuffer,
+        buffer: &Slice<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

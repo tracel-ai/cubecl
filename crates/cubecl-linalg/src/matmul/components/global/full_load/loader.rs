@@ -25,15 +25,18 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> {
 #[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
-    type LoadRegister = L::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
-        L::fetch::<G>(&this.tensor_view, Ident::Lhs, config)
+    fn fetch_global<G: global::Config>(
+        this: &Self,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] config: G,
+    ) {
+        L::fetch::<G>(&this.tensor_view, buffer, Ident::Lhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &mut Self::LoadRegister,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Lhs, config);
@@ -70,15 +73,18 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> LhsLoader<EG, ES, L> 
 #[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for RhsLoader<EG, ES, L> {
     type StageReader = RhsReader<ES>;
-    type LoadRegister = L::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
-        L::fetch::<G>(&this.tensor_view, Ident::Rhs, config)
+    fn fetch_global<G: global::Config>(
+        this: &Self,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] config: G,
+    ) {
+        L::fetch::<G>(&this.tensor_view, buffer, Ident::Rhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &mut Self::LoadRegister,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Rhs, config);

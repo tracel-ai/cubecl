@@ -18,6 +18,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
 
     fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
+        buffer: &mut SliceMut<Line<EG>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Array<Line<EG>> {
@@ -69,7 +70,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
     }
 
     fn store<G: global::Config>(
-        load_buffer: &mut Array<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

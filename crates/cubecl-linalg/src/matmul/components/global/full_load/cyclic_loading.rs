@@ -14,13 +14,31 @@ pub struct CyclicLoading {}
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
-    type LoadBuffer = Array<Line<EG>>;
+    fn init_buffer<G: global::Config>(
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> SliceMut<Line<EG>> {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_buffer_elements = stage_dim.buffer_num_elements();
+
+        let total_units = comptime!(config.num_planes() * config.plane_dim());
+        let jump_length = comptime!(total_units * line_size);
+        let num_loads_per_unit = num_buffer_elements / jump_length;
+
+        #[allow(clippy::all)]
+        let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
+
+        Array::vectorized(num_loads_per_unit, line_size).slice_mut(0, num_loads_per_unit)
+    }
 
     fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
+        buffer: &mut SliceMut<Line<EG>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> Array<Line<EG>> {
+    ) {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -29,13 +47,8 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
 
-        #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
-
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
-
-        let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
@@ -60,14 +73,12 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
-            load_buffer[i] = line_read;
+            buffer[i] = line_read;
         }
-
-        load_buffer
     }
 
     fn store<G: global::Config>(
-        load_buffer: &mut Array<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -80,15 +91,12 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
 
-        #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
-
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
-            let line_read = load_buffer[i];
+            let line_read = buffer[i];
 
             match config.transpose_load(ident) {
                 false => {

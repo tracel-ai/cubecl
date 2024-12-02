@@ -91,12 +91,12 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
-    type LoadRegister: CubeType;
 
-    fn fetch_global<G: Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister;
+    fn fetch_global<G: Config>(this: &Self, buffer: &mut SliceMut<Line<EG>>, #[comptime] config: G);
+
     fn fill_stage<G: Config>(
         this: &mut Self,
-        register: &mut Self::LoadRegister,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader;
 
@@ -105,17 +105,20 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
 #[cube]
 pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clone {
-    type LoadBuffer: CubeType<ExpandType = ExpandElementTyped<Self::LoadBuffer>>
-        + ExpandElementBaseInit;
+    fn init_buffer<G: Config>(
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> SliceMut<Line<EG>>;
 
     fn fetch<G: Config>(
         read_view: &TensorReader<EG>,
+        buffer: &mut SliceMut<Line<EG>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> Self::LoadBuffer;
+    );
 
     fn store<G: Config>(
-        load_buffer: &mut Self::LoadBuffer,
+        buffer: &Slice<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

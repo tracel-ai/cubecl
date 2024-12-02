@@ -1,3 +1,4 @@
+use crate::matmul::components::global::base::LoadBuffer;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader, LoadingStrategy};
 use crate::matmul::components::stage;
@@ -71,6 +72,8 @@ where
             LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
         let mut rhs_load_buffer_curr =
             RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+        let mut lhs_array_curr = LoadBuffer::<Line<EG>>::as_slice(&mut rhs_load_buffer_curr);
+        let mut rhs_array_curr = LoadBuffer::<Line<EG>>::as_slice(&mut rhs_load_buffer_curr);
 
         for _ in 0..num_stages {
             sync_units();
@@ -78,10 +81,12 @@ where
             LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
             RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
 
-            let lhs_load_buffer_next =
+            let mut lhs_load_buffer_next =
                 LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
-            let rhs_load_buffer_next =
+            let mut rhs_load_buffer_next =
                 RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, config);
+            let lhs_array_next = LoadBuffer::as_slice(&mut lhs_load_buffer_next);
+            let rhs_array_next = LoadBuffer::as_slice(&mut rhs_load_buffer_next);
 
             let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader,
@@ -96,8 +101,8 @@ where
 
             sync_units();
 
-            lhs_load_buffer_curr = lhs_load_buffer_next;
-            rhs_load_buffer_curr = rhs_load_buffer_next;
+            lhs_array_curr = lhs_array_next;
+            rhs_array_curr = rhs_array_next;
 
             SMM::execute(
                 lhs_stage_reader,
