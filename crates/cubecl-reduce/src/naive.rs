@@ -16,7 +16,7 @@ pub trait ReduceNaiveInstruction<EI: Numeric>: Send + Sync + 'static {
     /// This could be called many time during reduction. It is required
     /// that reducing the initial accumulator any number of times do not change the outcome
     /// of the reduction. For example, adding 0s in a sum do not change the outcome.
-    fn init_accumulator(#[comptime] ine_size: u32) -> Self::Accumulator;
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
 
     /// Reduce `current_value` into `accumulator`.
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
