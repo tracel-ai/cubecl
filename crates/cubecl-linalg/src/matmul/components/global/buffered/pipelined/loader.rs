@@ -1,13 +1,9 @@
-use std::marker::PhantomData;
-
-use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::Config as _;
-use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
+use crate::matmul::components::global::buffered::buffer_loading::{buffer_slice, BufferLoading};
 use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{Loader, LoadingStrategy};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
@@ -18,7 +14,6 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_id: u32,
-    num_buffers: u32,
 }
 
 #[derive(CubeType)]
@@ -26,7 +21,6 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_id: u32,
-    num_buffers: u32,
 }
 
 #[cube]
@@ -40,13 +34,14 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
         #[comptime] config: pipelined::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let buffer_offset = buffer_id * config.stage_dim(Ident::Rhs).tile_size_x_dim();
+        let tensor_view =
+            TensorReader::new(tensor, x_offset, y_offset + buffer_offset, batch_offset);
 
         LhsBufferLoader::<EG, ES> {
             tensor_view,
             stage,
             buffer_id,
-            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y_dim(),
         }
     }
 }
@@ -54,44 +49,66 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
 #[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
     type StageReader = LhsBufferReader<ES>;
-    type LoadBuffer = <BufferLoading as LoadingStrategy<EG, ES>>::LoadBuffer;
+    type LoadRegister = <BufferLoading<EG, ES> as LoadingStrategy<EG, ES>>::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer {
-        todo!()
+    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
+        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, Ident::Lhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: Self::LoadBuffer,
+        register: Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader {
-        todo!()
+        BufferLoading::store::<G>(
+            register,
+            &mut buffer_slice::<EG, ES, G>(this.buffer_id, &mut this.stage, Ident::Lhs, config),
+            Ident::Lhs,
+            config,
+        );
+        LhsBufferReader::<ES> {
+            stage: this.stage,
+            buffer: this.buffer_id,
+        }
     }
 
     fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
-        todo!()
+        let ident = Ident::Lhs;
+        let k_offset = config.stage_dim(ident).num_elements_y_dim();
+        this.tensor_view.update_view(k_offset, ident);
     }
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
-    type LoadBuffer = <BufferLoading as LoadingStrategy<EG, ES>>::LoadBuffer;
+    type LoadRegister = <BufferLoading<EG, ES> as LoadingStrategy<EG, ES>>::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer {
-        todo!()
+    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
+        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, Ident::Rhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: Self::LoadBuffer,
+        register: Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader {
-        todo!()
+        BufferLoading::store::<G>(
+            register,
+            &mut buffer_slice::<EG, ES, G>(this.buffer_id, &mut this.stage, Ident::Rhs, config),
+            Ident::Rhs,
+            config,
+        );
+        RhsBufferReader::<ES> {
+            stage: this.stage,
+            buffer: this.buffer_id,
+        }
     }
 
     fn to_next_stage<G: global::Config>(this: &mut Self, #[comptime] config: G) {
-        todo!()
+        let ident = Ident::Rhs;
+        let k_offset = config.stage_dim(ident).num_elements_y_dim();
+        this.tensor_view.update_view(k_offset, ident);
     }
 }
 
@@ -106,57 +123,47 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
         #[comptime] config: pipelined::Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let buffer_offset = buffer_id * config.stage_dim(Ident::Rhs).tile_size_x_dim();
+        let tensor_view =
+            TensorReader::new(tensor, x_offset + buffer_offset, y_offset, batch_offset);
 
         RhsBufferLoader::<EG, ES> {
             tensor_view,
             stage,
             buffer_id,
-            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x_dim(),
         }
     }
 }
 
 #[cube]
-fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
-    buffer_iter: u32,
-    tensor_view: &TensorReader<EG>,
-    stage: &mut Stage<ES>,
-    #[comptime] ident: Ident,
-    #[comptime] config: pipelined::Config<S>,
-) {
-    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
-    let line_size = config.stage_line_size(ident);
-    let buffer_num_lines = buffer_num_elements / line_size;
+// TODO refactor, it's a bit hacky
+impl<EG: Numeric, ES: Numeric, L: Loader<EG, ES>> Loader<EG, ES> for (L, L) {
+    type StageReader = <L as Loader<EG, ES>>::StageReader;
+    type LoadRegister = <L as Loader<EG, ES>>::LoadRegister;
 
-    #[allow(clippy::all)]
-    let _ = comptime!(check_buffers_contiguous(ident, config));
+    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
+        let _ = comptime!(unavailable_method());
 
-    let start = buffer_iter * buffer_num_lines;
-    let end = start + buffer_num_lines;
-    let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
+        // Just to make the compiler happy
+        L::fetch_global::<G>(&this.0, config)
+    }
 
-    BufferLoading::load_to_slice::<EG, ES, pipelined::Config<S>>(
-        tensor_view,
-        buffer_slice,
-        config.num_planes(),
-        0u32,
-        ident,
-        config,
-    );
+    fn fill_stage<G: global::Config>(
+        this: &mut Self,
+        register: Self::LoadRegister,
+        #[comptime] config: G,
+    ) -> Self::StageReader {
+        let _ = comptime!(unavailable_method());
+
+        // Just to make the compiler happy
+        L::fill_stage::<G>(&mut this.0, register, config)
+    }
+
+    fn to_next_stage<G: global::Config>(_this: &mut Self, #[comptime] _config: G) {
+        let _ = comptime!(unavailable_method());
+    }
 }
 
-fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
-    match ident.as_input() {
-        InputIdent::Lhs => {
-            if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
-                panic!("Lhs must have ColMajor tiling order in pipelined setting")
-            }
-        }
-        InputIdent::Rhs => {
-            if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
-                panic!("Rhs must have RowMajor tiling order in pipelined setting")
-            }
-        }
-    }
+fn unavailable_method() {
+    panic!("Cannot call method directly on loader pair. Try calling it on underlying loaders.");
 }

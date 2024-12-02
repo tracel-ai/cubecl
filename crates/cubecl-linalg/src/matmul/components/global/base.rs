@@ -91,12 +91,12 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
-    type LoadBuffer: CubeType;
+    type LoadRegister: CubeType;
 
-    fn fetch_global<G: Config>(this: &Self, #[comptime] config: G) -> Self::LoadBuffer;
+    fn fetch_global<G: Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister;
     fn fill_stage<G: Config>(
         this: &mut Self,
-        buffer: Self::LoadBuffer,
+        register: Self::LoadRegister,
         #[comptime] config: G,
     ) -> Self::StageReader;
 

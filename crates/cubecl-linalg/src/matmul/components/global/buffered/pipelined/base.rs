@@ -1,5 +1,5 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::Config as _;
+use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -36,8 +36,8 @@ where
     SMM:
         stage::Matmul<ES, EG, EA, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
 {
-    type LhsLoader = LhsBufferLoader<EG, ES>;
-    type RhsLoader = RhsBufferLoader<EG, ES>;
+    type LhsLoader = (LhsBufferLoader<EG, ES>, LhsBufferLoader<EG, ES>);
+    type RhsLoader = (RhsBufferLoader<EG, ES>, RhsBufferLoader<EG, ES>);
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
@@ -50,80 +50,78 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let num_buffers = 2;
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
-        let k_step = num_buffers * buffer_step; // equal to SMM::K
-
         let range = k_range.1 - k_range.0;
-        let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages;
+        let num_stages = (range + SMM::K - 1) / SMM::K;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
-        let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
+        // Fetch 0
+        let mut lhs_register_0 =
+            LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
+        let mut rhs_register_0 =
+            RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
 
-        ///////////////
-        // Load A
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        for _ in 0..num_stages {
+            // Fetch 1
+            let lhs_register_1 =
+                LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.1, config);
+            let rhs_register_1 =
+                RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.1, config);
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader);
-
-        ///////////////
-        // Get B
-        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-        Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader);
-
-        for _ in 0..num_loops {
-            sync_units();
-
-            ///////////////
-            // Load B & Advance
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
-            ///////////////
-            // Execute A
+            // Fill, compute and advance 0
+            let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader.0,
+                lhs_register_0,
+                config,
+            );
+            let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader.0,
+                rhs_register_0,
+                config,
+            );
             SMM::execute(
-                &lhs_buffer_reader_a,
-                &rhs_buffer_reader_a,
-                &mut lhs_tile_a,
-                &mut rhs_tile_a,
+                &lhs_reader_0,
+                &rhs_reader_0,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
             );
+            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.0, config);
+            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.0, config);
 
             sync_units();
 
-            ///////////////
-            // Load Next A
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            // Fetch 0
+            // Last time is actually useless. Should we branch or do it anyway?
+            lhs_register_0 = LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
+            rhs_register_0 = RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
-            ///////////////
-            // Execute B
+            // Fill, compute and advance 1
+            let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader.1,
+                lhs_register_1,
+                config,
+            );
+            let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader.1,
+                rhs_register_1,
+                config,
+            );
             SMM::execute(
-                &lhs_buffer_reader_b,
-                &rhs_buffer_reader_b,
-                &mut lhs_tile_b,
-                &mut rhs_tile_b,
+                &lhs_reader_1,
+                &rhs_reader_1,
+                &mut lhs_tile,
+                &mut rhs_tile,
                 acc,
                 config.to_smm_config(),
             );
+            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.1, config);
+            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.1, config);
+
+            sync_units();
         }
-
-        sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -140,7 +138,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
+        (
+            LhsBufferLoader::new(lhs, x_offset, y_offset, batch_offset, 0, config),
+            LhsBufferLoader::new(lhs, x_offset, y_offset, batch_offset, 1, config),
+        )
     }
 
     fn init_rhs_loader(
@@ -150,7 +151,10 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
+        (
+            RhsBufferLoader::new(rhs, x_offset, y_offset, batch_offset, 0, config),
+            RhsBufferLoader::new(rhs, x_offset, y_offset, batch_offset, 1, config),
+        )
     }
 
     fn init_unloader(

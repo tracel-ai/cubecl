@@ -1,6 +1,9 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{self, LoadingStrategy};
+use crate::matmul::components::stage::{Stage, TilingOrderConfig};
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -8,85 +11,107 @@ use cubecl_core::prelude::*;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of tiles from one buffer in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct BufferLoading {}
+pub struct BufferLoading<EG: Numeric, ES: Numeric> {
+    _eg: PhantomData<EG>,
+    _es: PhantomData<ES>,
+}
 
 #[cube]
-impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading {
+impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES> {
     type LoadBuffer = Array<Line<EG>>;
 
     fn fetch<G: global::Config>(
         read_view: &TensorReader<EG>,
-        ident: Ident,
-        config: G,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
     ) -> Self::LoadBuffer {
-        todo!()
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_buffer_elements = stage_dim.buffer_num_elements();
+
+        let num_producer_planes = config.num_planes();
+        let total_units = comptime!(num_producer_planes * config.plane_dim());
+        let jump_length = comptime!(total_units * line_size);
+        let num_loads_per_unit = num_buffer_elements / jump_length;
+
+        #[allow(clippy::all)]
+        let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
+
+        let plane_id = UNIT_POS_Y;
+        // let plane_id = if comptime!(producer_plane_offset > 0) {
+        //     UNIT_POS_Y - producer_plane_offset
+        // } else {
+        //     UNIT_POS_Y
+        // };
+
+        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
+
+        let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
+
+        for i in 0..num_loads_per_unit {
+            let unit_position = unit_position_base + i * jump_length;
+
+            let tile_num_elements = stage_dim.tile_num_elements();
+            let nth_buffer_tile = unit_position / tile_num_elements;
+            let pos_within_tile = unit_position % tile_num_elements;
+
+            let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
+
+            let line_read =
+                read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
+
+            load_buffer[i] = line_read;
+        }
+
+        load_buffer
     }
 
     fn store<G: global::Config>(
         load_buffer: Self::LoadBuffer,
         stage_slice: &mut SliceMut<Line<ES>>,
-        ident: Ident,
-        config: G,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
     ) {
-        todo!()
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_buffer_elements = stage_dim.buffer_num_elements();
+
+        let num_producer_planes = config.num_planes();
+        let total_units = comptime!(num_producer_planes * config.plane_dim());
+        let jump_length = comptime!(total_units * line_size);
+        let num_loads_per_unit = num_buffer_elements / jump_length;
+
+        #[allow(clippy::all)]
+        let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
+
+        let plane_id = UNIT_POS_Y;
+        // let plane_id = if comptime!(producer_plane_offset > 0) {
+        //     UNIT_POS_Y - producer_plane_offset
+        // } else {
+        //     UNIT_POS_Y
+        // };
+
+        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
+
+        for i in 0..num_loads_per_unit {
+            let unit_position = unit_position_base + i * jump_length;
+
+            match config.transpose_load(ident) {
+                false => {
+                    stage_slice[unit_position / line_size] = Line::cast_from(load_buffer[i]);
+                }
+                true => {
+                    #[allow(clippy::all)]
+                    let _ = comptime!(unsupported_transpose_load());
+                }
+            }
+        }
     }
 }
-
-// #[cube]
-// impl BufferLoading {
-//     pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
-//         read_view: &TensorReader<EG>,
-//         buffer_slice: &mut SliceMut<Line<ES>>,
-//         #[comptime] num_producer_planes: u32,
-//         #[comptime] producer_plane_offset: u32,
-//         #[comptime] ident: Ident,
-//         #[comptime] config: G,
-//     ) {
-//         let stage_dim = config.stage_dim(ident);
-//         let line_size = config.global_line_size(ident);
-
-//         let num_buffer_elements = stage_dim.buffer_num_elements();
-
-//         let total_units = comptime!(num_producer_planes * config.plane_dim());
-//         let jump_length = comptime!(total_units * line_size);
-//         let num_loads_per_unit = num_buffer_elements / jump_length;
-
-//         #[allow(clippy::all)]
-//         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
-
-//         let plane_id = if comptime!(producer_plane_offset > 0) {
-//             UNIT_POS_Y - producer_plane_offset
-//         } else {
-//             UNIT_POS_Y
-//         };
-
-//         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
-//         let unit_position_base = unit_id * line_size;
-
-//         for i in 0..num_loads_per_unit {
-//             let unit_position = unit_position_base + i * jump_length;
-
-//             let tile_num_elements = stage_dim.tile_num_elements();
-//             let nth_buffer_tile = unit_position / tile_num_elements;
-//             let pos_within_tile = unit_position % tile_num_elements;
-
-//             let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
-
-//             let line_read =
-//                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
-
-//             match config.transpose_load(ident) {
-//                 false => {
-//                     buffer_slice[unit_position / line_size] = Line::cast_from(line_read);
-//                 }
-//                 true => {
-//                     #[allow(clippy::all)]
-//                     let _ = comptime!(unsupported_transpose_load());
-//                 }
-//             }
-//         }
-//     }
-// }
 
 #[cube]
 fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
@@ -98,6 +123,40 @@ fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
         InputIdent::Rhs => {
             // Assuming RowMajor tiling order
             (0, nth_buffer_tile)
+        }
+    }
+}
+
+#[cube]
+pub(crate) fn buffer_slice<EG: Numeric, ES: Numeric, G: global::Config>(
+    buffer_iter: u32,
+    stage: &mut Stage<ES>,
+    #[comptime] ident: Ident,
+    #[comptime] config: G,
+) -> SliceMut<Line<ES>> {
+    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
+    let line_size = config.stage_line_size(ident);
+    let buffer_num_lines = buffer_num_elements / line_size;
+
+    #[allow(clippy::all)]
+    let _ = comptime!(check_buffers_contiguous(ident, config));
+
+    let start = buffer_iter * buffer_num_lines;
+    let end = start + buffer_num_lines;
+    stage.as_slice_mut().slice_mut(start, end)
+}
+
+fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
+    match ident.as_input() {
+        InputIdent::Lhs => {
+            if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
+                panic!("Lhs must have ColMajor tiling order in pipelined setting")
+            }
+        }
+        InputIdent::Rhs => {
+            if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
+                panic!("Rhs must have RowMajor tiling order in pipelined setting")
+            }
         }
     }
 }

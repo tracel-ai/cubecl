@@ -62,12 +62,12 @@ where
     ) {
         let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_stages = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        for _ in 0..num_loops {
+        for _ in 0..num_stages {
             sync_units();
 
             let lhs_load_buffer = LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, config);
