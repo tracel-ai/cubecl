@@ -70,7 +70,10 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
 
     unsafe {
         let status = cubecl_hip_sys::hipSetDevice(device.index as cubecl_hip_sys::hipDevice_t);
-        assert_eq!(status, HIP_SUCCESS, "Should set the default device for the current thread");
+        assert_eq!(
+            status, HIP_SUCCESS,
+            "Should set the default device for the current thread"
+        );
     }
 
     unsafe {
