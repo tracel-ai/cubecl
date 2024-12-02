@@ -649,7 +649,7 @@ impl TestCase {
             || properties.plane_size_min != 32
             || properties.plane_size_max != 32
         {
-            return; 
+            return;
         }
 
         let input_handle = client.create(I::as_bytes(&input_values));
