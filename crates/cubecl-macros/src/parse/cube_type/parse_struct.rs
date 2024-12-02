@@ -59,8 +59,4 @@ impl CubeTypeStruct {
         let runtime = prelude_type("Runtime");
         parse_quote![<'a, R: #runtime>]
     }
-
-    pub fn fields_expand(&self) -> impl Iterator<Item = &TypeField> {
-        self.fields.iter()
-    }
 }
