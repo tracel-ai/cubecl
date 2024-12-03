@@ -35,7 +35,6 @@ ash = { version = "0.38", optional = true }
 cubecl-spirv = { path = "../cubecl-spirv", version = "0.4.0", optional = true }
 
 bytemuck = { workspace = true }
-wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 
 async-channel = { workspace = true }
 derive-new = { workspace = true }
@@ -44,6 +43,14 @@ log = { workspace = true }
 web-time = { workspace = true }
 
 cfg-if = { workspace = true }
+
+# wgpu dependency for platforms other than macOS
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+wgpu = { version = "22.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+# On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
+# To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { version = "22.0.0", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"] }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
