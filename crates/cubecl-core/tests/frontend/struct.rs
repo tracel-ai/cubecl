@@ -22,6 +22,13 @@ pub struct WithFieldGeneric<F: Float> {
     rhs: Array<F>,
 }
 
+#[derive(CubeLaunch)]
+pub struct WithFieldGenericAndComptime<F: Float> {
+    lhs: Array<F>,
+    #[cube(comptime)]
+    my_tag: String,
+}
+
 #[derive(CubeType)]
 pub struct UnitType;
 
