@@ -7,22 +7,22 @@ use crate::{ArgMax, ArgMin, Mean, Prod, Sum};
 #[cube]
 pub trait ReducePlaneInstruction<EI: Numeric>: Send + Sync + 'static {
     /// The reduction accumulator.
-    /// The implement works on lines. Most likely, the accumulator is Line<T>
+    /// The implementation works on lines. Most likely, the accumulator is Line<T>
     /// for some CubePrimitive type T instead of simply T.
     type Accumulator: CubeType;
 
     /// Initialize an accumulator with a null item.
     fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
 
-    // Reduce item and coordinate into the accumulator using plane operation.
+    /// Reduce item and coordinate into the accumulator using plane operation.
     fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
 
-    // Return an item `ITEM` such that a call to `Self::accumulator(accumulator, ITEM, coordinate)`
-    // doesn't change the accumulator. This is use to pad a plane when the shape of the reduced dimension
-    // is not exactly a multiple of the plane dimension.
+    /// Return an item `ITEM` such that a call to `Self::accumulator(accumulator, ITEM, coordinate)`
+    /// doesn't change the accumulator. This is use to pad a plane when the shape of the reduced dimension
+    /// is not exactly a multiple of the plane dimension.
     fn null_item(#[comptime] line_size: u32) -> Line<EI>;
 
-    // Write the accumulator into the ouput at the given index.
+    /// Write the accumulator into the ouput at the given index.
     fn write<EO: Numeric>(
         output: &mut Tensor<Line<EO>>,
         accumulator: &Self::Accumulator,
@@ -64,7 +64,6 @@ pub fn reduce_plane<RD: ReducePlaneInstruction<EI>, EI: Numeric, EO: Numeric>(
     for i in 0..num_items_per_unit {
         let coordinate = i * PLANE_DIM + UNIT_POS_PLANE;
         let index = offset + coordinate * input.stride(reduce_dim);
-        #[allow(clippy::collapsible_else_if)]
         if exact_shape {
             RD::accumulate(&mut accumulator, input[index], coordinate);
         } else {

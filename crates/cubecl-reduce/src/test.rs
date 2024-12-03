@@ -819,7 +819,6 @@ pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
         let a = a.to_f32().unwrap();
         let e = e.to_f32().unwrap();
         let diff = (a - e).abs();
-        let rel_diff = diff / e.abs();
         if e == 0.0 {
             assert!(
                 diff < 1e-10,
@@ -830,6 +829,7 @@ pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
                 diff,
             );
         } else {
+            let rel_diff = diff / e.abs();
             assert!(
                 rel_diff < 0.0625,
                 "Values are not approx equal: index={} actual={}, expected={}",
