@@ -55,15 +55,15 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
         let unit_offset = UNIT_POS_X % row_division * compute_width;
 
-        #[unroll]
+        #[unroll(config.unroll())]
         for k_outer in 0..num_jumps {
             let b_kp = rhs[k_outer];
 
-            #[unroll]
+            #[unroll(config.unroll())]
             for k_inner in 0..k_jump {
                 let a_pk = lhs[k_outer * k_jump + k_inner];
 
-                #[unroll]
+                #[unroll(config.unroll())]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * Self::N + n_iter + unit_offset;
                     let b_kn = plane_broadcast::<I>(b_kp, unit_to_read);
@@ -147,7 +147,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
 
         let row_jump = plane_dim / n;
 
-        #[unroll]
+        #[unroll(config.unroll())]
         for m_iter in 0..Self::M / row_jump {
             let m_row = row_jump * m_iter + m_row_alt;
             let offset = m_row * num_lines + col_idx;
@@ -181,10 +181,10 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
         let offset = row_offset + unit % row_division * num_lines;
 
         if comptime!(line_size >= 4) {
-            #[unroll]
+            #[unroll(config.unroll())]
             for col in 0..num_lines {
                 let mut line = Line::<C>::empty(line_size);
-                #[unroll]
+                #[unroll(config.unroll())]
                 for j in 0..line_size {
                     line[j] = C::cast_from(out[col * line_size + j]);
                 }
@@ -196,7 +196,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
             // This is patched by repeating loops or deactivating unrolling
 
             if comptime!(line_size == 1) {
-                #[unroll]
+                #[unroll(config.unroll())]
                 for col in 0..num_lines {
                     slice[col + offset] = Line::cast_from(out[col]);
                 }
@@ -225,7 +225,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> tile::Mat
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         let len = Self::M * Self::N / (config.plane_dim());
 
-        #[unroll]
+        #[unroll(config.unroll())]
         for i in 0..len {
             acc[i] = O::from_int(0);
         }
@@ -462,5 +462,9 @@ impl Config {
             rhs_line_size,
             out_line_size,
         }
+    }
+
+    pub fn unroll(&self) -> bool {
+        false
     }
 }

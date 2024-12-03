@@ -78,7 +78,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
     }
 
     fn store<G: global::Config>(
-        buffer: &Slice<Line<EG>>,
+        buffer: &SliceMut<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

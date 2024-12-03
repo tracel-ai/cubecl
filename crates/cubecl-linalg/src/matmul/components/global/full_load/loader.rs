@@ -26,6 +26,10 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> {
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
 
+    fn init_buffer<G: Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+        L::init_buffer::<G>(Ident::Lhs, config)
+    }
+
     fn fetch_global<G: global::Config>(
         this: &Self,
         buffer: &mut SliceMut<Line<EG>>,
@@ -36,7 +40,7 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Lh
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &Slice<Line<EG>>,
+        buffer: &SliceMut<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Lhs, config);
@@ -74,6 +78,10 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> LhsLoader<EG, ES, L> 
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for RhsLoader<EG, ES, L> {
     type StageReader = RhsReader<ES>;
 
+    fn init_buffer<G: Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+        L::init_buffer::<G>(Ident::Rhs, config)
+    }
+
     fn fetch_global<G: global::Config>(
         this: &Self,
         buffer: &mut SliceMut<Line<EG>>,
@@ -84,7 +92,7 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Rh
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &Slice<Line<EG>>,
+        buffer: &SliceMut<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Rhs, config);

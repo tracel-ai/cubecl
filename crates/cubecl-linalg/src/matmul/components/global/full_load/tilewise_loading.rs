@@ -14,14 +14,10 @@ pub struct TilewiseLoading {}
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
-    type LoadBuffer = Array<Line<EG>>;
-
-    fn fetch<G: global::Config>(
-        read_view: &TensorReader<EG>,
-        buffer: &mut SliceMut<Line<EG>>,
+    fn init_buffer<G: global::Config>(
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> Array<Line<EG>> {
+    ) -> SliceMut<Line<EG>> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -32,9 +28,22 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         };
 
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
+        let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
+        Array::vectorized(num_loads_per_unit, line_size).slice_mut(0, num_loads_per_unit)
+    }
+
+    fn fetch<G: global::Config>(
+        read_view: &TensorReader<EG>,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
         let nth_tile = UNIT_POS_Y;
-
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
         let (tile_x, tile_y) = match config.tiling_order(ident) {
@@ -50,8 +59,6 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
             ),
         };
 
-        let mut load_buffer = Array::vectorized(num_loads_per_unit, line_size);
-
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
 
@@ -63,14 +70,12 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
                 config,
             );
 
-            load_buffer[i] = line_read;
+            buffer[i] = line_read;
         }
-
-        load_buffer
     }
 
     fn store<G: global::Config>(
-        buffer: &Slice<Line<EG>>,
+        buffer: &SliceMut<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -78,23 +83,16 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        #[allow(clippy::all)]
-        let _ = comptime! {
-            check_num_planes(config.num_planes(), stage_dim.num_tiles());
-            check_line_sizes(line_size, config.stage_line_size(ident))
-        };
-
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
 
         let nth_tile = UNIT_POS_Y;
         let offset_base = num_lines_per_tile * nth_tile;
-
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
             let offset = offset_base + pos_within_tile;
-            let line_read = load_buffer[i];
+            let line_read = buffer[i];
 
             match config.transpose_load(ident) {
                 false => stage_slice[offset] = Line::cast_from(line_read),

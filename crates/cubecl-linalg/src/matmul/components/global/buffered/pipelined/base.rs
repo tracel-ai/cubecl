@@ -56,82 +56,79 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        // TODO
-        //
+        //     // Fetch 0
+        //     let mut lhs_register_0 =
+        //         LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
+        //     let mut rhs_register_0 =
+        //         RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
 
-        // Fetch 0
-        let mut lhs_register_0 =
-            LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
-        let mut rhs_register_0 =
-            RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
+        //     for _ in 0..num_stages {
+        //         // Fetch 1
+        //         let mut lhs_register_1 =
+        //             LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.1, config);
+        //         let mut rhs_register_1 =
+        //             RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.1, config);
 
-        for _ in 0..num_stages {
-            // Fetch 1
-            let mut lhs_register_1 =
-                LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.1, config);
-            let mut rhs_register_1 =
-                RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.1, config);
+        //         // Fill, compute and advance 0
+        //         let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
+        //             &mut lhs_loader.0,
+        //             &mut lhs_register_0,
+        //             config,
+        //         );
+        //         let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
+        //             &mut rhs_loader.0,
+        //             &mut rhs_register_0,
+        //             config,
+        //         );
+        //         SMM::execute(
+        //             &lhs_reader_0,
+        //             &rhs_reader_0,
+        //             &mut lhs_tile,
+        //             &mut rhs_tile,
+        //             acc,
+        //             config.to_smm_config(),
+        //         );
+        //         LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.0, config);
+        //         RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.0, config);
 
-            // Fill, compute and advance 0
-            let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
-                &mut lhs_loader.0,
-                &mut lhs_register_0,
-                config,
-            );
-            let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
-                &mut rhs_loader.0,
-                &mut rhs_register_0,
-                config,
-            );
-            SMM::execute(
-                &lhs_reader_0,
-                &rhs_reader_0,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                acc,
-                config.to_smm_config(),
-            );
-            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.0, config);
-            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.0, config);
+        //         sync_units();
 
-            sync_units();
+        //         // Fetch 0
+        //         // Last time is actually useless. Should we branch or do it anyway?
+        //         lhs_register_0 = LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
+        //         rhs_register_0 = RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
 
-            // Fetch 0
-            // Last time is actually useless. Should we branch or do it anyway?
-            lhs_register_0 = LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
-            rhs_register_0 = RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
+        //         // Fill, compute and advance 1
+        //         let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
+        //             &mut lhs_loader.1,
+        //             &mut lhs_register_1,
+        //             config,
+        //         );
+        //         let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
+        //             &mut rhs_loader.1,
+        //             &mut rhs_register_1,
+        //             config,
+        //         );
+        //         SMM::execute(
+        //             &lhs_reader_1,
+        //             &rhs_reader_1,
+        //             &mut lhs_tile,
+        //             &mut rhs_tile,
+        //             acc,
+        //             config.to_smm_config(),
+        //         );
+        //         LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.1, config);
+        //         RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.1, config);
 
-            // Fill, compute and advance 1
-            let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
-                &mut lhs_loader.1,
-                &mut lhs_register_1,
-                config,
-            );
-            let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
-                &mut rhs_loader.1,
-                &mut rhs_register_1,
-                config,
-            );
-            SMM::execute(
-                &lhs_reader_1,
-                &rhs_reader_1,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                acc,
-                config.to_smm_config(),
-            );
-            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.1, config);
-            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.1, config);
+        //         sync_units();
+        //     }
 
-            sync_units();
-        }
-
-        SMM::read_accumulator::<Self::Out, Self::Config>(
-            acc,
-            &mut out_unloader,
-            config.to_smm_config(),
-            config,
-        );
+        //     SMM::read_accumulator::<Self::Out, Self::Config>(
+        //         acc,
+        //         &mut out_unloader,
+        //         config.to_smm_config(),
+        //         config,
+        //     );
     }
 
     fn init_lhs_loader(

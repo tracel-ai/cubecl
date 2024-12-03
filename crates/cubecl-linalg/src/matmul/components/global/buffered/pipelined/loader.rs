@@ -49,19 +49,26 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
 #[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
     type StageReader = LhsBufferReader<ES>;
-    type LoadRegister = <BufferLoading<EG, ES> as LoadingStrategy<EG, ES>>::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
-        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, Ident::Lhs, config)
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+        BufferLoading::<EG, ES>::init_buffer::<G>(Ident::Lhs, config)
+    }
+
+    fn fetch_global<G: global::Config>(
+        this: &Self,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] config: G,
+    ) {
+        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, buffer, Ident::Lhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: &mut Self::LoadRegister,
+        buffer: &SliceMut<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         BufferLoading::store::<G>(
-            register,
+            buffer,
             &mut buffer_slice::<EG, ES, G>(this.buffer_id, &mut this.stage, Ident::Lhs, config),
             Ident::Lhs,
             config,
@@ -82,19 +89,26 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 #[cube]
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
-    type LoadRegister = <BufferLoading<EG, ES> as LoadingStrategy<EG, ES>>::LoadBuffer;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
-        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, Ident::Rhs, config)
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+        BufferLoading::<EG, ES>::init_buffer::<G>(Ident::Rhs, config)
+    }
+
+    fn fetch_global<G: global::Config>(
+        this: &Self,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] config: G,
+    ) {
+        BufferLoading::<EG, ES>::fetch::<G>(&this.tensor_view, buffer, Ident::Rhs, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: &mut Self::LoadRegister,
+        buffer: &SliceMut<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         BufferLoading::store::<G>(
-            register,
+            buffer,
             &mut buffer_slice::<EG, ES, G>(this.buffer_id, &mut this.stage, Ident::Rhs, config),
             Ident::Rhs,
             config,
@@ -139,24 +153,34 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
 // TODO refactor, it's a bit hacky
 impl<EG: Numeric, ES: Numeric, L: Loader<EG, ES>> Loader<EG, ES> for (L, L) {
     type StageReader = <L as Loader<EG, ES>>::StageReader;
-    type LoadRegister = <L as Loader<EG, ES>>::LoadRegister;
 
-    fn fetch_global<G: global::Config>(this: &Self, #[comptime] config: G) -> Self::LoadRegister {
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
         let _ = comptime!(unavailable_method());
 
         // Just to make the compiler happy
-        L::fetch_global::<G>(&this.0, config)
+        L::init_buffer::<G>(config)
+    }
+
+    fn fetch_global<G: global::Config>(
+        this: &Self,
+        buffer: &mut SliceMut<Line<EG>>,
+        #[comptime] config: G,
+    ) {
+        let _ = comptime!(unavailable_method());
+
+        // Just to make the compiler happy
+        L::fetch_global::<G>(&this.0, buffer, config)
     }
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        register: &mut Self::LoadRegister,
+        buffer: &SliceMut<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         let _ = comptime!(unavailable_method());
 
         // Just to make the compiler happy
-        L::fill_stage::<G>(&mut this.0, register, config)
+        L::fill_stage::<G>(&mut this.0, buffer, config)
     }
 
     fn to_next_stage<G: global::Config>(_this: &mut Self, #[comptime] _config: G) {
