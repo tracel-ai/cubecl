@@ -9,15 +9,15 @@ use rand::{
 };
 
 use crate::{
-    reduce_naive, reduce_shared, ArgMax, ArgMin, Mean, Prod, ReduceNaiveInstruction,
-    ReduceSharedInstruction, Sum,
+    reduce_naive, reduce_plane, reduce_shared, ArgMax, ArgMin, Mean, Prod, ReduceNaiveInstruction,
+    ReducePlaneInstruction, ReduceSharedInstruction, Sum,
 };
 
 // All random values generated for tests will be in the set
 // {-1, -1 + E, -1 + 2E, ..., 1 - E, 1} with E = 1 / PRECISION.
 // We choose this set to avoid precision issues with f16 and bf16 and
 // also to add multiple similar values to properly test ArgMax and ArgMin.
-const PRECISION: i32 = 8;
+const PRECISION: i32 = 4;
 
 // Simple kernel to launch tests.
 #[cube(launch_unchecked)]
@@ -39,6 +39,18 @@ pub fn kernel_reduce_shared<I: Numeric, O: Numeric, R: ReduceSharedInstruction<I
     #[comptime] exact_shape: bool,
 ) {
     reduce_shared::<R, I, O>(input, output, reduce_dim, cube_dim, exact_shape)
+}
+
+// Simple kernel to launch tests.
+#[cube(launch_unchecked)]
+pub fn kernel_reduce_plane<I: Numeric, O: Numeric, R: ReducePlaneInstruction<I>>(
+    input: &Tensor<Line<I>>,
+    output: &mut Tensor<Line<O>>,
+    reduce_dim: u32,
+    #[comptime] cube_dim: u32,
+    #[comptime] exact_shape: bool,
+) {
+    reduce_plane::<R, I, O>(input, output, reduce_dim, cube_dim, exact_shape)
 }
 
 // This macro generate all the tests.
@@ -180,6 +192,67 @@ macro_rules! testgen_reduce {
                     reduce_dim: 0,
                     cube_count: CubeCount::new_1d(64),
                     cube_dim: CubeDim::new_1d(8),
+                    line_size: 4,
+                }
+            ]
+        );
+
+        $crate::impl_test_reduce!(
+            plane,
+            $float,
+            [
+                {
+                    id: "reduce_columns_large_matrix_row_major",
+                    shape: [8, 256],
+                    stride: [256, 1],
+                    reduce_dim: 1,
+                    cube_count: CubeCount::new_1d(2),
+                    cube_dim: CubeDim::new_1d(4 * 32),
+                    line_size: 1,
+                },
+                {
+                    id: "reduce_rows_large_matrix_row_major",
+                    shape: [256, 8],
+                    stride: [8, 1],
+                    reduce_dim: 0,
+                    cube_count: CubeCount::new_1d(2),
+                    cube_dim: CubeDim::new_1d(4 * 32),
+                    line_size: 1,
+                },
+                {
+                    id: "rank_three_tensor_single_cube",
+                    shape: [16, 2, 128],
+                    stride: [1, 16 * 128, 16],
+                    reduce_dim: 2,
+                    cube_count: CubeCount::new_1d(1),
+                    cube_dim: CubeDim::new_1d(32*32),
+                    line_size: 1,
+                },
+                {
+                    id: "rank_three_tensor_multiple_cubes",
+                    shape: [16, 2, 128],
+                    stride: [1, 16 * 128, 16],
+                    reduce_dim: 2,
+                    cube_count: CubeCount::new_1d(8),
+                    cube_dim: CubeDim::new_1d(32*4),
+                    line_size: 1,
+                },
+                {
+                    id: "rank_three_tensor_unexact_shape",
+                    shape: [3, 5, 59],
+                    stride: [5*59, 59, 1],
+                    reduce_dim: 2,
+                    cube_count: CubeCount::new_1d(3),
+                    cube_dim: CubeDim::new_1d(5 * 32),
+                    line_size: 1,
+                },
+                {
+                    id: "reduce_rows_large_matrix_row_major_line_size_four",
+                    shape: [16, 1024],
+                    stride: [1024, 1],
+                    reduce_dim: 1,
+                    cube_count: CubeCount::new_1d(4),
+                    cube_dim: CubeDim::new_1d(32*4),
                     line_size: 4,
                 }
             ]
@@ -392,7 +465,7 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
+        assert_approx_equal(output_values, &expected_values);
     }
 
     pub fn test_sum_shared<F, R>(&self, device: &R::Device)
@@ -500,7 +573,128 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
-        assert_approx_equal_abs(output_values, &expected_values, 1.0 / (PRECISION as f32));
+        assert_approx_equal(output_values, &expected_values);
+    }
+
+    pub fn test_sum_plane<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let expected_values = self.cpu_sum(&input_values);
+        self.run_test_plane::<F, F, R, Sum>(device, input_values, expected_values)
+    }
+
+    pub fn test_prod_plane<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let expected_values = self.cpu_prod(&input_values);
+        self.run_test_plane::<F, F, R, Prod>(device, input_values, expected_values)
+    }
+
+    pub fn test_mean_plane<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let expected_values = self.cpu_mean(&input_values);
+        self.run_test_plane::<F, F, R, Mean>(device, input_values, expected_values)
+    }
+
+    pub fn test_argmax_plane<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let expected_values = self.cpu_argmax(&input_values);
+        self.run_test_plane::<F, u32, R, ArgMax>(device, input_values, expected_values)
+    }
+
+    pub fn test_argmin_plane<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let expected_values = self.cpu_argmin(&input_values);
+        self.run_test_plane::<F, u32, R, ArgMin>(device, input_values, expected_values)
+    }
+
+    pub fn run_test_plane<I, O, R, K>(
+        &self,
+        device: &R::Device,
+        input_values: Vec<I>,
+        expected_values: Vec<O>,
+    ) where
+        I: Numeric + CubeElement + std::fmt::Display,
+        O: Numeric + CubeElement + std::fmt::Display,
+        R: Runtime,
+        K: ReducePlaneInstruction<I>,
+    {
+        let client = R::client(device);
+
+        // Check that planes are supported and that plane size is always 32.
+        // The tests are designed for a plane size of 32.
+        let plane_size = 32;
+        let properties = client.properties().hardware_properties();
+        if !client
+            .properties()
+            .feature_enabled(cubecl_core::Feature::Plane)
+            || properties.plane_size_min != 32
+            || properties.plane_size_max != 32
+        {
+            return;
+        }
+
+        let input_handle = client.create(I::as_bytes(&input_values));
+
+        // Zero initialize a tensor with the same shape as input
+        // except for the `self.reduce_dim` axis where the shape is 1.
+        let output_handle =
+            client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
+        let mut output_shape = self.shape.clone();
+        output_shape[self.reduce_dim as usize] = 1;
+        let output_stride = self.output_stride();
+
+        let exact_shape = self.shape[self.reduce_dim as usize] % plane_size as usize == 0;
+
+        unsafe {
+            let input_tensor = TensorArg::from_raw_parts::<I>(
+                &input_handle,
+                &self.stride,
+                &self.shape,
+                self.line_size,
+            );
+            let output_tensor = TensorArg::from_raw_parts::<O>(
+                &output_handle,
+                &output_stride,
+                &output_shape,
+                self.line_size,
+            );
+
+            kernel_reduce_plane::launch_unchecked::<I, O, K, R>(
+                &client,
+                self.cube_count.clone(),
+                self.cube_dim,
+                input_tensor,
+                output_tensor,
+                ScalarArg::new(self.reduce_dim),
+                self.cube_dim.num_elems(),
+                exact_shape,
+            );
+        }
+
+        let binding = output_handle.binding();
+        let bytes = client.read_one(binding);
+        let output_values = O::from_bytes(&bytes);
+
+        assert_approx_equal(output_values, &expected_values);
     }
 
     fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -620,17 +814,29 @@ impl TestCase {
     }
 }
 
-pub fn assert_approx_equal_abs<N: Numeric>(actual: &[N], expected: &[N], epsilon: f32) {
+pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         let a = a.to_f32().unwrap();
         let e = e.to_f32().unwrap();
         let diff = (a - e).abs();
-        assert!(diff < epsilon, "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-            i,
-            a,
-            e,
-            diff,
-            epsilon
+        if e == 0.0 {
+            assert!(
+                diff < 1e-10,
+                "Values are not approx equal: index={} actual={}, expected={}, difference={}",
+                i,
+                a,
+                e,
+                diff,
             );
+        } else {
+            let rel_diff = diff / e.abs();
+            assert!(
+                rel_diff < 0.0625,
+                "Values are not approx equal: index={} actual={}, expected={}",
+                i,
+                a,
+                e
+            );
+        }
     }
 }
