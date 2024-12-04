@@ -15,10 +15,9 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "spirv",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
-spirv = ["cubecl-spirv", "ash", "wgpu/spirv", "wgpu-core/vulkan"]
+spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 spirv-dump = ["sanitize-filename"]
@@ -52,8 +51,6 @@ wgpu = { version = "23.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { version = "23.0.0", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"] }
-wgpu-core = { version = "23.0.0" }
-wgpu-hal = { version = "23.0.0" }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
