@@ -563,8 +563,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 IndexedVariable::Pointer(id, item.clone())
             }
             Variable::ConstantArray(id, item, _) => {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::UniformConstant, Box::new(item.clone())).id(self);
+                let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
                 let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }

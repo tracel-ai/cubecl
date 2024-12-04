@@ -235,6 +235,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn setup(&mut self, label: Word) -> usize {
         self.begin_block(Some(label)).unwrap();
+
+        for const_arr in self.opt.const_arrays() {
+            self.register_const_array(const_arr);
+        }
+
         let setup_block = self.selected_block().unwrap();
         self.select_block(None).unwrap();
         setup_block

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::ir::{self, KernelDefinition};
-use cubecl_opt::NodeIndex;
+use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
@@ -19,7 +19,7 @@ pub struct LookupTables {
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
-    pub const_arrays: Vec<ConstArray>,
+    pub const_arrays: Vec<Array>,
     pub shared_memories: HashMap<u16, Array>,
     pub local_arrays: HashMap<(u16, u8), Array>,
     pub matrices: HashMap<(u16, u8), Matrix>,
@@ -71,14 +71,6 @@ pub struct Array {
     pub id: Word,
     pub item: Item,
     pub len: u32,
-}
-
-#[derive(Clone, Debug)]
-pub struct ConstArray {
-    pub id: Word,
-    pub item: Item,
-    pub len: u32,
-    pub composite_id: Word,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -261,5 +253,31 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             self.state.scalars.insert((id, elem), read_id);
             var
         }
+    }
+
+    pub fn register_const_array(&mut self, arr: ConstArray) {
+        let item = self.compile_item(arr.item);
+        let array_ty = Item::Array(Box::new(item.clone()), arr.length);
+        let pointer_ty = Item::Pointer(StorageClass::Function, Box::new(array_ty.clone())).id(self);
+        let array_ty = array_ty.id(self);
+        let values = arr
+            .values
+            .into_iter()
+            .map(|it| self.compile_variable(it))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|it| self.read_as(&it, &item))
+            .collect::<Vec<_>>();
+        let constant = self.constant_composite(array_ty, values);
+        let id = self.variable(pointer_ty, None, StorageClass::Function, Some(constant));
+        self.debug_name(id, format!("const array({})", arr.id));
+        self.state.const_arrays.insert(
+            arr.id as usize,
+            Array {
+                id,
+                item,
+                len: arr.length,
+            },
+        );
     }
 }
