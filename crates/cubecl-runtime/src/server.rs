@@ -178,6 +178,28 @@ pub enum CubeCount {
     Dynamic(Binding),
 }
 
+impl CubeCount {
+    /// Create a new static cube count with the given x = y = z = 1.
+    pub fn new_single() -> Self {
+        CubeCount::Static(1, 1, 1)
+    }
+
+    /// Create a new static cube count with the given x, and y = z = 1.
+    pub fn new_1d(x: u32) -> Self {
+        CubeCount::Static(x, 1, 1)
+    }
+
+    /// Create a new static cube count with the given x and y, and z = 1.
+    pub fn new_2d(x: u32, y: u32) -> Self {
+        CubeCount::Static(x, y, 1)
+    }
+
+    /// Create a new static cube count with the given x, y and z.
+    pub fn new_3d(x: u32, y: u32) -> Self {
+        CubeCount::Static(x, y, 1)
+    }
+}
+
 impl Debug for CubeCount {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {

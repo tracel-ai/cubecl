@@ -2,10 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
-pub struct ReduceArgMax;
+pub struct ArgMax;
 
 #[cube]
-impl ReduceArgMax {
+impl ArgMax {
     /// Compare two pairs of items and coordinates and return a new pair
     /// where each element in the lines is the maximal item with its coordinate.
     /// In case of equality, the lowest coordinate is selected.
@@ -27,10 +27,10 @@ impl ReduceArgMax {
 }
 
 /// Compute the coordinate of the minimum item returning the smallest coordinate in case of equality.
-pub struct ReduceArgMin;
+pub struct ArgMin;
 
 #[cube]
-impl ReduceArgMin {
+impl ArgMin {
     /// Compare two pairs of items and coordinates and return a new pair
     /// where each element in the lines is the minimal item with its coordinate.
     /// In case of equality, the lowest coordinate is selected.
@@ -51,6 +51,6 @@ impl ReduceArgMin {
     }
 }
 
-pub struct ReduceMean;
-pub struct ReduceSum;
-pub struct ReduceProd;
+pub struct Mean;
+pub struct Sum;
+pub struct Prod;

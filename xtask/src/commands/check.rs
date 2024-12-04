@@ -18,6 +18,8 @@ pub(crate) fn handle_command(mut args: CubeCLCheckCmdArgs) -> anyhow::Result<()>
     // cubecl-wgpu with SPIR-V
     // cubecl-wgpu with exclusive-memory-only
     // cubecl-runtime without default features
+    // Disabled on MacOS see:
+    #[cfg(not(target_os = "macos"))]
     helpers::custom_crates_check(
         vec!["cubecl-wgpu"],
         vec!["--features", "spirv"],
