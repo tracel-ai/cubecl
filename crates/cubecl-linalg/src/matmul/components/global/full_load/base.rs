@@ -91,7 +91,7 @@ where
             Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_next, config);
             Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_next, config);
 
-            // Compute current
+            // Fill stage with current
             let lhs_stage_reader =
                 &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
             let rhs_stage_reader =
@@ -99,6 +99,13 @@ where
 
             sync_units();
 
+            // Switch buffers for next iteration
+            lhs_curr = LoadBuffer::current_half(&mut lhs_buffer, i + 1);
+            rhs_curr = LoadBuffer::current_half(&mut rhs_buffer, i + 1);
+            lhs_next = LoadBuffer::next_half(&mut lhs_buffer, i + 1);
+            rhs_next = LoadBuffer::next_half(&mut rhs_buffer, i + 1);
+
+            // Execute with current stage
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
@@ -107,12 +114,6 @@ where
                 acc,
                 config.to_smm_config(),
             );
-
-            // Switch buffers
-            lhs_curr = LoadBuffer::current_half(&mut lhs_buffer, i + 1);
-            rhs_curr = LoadBuffer::current_half(&mut rhs_buffer, i + 1);
-            lhs_next = LoadBuffer::next_half(&mut lhs_buffer, i + 1);
-            rhs_next = LoadBuffer::next_half(&mut rhs_buffer, i + 1);
         }
 
         sync_units();
