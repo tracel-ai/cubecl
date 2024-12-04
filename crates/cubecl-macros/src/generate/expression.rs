@@ -85,20 +85,20 @@ impl Expression {
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]
             }
-            Expression::Variable(var) if var.is_const => {
-                let name = &var.name;
-                let expand_elem = frontend_type("ExpandElementTyped");
-                quote![#expand_elem::from_lit(#name)]
-            }
             Expression::Variable(var) => {
-                let name = &var.name;
-                if var.try_consume(context) {
-                    quote![#name]
+                if var.is_const {
+                    let name = &var.name;
+                    let expand_elem = frontend_type("ExpandElementTyped");
+                    quote![#expand_elem::from_lit(#name)]
                 } else {
-                    quote![#name.clone()]
+                    let name = &var.name;
+                    if var.try_consume(context) {
+                        quote![#name]
+                    } else {
+                        quote![#name.clone()]
+                    }
                 }
             }
-
             Expression::FieldAccess { base, field, .. } => {
                 let base = base
                     .as_const(context)

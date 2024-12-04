@@ -41,7 +41,7 @@ impl Statement {
                     .mac
                     .path
                     .get_ident()
-                    .filter(|ident| ident.to_string() == "comptime")
+                    .filter(|ident| *ident == "comptime")
                     .is_some()
                 {
                     Statement::Expression {
@@ -53,7 +53,7 @@ impl Statement {
                 } else {
                     return Err(syn::Error::new_spanned(
                         val,
-                        format!("Unsupported macro").as_str(),
+                        "Unsupported macro".to_string().as_str(),
                     ));
                 }
             }
