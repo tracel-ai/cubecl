@@ -1,5 +1,5 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::global::{Config as _, LoadBuffer, Loader};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
@@ -56,79 +56,107 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        //     // Fetch 0
-        //     let mut lhs_register_0 =
-        //         LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
-        //     let mut rhs_register_0 =
-        //         RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
+        let mut lhs_buffer = LhsBufferLoader::<EG, ES>::init_buffer::<Self::Config>(config);
+        let mut rhs_buffer = RhsBufferLoader::<EG, ES>::init_buffer::<Self::Config>(config);
 
-        //     for _ in 0..num_stages {
-        //         // Fetch 1
-        //         let mut lhs_register_1 =
-        //             LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.1, config);
-        //         let mut rhs_register_1 =
-        //             RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.1, config);
+        let mut lhs_0 = LoadBuffer::current_half(&mut lhs_buffer, 0);
+        let mut rhs_0 = LoadBuffer::current_half(&mut rhs_buffer, 0);
+        let mut lhs_1 = LoadBuffer::next_half(&mut lhs_buffer, 0);
+        let mut rhs_1 = LoadBuffer::next_half(&mut rhs_buffer, 0);
 
-        //         // Fill, compute and advance 0
-        //         let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
-        //             &mut lhs_loader.0,
-        //             &mut lhs_register_0,
-        //             config,
-        //         );
-        //         let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
-        //             &mut rhs_loader.0,
-        //             &mut rhs_register_0,
-        //             config,
-        //         );
-        //         SMM::execute(
-        //             &lhs_reader_0,
-        //             &rhs_reader_0,
-        //             &mut lhs_tile,
-        //             &mut rhs_tile,
-        //             acc,
-        //             config.to_smm_config(),
-        //         );
-        //         LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.0, config);
-        //         RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.0, config);
+        // Fetch 0
+        LhsBufferLoader::fetch_global::<Self::Config>(
+            &lhs_loader.0,
+            &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_0),
+            config,
+        );
+        RhsBufferLoader::fetch_global::<Self::Config>(
+            &rhs_loader.0,
+            &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_0),
+            config,
+        );
 
-        //         sync_units();
+        for _ in 0..num_stages {
+            // Fetch 1
+            LhsBufferLoader::fetch_global::<Self::Config>(
+                &lhs_loader.1,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, lhs_1),
+                config,
+            );
+            RhsBufferLoader::fetch_global::<Self::Config>(
+                &rhs_loader.1,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_1),
+                config,
+            );
 
-        //         // Fetch 0
-        //         // Last time is actually useless. Should we branch or do it anyway?
-        //         lhs_register_0 = LhsBufferLoader::fetch_global::<Self::Config>(&lhs_loader.0, config);
-        //         rhs_register_0 = RhsBufferLoader::fetch_global::<Self::Config>(&rhs_loader.0, config);
+            // Fill, compute and advance 0
+            let lhs_reader_0 = LhsBufferLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader.0,
+                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_0),
+                config,
+            );
+            let rhs_reader_0 = RhsBufferLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader.0,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_0),
+                config,
+            );
+            SMM::execute(
+                &lhs_reader_0,
+                &rhs_reader_0,
+                &mut lhs_tile,
+                &mut rhs_tile,
+                acc,
+                config.to_smm_config(),
+            );
+            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.0, config);
+            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.0, config);
 
-        //         // Fill, compute and advance 1
-        //         let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
-        //             &mut lhs_loader.1,
-        //             &mut lhs_register_1,
-        //             config,
-        //         );
-        //         let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
-        //             &mut rhs_loader.1,
-        //             &mut rhs_register_1,
-        //             config,
-        //         );
-        //         SMM::execute(
-        //             &lhs_reader_1,
-        //             &rhs_reader_1,
-        //             &mut lhs_tile,
-        //             &mut rhs_tile,
-        //             acc,
-        //             config.to_smm_config(),
-        //         );
-        //         LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.1, config);
-        //         RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.1, config);
+            sync_units();
 
-        //         sync_units();
-        //     }
+            // Fetch 0
+            // Last time is actually useless. Should we branch or do it anyway?
+            LhsBufferLoader::fetch_global::<Self::Config>(
+                &lhs_loader.0,
+                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_0),
+                config,
+            );
+            RhsBufferLoader::fetch_global::<Self::Config>(
+                &rhs_loader.0,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_0),
+                config,
+            );
 
-        //     SMM::read_accumulator::<Self::Out, Self::Config>(
-        //         acc,
-        //         &mut out_unloader,
-        //         config.to_smm_config(),
-        //         config,
-        //     );
+            // Fill, compute and advance 1
+            let lhs_reader_1 = LhsBufferLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader.1,
+                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_1),
+                config,
+            );
+            let rhs_reader_1 = RhsBufferLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader.1,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_1),
+                config,
+            );
+            SMM::execute(
+                &lhs_reader_1,
+                &rhs_reader_1,
+                &mut lhs_tile,
+                &mut rhs_tile,
+                acc,
+                config.to_smm_config(),
+            );
+            LhsBufferLoader::to_next_stage::<Self::Config>(&mut lhs_loader.1, config);
+            RhsBufferLoader::to_next_stage::<Self::Config>(&mut rhs_loader.1, config);
+
+            sync_units();
+        }
+
+        SMM::read_accumulator::<Self::Out, Self::Config>(
+            acc,
+            &mut out_unloader,
+            config.to_smm_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(

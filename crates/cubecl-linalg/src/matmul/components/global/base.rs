@@ -100,11 +100,11 @@ impl<EG: Numeric> LoadBuffer<EG> {
         }
     }
 
-    pub fn current_half(this: &mut Self, state: u32) -> u32 {
+    pub fn current_half(this: &Self, state: u32) -> u32 {
         (state % 2) * this.half
     }
 
-    pub fn next_half(this: &mut Self, state: u32) -> u32 {
+    pub fn next_half(this: &Self, state: u32) -> u32 {
         (1 - state % 2) * this.half
     }
 
