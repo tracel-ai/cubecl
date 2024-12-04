@@ -87,29 +87,14 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 
 #[derive(CubeType)]
 pub struct LoadBuffer<EG: Numeric> {
-    array: Array<Line<EG>>,
-    half: u32,
+    pub array: Array<Line<EG>>,
+    pub length: u32,
 }
 
 #[cube]
 impl<EG: Numeric> LoadBuffer<EG> {
-    pub fn new(array: Array<Line<EG>>, array_length: u32) -> Self {
-        LoadBuffer::<EG> {
-            array,
-            half: array_length / 2,
-        }
-    }
-
-    pub fn current_half(this: &Self, state: u32) -> u32 {
-        (state % 2) * this.half
-    }
-
-    pub fn next_half(this: &Self, state: u32) -> u32 {
-        (1 - state % 2) * this.half
-    }
-
-    pub fn as_slice_mut(this: &mut Self, start: u32) -> SliceMut<Line<EG>> {
-        this.array.slice_mut(start, start + this.half)
+    pub fn slice_mut(&mut self, start: u32, end: u32) -> SliceMut<Line<EG>> {
+        self.array.slice_mut(start, end)
     }
 }
 
@@ -221,4 +206,7 @@ pub trait Config: MatmulConfig {
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
+
+    /// How many buffers (single/double buffering)
+    fn num_buffers(&self) -> u32;
 }

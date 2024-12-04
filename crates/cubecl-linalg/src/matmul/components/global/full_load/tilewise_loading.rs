@@ -30,10 +30,11 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
-        LoadBuffer::<EG>::new(
-            Array::vectorized(num_loads_per_unit * 2, line_size),
-            num_loads_per_unit * 2,
-        )
+        let length = num_loads_per_unit * config.num_buffers();
+        LoadBuffer::<EG> {
+            array: Array::vectorized(length, line_size),
+            length,
+        }
     }
 
     fn fetch<G: global::Config>(
@@ -92,6 +93,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         let offset_base = num_lines_per_tile * nth_tile;
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
+        #[unroll]
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
             let offset = offset_base + pos_within_tile;

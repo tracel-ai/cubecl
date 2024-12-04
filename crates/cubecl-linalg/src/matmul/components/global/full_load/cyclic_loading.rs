@@ -30,10 +30,11 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
 
         let num_loads_per_unit = num_stage_elements / jump_length;
 
-        LoadBuffer::<EG>::new(
-            Array::vectorized(num_loads_per_unit * 2, line_size),
-            num_loads_per_unit * 2,
-        )
+        let length = num_loads_per_unit * config.num_buffers();
+        LoadBuffer::<EG> {
+            array: Array::vectorized(length, line_size),
+            length,
+        }
     }
 
     fn fetch<G: global::Config>(
@@ -97,6 +98,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
+        #[unroll]
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
             let line_read = buffer[i];

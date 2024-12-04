@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{full_load, Config, LoadBuffer, Loader, LoadingStrategy};
+use crate::matmul::components::global::{Config, LoadBuffer, Loader, LoadingStrategy};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::Stage;
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -56,14 +56,14 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Lh
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> LhsLoader<EG, ES, L> {
-    pub fn new<S: stage::Config>(
+    pub fn new<G: global::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: full_load::Config<S>,
+        #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
+        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         LhsLoader::<EG, ES, L> {
@@ -108,14 +108,14 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Rh
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> RhsLoader<EG, ES, L> {
-    pub fn new<S: stage::Config>(
+    pub fn new<G: global::Config>(
         tensor: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: full_load::Config<S>,
+        #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
+        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         RhsLoader::<EG, ES, L> {

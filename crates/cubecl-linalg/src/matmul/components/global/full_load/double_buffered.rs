@@ -1,4 +1,3 @@
-use crate::matmul::components::global::base::LoadBuffer;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader, LoadingStrategy};
 use crate::matmul::components::stage;
@@ -155,13 +154,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            config,
-        )
+        LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -171,13 +164,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            config,
-        )
+        RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(
@@ -312,6 +299,10 @@ impl<S: stage::Config> global::Config for Config<S> {
 
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
+    }
+
+    fn num_buffers(&self) -> u32 {
+        2
     }
 }
 
