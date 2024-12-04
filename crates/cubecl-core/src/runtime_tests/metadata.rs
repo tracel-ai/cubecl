@@ -208,24 +208,26 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
 }
 
 pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let handle1 = client.empty(128 * core::mem::size_of::<u32>());
+    let handle1 = client.empty(256 * core::mem::size_of::<u32>());
+    // We use an offset of 256 bytes here because this is the default in WebGPU and
+    // as of wgpu 22+, 256 is the value of 'min_storage_buffer_offset_alignment' for metal GPUs.
     let handle1 = handle1
-        .offset_start(32 * core::mem::size_of::<u32>() as u64)
-        .offset_end(32 * core::mem::size_of::<u32>() as u64);
+        .offset_start(64 * core::mem::size_of::<u32>() as u64)
+        .offset_end(64 * core::mem::size_of::<u32>() as u64);
 
     unsafe {
         kernel_buffer_len::launch_unchecked::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 4], 2),
+            TensorArg::from_raw_parts::<u32>(&handle1, &[32, 16, 4, 1], &[4, 4, 4, 8], 2),
         )
     };
 
     let actual = client.read_one(handle1.binding());
     let actual = u32::from_bytes(&actual);
 
-    assert_eq!(actual[0], 32);
+    assert_eq!(actual[0], 64);
 }
 
 #[allow(missing_docs)]
