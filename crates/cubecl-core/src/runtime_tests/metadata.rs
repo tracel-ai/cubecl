@@ -209,6 +209,8 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R::Server, R
 
 pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let handle1 = client.empty(256 * core::mem::size_of::<u32>());
+    // We use an offset of 256 bytes here because this is the default in WebGPU and
+    // as of wgpu 22+, 256 is the value of 'min_storage_buffer_offset_alignment' for metal GPUs.
     let handle1 = handle1
         .offset_start(64 * core::mem::size_of::<u32>() as u64)
         .offset_end(64 * core::mem::size_of::<u32>() as u64);
