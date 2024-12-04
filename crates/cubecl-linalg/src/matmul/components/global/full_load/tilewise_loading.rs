@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, LoadingStrategy};
+use crate::matmul::components::global::{self, LoadBuffer, LoadingStrategy};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -17,7 +17,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
     fn init_buffer<G: global::Config>(
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> SliceMut<Line<EG>> {
+    ) -> LoadBuffer<EG> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -30,7 +30,10 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
-        Array::vectorized(num_loads_per_unit, line_size).slice_mut(0, num_loads_per_unit)
+        LoadBuffer::<EG>::new(
+            Array::vectorized(num_loads_per_unit, line_size),
+            num_loads_per_unit,
+        )
     }
 
     fn fetch<G: global::Config>(

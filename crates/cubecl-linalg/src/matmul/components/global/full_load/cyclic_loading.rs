@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{self, LoadingStrategy};
+use crate::matmul::components::global::{self, LoadBuffer, LoadingStrategy};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -17,7 +17,7 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
     fn init_buffer<G: global::Config>(
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> SliceMut<Line<EG>> {
+    ) -> LoadBuffer<EG> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
@@ -30,7 +30,10 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
         #[allow(clippy::all)]
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
-        Array::vectorized(num_loads_per_unit, line_size).slice_mut(0, num_loads_per_unit)
+        LoadBuffer::<EG>::new(
+            Array::vectorized(num_loads_per_unit, line_size),
+            num_loads_per_unit,
+        )
     }
 
     fn fetch<G: global::Config>(

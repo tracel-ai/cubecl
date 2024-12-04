@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{full_load, Config, Loader, LoadingStrategy};
+use crate::matmul::components::global::{full_load, Config, LoadBuffer, Loader, LoadingStrategy};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
@@ -26,7 +26,7 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> {
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for LhsLoader<EG, ES, L> {
     type StageReader = LhsReader<ES>;
 
-    fn init_buffer<G: Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+    fn init_buffer<G: Config>(#[comptime] config: G) -> LoadBuffer<EG> {
         L::init_buffer::<G>(Ident::Lhs, config)
     }
 
@@ -78,7 +78,7 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> LhsLoader<EG, ES, L> 
 impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for RhsLoader<EG, ES, L> {
     type StageReader = RhsReader<ES>;
 
-    fn init_buffer<G: Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+    fn init_buffer<G: Config>(#[comptime] config: G) -> LoadBuffer<EG> {
         L::init_buffer::<G>(Ident::Rhs, config)
     }
 

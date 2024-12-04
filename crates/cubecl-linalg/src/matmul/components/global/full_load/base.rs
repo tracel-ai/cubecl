@@ -1,3 +1,4 @@
+use crate::matmul::components::global::base::LoadBuffer;
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader, LoadingStrategy};
 use crate::matmul::components::stage;
@@ -36,134 +37,7 @@ pub struct Matmul<
     _rhs_loading: PhantomData<RL>,
 }
 
-// #[cube(debug)]
-// impl<EG, ES, EA, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM, LL, RL>
-// where
-//     EG: Numeric,
-//     ES: Numeric,
-//     EA: Numeric,
-//     SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
-//     LL: LoadingStrategy<EG, ES>,
-//     RL: LoadingStrategy<EG, ES>,
-// {
-//     type LhsLoader = LhsLoader<EG, ES, LL>;
-//     type RhsLoader = RhsLoader<EG, ES, RL>;
-//     type AccumulatorLoader = ZeroAccumulatorLoader;
-//     type Out = Unloader<EG>;
-//     type Accumulator = SMM::Accumulator;
-
-//     fn execute(
-//         mut lhs_loader: Self::LhsLoader,
-//         mut rhs_loader: Self::RhsLoader,
-//         mut out_unloader: Self::Out,
-//         acc: &mut Self::Accumulator,
-//         k_range: (u32, u32),
-//         #[comptime] config: Self::Config,
-//     ) {
-//         let k_step = SMM::K;
-//         let range = k_range.1 - k_range.0;
-//         let num_stages = (range + k_step - 1) / k_step;
-
-//         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
-//         SMM::zero_accumulator(acc, config.to_smm_config());
-
-//         let mut lhs_curr = Self::LhsLoader::init_buffer::<Self::Config>(config);
-//         let mut rhs_curr = Self::RhsLoader::init_buffer::<Self::Config>(config);
-//         let mut lhs_next = Self::LhsLoader::init_buffer::<Self::Config>(config);
-//         let mut rhs_next = Self::RhsLoader::init_buffer::<Self::Config>(config);
-
-//         Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
-//         Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
-
-//         for _ in 0..num_stages {
-//             sync_units();
-
-//             Self::LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
-//             Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
-
-//             Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_next, config);
-//             Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_next, config);
-
-//             let lhs_stage_reader =
-//                 &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
-//             let rhs_stage_reader =
-//                 &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_curr, config);
-
-//             sync_units();
-
-//             lhs_curr.swap(&mut lhs_next);
-//             rhs_curr.swap(&mut rhs_next);
-
-//             SMM::execute(
-//                 lhs_stage_reader,
-//                 rhs_stage_reader,
-//                 &mut lhs_tile,
-//                 &mut rhs_tile,
-//                 acc,
-//                 config.to_smm_config(),
-//             );
-//         }
-
-//         sync_units();
-
-//         SMM::read_accumulator::<Self::Out, Self::Config>(
-//             acc,
-//             &mut out_unloader,
-//             config.to_smm_config(),
-//             config,
-//         );
-//     }
-
-//     fn init_lhs_loader(
-//         lhs: &Tensor<Line<EG>>,
-//         x_offset: u32,
-//         y_offset: u32,
-//         batch_offset: u32,
-//         #[comptime] config: Self::Config,
-//     ) -> Self::LhsLoader {
-//         LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
-//             lhs,
-//             x_offset,
-//             y_offset,
-//             batch_offset,
-//             config,
-//         )
-//     }
-
-//     fn init_rhs_loader(
-//         rhs: &Tensor<Line<EG>>,
-//         x_offset: u32,
-//         y_offset: u32,
-//         batch_offset: u32,
-//         #[comptime] config: Self::Config,
-//     ) -> Self::RhsLoader {
-//         RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
-//             rhs,
-//             x_offset,
-//             y_offset,
-//             batch_offset,
-//             config,
-//         )
-//     }
-
-//     fn init_unloader(
-//         out: &mut Tensor<Line<EG>>,
-//         x_offset: u32,
-//         y_offset: u32,
-//         batch_offset: u32,
-//     ) -> Self::Out {
-//         Self::Out::new(out, x_offset, y_offset, batch_offset)
-//     }
-
-//     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-//         SMM::init_accumulator(config.to_smm_config())
-//     }
-
-//     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-//         SMM::zero_accumulator(acc, config.to_smm_config());
-//     }
-// }
-
+#[cube]
 impl<EG, ES, EA, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
@@ -178,39 +52,56 @@ where
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<EG>;
     type Accumulator = SMM::Accumulator;
+
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        config: Self::Config,
+        #[comptime] config: Self::Config,
     ) {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
         let k_step = SMM::K;
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
+
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
-        let mut lhs_curr = Self::LhsLoader::init_buffer::<Self::Config>(config);
-        let mut rhs_curr = Self::RhsLoader::init_buffer::<Self::Config>(config);
-        let mut lhs_next = Self::LhsLoader::init_buffer::<Self::Config>(config);
-        let mut rhs_next = Self::RhsLoader::init_buffer::<Self::Config>(config);
+
+        let mut lhs_buffer = Self::LhsLoader::init_buffer::<Self::Config>(config);
+        let mut rhs_buffer = Self::RhsLoader::init_buffer::<Self::Config>(config);
+
+        let mut lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
+        let mut rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
+        let mut lhs_next = LoadBuffer::next_half(&mut lhs_buffer);
+        let mut rhs_next = LoadBuffer::next_half(&mut rhs_buffer);
+
         Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
         Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
+
         for _ in 0..num_stages {
             sync_units();
+
             Self::LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
             Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
+            LoadBuffer::to_next_stage(&mut lhs_buffer);
+            LoadBuffer::to_next_stage(&mut rhs_buffer);
+
             Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_next, config);
             Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_next, config);
+
             let lhs_stage_reader =
                 &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
             let rhs_stage_reader =
                 &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_curr, config);
+
             sync_units();
-            lhs_curr.swap(&mut lhs_next);
-            rhs_curr.swap(&mut rhs_next);
+
+            lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
+            rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
+            lhs_next = LoadBuffer::next_half(&mut lhs_buffer);
+            rhs_next = LoadBuffer::next_half(&mut rhs_buffer);
+
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
@@ -220,7 +111,9 @@ where
                 config.to_smm_config(),
             );
         }
+
         sync_units();
+
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
@@ -228,14 +121,14 @@ where
             config,
         );
     }
+
     fn init_lhs_loader(
         lhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        config: Self::Config,
+        #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
         LhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             lhs,
             x_offset,
@@ -244,14 +137,14 @@ where
             config,
         )
     }
+
     fn init_rhs_loader(
         rhs: &Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        config: Self::Config,
+        #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
         RhsLoader::new::<<Self::Config as global::Config>::SmmConfig>(
             rhs,
             x_offset,
@@ -260,357 +153,22 @@ where
             config,
         )
     }
+
     fn init_unloader(
         out: &mut Tensor<Line<EG>>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Out {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
         Self::Out::new(out, x_offset, y_offset, batch_offset)
     }
-    fn init_accumulator(config: Self::Config) -> Self::Accumulator {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         SMM::init_accumulator(config.to_smm_config())
     }
-    fn zero_accumulator(acc: &mut Self::Accumulator, config: Self::Config) {
-        use cubecl::prelude::{CubeIndex as _, CubeIndexMut as _};
+
+    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_execute(
-        context: &mut cubecl::prelude::CubeContext,
-        lhs_loader: <Self::LhsLoader as cubecl::prelude::CubeType>::ExpandType,
-        rhs_loader: <Self::RhsLoader as cubecl::prelude::CubeType>::ExpandType,
-        out_unloader: <Self::Out as cubecl::prelude::CubeType>::ExpandType,
-        acc: <Self::Accumulator as cubecl::prelude::CubeType>::ExpandType,
-        k_range: <(u32, u32) as cubecl::prelude::CubeType>::ExpandType,
-        config: Self::Config,
-    ) -> <() as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            let k_step = SMM::K;
-            let range = {
-                let _lhs = k_range.clone().1.clone();
-                let _rhs = k_range.0.clone();
-                cubecl::frontend::sub::expand(context, _lhs, _rhs)
-            };
-            let num_stages = {
-                let _lhs = {
-                    let _lhs = {
-                        let _lhs = range;
-                        let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(k_step);
-                        cubecl::frontend::add::expand(context, _lhs, _rhs)
-                    };
-                    let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(1);
-                    cubecl::frontend::sub::expand(context, _lhs, _rhs)
-                };
-                let _rhs = cubecl::frontend::ExpandElementTyped::from_lit(k_step);
-                cubecl::frontend::div::expand(context, _lhs, _rhs)
-            };
-            let __tuple_destructure_init = {
-                let _arg_0 = config.to_smm_config();
-                SMM::__expand_init_tile_inputs(context, _arg_0.into())
-            };
-            let mut lhs_tile = {
-                let _init = __tuple_destructure_init.clone().0.clone();
-                cubecl::frontend::Init::init(_init, context)
-            };
-            let mut rhs_tile = {
-                let _init = __tuple_destructure_init.1.clone();
-                cubecl::frontend::Init::init(_init, context)
-            };
-            {
-                let _arg_0 = acc.clone();
-                let _arg_1 = config.to_smm_config();
-                SMM::__expand_zero_accumulator(context, _arg_0.into(), _arg_1.into())
-            };
-            let mut lhs_curr = {
-                let _init = {
-                    let _arg_0 = config.clone();
-                    Self::LhsLoader::__expand_init_buffer::<Self::Config>(context, _arg_0.into())
-                };
-                cubecl::frontend::Init::init(_init, context)
-            };
-            let mut rhs_curr = {
-                let _init = {
-                    let _arg_0 = config.clone();
-                    Self::RhsLoader::__expand_init_buffer::<Self::Config>(context, _arg_0.into())
-                };
-                cubecl::frontend::Init::init(_init, context)
-            };
-            let mut lhs_next = {
-                let _init = {
-                    let _arg_0 = config.clone();
-                    Self::LhsLoader::__expand_init_buffer::<Self::Config>(context, _arg_0.into())
-                };
-                cubecl::frontend::Init::init(_init, context)
-            };
-            let mut rhs_next = {
-                let _init = {
-                    let _arg_0 = config.clone();
-                    Self::RhsLoader::__expand_init_buffer::<Self::Config>(context, _arg_0.into())
-                };
-                cubecl::frontend::Init::init(_init, context)
-            };
-            {
-                let _arg_0 = lhs_loader.clone();
-                let _arg_1 = lhs_curr.clone();
-                let _arg_2 = config.clone();
-                Self::LhsLoader::__expand_fetch_global::<Self::Config>(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                )
-            };
-            {
-                let _arg_0 = rhs_loader.clone();
-                let _arg_1 = rhs_curr.clone();
-                let _arg_2 = config.clone();
-                Self::RhsLoader::__expand_fetch_global::<Self::Config>(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                )
-            };
-            {
-                let _range = {
-                    let _start = 0;
-                    let _end = num_stages;
-                    cubecl::frontend::RangeExpand::new(_start.into(), _end.into(), false)
-                };
-                let _unroll = false;
-                cubecl::frontend::branch::for_expand(context, _range, _unroll, |context, _| {
-                    {
-                        sync_units::expand(context)
-                    };
-                    {
-                        let _arg_0 = lhs_loader.clone();
-                        let _arg_1 = config.clone();
-                        Self::LhsLoader::__expand_to_next_stage::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                        )
-                    };
-                    {
-                        let _arg_0 = rhs_loader.clone();
-                        let _arg_1 = config.clone();
-                        Self::RhsLoader::__expand_to_next_stage::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                        )
-                    };
-                    {
-                        let _arg_0 = lhs_loader.clone();
-                        let _arg_1 = lhs_next.clone();
-                        let _arg_2 = config.clone();
-                        Self::LhsLoader::__expand_fetch_global::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                            _arg_2.into(),
-                        )
-                    };
-                    {
-                        let _arg_0 = rhs_loader.clone();
-                        let _arg_1 = rhs_next.clone();
-                        let _arg_2 = config.clone();
-                        Self::RhsLoader::__expand_fetch_global::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                            _arg_2.into(),
-                        )
-                    };
-                    let lhs_stage_reader = {
-                        let _arg_0 = lhs_loader.clone();
-                        let _arg_1 = lhs_curr.clone();
-                        let _arg_2 = config.clone();
-                        LhsLoader::__expand_fill_stage::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                            _arg_2.into(),
-                        )
-                    };
-                    let rhs_stage_reader = {
-                        let _arg_0 = rhs_loader.clone();
-                        let _arg_1 = rhs_curr.clone();
-                        let _arg_2 = config.clone();
-                        RhsLoader::__expand_fill_stage::<Self::Config>(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                            _arg_2.into(),
-                        )
-                    };
-                    {
-                        sync_units::expand(context)
-                    };
-                    {
-                        let _arg_0 = lhs_next.clone();
-                        lhs_curr
-                            .clone()
-                            .__expand_swap_method(context, _arg_0.into())
-                    };
-                    {
-                        let _arg_0 = rhs_next.clone();
-                        rhs_curr
-                            .clone()
-                            .__expand_swap_method(context, _arg_0.into())
-                    };
-                    {
-                        let _arg_0 = lhs_stage_reader;
-                        let _arg_1 = rhs_stage_reader;
-                        let _arg_2 = lhs_tile.clone();
-                        let _arg_3 = rhs_tile.clone();
-                        let _arg_4 = acc.clone();
-                        let _arg_5 = config.to_smm_config();
-                        SMM::__expand_execute(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                            _arg_2.into(),
-                            _arg_3.into(),
-                            _arg_4.into(),
-                            _arg_5.into(),
-                        )
-                    };
-                    ()
-                });
-            };
-            {
-                sync_units::expand(context)
-            };
-            {
-                let _arg_0 = acc;
-                let _arg_1 = out_unloader;
-                let _arg_2 = config.to_smm_config();
-                let _arg_3 = config.clone();
-                SMM::__expand_read_accumulator::<Self::Out, Self::Config>(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                    _arg_3.into(),
-                )
-            };
-            ()
-        }
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_init_lhs_loader(
-        context: &mut cubecl::prelude::CubeContext,
-        lhs: <Tensor<Line<EG>> as cubecl::prelude::CubeType>::ExpandType,
-        x_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        y_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        batch_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        config: Self::Config,
-    ) -> <Self::LhsLoader as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            {
-                let _arg_0 = lhs;
-                let _arg_1 = x_offset;
-                let _arg_2 = y_offset;
-                let _arg_3 = batch_offset;
-                let _arg_4 = config.clone();
-                LhsLoader::__expand_new::<<Self::Config as global::Config>::SmmConfig>(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                    _arg_3.into(),
-                    _arg_4.into(),
-                )
-            }
-        }
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_init_rhs_loader(
-        context: &mut cubecl::prelude::CubeContext,
-        rhs: <Tensor<Line<EG>> as cubecl::prelude::CubeType>::ExpandType,
-        x_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        y_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        batch_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        config: Self::Config,
-    ) -> <Self::RhsLoader as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            {
-                let _arg_0 = rhs;
-                let _arg_1 = x_offset;
-                let _arg_2 = y_offset;
-                let _arg_3 = batch_offset;
-                let _arg_4 = config.clone();
-                RhsLoader::__expand_new::<<Self::Config as global::Config>::SmmConfig>(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                    _arg_3.into(),
-                    _arg_4.into(),
-                )
-            }
-        }
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_init_unloader(
-        context: &mut cubecl::prelude::CubeContext,
-        out: <Tensor<Line<EG>> as cubecl::prelude::CubeType>::ExpandType,
-        x_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        y_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-        batch_offset: <u32 as cubecl::prelude::CubeType>::ExpandType,
-    ) -> <Self::Out as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            {
-                let _arg_0 = out;
-                let _arg_1 = x_offset;
-                let _arg_2 = y_offset;
-                let _arg_3 = batch_offset;
-                Self::Out::__expand_new(
-                    context,
-                    _arg_0.into(),
-                    _arg_1.into(),
-                    _arg_2.into(),
-                    _arg_3.into(),
-                )
-            }
-        }
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_init_accumulator(
-        context: &mut cubecl::prelude::CubeContext,
-        config: Self::Config,
-    ) -> <Self::Accumulator as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            {
-                let _arg_0 = config.to_smm_config();
-                SMM::__expand_init_accumulator(context, _arg_0.into())
-            }
-        }
-    }
-    #[allow(unused, clone_on_copy, clippy::all)]
-    fn __expand_zero_accumulator(
-        context: &mut cubecl::prelude::CubeContext,
-        acc: <Self::Accumulator as cubecl::prelude::CubeType>::ExpandType,
-        config: Self::Config,
-    ) -> <() as cubecl::prelude::CubeType>::ExpandType {
-        use cubecl::prelude::IntoRuntime as _;
-        {
-            {
-                let _arg_0 = acc;
-                let _arg_1 = config.to_smm_config();
-                SMM::__expand_zero_accumulator(context, _arg_0.into(), _arg_1.into())
-            };
-            ()
-        }
     }
 }
 

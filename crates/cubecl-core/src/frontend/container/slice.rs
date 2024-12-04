@@ -437,26 +437,3 @@ impl<E: CubePrimitive> IntoRuntime for SliceMut<E> {
         unimplemented!("Array can't exist at compile time")
     }
 }
-
-impl<E> SliceMut<E> {
-    /// Swap slice pointer with another
-    pub fn swap(&mut self, _other: &mut Self)
-    where
-        E: CubePrimitive,
-    {
-        unexpanded!()
-    }
-}
-
-impl<C: CubeType> ExpandElementTyped<SliceMut<C>> {
-    // Expand method of [swap](SliceMut::swap).
-    pub fn __expand_swap_method(
-        mut self,
-        context: &mut CubeContext,
-        mut other: ExpandElementTyped<SliceMut<C>>,
-    ) {
-        let tmp = self;
-        self = other;
-        other = tmp;
-    }
-}

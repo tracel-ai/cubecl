@@ -85,6 +85,38 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 
+#[derive(CubeType)]
+pub struct LoadBuffer<EG: Numeric> {
+    array: Array<Line<EG>>,
+    half: u32,
+    state: u32,
+}
+
+#[cube]
+impl<EG: Numeric> LoadBuffer<EG> {
+    pub fn new(array: Array<Line<EG>>, array_length: u32) -> Self {
+        LoadBuffer::<EG> {
+            array,
+            half: array_length / 2,
+            state: 0,
+        }
+    }
+
+    pub fn current_half(this: &mut Self) -> SliceMut<Line<EG>> {
+        let offset = this.state * this.half;
+        this.array.slice_mut(offset, offset + this.half)
+    }
+
+    pub fn next_half(this: &mut Self) -> SliceMut<Line<EG>> {
+        let offset = (1 - this.state) * this.half;
+        this.array.slice_mut(offset, offset + this.half)
+    }
+
+    pub fn to_next_stage(this: &mut Self) {
+        this.state = (this.state + 1) % 2
+    }
+}
+
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
@@ -92,7 +124,7 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
-    fn init_buffer<G: Config>(#[comptime] config: G) -> SliceMut<Line<EG>>;
+    fn init_buffer<G: Config>(#[comptime] config: G) -> LoadBuffer<EG>;
 
     fn fetch_global<G: Config>(this: &Self, buffer: &mut SliceMut<Line<EG>>, #[comptime] config: G);
 
@@ -107,10 +139,7 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
 #[cube]
 pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clone {
-    fn init_buffer<G: Config>(
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    ) -> SliceMut<Line<EG>>;
+    fn init_buffer<G: Config>(#[comptime] ident: Ident, #[comptime] config: G) -> LoadBuffer<EG>;
 
     fn fetch<G: Config>(
         read_view: &TensorReader<EG>,

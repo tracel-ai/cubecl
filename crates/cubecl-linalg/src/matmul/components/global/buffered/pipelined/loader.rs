@@ -2,7 +2,7 @@ use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::buffered::buffer_loading::{buffer_slice, BufferLoading};
 use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{Loader, LoadingStrategy};
+use crate::matmul::components::global::{LoadBuffer, Loader, LoadingStrategy};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
@@ -50,7 +50,7 @@ impl<EG: Numeric, ES: Numeric> LhsBufferLoader<EG, ES> {
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
     type StageReader = LhsBufferReader<ES>;
 
-    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> LoadBuffer<EG> {
         BufferLoading::<EG, ES>::init_buffer::<G>(Ident::Lhs, config)
     }
 
@@ -90,7 +90,7 @@ impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for LhsBufferLoader<EG, ES> {
 impl<EG: Numeric, ES: Numeric> Loader<EG, ES> for RhsBufferLoader<EG, ES> {
     type StageReader = RhsBufferReader<ES>;
 
-    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> LoadBuffer<EG> {
         BufferLoading::<EG, ES>::init_buffer::<G>(Ident::Rhs, config)
     }
 
@@ -154,7 +154,7 @@ impl<EG: Numeric, ES: Numeric> RhsBufferLoader<EG, ES> {
 impl<EG: Numeric, ES: Numeric, L: Loader<EG, ES>> Loader<EG, ES> for (L, L) {
     type StageReader = <L as Loader<EG, ES>>::StageReader;
 
-    fn init_buffer<G: global::Config>(#[comptime] config: G) -> SliceMut<Line<EG>> {
+    fn init_buffer<G: global::Config>(#[comptime] config: G) -> LoadBuffer<EG> {
         let _ = comptime!(unavailable_method());
 
         // Just to make the compiler happy
