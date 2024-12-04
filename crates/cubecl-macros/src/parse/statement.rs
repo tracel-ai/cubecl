@@ -36,7 +36,27 @@ impl Statement {
                 }
             }
             Stmt::Item(_) => Statement::Skip,
-            stmt => Err(syn::Error::new_spanned(stmt, "Unsupported statement"))?,
+            Stmt::Macro(val) => {
+                if val
+                    .mac
+                    .path
+                    .get_ident()
+                    .filter(|ident| ident.to_string() == "comptime")
+                    .is_some()
+                {
+                    Statement::Expression {
+                        expression: Box::new(Expression::Verbatim {
+                            tokens: val.mac.tokens,
+                        }),
+                        terminated: val.semi_token.is_some(),
+                    }
+                } else {
+                    return Err(syn::Error::new_spanned(
+                        val,
+                        format!("Unsupported macro").as_str(),
+                    ));
+                }
+            }
         };
         Ok(statement)
     }

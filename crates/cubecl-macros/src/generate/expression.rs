@@ -553,8 +553,13 @@ fn init_fields<'a>(
     fields.iter().map(|(pat, it)| {
         let init = frontend_type("Init");
         let it = if let Some(as_const) = it.as_const(context) {
-            let expand_elem = frontend_type("ExpandElementTyped");
-            quote_spanned![as_const.span()=> #expand_elem::from_lit(#as_const)]
+            let it = quote_spanned![as_const.span()=> #as_const];
+            return quote! {
+                #pat: {
+                    let _init = #it.clone();
+                    _init.into()
+                }
+            };
         } else {
             it.to_tokens(context)
         };
