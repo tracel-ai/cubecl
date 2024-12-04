@@ -93,6 +93,10 @@ pub struct LoadBuffer<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> LoadBuffer<EG> {
+    pub fn slice(&self, start: u32, end: u32) -> Slice<Line<EG>> {
+        self.array.slice(start, end)
+    }
+
     pub fn slice_mut(&mut self, start: u32, end: u32) -> SliceMut<Line<EG>> {
         self.array.slice_mut(start, end)
     }
@@ -111,7 +115,7 @@ pub trait Loader<EG: Numeric, ES: Numeric>: CubeType + 'static + Send + Sync {
 
     fn fill_stage<G: Config>(
         this: &mut Self,
-        buffer: &SliceMut<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader;
 
@@ -130,7 +134,7 @@ pub trait LoadingStrategy<EG: Numeric, ES: Numeric>: 'static + Send + Sync + Clo
     );
 
     fn store<G: Config>(
-        buffer: &SliceMut<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

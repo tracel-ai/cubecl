@@ -70,7 +70,6 @@ where
         let mut lhs_buffer = Self::LhsLoader::init_buffer::<Self::Config>(config);
         let mut rhs_buffer = Self::RhsLoader::init_buffer::<Self::Config>(config);
 
-        // Fetch current
         Self::LhsLoader::fetch_global::<Self::Config>(
             &mut lhs_loader,
             &mut lhs_buffer.slice_mut(0, lhs_buffer.length),
@@ -90,18 +89,17 @@ where
 
             let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader,
-                &mut lhs_buffer.slice_mut(0, lhs_buffer.length),
+                &mut lhs_buffer.slice(0, lhs_buffer.length),
                 config,
             );
             let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader,
-                &mut rhs_buffer.slice_mut(0, rhs_buffer.length),
+                &mut rhs_buffer.slice(0, rhs_buffer.length),
                 config,
             );
 
             sync_units();
 
-            // Execute with current stage
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,

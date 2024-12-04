@@ -40,7 +40,7 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Lh
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &SliceMut<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Lhs, config);
@@ -92,7 +92,7 @@ impl<EG: Numeric, ES: Numeric, L: LoadingStrategy<EG, ES>> Loader<EG, ES> for Rh
 
     fn fill_stage<G: global::Config>(
         this: &mut Self,
-        buffer: &SliceMut<Line<EG>>,
+        buffer: &Slice<Line<EG>>,
         #[comptime] config: G,
     ) -> Self::StageReader {
         L::store::<G>(buffer, &mut this.stage.as_slice_mut(), Ident::Rhs, config);

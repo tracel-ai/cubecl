@@ -1,5 +1,5 @@
 mod cyclic_loading;
-// mod double_buffered;
+mod double_buffered;
 mod loader;
 mod single_buffered;
 mod tilewise_loading;

@@ -69,25 +69,23 @@ where
 
         let mut lhs_buffer = Self::LhsLoader::init_buffer::<Self::Config>(config);
         let mut rhs_buffer = Self::RhsLoader::init_buffer::<Self::Config>(config);
+        let (lhs_half, rhs_half) = (lhs_buffer.length / 2, rhs_buffer.length / 2);
 
-        let mut lhs_curr = LoadBuffer::current_half(&mut lhs_buffer, 0);
-        let mut rhs_curr = LoadBuffer::current_half(&mut rhs_buffer, 0);
-        let mut lhs_next = LoadBuffer::next_half(&mut lhs_buffer, 0);
-        let mut rhs_next = LoadBuffer::next_half(&mut rhs_buffer, 0);
+        let (mut lhs_curr, mut rhs_curr) = (0, 0);
+        let (mut lhs_next, mut rhs_next) = (lhs_half, rhs_half);
 
-        // Fetch current
         Self::LhsLoader::fetch_global::<Self::Config>(
             &mut lhs_loader,
-            &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_curr),
+            &mut lhs_buffer.slice_mut(lhs_curr, lhs_half),
             config,
         );
         Self::RhsLoader::fetch_global::<Self::Config>(
             &mut rhs_loader,
-            &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_curr),
+            &mut rhs_buffer.slice_mut(rhs_curr, rhs_half),
             config,
         );
 
-        for i in 0..num_stages {
+        for _ in 0..num_stages {
             sync_units();
 
             // Advance tensor views
@@ -97,34 +95,34 @@ where
             // Fetch next
             Self::LhsLoader::fetch_global::<Self::Config>(
                 &mut lhs_loader,
-                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_next),
+                &mut lhs_buffer.slice_mut(lhs_next, lhs_next + lhs_half),
                 config,
             );
             Self::RhsLoader::fetch_global::<Self::Config>(
                 &mut rhs_loader,
-                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_next),
+                &mut rhs_buffer.slice_mut(rhs_next, rhs_next + rhs_half),
                 config,
             );
 
             // Fill stage with current
             let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader,
-                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_curr),
+                &mut lhs_buffer.slice(lhs_curr, lhs_curr + lhs_half),
                 config,
             );
             let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader,
-                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_curr),
+                &mut rhs_buffer.slice(rhs_curr, rhs_curr + rhs_half),
                 config,
             );
 
             sync_units();
 
             // Switch buffers for next iteration
-            lhs_curr = LoadBuffer::current_half(&mut lhs_buffer, i + 1);
-            rhs_curr = LoadBuffer::current_half(&mut rhs_buffer, i + 1);
-            lhs_next = LoadBuffer::next_half(&mut lhs_buffer, i + 1);
-            rhs_next = LoadBuffer::next_half(&mut rhs_buffer, i + 1);
+            lhs_curr = (lhs_curr + lhs_half) % lhs_buffer.length;
+            rhs_curr = (rhs_curr + rhs_half) % rhs_buffer.length;
+            lhs_next = (lhs_next + lhs_half) % lhs_buffer.length;
+            rhs_next = (rhs_next + rhs_half) % rhs_buffer.length;
 
             // Execute with current stage
             SMM::execute(
