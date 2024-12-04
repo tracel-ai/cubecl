@@ -54,9 +54,3 @@ pub fn swizzle(nth: u32, height: u32, #[comptime] swizzle_width: u32) -> (u32, u
 
     (row, col)
 }
-
-pub trait GmmArgs<EG: Numeric> {
-    fn lhs(&self) -> &Tensor<Line<EG>>;
-    fn rhs(&self) -> &Tensor<Line<EG>>;
-    fn out(&mut self) -> &mut Tensor<Line<EG>>;
-}
