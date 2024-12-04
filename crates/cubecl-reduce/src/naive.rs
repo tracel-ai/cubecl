@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{ReduceArgMax, ReduceArgMin, ReduceMean, ReduceProd, ReduceSum};
+use crate::{ArgMax, ArgMin, Mean, Prod, Sum};
 
 /// An instruction for the [reduce_naive](reduce_naive) algorithm.
 #[cube]
@@ -16,10 +16,10 @@ pub trait ReduceNaiveInstruction<EI: Numeric>: Send + Sync + 'static {
     /// This could be called many time during reduction. It is required
     /// that reducing the initial accumulator any number of times do not change the outcome
     /// of the reduction. For example, adding 0s in a sum do not change the outcome.
-    fn init_accumulator(line_size: u32) -> Self::Accumulator;
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
 
     /// Reduce `current_value` into `accumulator`.
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32);
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32);
 
     /// Write the result of the reduction stored in `accumulator` into `output[index]`.
     fn write<EO: Numeric>(
@@ -56,12 +56,12 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
 
     // Reduce all the lines along `dim` for the previously computed offset.
     let mut accumulator = RD::init_accumulator(input.line_size());
-    for i in 0..input.shape(dim) {
-        let index = i * input.stride(dim) + offset_input;
+    for coordinate in 0..input.shape(dim) {
+        let index = coordinate * input.stride(dim) + offset_input;
         RD::accumulate(
             &mut accumulator,
             unsafe { *input.index_unchecked(index) },
-            i,
+            coordinate,
         );
     }
 
@@ -72,10 +72,10 @@ pub fn reduce_naive<RD: ReduceNaiveInstruction<EI>, EI: Numeric, EO: Numeric>(
 // Implementations for common instructions.
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceSum {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Sum {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Line<EI> {
+    fn init_accumulator(#[comptime] line_size: u32) -> Line<EI> {
         Line::empty(line_size).fill(EI::from_int(0))
     }
 
@@ -94,15 +94,15 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceSum {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceProd {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Prod {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Line<EI> {
+    fn init_accumulator(#[comptime] line_size: u32) -> Line<EI> {
         Line::empty(line_size).fill(EI::from_int(1))
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
-        *accumulator *= current_value;
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, _coordinate: u32) {
+        *accumulator *= item;
     }
 
     fn write<EO: Numeric>(
@@ -116,15 +116,15 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceProd {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceMean {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for Mean {
     type Accumulator = Line<EI>;
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         Line::empty(line_size).fill(EI::from_int(0))
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, _i: u32) {
-        *accumulator += current_value;
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, _coordinate: u32) {
+        *accumulator += item;
     }
 
     fn write<EO: Numeric>(
@@ -140,10 +140,10 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceMean {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMax {
     type Accumulator = (Line<EI>, Line<u32>);
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         (
             // TODO: switch to using f32::NEG_INFINITY when it's supported: https://github.com/tracel-ai/cubecl/issues/68
             Line::empty(line_size).fill(EI::MIN),
@@ -151,23 +151,16 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
         )
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
-        let (max, index) = accumulator;
-        #[allow(clippy::collapsible_else_if)]
-        if comptime!(current_value.size() > 1) {
-            #[unroll]
-            for k in 0..current_value.size() {
-                if current_value[k] > max[k] {
-                    max[k] = current_value[k];
-                    index[k] = i;
-                }
-            }
-        } else {
-            if current_value > *max {
-                *max = current_value;
-                *index = Line::new(i);
-            }
-        }
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
+        let (acc_item, acc_coordinate) = accumulator;
+        let (new_item, new_coordinate) = Self::choose_argmax(
+            *acc_item,
+            *acc_coordinate,
+            item,
+            Line::empty(item.size()).fill(coordinate),
+        );
+        accumulator.0 = new_item;
+        accumulator.1 = new_coordinate;
     }
 
     fn write<EO: Numeric>(
@@ -182,10 +175,10 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMax {
 }
 
 #[cube]
-impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
+impl<EI: Numeric> ReduceNaiveInstruction<EI> for ArgMin {
     type Accumulator = (Line<EI>, Line<u32>);
 
-    fn init_accumulator(line_size: u32) -> Self::Accumulator {
+    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator {
         (
             // TODO: switch to using f32::INFINITY when it's supported: https://github.com/tracel-ai/cubecl/issues/68
             Line::empty(line_size).fill(EI::MAX),
@@ -193,23 +186,16 @@ impl<EI: Numeric> ReduceNaiveInstruction<EI> for ReduceArgMin {
         )
     }
 
-    fn accumulate(accumulator: &mut Self::Accumulator, current_value: Line<EI>, i: u32) {
-        let (min, index) = accumulator;
-        #[allow(clippy::collapsible_else_if)]
-        if comptime!(current_value.size() > 1) {
-            #[unroll]
-            for k in 0..current_value.size() {
-                if current_value[k] < min[k] {
-                    min[k] = current_value[k];
-                    index[k] = i;
-                }
-            }
-        } else {
-            if current_value < *min {
-                *min = current_value;
-                *index = Line::new(i);
-            }
-        }
+    fn accumulate(accumulator: &mut Self::Accumulator, item: Line<EI>, coordinate: u32) {
+        let (acc_item, acc_coordinate) = accumulator;
+        let (new_item, new_coordinate) = Self::choose_argmin(
+            *acc_item,
+            *acc_coordinate,
+            item,
+            Line::empty(item.size()).fill(coordinate),
+        );
+        accumulator.0 = new_item;
+        accumulator.1 = new_coordinate;
     }
 
     fn write<EO: Numeric>(
