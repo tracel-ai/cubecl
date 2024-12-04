@@ -89,7 +89,6 @@ pub trait Matmul<EG: Numeric, ES: Numeric>:
 pub struct LoadBuffer<EG: Numeric> {
     array: Array<Line<EG>>,
     half: u32,
-    state: u32,
 }
 
 #[cube]
@@ -98,22 +97,17 @@ impl<EG: Numeric> LoadBuffer<EG> {
         LoadBuffer::<EG> {
             array,
             half: array_length / 2,
-            state: 0,
         }
     }
 
-    pub fn current_half(this: &mut Self) -> SliceMut<Line<EG>> {
-        let offset = this.state * this.half;
+    pub fn current_half(this: &mut Self, state: u32) -> SliceMut<Line<EG>> {
+        let offset = (state % 2) * this.half;
         this.array.slice_mut(offset, offset + this.half)
     }
 
-    pub fn next_half(this: &mut Self) -> SliceMut<Line<EG>> {
-        let offset = (1 - this.state) * this.half;
+    pub fn next_half(this: &mut Self, state: u32) -> SliceMut<Line<EG>> {
+        let offset = (1 - state % 2) * this.half;
         this.array.slice_mut(offset, offset + this.half)
-    }
-
-    pub fn to_next_stage(this: &mut Self) {
-        this.state = (this.state + 1) % 2
     }
 }
 
