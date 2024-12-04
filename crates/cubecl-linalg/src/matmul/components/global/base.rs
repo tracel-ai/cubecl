@@ -100,14 +100,16 @@ impl<EG: Numeric> LoadBuffer<EG> {
         }
     }
 
-    pub fn current_half(this: &mut Self, state: u32) -> SliceMut<Line<EG>> {
-        let offset = (state % 2) * this.half;
-        this.array.slice_mut(offset, offset + this.half)
+    pub fn current_half(this: &mut Self, state: u32) -> u32 {
+        (state % 2) * this.half
     }
 
-    pub fn next_half(this: &mut Self, state: u32) -> SliceMut<Line<EG>> {
-        let offset = (1 - state % 2) * this.half;
-        this.array.slice_mut(offset, offset + this.half)
+    pub fn next_half(this: &mut Self, state: u32) -> u32 {
+        (1 - state % 2) * this.half
+    }
+
+    pub fn as_slice_mut(this: &mut Self, start: u32) -> SliceMut<Line<EG>> {
+        this.array.slice_mut(start, start + this.half)
     }
 }
 

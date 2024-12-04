@@ -77,8 +77,16 @@ where
         let mut rhs_next = LoadBuffer::next_half(&mut rhs_buffer, 0);
 
         // Fetch current
-        Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
-        Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
+        Self::LhsLoader::fetch_global::<Self::Config>(
+            &mut lhs_loader,
+            &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_curr),
+            config,
+        );
+        Self::RhsLoader::fetch_global::<Self::Config>(
+            &mut rhs_loader,
+            &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_curr),
+            config,
+        );
 
         for i in 0..num_stages {
             sync_units();
@@ -88,14 +96,28 @@ where
             Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
 
             // Fetch next
-            Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_next, config);
-            Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_next, config);
+            Self::LhsLoader::fetch_global::<Self::Config>(
+                &mut lhs_loader,
+                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_next),
+                config,
+            );
+            Self::RhsLoader::fetch_global::<Self::Config>(
+                &mut rhs_loader,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_next),
+                config,
+            );
 
             // Fill stage with current
-            let lhs_stage_reader =
-                &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
-            let rhs_stage_reader =
-                &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_curr, config);
+            let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
+                &mut lhs_loader,
+                &mut LoadBuffer::as_slice_mut(&mut lhs_buffer, lhs_curr),
+                config,
+            );
+            let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
+                &mut rhs_loader,
+                &mut LoadBuffer::as_slice_mut(&mut rhs_buffer, rhs_curr),
+                config,
+            );
 
             sync_units();
 
