@@ -21,18 +21,18 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for CyclicLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_buffer_elements = stage_dim.buffer_num_elements();
-
+        let num_stage_elements = stage_dim.total_elements();
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
-        let num_loads_per_unit = num_buffer_elements / jump_length;
 
         #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
+        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
+
+        let num_loads_per_unit = num_stage_elements / jump_length;
 
         LoadBuffer::<EG>::new(
-            Array::vectorized(num_loads_per_unit, line_size),
-            num_loads_per_unit,
+            Array::vectorized(num_loads_per_unit * 2, line_size),
+            num_loads_per_unit * 2,
         )
     }
 

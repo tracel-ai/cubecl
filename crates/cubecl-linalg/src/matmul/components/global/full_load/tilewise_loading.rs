@@ -31,8 +31,8 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for TilewiseLoading {
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
         LoadBuffer::<EG>::new(
-            Array::vectorized(num_loads_per_unit, line_size),
-            num_loads_per_unit,
+            Array::vectorized(num_loads_per_unit * 2, line_size),
+            num_loads_per_unit * 2,
         )
     }
 

@@ -35,8 +35,8 @@ impl<EG: Numeric, ES: Numeric> LoadingStrategy<EG, ES> for BufferLoading<EG, ES>
         let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
         LoadBuffer::<EG>::new(
-            Array::vectorized(num_loads_per_unit, line_size),
-            num_loads_per_unit,
+            Array::vectorized(num_loads_per_unit * 2, line_size),
+            num_loads_per_unit * 2,
         )
     }
 

@@ -71,36 +71,42 @@ where
         let mut lhs_buffer = Self::LhsLoader::init_buffer::<Self::Config>(config);
         let mut rhs_buffer = Self::RhsLoader::init_buffer::<Self::Config>(config);
 
-        let mut lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
-        let mut rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
+        // let mut lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
+        // let mut rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
         let mut lhs_next = LoadBuffer::next_half(&mut lhs_buffer);
         let mut rhs_next = LoadBuffer::next_half(&mut rhs_buffer);
 
-        Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
-        Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
+        // Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
+        // Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
 
         for _ in 0..num_stages {
             sync_units();
 
-            Self::LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
-            Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
-            LoadBuffer::to_next_stage(&mut lhs_buffer);
-            LoadBuffer::to_next_stage(&mut rhs_buffer);
+            // Self::LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
+            // Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
+            // LoadBuffer::to_next_stage(&mut lhs_buffer);
+            // LoadBuffer::to_next_stage(&mut rhs_buffer);
 
+            // Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_curr, config);
+            // Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_curr, config);
             Self::LhsLoader::fetch_global::<Self::Config>(&mut lhs_loader, &mut lhs_next, config);
             Self::RhsLoader::fetch_global::<Self::Config>(&mut rhs_loader, &mut rhs_next, config);
 
+            // let lhs_stage_reader =
+            //     &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
+            // let rhs_stage_reader =
+            //     &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_curr, config);
             let lhs_stage_reader =
-                &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_curr, config);
+                &LhsLoader::fill_stage::<Self::Config>(&mut lhs_loader, &lhs_next, config);
             let rhs_stage_reader =
-                &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_curr, config);
+                &RhsLoader::fill_stage::<Self::Config>(&mut rhs_loader, &rhs_next, config);
 
             sync_units();
 
-            lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
-            rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
-            lhs_next = LoadBuffer::next_half(&mut lhs_buffer);
-            rhs_next = LoadBuffer::next_half(&mut rhs_buffer);
+            // lhs_curr = LoadBuffer::current_half(&mut lhs_buffer);
+            // rhs_curr = LoadBuffer::current_half(&mut rhs_buffer);
+            // lhs_next = LoadBuffer::next_half(&mut lhs_buffer);
+            // rhs_next = LoadBuffer::next_half(&mut rhs_buffer);
 
             SMM::execute(
                 lhs_stage_reader,
@@ -110,6 +116,9 @@ where
                 acc,
                 config.to_smm_config(),
             );
+
+            Self::LhsLoader::to_next_stage::<Self::Config>(&mut lhs_loader, config);
+            Self::RhsLoader::to_next_stage::<Self::Config>(&mut rhs_loader, config);
         }
 
         sync_units();
