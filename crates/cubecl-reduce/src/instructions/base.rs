@@ -19,7 +19,7 @@ pub trait Reduce<In: Numeric>: Send + Sync + 'static {
 
     fn merge_line<Out: Numeric>(accumulator: Self::Accumulator, shape_axis_reduce: u32) -> Out;
 
-    fn to_output_parallel<Out: Numeric>(
+    fn to_output_perpendicular<Out: Numeric>(
         accumulator: Self::Accumulator,
         shape_axis_reduce: u32,
     ) -> Line<Out>;

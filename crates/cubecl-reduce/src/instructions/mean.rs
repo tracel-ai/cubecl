@@ -30,7 +30,7 @@ impl<In: Numeric> Reduce<In> for Mean {
         sum / Out::cast_from(shape_axis_reduce)
     }
 
-    fn to_output_parallel<Out: Numeric>(
+    fn to_output_perpendicular<Out: Numeric>(
         accumulator: Self::Accumulator,
         shape_axis_reduce: u32,
     ) -> Line<Out> {

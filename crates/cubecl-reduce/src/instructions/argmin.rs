@@ -81,7 +81,7 @@ impl<In: Numeric> Reduce<In> for ArgMin {
         Out::cast_from(coordinate)
     }
 
-    fn to_output_parallel<Out: Numeric>(
+    fn to_output_perpendicular<Out: Numeric>(
         accumulator: Self::Accumulator,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

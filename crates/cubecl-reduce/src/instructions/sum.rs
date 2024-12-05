@@ -38,7 +38,7 @@ impl<In: Numeric> Reduce<In> for Sum {
         Out::cast_from(sum)
     }
 
-    fn to_output_parallel<Out: Numeric>(
+    fn to_output_perpendicular<Out: Numeric>(
         accumulator: Self::Accumulator,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

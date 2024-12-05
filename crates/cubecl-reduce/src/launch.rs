@@ -16,8 +16,8 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
     strategy: ReduceStrategy,
 ) {
     match (strategy.use_planes, strategy.shared, config.line_mode) {
-        (false, false, LineMode::Contiguous) => unsafe {
-            kernel_reduce_contiguous::launch_unchecked::<In, Out, Inst, R>(
+        (false, false, LineMode::Parallel) => unsafe {
+            kernel_reduce_parallel::launch_unchecked::<In, Out, Inst, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -28,8 +28,8 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
                 config.bound_checks,
             )
         },
-        (false, false, LineMode::Parallel) => unsafe {
-            kernel_reduce_parallel::launch_unchecked::<In, Out, Inst, R>(
+        (false, false, LineMode::Perpendicular) => unsafe {
+            kernel_reduce_perpendicular::launch_unchecked::<In, Out, Inst, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -45,7 +45,7 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_contiguous<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
+fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -67,14 +67,14 @@ fn kernel_reduce_contiguous<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
         offset + shape * stride,
         stride,
         line_size,
-        LineMode::Contiguous,
+        LineMode::Parallel,
         false,
     );
     output[ABSOLUTE_POS] = Inst::merge_line::<Out>(out, input.shape(axis_reduce))
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
+fn kernel_reduce_perpendicular<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -98,11 +98,11 @@ fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
         offset + shape * stride,
         stride,
         line_size,
-        LineMode::Parallel,
+        LineMode::Perpendicular,
         false,
     );
 
-    let out = Inst::to_output_parallel(out, input.shape(axis_reduce));
+    let out = Inst::to_output_perpendicular(out, input.shape(axis_reduce));
 
     #[unroll]
     for k in 0..line_size {
@@ -141,7 +141,7 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
     let mut coordinate = 0;
     while index < end {
         let coordinates = match comptime!(line_mode) {
-            LineMode::Contiguous => {
+            LineMode::Parallel => {
                 let mut coordinates = Line::empty(line_size).fill(coordinate * line_size);
                 #[unroll]
                 for j in 0..line_size {
@@ -149,7 +149,7 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
                 }
                 coordinates
             }
-            LineMode::Parallel => Line::empty(line_size).fill(coordinate),
+            LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
         };
         Instr::reduce(&mut accumulator, items[index], coordinates, use_planes);
         index += stride;

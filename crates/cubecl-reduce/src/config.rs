@@ -12,8 +12,8 @@ pub struct ReduceConfig {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum LineMode {
-    Contiguous,
     Parallel,
+    Perpendicular,
 }
 
 pub fn generate_config<R: Runtime>(
@@ -42,9 +42,9 @@ fn generate_config_unit<R: Runtime>(
     let unit_count = output.size() as u32;
 
     let (line_mode, line_size) = if stride == 1 {
-        (LineMode::Contiguous, max_line_size_dividing::<R>(shape))
+        (LineMode::Parallel, max_line_size_dividing::<R>(shape))
     } else {
-        (LineMode::Parallel, max_line_size_dividing::<R>(stride))
+        (LineMode::Perpendicular, max_line_size_dividing::<R>(stride))
     };
 
     let mut config = ReduceConfig::new(line_mode, line_size, false);
@@ -53,8 +53,8 @@ fn generate_config_unit<R: Runtime>(
     let cube_count = CubeCount::new_1d(unit_count.div_ceil(cube_dim.num_elems()));
 
     match line_mode {
-        LineMode::Contiguous => config.do_bound_checks_if(unit_count % cube_dim.num_elems() != 0),
-        LineMode::Parallel => {
+        LineMode::Parallel => config.do_bound_checks_if(unit_count % cube_dim.num_elems() != 0),
+        LineMode::Perpendicular => {
             config.do_bound_checks_if((unit_count / line_size) % cube_dim.num_elems() != 0)
         }
     }
