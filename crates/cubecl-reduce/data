@@ -1,0 +1,27 @@
+1000 x 32,
+
+
+32000 => x1 x2 x3 ....
+      => [x1 x2] [x3 x4] ...
+	  => [x1 x2 x3 x4] ...
+
+
+ line_size = 4 
+
+
+
+
+sum(32 x 256 x 512, axis=1) => Y (peu importe line_size)
+
+2^17, 512, 1
+
+
+
+32 x 256 x 18
+
+bcp, 18, 1
+
+
+
+
+Tensor<N>, Tensor<N>

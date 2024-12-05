@@ -131,7 +131,7 @@ mod indexation {
 
     use super::*;
 
-    impl<E: CubePrimitive> Slice<E> {
+    impl<E: CubeType> Slice<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
