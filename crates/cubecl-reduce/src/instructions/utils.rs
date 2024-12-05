@@ -18,4 +18,3 @@ pub(crate) fn lowest_coordinate_matching<E: CubePrimitive>(
     );
     plane_min(candidate_coordinate)
 }
-
