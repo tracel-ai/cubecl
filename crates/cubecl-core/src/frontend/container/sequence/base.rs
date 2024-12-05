@@ -25,6 +25,12 @@ impl<T: CubeType> Default for Sequence<T> {
     }
 }
 
+impl<T: CubeType> Init for Sequence<T> {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
+}
+
 impl<T: CubeType> Sequence<T> {
     /// Create a new empty sequence.
     pub fn new() -> Self {

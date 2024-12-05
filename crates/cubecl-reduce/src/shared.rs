@@ -98,7 +98,7 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
     //               |
     //               *
     if comptime!(cube_dim.is_power_of_two()) {
-        let mut num_active_units = cube_dim;
+        let mut num_active_units = cube_dim.runtime();
         let mut jump = 1;
         while num_active_units > 1 {
             num_active_units /= 2;
@@ -111,7 +111,7 @@ pub fn reduce_shared<RD: ReduceSharedInstruction<EI>, EI: Numeric, EO: Numeric>(
             sync_units();
         }
     } else {
-        let mut num_remaining_items = cube_dim;
+        let mut num_remaining_items = cube_dim.runtime();
         let mut jump = 1;
         while num_remaining_items > 1 {
             let destination = jump * 2 * UNIT_POS;

@@ -210,6 +210,16 @@ impl Expression {
         }
     }
 
+    pub fn as_const_primitive(&self, _context: &mut Context) -> Option<TokenStream> {
+        match self {
+            Expression::Literal { value, .. } => match value {
+                Lit::Int(_) | Lit::Float(_) | Lit::Bool(_) => Some(quote![#value]),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn as_const(&self, context: &mut Context) -> Option<TokenStream> {
         match self {
             Expression::Literal { value, .. } => Some(quote![#value]),
