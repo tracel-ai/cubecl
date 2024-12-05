@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use crate::{LineMode, Reduce, ReduceConfig, ReduceInstruction, ReduceStrategy};
 
 /// Entry point for reduce.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
@@ -51,10 +52,8 @@ fn kernel_reduce_contiguous<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     #[comptime] line_size: u32,
     #[comptime] bound_checks: bool,
 ) {
-    if bound_checks {
-        if ABSOLUTE_POS >= output.len() {
-            return;
-        }
+    if bound_checks && ABSOLUTE_POS >= output.len() {
+        return;
     }
 
     // Compute the first index where to start the reduction.
@@ -84,10 +83,8 @@ fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
 ) {
     let num_active_units = output.len() / line_size;
 
-    if bound_checks {
-        if ABSOLUTE_POS >= num_active_units {
-            return;
-        }
+    if bound_checks && ABSOLUTE_POS >= num_active_units {
+        return;
     }
 
     // Compute the first index where to start the reduction.

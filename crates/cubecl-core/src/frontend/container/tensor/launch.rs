@@ -36,7 +36,7 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<'a, R: Runtime> TensorHandleRef<'a, R> {
+impl<R: Runtime> TensorHandleRef<'_, R> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
     }
