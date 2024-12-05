@@ -10,10 +10,6 @@ pub struct CudaDialect<M> {
 impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for CudaDialect<M> {
     type Architecture = M::Architecture;
 
-    fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::includes(f)
-    }
-
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         M::deftypes(f)
     }
