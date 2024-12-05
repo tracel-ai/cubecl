@@ -34,9 +34,6 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>
         .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
     let (cube_count, cube_dim, config) =
         generate_config::<R>(client, &input, &output, axis, &strategy);
-    println!("CONFIG {config:?}");
-    println!("CubeCount {cube_count:?}");
-    println!("CubeDim {cube_dim:?}");
     launch_reduce::<R, In, Out, Inst>(
         client, input, output, axis, cube_count, cube_dim, config, strategy,
     );

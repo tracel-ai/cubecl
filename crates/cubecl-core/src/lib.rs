@@ -69,11 +69,30 @@ pub fn tensor_vectorization_factor(
     strides: &[usize],
     dim: usize,
 ) -> u8 {
-    tensor_line_size(factors, shape, strides, dim)
+    tensor_line_size_parallel(factors, shape, strides, dim)
+}
+pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim: usize) -> u8 {
+    tensor_line_size_parallel(factors, shape, strides, dim)
 }
 
-pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim: usize) -> u8 {
-    match strides.get(dim) {
+/// Find the maximum line size usable for parallel vectorization along the given axis
+/// from the supported line sizes or return 1 if vectorization is impossible.
+///
+/// This function is designed to never return a line size above 1 by error,
+/// but doesn't garantees to always return the actual maximum possible line size.
+/// That is, it may be overly strict.
+///
+/// Currently, this checks that the stride of the axis is 1, that it's shape is
+/// divisible by a candidate line size and that the smallest stride that is not 1
+/// is equal to the shape of the axis.
+/// The last condition ensure that the current axis is contiguous within the next stride.
+pub fn tensor_line_size_parallel(
+    supported_line_sizes: &[u8],
+    shape: &[usize],
+    strides: &[usize],
+    axis: usize,
+) -> u8 {
+    match strides.get(axis) {
         Some(val) => {
             if *val != 1 {
                 return 1;
@@ -82,33 +101,63 @@ pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim:
         None => return 1,
     }
 
-    let shape_check = match shape.get(dim) {
+    let axis_shape = match shape.get(axis) {
         Some(val) => val,
         None => return 1,
     };
 
-    let stride_check = if let Some(dim) = dim.checked_sub(1) {
-        strides.get(dim)
-    } else {
-        None
-    };
+    let next_stride = strides.iter().filter(|stride| **stride > 1).min();
 
-    for factor in factors {
-        let factor = *factor as usize;
-
-        if shape_check % factor == 0 {
-            match stride_check {
-                Some(check) => {
-                    if check % factor == 0 {
-                        return factor as u8;
-                    }
-                }
-                None => return factor as u8,
-            }
+    if let Some(next_stride) = next_stride {
+        if next_stride != axis_shape {
+            return 1;
         }
     }
 
-    1
+    supported_line_sizes
+        .iter()
+        .cloned()
+        .find(|line_size| axis_shape % *line_size as usize == 0)
+        .unwrap_or(1)
+}
+
+/// Find the maximum line size usable for perpendicular vectorization along the given axis
+/// from the supported line sizes or return 1 if vectorization is impossible.
+///
+/// This function is designed to never return a line size above 1 by error,
+/// but doesn't garantees to always return the actual maximum possible line size.
+/// That is, it may be overly strict.
+///
+/// Currently, this checks that the shape of the axis is divisible by a candidate line size
+/// and that the product of all shapes of faster axes is equal to the stride of the axis.
+/// The second condition ensure that elements within the stride are contiguous.
+pub fn tensor_line_size_perpendicular(
+    supported_line_sizes: &[u8],
+    shape: &[usize],
+    strides: &[usize],
+    axis: usize,
+) -> u8 {
+    let axis_stride = match strides.get(axis) {
+        Some(stride) => *stride,
+        None => return 1,
+    };
+
+    let prod_shape_faster_axes = strides
+        .iter()
+        .zip(shape.iter())
+        .filter(|(stride, _)| **stride < axis_stride)
+        .map(|(_, shape)| shape)
+        .product::<usize>();
+
+    if axis_stride != prod_shape_faster_axes {
+        return 1;
+    }
+
+    supported_line_sizes
+        .iter()
+        .cloned()
+        .find(|line_size| axis_stride % *line_size as usize == 0)
+        .unwrap_or(1)
 }
 
 /// Runtime arguments to launch a kernel.

@@ -1,4 +1,4 @@
-use cubecl_core::prelude::*;
+use cubecl_core::{prelude::*, tensor_line_size_parallel, tensor_line_size_perpendicular};
 
 use crate::ReduceStrategy;
 
@@ -38,13 +38,28 @@ fn generate_config_unit<R: Runtime>(
     axis: u32,
 ) -> (CubeCount, CubeDim, ReduceConfig) {
     let stride = input.strides[axis as usize];
-    let shape = input.shape[axis as usize];
     let unit_count = output.size() as u32;
 
     let (line_mode, line_size) = if stride == 1 {
-        (LineMode::Parallel, max_line_size_dividing::<R>(shape))
+        (
+            LineMode::Parallel,
+            tensor_line_size_parallel(
+                R::supported_line_sizes(),
+                input.shape,
+                output.strides,
+                axis as usize,
+            ) as u32,
+        )
     } else {
-        (LineMode::Perpendicular, max_line_size_dividing::<R>(stride))
+        (
+            LineMode::Perpendicular,
+            tensor_line_size_perpendicular(
+                R::supported_line_sizes(),
+                input.shape,
+                output.strides,
+                axis as usize,
+            ) as u32,
+        )
     };
 
     let mut config = ReduceConfig::new(line_mode, line_size, false);
@@ -75,13 +90,4 @@ impl ReduceConfig {
     pub fn do_bound_checks_if(&mut self, condition: bool) {
         self.bound_checks = self.bound_checks || condition;
     }
-}
-
-fn max_line_size_dividing<R: Runtime>(length: usize) -> u32 {
-    R::supported_line_sizes()
-        .iter()
-        .filter(|&&line_size| length % line_size as usize == 0)
-        .max()
-        .cloned()
-        .unwrap_or(1) as u32
 }
