@@ -71,11 +71,13 @@ impl<In: Numeric> Reduce<In> for ArgMin {
         let mut coordinate = 0;
         #[unroll]
         for k in 0..line_size {
-            if accumulator.0[k] == min && accumulator.1[k] < coordinate {
-                coordinate = accumulator.1[k];
-            } else if accumulator.0[k] < min {
-                min = accumulator.0[k];
-                coordinate = accumulator.1[k];
+            let acc_element = accumulator.0[k];
+            let acc_coordinate = accumulator.1[k];
+            if acc_element == min && acc_coordinate < coordinate {
+                coordinate = acc_coordinate;
+            } else if acc_element < min {
+                min = acc_element;
+                coordinate = acc_coordinate;
             }
         }
         Out::cast_from(coordinate)
