@@ -41,8 +41,10 @@ pub enum WgpuDevice {
     /// Use an externally created, existing, wgpu setup. This is helpful when using CubeCL in conjunction
     /// with some existing wgpu setup (eg. egui or bevy), as resources can be transferred in & out of CubeCL.
     ///
-    /// The device is indexed by the global wgpu [adapter ID](wgpu::Device::global_id).
-    Existing(wgpu::Id<wgpu::Device>),
+    /// # Notes
+    ///
+    /// This can be initialized with [`init_device`](crate::runtime::init_device).
+    Existing(u32),
 }
 
 impl Default for WgpuDevice {

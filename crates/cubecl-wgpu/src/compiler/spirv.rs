@@ -126,7 +126,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     label: None,
                     layout: layout.as_ref(),
                     module: &module,
-                    entry_point: &kernel.entrypoint_name,
+                    entry_point: Some(&kernel.entrypoint_name),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         zero_initialize_workgroup_memory: false,
                         ..Default::default()
@@ -280,7 +280,7 @@ fn request_device(
         adapter
             .device_from_raw(
                 vk_device,
-                true,
+                None,
                 &device_extensions,
                 features,
                 &wgpu::MemoryHints::MemoryUsage,
