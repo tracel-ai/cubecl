@@ -71,12 +71,12 @@ where
         let mut rhs_buffer = Self::RhsLoader::init_buffer::<Self::Config>(config);
 
         Self::LhsLoader::fetch_global::<Self::Config>(
-            &mut lhs_loader,
+            &lhs_loader,
             &mut lhs_buffer.slice_mut(0, lhs_buffer.length),
             config,
         );
         Self::RhsLoader::fetch_global::<Self::Config>(
-            &mut rhs_loader,
+            &rhs_loader,
             &mut rhs_buffer.slice_mut(0, rhs_buffer.length),
             config,
         );
@@ -89,12 +89,12 @@ where
 
             let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader,
-                &mut lhs_buffer.slice(0, lhs_buffer.length),
+                &lhs_buffer.slice(0, lhs_buffer.length),
                 config,
             );
             let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader,
-                &mut rhs_buffer.slice(0, rhs_buffer.length),
+                &rhs_buffer.slice(0, rhs_buffer.length),
                 config,
             );
 
@@ -110,12 +110,12 @@ where
             );
 
             Self::LhsLoader::fetch_global::<Self::Config>(
-                &mut lhs_loader,
+                &lhs_loader,
                 &mut lhs_buffer.slice_mut(0, lhs_buffer.length),
                 config,
             );
             Self::RhsLoader::fetch_global::<Self::Config>(
-                &mut rhs_loader,
+                &rhs_loader,
                 &mut rhs_buffer.slice_mut(0, rhs_buffer.length),
                 config,
             );

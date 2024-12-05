@@ -75,12 +75,12 @@ where
         let (mut lhs_next, mut rhs_next) = (lhs_half, rhs_half);
 
         Self::LhsLoader::fetch_global::<Self::Config>(
-            &mut lhs_loader,
+            &lhs_loader,
             &mut lhs_buffer.slice_mut(lhs_curr, lhs_half),
             config,
         );
         Self::RhsLoader::fetch_global::<Self::Config>(
-            &mut rhs_loader,
+            &rhs_loader,
             &mut rhs_buffer.slice_mut(rhs_curr, rhs_half),
             config,
         );
@@ -94,12 +94,12 @@ where
 
             // Fetch next
             Self::LhsLoader::fetch_global::<Self::Config>(
-                &mut lhs_loader,
+                &lhs_loader,
                 &mut lhs_buffer.slice_mut(lhs_next, lhs_next + lhs_half),
                 config,
             );
             Self::RhsLoader::fetch_global::<Self::Config>(
-                &mut rhs_loader,
+                &rhs_loader,
                 &mut rhs_buffer.slice_mut(rhs_next, rhs_next + rhs_half),
                 config,
             );
@@ -107,12 +107,12 @@ where
             // Fill stage with current
             let lhs_stage_reader = &LhsLoader::fill_stage::<Self::Config>(
                 &mut lhs_loader,
-                &mut lhs_buffer.slice(lhs_curr, lhs_curr + lhs_half),
+                &lhs_buffer.slice(lhs_curr, lhs_curr + lhs_half),
                 config,
             );
             let rhs_stage_reader = &RhsLoader::fill_stage::<Self::Config>(
                 &mut rhs_loader,
-                &mut rhs_buffer.slice(rhs_curr, rhs_curr + rhs_half),
+                &rhs_buffer.slice(rhs_curr, rhs_curr + rhs_half),
                 config,
             );
 
