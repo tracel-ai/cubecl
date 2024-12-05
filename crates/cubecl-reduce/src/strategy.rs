@@ -24,7 +24,7 @@ impl ReduceStrategy {
                 return Err(ReduceError::PlanesUnavailable);
             }
             if !precise_plane_dim::<R>(client) {
-                return Err(ReduceError::UnprecisePlaneDim);
+                return Err(ReduceError::ImprecisePlaneDim);
             }
         }
         Ok(self)
