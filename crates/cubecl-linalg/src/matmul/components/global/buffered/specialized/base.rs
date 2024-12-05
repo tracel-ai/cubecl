@@ -80,9 +80,6 @@ where
 
             sync_units();
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
             if is_consumer {
                 SMM::execute(
                     lhs_stage_reader,
@@ -93,6 +90,9 @@ where
                     config.to_smm_config(),
                 );
             }
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
         }
 
         if is_consumer {
