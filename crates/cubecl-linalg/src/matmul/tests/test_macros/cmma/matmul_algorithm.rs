@@ -264,8 +264,8 @@ macro_rules! matmul_test_define {
                 fn cube_count(problem: &MatmulProblem) -> CubeCount {
                     let m_stage = S4x4x2::NUM_M * 16;
                     let n_stage = S4x4x2::NUM_N * 16;
-                    let cubes_needed_m = (problem.m as u32 + m_stage - 1) / m_stage;
-                    let cubes_needed_n = (problem.n as u32 + n_stage - 1) / n_stage;
+                    let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
+                    let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
                     use cubecl_linalg::matmul::components::batch::CubeCountDispatch;
                     batch::TransposedDispatch::cube_count(cubes_needed_m, cubes_needed_n, 1u32)
