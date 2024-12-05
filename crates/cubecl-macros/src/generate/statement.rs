@@ -13,9 +13,14 @@ impl Statement {
                 let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = variable.is_mut.then(|| quote![mut]);
                 let init = if is_mut {
-                    if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context)) {
+                    if let Some(as_const) =
+                        init.as_ref().and_then(|it| it.as_const_primitive(context))
+                    {
                         let expand = frontend_type("ExpandElementTyped");
                         Some(quote_spanned![as_const.span()=> #expand::from_lit(#as_const)])
+                    } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
+                    {
+                        Some(quote_spanned![as_const.span()=> #as_const.clone()])
                     } else {
                         init.as_ref().map(|it| it.to_tokens(context))
                     }

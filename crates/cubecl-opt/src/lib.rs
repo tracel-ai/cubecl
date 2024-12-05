@@ -96,8 +96,17 @@ pub(crate) struct Slice {
     pub(crate) const_len: Option<u32>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConstArray {
+    pub id: u16,
+    pub length: u32,
+    pub item: Item,
+    pub values: Vec<core::Variable>,
+}
+
 #[derive(Default, Debug, Clone)]
 struct Program {
+    pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<(u16, u8), Item>,
     pub(crate) slices: HashMap<(u16, u8), Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
@@ -378,6 +387,18 @@ impl Optimizer {
             }
         }
 
+        for (var, values) in scope.const_arrays {
+            let VariableKind::ConstantArray { id, length } = var.kind else {
+                unreachable!()
+            };
+            self.program.const_arrays.push(ConstArray {
+                id,
+                length,
+                item: var.item,
+                values,
+            });
+        }
+
         let is_break = processed.operations.contains(&Branch::Break.into());
 
         for mut instruction in processed.operations {
@@ -445,6 +466,10 @@ impl Optimizer {
         } else {
             self.ret
         }
+    }
+
+    pub fn const_arrays(&self) -> Vec<ConstArray> {
+        self.program.const_arrays.clone()
     }
 }
 

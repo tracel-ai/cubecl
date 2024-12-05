@@ -1,3 +1,5 @@
+use std::num::NonZeroU8;
+
 use crate::ir::{
     BinaryOperator, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable,
     Vectorization,
@@ -204,13 +206,18 @@ fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
         (None, None) => None,
         (None, Some(rhs)) => Some(rhs),
         (Some(lhs), None) => Some(lhs),
-        (Some(lhs), Some(rhs)) if lhs == rhs => Some(lhs),
         (Some(lhs), Some(rhs)) => {
-            panic!(
-                "Left and right have different vectorizations.
-                Left: {lhs}, right: {rhs}.
-                Auto-matching fixed vectorization currently unsupported."
-            );
+            if lhs == rhs {
+                Some(lhs)
+            } else if lhs == NonZeroU8::new(1).unwrap() || rhs == NonZeroU8::new(1).unwrap() {
+                Some(core::cmp::max(lhs, rhs))
+            } else {
+                panic!(
+                    "Left and right have different vectorizations.
+                    Left: {lhs}, right: {rhs}.
+                    Auto-matching fixed vectorization currently unsupported."
+                );
+            }
         }
     }
 }

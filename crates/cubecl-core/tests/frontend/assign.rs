@@ -35,6 +35,18 @@ pub fn assign_deref(y: &mut u32) -> u32 {
     *y
 }
 
+#[derive(CubeType)]
+struct StructWithComptime {
+    index: u32,
+    #[cube(comptime)]
+    tag: String,
+}
+
+#[cube]
+fn new_struct(index: u32, #[comptime] tag: String) -> StructWithComptime {
+    StructWithComptime { index, tag }
+}
+
 mod tests {
     use pretty_assertions::assert_eq;
     use std::num::NonZero;
