@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{
     client::ComputeClient,
     frontend::{TensorArg, TensorHandleRef},
-    tensor_line_size, Runtime,
+    tensor_line_size_parallel, Runtime,
 };
 
 use crate::matmul;
@@ -115,11 +115,11 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
 
     let available_vectorizations = R::supported_line_sizes();
     let lhs_line_size =
-        tensor_line_size(available_vectorizations, lhs.shape, lhs.strides, rank - 1);
+        tensor_line_size_parallel(available_vectorizations, lhs.shape, lhs.strides, rank - 1);
     let rhs_line_size =
-        tensor_line_size(available_vectorizations, rhs.shape, rhs.strides, rank - 1);
+        tensor_line_size_parallel(available_vectorizations, rhs.shape, rhs.strides, rank - 1);
     let out_line_size =
-        tensor_line_size(available_vectorizations, out.shape, out.strides, rank - 1);
+        tensor_line_size_parallel(available_vectorizations, out.shape, out.strides, rank - 1);
 
     let problem = MatmulProblem {
         m: m as usize,
