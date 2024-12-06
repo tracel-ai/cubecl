@@ -3,18 +3,12 @@ mod error;
 mod instructions;
 mod launch;
 mod strategy;
-// mod naive;
-// mod plane;
-// mod shared;
 
 pub use config::*;
 pub use error::*;
 pub use instructions::*;
 pub use launch::*;
 pub use strategy::*;
-// pub use naive::*;
-// pub use plane::*;
-// pub use shared::*;
 
 #[cfg(feature = "export_tests")]
 pub mod test;
