@@ -117,7 +117,8 @@ pub fn tensor_line_size_parallel(
     supported_line_sizes
         .iter()
         .cloned()
-        .find(|line_size| axis_shape % *line_size as usize == 0)
+        .filter(|line_size| axis_shape % *line_size as usize == 0)
+        .max()
         .unwrap_or(1)
 }
 
@@ -128,8 +129,8 @@ pub fn tensor_line_size_parallel(
 /// but doesn't garantees to always return the actual maximum possible line size.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the shape of the axis is divisible by a candidate line size
-/// and that the product of all shapes of faster axes is equal to the stride of the axis.
+/// Currently, this checks that the stride of the axis is divisible by a candidate line size
+/// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
 pub fn tensor_line_size_perpendicular(
     supported_line_sizes: &[u8],
@@ -142,21 +143,22 @@ pub fn tensor_line_size_perpendicular(
         None => return 1,
     };
 
-    let prod_shape_faster_axes = strides
+    let prod_shape_axes_smaller_strides = strides
         .iter()
         .zip(shape.iter())
         .filter(|(stride, _)| **stride < axis_stride)
         .map(|(_, shape)| shape)
         .product::<usize>();
 
-    if axis_stride != prod_shape_faster_axes {
+    if axis_stride != prod_shape_axes_smaller_strides {
         return 1;
     }
 
     supported_line_sizes
         .iter()
         .cloned()
-        .find(|line_size| axis_stride % *line_size as usize == 0)
+        .filter(|line_size| axis_stride % *line_size as usize == 0)
+        .max()
         .unwrap_or(1)
 }
 
