@@ -78,7 +78,6 @@ impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::includes(f)?;
         if self.bf16 {
             D::include_bf16(f)?;
         }
