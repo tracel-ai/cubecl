@@ -548,6 +548,8 @@ impl WgslCompiler {
             cube::Operation::CoopMma(_) => {
                 panic!("Cooperative matrix-multiply and accumulate isn't supported on wgpu.")
             }
+            // No good way to attach debug info
+            cube::Operation::Debug(_) => {}
         }
     }
 

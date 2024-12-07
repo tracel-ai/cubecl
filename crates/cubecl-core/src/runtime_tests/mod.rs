@@ -4,6 +4,7 @@ pub mod branch;
 pub mod cmma;
 pub mod const_match;
 pub mod constants;
+pub mod debug;
 pub mod different_rank;
 pub mod index;
 pub mod launch;
@@ -107,6 +108,7 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_tensor_indexing!();
+        cubecl_core::testgen_debug!();
     };
 }
 
