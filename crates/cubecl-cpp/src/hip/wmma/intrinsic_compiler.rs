@@ -13,10 +13,6 @@ pub struct WmmaIntrinsicCompiler {}
 impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     type Architecture = AMDArchitecture;
 
-    fn includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
         f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;

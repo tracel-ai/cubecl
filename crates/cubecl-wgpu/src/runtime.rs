@@ -109,8 +109,24 @@ pub struct WgpuSetup {
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
 /// Useful when you want to share a device between CubeCL and other wgpu-dependent libraries.
+///
+/// # Note
+///
+/// Please **do not** to call on the same [`setup`](WgpuSetup) more than once.
+///
+/// This function generates a new, globally unique ID for the device every time it is called,
+/// even if called on the same device multiple times.
 pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
-    let device_id = WgpuDevice::Existing(setup.device.as_ref().global_id());
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    let device_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    if device_id == u32::MAX {
+        core::panic!("Memory ID overflowed");
+    }
+
+    let device_id = WgpuDevice::Existing(device_id);
     let client = create_client_on_setup(setup, options);
     RUNTIME.register(&device_id, client);
     device_id

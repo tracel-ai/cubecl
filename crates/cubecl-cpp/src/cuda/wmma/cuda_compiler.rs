@@ -16,10 +16,6 @@ pub struct CudaWmmaCompiler {}
 impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
     type Architecture = CudaArchitecture;
 
-    fn includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("#include <mma.h>\n")
-    }
-
     fn deftypes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }

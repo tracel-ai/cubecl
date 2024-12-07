@@ -23,7 +23,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, E>(&self.strategy, &self.client, lhs, rhs, out);
+        matmul::launch::<R, E>(&self.strategy, &self.client, lhs, rhs, out).unwrap();
     }
 
     fn name(&self) -> String {

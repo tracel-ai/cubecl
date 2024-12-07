@@ -87,6 +87,7 @@ impl Profile {
                 "--config-file",
                 "off",
                 "--nvtx",
+                "--set=full",
                 "--call-stack",
                 "--export",
                 &file,

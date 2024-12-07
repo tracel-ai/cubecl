@@ -168,9 +168,9 @@ impl WgpuStream {
             staging_buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |v| {
-                    sender
-                        .try_send(v)
-                        .expect("Unable to send buffer slice result to async channel.");
+                    // This might fail if the channel is closed (eg. the future is dropped).
+                    // This is fine, just means results aren't needed anymore.
+                    let _ = sender.try_send(v);
                 });
 
             callbacks.push(receiver);

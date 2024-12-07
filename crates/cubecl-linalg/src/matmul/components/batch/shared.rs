@@ -19,8 +19,8 @@ pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>
 ) {
     let rank = out.rank();
     let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
-    let mut batch_lhs = 0;
-    let mut batch_rhs = 0;
+    let mut batch_lhs = 0u32.runtime();
+    let mut batch_rhs = 0u32.runtime();
     for b in 0..rank - 2 {
         let tmp = batch_out / out.stride(b);
         batch_lhs += tmp % lhs.shape(b) * lhs.stride(b);

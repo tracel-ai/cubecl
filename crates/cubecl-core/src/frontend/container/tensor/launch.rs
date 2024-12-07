@@ -36,6 +36,12 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
+impl<R: Runtime> TensorHandleRef<'_, R> {
+    pub fn size(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
 impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
