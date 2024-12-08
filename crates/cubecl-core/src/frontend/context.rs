@@ -30,9 +30,7 @@ impl CubeContext {
             scope,
             root,
             #[cfg(feature = "std")]
-            debug_enabled: std::env::var("CUBECL_DEBUG_OPTION")
-                .map(|option| option == "profile-full")
-                .unwrap_or(false),
+            debug_enabled: std::env::var("CUBECL_DEBUG_LOG").is_ok(),
             #[cfg(not(feature = "std"))]
             debug_enabled: false,
         }

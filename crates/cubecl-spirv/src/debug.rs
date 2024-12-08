@@ -21,6 +21,8 @@ pub struct DebugInfo {
     pub functions: Vec<(Word, Option<Word>)>,
     strings: HashMap<String, Word>,
     function_defs: HashMap<String, Word>,
+    inlined_at_defs: HashMap<(Word, Option<Word>), Word>,
+    function_ty: Word,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -40,6 +42,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 [version, dwarf, source, lang],
             );
             let source = self.void_debug(Instructions::DebugSource, [name]);
+            let flags = self.const_u32(DebugInfoFlags::None.0);
+            let return_ty = self.type_void();
+            let function_ty = self.void_debug(Instructions::DebugTypeFunction, [flags, return_ty]);
+
             self.debug_info = Some(DebugInfo {
                 source,
                 name,
@@ -47,7 +53,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 entry_point: 0,
                 functions: vec![],
                 strings,
+                inlined_at_defs: Default::default(),
                 function_defs: Default::default(),
+                function_ty,
             });
         }
     }
@@ -99,21 +107,46 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let func = self.debug_function(name);
                     let (parent, inline_parent) = *self.debug_info().functions.last().unwrap();
 
-                    let zero = self.const_u32(0);
-                    let inlined_at = if let Some(inline_parent) = inline_parent {
-                        self.void_debug(Instructions::DebugInlinedAt, [zero, parent, inline_parent])
-                    } else {
-                        self.void_debug(Instructions::DebugInlinedAt, [zero, parent])
-                    };
+                    let inlined_at = self.inlined_at(parent, inline_parent);
+
+                    if self.is_last_instruction_scope() {
+                        let _ = self.pop_instruction();
+                    }
 
                     self.debug_info().functions.push((func, Some(inlined_at)));
                     self.void_op(Instructions::DebugScope, [func, inlined_at]);
                 }
                 core::DebugInfo::EndCall => {
                     self.debug_info().functions.pop();
-                    self.debug_scope();
+                    if self.is_last_instruction_scope() {
+                        let _ = self.pop_instruction();
+                    }
+                    let (func, _) = *self.debug_info().functions.last().unwrap();
+                    self.void_op(Instructions::DebugScope, [func]);
                 }
             };
+        }
+    }
+
+    // Deduplicated inlined_at
+    fn inlined_at(&mut self, parent: Word, inline_parent: Option<Word>) -> Word {
+        let existing = self
+            .debug_info()
+            .inlined_at_defs
+            .get(&(parent, inline_parent));
+        if let Some(existing) = existing {
+            *existing
+        } else {
+            let zero = self.const_u32(0);
+            let inlined_at = if let Some(inline_parent) = inline_parent {
+                self.void_debug(Instructions::DebugInlinedAt, [zero, parent, inline_parent])
+            } else {
+                self.void_debug(Instructions::DebugInlinedAt, [zero, parent])
+            };
+            self.debug_info()
+                .inlined_at_defs
+                .insert((parent, inline_parent), inlined_at);
+            inlined_at
         }
     }
 
@@ -124,8 +157,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         } else {
             let name_id = self.debug_string(&name);
             let flags = self.const_u32(DebugInfoFlags::None.0);
-            let return_ty = self.type_void();
-            let debug_type = self.void_debug(Instructions::DebugTypeFunction, [flags, return_ty]);
+            let debug_type = self.debug_info().function_ty;
             let source = self.debug_info().source;
             let compilation_unit = self.debug_info().compilation_unit;
             let zero = self.const_u32(0);
@@ -186,5 +218,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
+    }
+
+    fn is_last_instruction_scope(&mut self) -> bool {
+        let (selected_function, selected_block) =
+            match (self.selected_function(), self.selected_block()) {
+                (Some(f), Some(b)) => (f, b),
+                _ => panic!("Detached instructions"),
+            };
+
+        let block = &self.module_ref().functions[selected_function].blocks[selected_block];
+
+        let inst = block.instructions.last();
+        let ext = self.state.extensions[EXT_NAME];
+
+        if let Some(Instruction {
+            class, operands, ..
+        }) = inst
+        {
+            class.opcode == Op::ExtInst
+                && operands.first() == Some(&Operand::IdRef(ext))
+                && operands.get(1)
+                    == Some(&Operand::LiteralExtInstInteger(
+                        Instructions::DebugScope as u32,
+                    ))
+        } else {
+            false
+        }
     }
 }
