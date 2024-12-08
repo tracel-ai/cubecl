@@ -11,6 +11,7 @@ mod atomic;
 mod branch;
 mod cmma;
 mod compiler;
+mod debug;
 mod extensions;
 mod globals;
 mod instruction;

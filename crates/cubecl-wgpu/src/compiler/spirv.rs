@@ -76,13 +76,13 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 let layout = server
                     .device
                     .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                        label: None,
+                        label: Some(&kernel.entrypoint_name),
                         entries: &bindings,
                     });
                 let layout = server
                     .device
                     .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: None,
+                        label: Some(&kernel.entrypoint_name),
                         bind_group_layouts: &[&layout],
                         push_constant_ranges: &[],
                     });
@@ -93,7 +93,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     server
                         .device
                         .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
-                            label: None,
+                            label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
                 };
@@ -103,16 +103,16 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 let source = &kernel.source;
                 // Cube always in principle uses unchecked modules. Certain operations like
                 // indexing are instead checked by cube. The WebGPU specification only makes
-                // incredibly loose gaurantees that Cube can't rely on. Additionally, kernels
+                // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
                 // can opt in/out per operation whether checks should be performed which can be faster.
                 //
-                // SAFETY: Cube gaurantees OOB safety when launching in checked mode. Launching in unchecked mode
-                // is only availble through the use of unsafe code.
+                // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
+                // is only available through the use of unsafe code.
                 let module = unsafe {
                     server
                         .device
                         .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                            label: None,
+                            label: Some(&kernel.entrypoint_name),
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
                         })
                 };
@@ -123,7 +123,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: None,
+                    label: Some(&kernel.entrypoint_name),
                     layout: layout.as_ref(),
                     module: &module,
                     entry_point: Some(&kernel.entrypoint_name),

@@ -38,7 +38,7 @@ pub struct LookupTables {
 
     pub slices: HashMap<(u16, u8), Slice>,
 
-    pub extensions: Vec<Word>,
+    pub extensions: HashMap<String, Word>,
     // For break, continue
     pub loops: VecDeque<Loop>,
 

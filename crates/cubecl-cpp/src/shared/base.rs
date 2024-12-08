@@ -283,6 +283,8 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
+            // No good way to attach debug info
+            gpu::Operation::Debug(_) => {}
         }
     }
 
