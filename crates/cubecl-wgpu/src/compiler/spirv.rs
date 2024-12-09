@@ -107,7 +107,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 // can opt in/out per operation whether checks should be performed which can be faster.
                 //
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
-                // is only availble through the use of unsafe code.
+                // is only available through the use of unsafe code.
                 let module = unsafe {
                     server
                         .device
