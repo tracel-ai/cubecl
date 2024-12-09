@@ -44,10 +44,10 @@ where
         RhsReader = RhsBufferReader<ES>,
     >,
 {
-    type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<GA, EG, ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<GA, EG, ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<EG>;
+    type Out = Unloader<GA, EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(

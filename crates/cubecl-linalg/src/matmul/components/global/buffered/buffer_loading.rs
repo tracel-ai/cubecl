@@ -1,5 +1,6 @@
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
+use crate::matmul::components::global::args::GmmArgs;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
@@ -12,8 +13,8 @@ pub struct BufferLoading {}
 
 #[cube]
 impl BufferLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
-        read_view: &TensorReader<EG>,
+    pub fn load_to_slice<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, G: global::Config>(
+        read_view: &TensorReader<GA, EG>,
         buffer_slice: &mut SliceMut<Line<ES>>,
         #[comptime] num_producer_planes: u32,
         #[comptime] producer_plane_offset: u32,

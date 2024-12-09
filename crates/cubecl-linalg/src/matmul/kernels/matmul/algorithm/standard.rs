@@ -58,7 +58,11 @@ impl<
     type BatchMatmul = batch::one_to_one::Matmul<GA, EG, Self::ES, Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(PLANE_DIM, Stage::NUM_M, 1)
+        CubeDim::new(
+            <Self as base::Algorithm<GA, EG>>::PLANE_DIM,
+            Stage::NUM_M,
+            1,
+        )
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {

@@ -182,9 +182,6 @@ pub(crate) fn matmul_cube_preparation<
     client: &ComputeClient<R::Server, R::Channel>,
     input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
     output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
-    // lhs: &TensorHandleRef<'_, R>,
-    // rhs: &TensorHandleRef<'_, R>,
-    // out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
 ) -> Result<(), MatmulLaunchError> {
     D::check_availability::<R>(client)?;
