@@ -95,10 +95,10 @@ impl WgpuCompiler for WgslCompiler {
         let source = &kernel.source;
         // Cube always in principle uses unchecked modules. Certain operations like
         // indexing are instead checked by cube. The WebGPU specification only makes
-        // incredibly loose gaurantees that Cube can't rely on. Additionally, kernels
+        // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
         // can opt in/out per operation whether checks should be performed which can be faster.
         //
-        // SAFETY: Cube gaurantees OOB safety when launching in checked mode. Launching in unchecked mode
+        // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
         // is only availble through the use of unsafe code.
         let module = unsafe {
             server
