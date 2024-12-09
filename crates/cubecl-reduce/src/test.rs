@@ -334,46 +334,6 @@ impl TestCase {
         expected
     }
 
-    // pub fn test_prod_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_prod(&input_values);
-    //     self.run_test_naive::<F, F, R, Prod>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_mean_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_mean(&input_values);
-    //     self.run_test_naive::<F, F, R, Mean>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_argmax_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_argmax(&input_values);
-    //     self.run_test_naive::<F, u32, R, ArgMax>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_argmin_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_argmin(&input_values);
-    //     self.run_test_naive::<F, u32, R, ArgMin>(device, input_values, expected_values)
-    // }
-
     pub fn run_test<I, O, R, K>(
         &self,
         device: &R::Device,
