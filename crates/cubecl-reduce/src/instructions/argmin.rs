@@ -42,6 +42,10 @@ impl<In: Numeric> Reduce<In> for ArgMin {
         )
     }
 
+    fn null_value() -> In {
+        In::MAX
+    }
+
     fn reduce(
         accumulator: &mut Self::Accumulator,
         item: Line<In>,

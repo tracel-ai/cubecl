@@ -119,6 +119,16 @@ macro_rules! impl_test_reduce {
                     };
                     test.test_argmax::<$float, TestRuntime>(&Default::default());
                 }
+                #[test]
+                pub fn [< reduce_argmax_plane_ $id >]() {
+                    let test = TestCase {
+                        shape: $shape.into(),
+                        stride: $stride.into(),
+                        axis: $axis,
+                        strategy: $crate::ReduceStrategy { use_planes: true, shared: false },
+                    };
+                    test.test_argmax::<$float, TestRuntime>(&Default::default());
+                }
 
                 #[test]
                 pub fn [< reduce_argmin_unit_ $id >]() {
@@ -127,6 +137,17 @@ macro_rules! impl_test_reduce {
                         stride: $stride.into(),
                         axis: $axis,
                         strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                    };
+                    test.test_argmin::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
+                pub fn [< reduce_argmin_plane_ $id >]() {
+                    let test = TestCase {
+                        shape: $shape.into(),
+                        stride: $stride.into(),
+                        axis: $axis,
+                        strategy: $crate::ReduceStrategy { use_planes: true, shared: false },
                     };
                     test.test_argmin::<$float, TestRuntime>(&Default::default());
                 }
@@ -143,6 +164,17 @@ macro_rules! impl_test_reduce {
                 }
 
                 #[test]
+                pub fn [< reduce_mean_plane_ $id >]() {
+                    let test = TestCase {
+                        shape: $shape.into(),
+                        stride: $stride.into(),
+                        axis: $axis,
+                        strategy: $crate::ReduceStrategy { use_planes: true, shared: false },
+                    };
+                    test.test_mean::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
                 pub fn [< reduce_prod_unit_ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
@@ -154,12 +186,34 @@ macro_rules! impl_test_reduce {
                 }
 
                 #[test]
+                pub fn [< reduce_prod_plane_ $id >]() {
+                    let test = TestCase {
+                        shape: $shape.into(),
+                        stride: $stride.into(),
+                        axis: $axis,
+                        strategy: $crate::ReduceStrategy { use_planes: true, shared: false },
+                    };
+                    test.test_prod::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
                 pub fn [< reduce_sum_unit_ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
                         strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                    };
+                    test.test_sum::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
+                pub fn [< reduce_sum_plane_ $id >]() {
+                    let test = TestCase {
+                        shape: $shape.into(),
+                        stride: $stride.into(),
+                        axis: $axis,
+                        strategy: $crate::ReduceStrategy { use_planes: true, shared: false },
                     };
                     test.test_sum::<$float, TestRuntime>(&Default::default());
                 }
