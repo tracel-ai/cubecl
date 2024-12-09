@@ -10,8 +10,6 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: u32,
-    cube_count: CubeCount,
-    cube_dim: CubeDim,
     config: ReduceConfig,
     strategy: ReduceStrategy,
 ) {
@@ -19,8 +17,8 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
         (false, false, LineMode::Parallel) => unsafe {
             kernel_reduce_parallel::launch_unchecked::<In, Out, Inst, R>(
                 client,
-                cube_count,
-                cube_dim,
+                config.cube_count,
+                config.cube_dim,
                 input.as_tensor_arg(config.line_size as u8),
                 output.as_tensor_arg(1),
                 ScalarArg::new(axis),
@@ -31,8 +29,8 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
         (false, false, LineMode::Perpendicular) => unsafe {
             kernel_reduce_perpendicular::launch_unchecked::<In, Out, Inst, R>(
                 client,
-                cube_count,
-                cube_dim,
+                config.cube_count,
+                config.cube_dim,
                 input.as_tensor_arg(config.line_size as u8),
                 output.as_tensor_arg(1),
                 ScalarArg::new(axis),
