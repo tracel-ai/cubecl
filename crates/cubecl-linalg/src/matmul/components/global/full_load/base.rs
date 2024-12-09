@@ -1,3 +1,4 @@
+use crate::matmul::components::global::args::{GmmArgs, TensorInput, TensorOutput};
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
@@ -37,7 +38,8 @@ pub struct Matmul<
 }
 
 #[cube]
-impl<EG, ES, EA, SMM, LL, RL> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM, LL, RL>
+impl<GA: GmmArgs<EG>, EG, ES, EA, SMM, LL, RL> global::Matmul<GA, EG, ES>
+    for Matmul<EG, ES, EA, SMM, LL, RL>
 where
     EG: Numeric,
     ES: Numeric,
@@ -46,10 +48,10 @@ where
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<EG, ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<EG, ES, SMM::Config, RL>;
+    type LhsLoader = LhsLoader<GA, EG, ES, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<GA, EG, ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<EG>;
+    type Out = Unloader<GA, EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -101,7 +103,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: &Tensor<Line<EG>>,
+        lhs: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -111,7 +113,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: &Tensor<Line<EG>>,
+        rhs: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -121,7 +123,7 @@ where
     }
 
     fn init_unloader(
-        out: &mut Tensor<Line<EG>>,
+        out: TensorOutput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

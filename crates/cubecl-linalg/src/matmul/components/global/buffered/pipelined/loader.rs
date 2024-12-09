@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
+use crate::matmul::components::global::args::{GmmArgs, TensorInput};
 use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
 use crate::matmul::components::global::buffered::pipelined;
@@ -14,7 +15,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
+pub struct LhsBufferLoader<GA: GmmArgs<ES>, EG: Numeric, ES: Numeric, S: stage::Config> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
@@ -61,9 +62,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
+impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
     pub fn new(
-        tensor: &Tensor<Line<EG>>,
+        input: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

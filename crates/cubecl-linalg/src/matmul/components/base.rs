@@ -1,5 +1,6 @@
 use cubecl_core::prelude::*;
 
+use super::global::args::GmmArgs;
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 
 use super::{config::MatmulConfig, MatmulProblem};
@@ -27,19 +28,18 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
 }
 
 /// Provides launch entry point to solve a matmul
-pub trait MatmulLaunch<I: Numeric, O: Numeric>: MatmulKernel<I, O> {
+pub trait MatmulLaunch<I: Numeric, O: Numeric, GA: GmmArgs<I>>: MatmulKernel<I, O> {
     /// Entry point
     ///
     /// # Safety
     ///
     /// Out-of-bounds can happen
-    unsafe fn launch_unchecked<R: Runtime>(
+    unsafe fn launch_unchecked<'a, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        lhs: TensorArg<'_, R>,
-        rhs: TensorArg<'_, R>,
-        out: TensorArg<'_, R>,
+        input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
+        output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
         config: <Self as MatmulKernel<I, O>>::Config,
     );
 }

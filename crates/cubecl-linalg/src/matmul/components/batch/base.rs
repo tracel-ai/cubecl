@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch;
+use crate::matmul::components::global::args::{self, GmmArgs, TensorInput, TensorOutput};
 use crate::matmul::components::{
     config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
@@ -24,14 +25,14 @@ use crate::matmul::components::{
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
-pub trait Matmul<EG: Numeric>:
-    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config> + MatmulLaunch<EG, EG>
+pub trait Matmul<GA: GmmArgs<EG>, EG: Numeric>:
+    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config> + MatmulLaunch<EG, EG, GA>
 {
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+        lhs: TensorInput<EG, GA>,
+        rhs: TensorInput<EG, GA>,
+        out: TensorOutput<EG, GA>,
         #[comptime] config: Self::Config,
     );
 }
@@ -58,11 +59,16 @@ pub trait Config: MatmulConfig {
 }
 
 #[cube(launch_unchecked)]
-pub(crate) fn batch_matmul<EG: Numeric, BMM: batch::Matmul<EG>>(
-    lhs: &Tensor<Line<EG>>,
-    rhs: &Tensor<Line<EG>>,
-    out: &mut Tensor<Line<EG>>,
+pub(crate) fn batch_matmul<GA: GmmArgs<EG>, EG: Numeric, BMM: batch::Matmul<GA, EG>>(
+    inputs: &GA::Input,
+    output: &mut GA::Output,
     #[comptime] config: BMM::Config,
 ) {
+    let mut state = GA::init_state(inputs, output);
+
+    let lhs = TensorInput::<EG, GA>::new(&state, args::Ident::Lhs);
+    let rhs = TensorInput::<EG, GA>::new(&state, args::Ident::Rhs);
+    let out = TensorOutput::<EG, GA>::new(&mut state);
+
     BMM::execute(lhs, rhs, out, config);
 }

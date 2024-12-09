@@ -1,27 +1,29 @@
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::args::GmmArgs;
 use crate::matmul::components::stage::{self};
 use crate::matmul::components::{batch, global, tile};
 use crate::matmul::components::{MatmulKernel, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 
-type LhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::LhsLoader as global::Loader<
-    EG,
-    ES,
-    <GMM as MatmulKernel<EG, EG>>::Config,
->>::StageReader;
-type RhsStageReader<GMM, EG, ES> = <<GMM as global::Matmul<EG, ES>>::RhsLoader as global::Loader<
-    EG,
-    ES,
-    <GMM as MatmulKernel<EG, EG>>::Config,
->>::StageReader;
+type LhsStageReader<GA, GMM, EG, ES> =
+    <<GMM as global::Matmul<GA, EG, ES>>::LhsLoader as global::Loader<
+        EG,
+        ES,
+        <GMM as MatmulKernel<EG, EG>>::Config,
+    >>::StageReader;
+type RhsStageReader<GA, GMM, EG, ES> =
+    <<GMM as global::Matmul<GA, EG, ES>>::RhsLoader as global::Loader<
+        EG,
+        ES,
+        <GMM as MatmulKernel<EG, EG>>::Config,
+    >>::StageReader;
 
 /// Specifications for a matmul algorithm
-pub trait Algorithm<EG: Numeric> {
+pub trait Algorithm<GA: GmmArgs<EG>, EG: Numeric> {
     const PLANE_DIM: u32;
 
-    type EG: Numeric;
     type ES: Numeric;
     type EA: Numeric;
 
@@ -29,15 +31,15 @@ pub trait Algorithm<EG: Numeric> {
 
     type StageMatmul: stage::Matmul<
             Self::ES,
-            Self::EG,
+            EG,
             Self::EA,
-            LhsReader = LhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
-            RhsReader = RhsStageReader<Self::GlobalMatmul, Self::EG, Self::ES>,
-        > + MatmulKernel<Self::ES, Self::EG>;
+            LhsReader = LhsStageReader<GA, Self::GlobalMatmul, EG, Self::ES>,
+            RhsReader = RhsStageReader<GA, Self::GlobalMatmul, EG, Self::ES>,
+        > + MatmulKernel<Self::ES, EG>;
 
-    type GlobalMatmul: global::Matmul<Self::EG, Self::ES>;
+    type GlobalMatmul: global::Matmul<GA, EG, Self::ES>;
 
-    type BatchMatmul: batch::Matmul<Self::EG> + MatmulKernel<Self::EG, Self::EG>;
+    type BatchMatmul: batch::Matmul<GA, EG> + MatmulKernel<EG, EG>;
 
     fn cube_dim() -> CubeDim;
     fn cube_count(problem: &MatmulProblem) -> CubeCount;
@@ -47,8 +49,7 @@ pub trait Algorithm<EG: Numeric> {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-    ) -> Result<<Self::BatchMatmul as MatmulKernel<Self::EG, Self::EG>>::Config, MatmulInvalidProblem>
-    {
+    ) -> Result<<Self::BatchMatmul as MatmulKernel<EG, EG>>::Config, MatmulInvalidProblem> {
         let config = Self::BatchMatmul::make_config(problem, cube_dim, cube_count, advanced_config);
         problem.check_config(&config)?;
         Ok(config)

@@ -4,12 +4,14 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::args::{GmmArgs, TensorInput, TensorOutput};
+
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<E: Numeric> {
-    pub tensor: *const Tensor<Line<E>>,
+pub struct TensorReader<GA: GmmArgs<E>, E: Numeric> {
+    pub tensor: TensorInput<E, GA>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -23,8 +25,8 @@ pub struct TensorReader<E: Numeric> {
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<E: Numeric> {
-    pub tensor: *mut Tensor<Line<E>>,
+pub struct TensorWriter<GA: GmmArgs<E>, E: Numeric> {
+    pub tensor: TensorOutput<E, GA>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -34,22 +36,28 @@ pub struct TensorWriter<E: Numeric> {
     pub batch_offset: u32,
 }
 
-unsafe impl<E: Numeric> Sync for TensorReader<E> {}
-unsafe impl<E: Numeric> Send for TensorReader<E> {}
-unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
-unsafe impl<E: Numeric> Send for TensorWriter<E> {}
+unsafe impl<GA: GmmArgs<E>, E: Numeric> Sync for TensorReader<GA, E> {}
+unsafe impl<GA: GmmArgs<E>, E: Numeric> Send for TensorReader<GA, E> {}
+unsafe impl<GA: GmmArgs<E>, E: Numeric> Sync for TensorWriter<GA, E> {}
+unsafe impl<GA: GmmArgs<E>, E: Numeric> Send for TensorWriter<GA, E> {}
 
 #[cube]
-impl<EG: Numeric> TensorReader<EG> {
+impl<GA: GmmArgs<EG>, EG: Numeric> TensorReader<GA, EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(tensor: &Tensor<Line<EG>>, x_offset: u32, y_offset: u32, batch_offset: u32) -> Self {
-        let rank = tensor.rank();
+    pub fn new(
+        tensor: TensorInput<EG, GA>,
+        x_offset: u32,
+        y_offset: u32,
+        batch_offset: u32,
+    ) -> Self {
+        // let rank = tensor.rank();
+        let rank = 3u32;
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
 
-        TensorReader::<EG> {
+        TensorReader::<GA, EG> {
             tensor,
             x_offset,
             y_offset,
@@ -134,26 +142,27 @@ impl<EG: Numeric> TensorReader<EG> {
     }
 
     fn read(&self, position: u32) -> Line<EG> {
-        unsafe { *(*self.tensor).index_unchecked(position) }
+        self.tensor.read(position)
     }
 }
 
 #[cube]
-impl<EG: Numeric> TensorWriter<EG> {
+impl<GA: GmmArgs<EG>, EG: Numeric> TensorWriter<GA, EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        tensor: &mut Tensor<Line<EG>>,
+        tensor: TensorOutput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
-        let rank = tensor.rank();
+        // let rank = tensor.rank();
+        let rank = 3u32;
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
         let shape_y = tensor.shape(rank - 1);
 
-        TensorWriter::<EG> {
+        TensorWriter::<GA, EG> {
             tensor,
             x_offset,
             y_offset,
@@ -211,6 +220,6 @@ impl<EG: Numeric> TensorWriter<EG> {
     }
 
     fn write(&mut self, position: u32, value: Line<EG>) {
-        unsafe { (*self.tensor).index_assign_unchecked(position, value) }
+        self.tensor.write(position, value)
     }
 }

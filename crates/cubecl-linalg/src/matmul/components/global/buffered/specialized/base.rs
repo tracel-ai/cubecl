@@ -1,3 +1,4 @@
+use crate::matmul::components::global::args::{GmmArgs, TensorInput, TensorOutput};
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage;
@@ -30,7 +31,7 @@ pub struct Matmul<EG: Numeric, ES: Numeric, Acc: Numeric, SMM: stage::Matmul<ES,
 }
 
 #[cube]
-impl<EG, ES, Acc, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, Acc, SMM>
+impl<GA: GmmArgs<EG>, EG, ES, Acc, SMM> global::Matmul<GA, EG, ES> for Matmul<EG, ES, Acc, SMM>
 where
     EG: Numeric,
     ES: Numeric,
@@ -106,7 +107,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: &Tensor<Line<EG>>,
+        lhs: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -123,7 +124,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: &Tensor<Line<EG>>,
+        rhs: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -140,7 +141,7 @@ where
     }
 
     fn init_unloader(
-        out: &mut Tensor<Line<EG>>,
+        out: TensorOutput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

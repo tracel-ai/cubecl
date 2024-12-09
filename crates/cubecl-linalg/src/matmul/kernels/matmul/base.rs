@@ -1,12 +1,11 @@
 use cubecl_core::prelude::*;
 
 use cubecl_core::{
-    client::ComputeClient,
-    frontend::{TensorArg, TensorHandleRef},
-    tensor_line_size_parallel, Runtime,
+    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
 };
 
 use crate::matmul;
+use crate::matmul::components::global::args::{GmmArgs, TensorArgs, TensorInputsLaunch};
 use crate::matmul::components::{MatmulLaunch, MatmulProblem};
 use crate::matmul::kernels::MatmulLaunchError;
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
@@ -142,29 +141,50 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         out_line_size,
     };
 
-    matmul_select_kernel::<R, EG>(client, lhs, rhs, out, problem, disable_cmma)
+    matmul_select_kernel::<TensorArgs, R, EG>(
+        client,
+        TensorInputsLaunch::new(
+            lhs.as_tensor_arg(lhs_line_size),
+            rhs.as_tensor_arg(rhs_line_size),
+        ),
+        out.as_tensor_arg(out_line_size),
+        problem,
+        disable_cmma,
+    )
 }
 
-fn matmul_select_kernel<R: Runtime, EG: Numeric>(
+fn matmul_select_kernel<'a, GA, R, EG>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    rhs: &TensorHandleRef<'_, R>,
-    out: &TensorHandleRef<'_, R>,
+    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
+    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
     problem: MatmulProblem,
     disable_cmma: bool,
-) -> Result<(), MatmulLaunchError> {
+) -> Result<(), MatmulLaunchError>
+where
+    GA: GmmArgs<EG>,
+    R: Runtime,
+    EG: Numeric,
+{
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem)
+        PlaneMmaSelector::select_kernel::<GA, R, EG>(client, input, output, problem)
     } else {
-        CmmaSelector::select_kernel::<R, EG>(client, lhs, rhs, out, problem)
+        CmmaSelector::select_kernel::<GA, R, EG>(client, input, output, problem)
     }
 }
 
-pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
+pub(crate) fn matmul_cube_preparation<
+    'a,
+    GA: GmmArgs<EG>,
+    R: Runtime,
+    EG: Numeric,
+    D: Algorithm<GA, EG>,
+>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    rhs: &TensorHandleRef<'_, R>,
-    out: &TensorHandleRef<'_, R>,
+    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
+    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
+    // lhs: &TensorHandleRef<'_, R>,
+    // rhs: &TensorHandleRef<'_, R>,
+    // out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
 ) -> Result<(), MatmulLaunchError> {
     D::check_availability::<R>(client)?;
@@ -173,11 +193,10 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
     let cube_count = D::cube_count(&problem);
     let advanced_config = D::advanced_config();
 
-    launch_matmul::<R, EG, D>(
+    launch_matmul::<GA, R, EG, D>(
         client,
-        lhs,
-        rhs,
-        out,
+        input,
+        output,
         problem,
         cube_dim,
         cube_count,
@@ -186,11 +205,13 @@ pub(crate) fn matmul_cube_preparation<R: Runtime, EG: Numeric, D: Algorithm<EG>>
 }
 
 #[allow(clippy::too_many_arguments)]
-fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
+fn launch_matmul<'a, GA: GmmArgs<EG>, R: Runtime, EG: Numeric, D: Algorithm<GA, EG>>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    rhs: &TensorHandleRef<'_, R>,
-    out: &TensorHandleRef<'_, R>,
+    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
+    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
+    // lhs: &TensorHandleRef<'_, R>,
+    // rhs: &TensorHandleRef<'_, R>,
+    // out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
@@ -200,27 +221,25 @@ fn launch_matmul<R: Runtime, EG: Numeric, D: Algorithm<EG>>(
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<R>(
-            client,
-            cube_dim,
-            cube_count,
-            TensorArg::<R>::from_raw_parts::<D::EG>(
-                lhs.handle,
-                lhs.strides,
-                lhs.shape,
-                problem.lhs_line_size,
-            ),
-            TensorArg::<R>::from_raw_parts::<D::EG>(
-                rhs.handle,
-                rhs.strides,
-                rhs.shape,
-                problem.rhs_line_size,
-            ),
-            TensorArg::<R>::from_raw_parts::<D::EG>(
-                out.handle,
-                out.strides,
-                out.shape,
-                problem.out_line_size,
-            ),
+            client, cube_dim, cube_count, input, output,
+            // TensorArg::<R>::from_raw_parts::<D::EG>(
+            //     lhs.handle,
+            //     lhs.strides,
+            //     lhs.shape,
+            //     problem.lhs_line_size,
+            // ),
+            // TensorArg::<R>::from_raw_parts::<D::EG>(
+            //     rhs.handle,
+            //     rhs.strides,
+            //     rhs.shape,
+            //     problem.rhs_line_size,
+            // ),
+            // TensorArg::<R>::from_raw_parts::<D::EG>(
+            //     out.handle,
+            //     out.strides,
+            //     out.shape,
+            //     problem.out_line_size,
+            // ),
             config,
         );
     };
