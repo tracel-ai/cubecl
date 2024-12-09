@@ -305,27 +305,27 @@ pub struct CubeDim {
 
 impl CubeDim {
     /// Create a new cube dim with x = y = z = 1.
-    pub fn new_single() -> Self {
+    pub const fn new_single() -> Self {
         Self { x: 1, y: 1, z: 1 }
     }
 
     /// Create a new cube dim with the given x, and y = z = 1.
-    pub fn new_1d(x: u32) -> Self {
+    pub const fn new_1d(x: u32) -> Self {
         Self { x, y: 1, z: 1 }
     }
 
     /// Create a new cube dim with the given x and y, and z = 1.
-    pub fn new_2d(x: u32, y: u32) -> Self {
+    pub const fn new_2d(x: u32, y: u32) -> Self {
         Self { x, y, z: 1 }
     }
 
     /// Create a new cube dim with the given x, y and z.
     /// This is equivalent to the [new](CubeDim::new) function.
-    pub fn new_3d(x: u32, y: u32, z: u32) -> Self {
+    pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
 
-    pub fn num_elems(&self) -> u32 {
+    pub const fn num_elems(&self) -> u32 {
         self.x * self.y * self.z
     }
 }

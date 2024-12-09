@@ -16,6 +16,10 @@ impl<In: Numeric> Reduce<In> for Sum {
         Line::empty(line_size).fill(In::from_int(0))
     }
 
+    fn null_value() -> In {
+        In::from_int(0)
+    }
+
     fn reduce(
         accumulator: &mut Self::Accumulator,
         item: Line<In>,

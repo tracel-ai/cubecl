@@ -91,7 +91,7 @@ macro_rules! testgen_reduce {
 
 // For a given tensor description and cube settings
 // run the tests for `ReduceSum`, `ReduceProd`, `ReduceMean`, `ReduceArgMax` and `ReduceArgMin`
-// for all implementations.
+// for all strategies.
 // For each test, a reference reduction is computed on the CPU to compare the outcome of the kernel.
 #[macro_export]
 macro_rules! impl_test_reduce {
@@ -106,60 +106,91 @@ macro_rules! impl_test_reduce {
                     axis: $axis:expr,
                 }
             ),*
-        ]) => {
+        ]
+    ) => {
+        ::paste::paste! {
+            $(
+                $crate::impl_test_reduce_with_strategy!{
+                    $float,
+                    {
+                        id: $id,
+                        shape: $shape,
+                        stride: $stride,
+                        axis: $axis,
+                    },
+                    [ use_planes: false, shared: false ],
+                    [ use_planes: true, shared: false ]
+                }
+            )*
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_test_reduce_with_strategy {
+    (
+        $float:ident,
+        {
+            id: $id:literal,
+            shape: $shape:expr,
+            stride: $stride:expr,
+            axis: $axis:expr,
+        },
+        $([use_planes: $use_planes:expr, shared: $shared:expr]),*
+    ) => {
         ::paste::paste! {
             $(
                 #[test]
-                pub fn [< reduce_argmax_unit_ $id >]() {
+                pub fn [< reduce_argmax_ $id _plane_ $use_planes _shared_ $shared >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
                     };
                     test.test_argmax::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_argmin_unit_ $id >]() {
+                pub fn [< reduce_argmin_ $id _plane_ $use_planes _shared_ $shared >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
                     };
                     test.test_argmin::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_mean_unit_ $id >]() {
+                pub fn [< reduce_mean_ $id _plane_ $use_planes _shared_ $shared >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
                     };
                     test.test_mean::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_prod_unit_ $id >]() {
+                pub fn [< reduce_prod_ $id _plane_ $use_planes _shared_ $shared >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
                     };
                     test.test_prod::<$float, TestRuntime>(&Default::default());
                 }
 
                 #[test]
-                pub fn [< reduce_sum_unit_ $id >]() {
+                pub fn [< reduce_sum_ $id _plane_ $use_planes _shared_ $shared >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
                         axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: false, shared: false },
+                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
                     };
                     test.test_sum::<$float, TestRuntime>(&Default::default());
                 }
@@ -279,46 +310,6 @@ impl TestCase {
         }
         expected
     }
-
-    // pub fn test_prod_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_prod(&input_values);
-    //     self.run_test_naive::<F, F, R, Prod>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_mean_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_mean(&input_values);
-    //     self.run_test_naive::<F, F, R, Mean>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_argmax_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_argmax(&input_values);
-    //     self.run_test_naive::<F, u32, R, ArgMax>(device, input_values, expected_values)
-    // }
-
-    // pub fn test_argmin_naive<F, R>(&self, device: &R::Device)
-    // where
-    //     F: Float + CubeElement + std::fmt::Display,
-    //     R: Runtime,
-    // {
-    //     let input_values: Vec<F> = self.random_input_values();
-    //     let expected_values = self.cpu_argmin(&input_values);
-    //     self.run_test_naive::<F, u32, R, ArgMin>(device, input_values, expected_values)
-    // }
 
     pub fn run_test<I, O, R, K>(
         &self,

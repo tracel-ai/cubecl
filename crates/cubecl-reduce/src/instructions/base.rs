@@ -10,6 +10,8 @@ pub trait Reduce<In: Numeric>: Send + Sync + 'static {
 
     fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
 
+    fn null_value() -> In;
+
     fn reduce(
         accumulator: &mut Self::Accumulator,
         item: Line<In>,

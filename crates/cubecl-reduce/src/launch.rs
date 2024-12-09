@@ -10,17 +10,15 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: u32,
-    cube_count: CubeCount,
-    cube_dim: CubeDim,
     config: ReduceConfig,
     strategy: ReduceStrategy,
 ) {
     match (strategy.use_planes, strategy.shared, config.line_mode) {
         (false, false, LineMode::Parallel) => unsafe {
-            kernel_reduce_parallel::launch_unchecked::<In, Out, Inst, R>(
+            kernel_reduce_unit_parallel::launch_unchecked::<In, Out, Inst, R>(
                 client,
-                cube_count,
-                cube_dim,
+                config.cube_count,
+                config.cube_dim,
                 input.as_tensor_arg(config.line_size as u8),
                 output.as_tensor_arg(1),
                 ScalarArg::new(axis),
@@ -29,10 +27,22 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
             )
         },
         (false, false, LineMode::Perpendicular) => unsafe {
-            kernel_reduce_perpendicular::launch_unchecked::<In, Out, Inst, R>(
+            kernel_reduce_unit_perpendicular::launch_unchecked::<In, Out, Inst, R>(
                 client,
-                cube_count,
-                cube_dim,
+                config.cube_count,
+                config.cube_dim,
+                input.as_tensor_arg(config.line_size as u8),
+                output.as_tensor_arg(1),
+                ScalarArg::new(axis),
+                config.line_size,
+                config.bound_checks,
+            )
+        },
+        (true, false, _) => unsafe {
+            kernel_reduce_plane::launch_unchecked::<In, Out, Inst, R>(
+                client,
+                config.cube_count,
+                config.cube_dim,
                 input.as_tensor_arg(config.line_size as u8),
                 output.as_tensor_arg(1),
                 ScalarArg::new(axis),
@@ -45,7 +55,7 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
+fn kernel_reduce_unit_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -68,13 +78,12 @@ fn kernel_reduce_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
         stride,
         line_size,
         LineMode::Parallel,
-        false,
     );
     output[ABSOLUTE_POS] = Inst::merge_line::<Out>(out, input.shape(axis_reduce))
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_perpendicular<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
+fn kernel_reduce_unit_perpendicular<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -99,7 +108,6 @@ fn kernel_reduce_perpendicular<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
         stride,
         line_size,
         LineMode::Perpendicular,
-        false,
     );
 
     let out = Inst::to_output_perpendicular(out, input.shape(axis_reduce));
@@ -108,6 +116,37 @@ fn kernel_reduce_perpendicular<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     for k in 0..line_size {
         output[line_size * ABSOLUTE_POS + k] = out[k];
     }
+}
+
+#[cube(launch_unchecked)]
+fn kernel_reduce_plane<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
+    input: &Tensor<Line<In>>,
+    output: &mut Tensor<Out>,
+    axis_reduce: u32,
+    #[comptime] line_size: u32,
+    #[comptime] bound_checks: bool,
+) {
+    let plane_count_per_cube = CUBE_DIM_Y;
+    let plane_pos = plane_count_per_cube * CUBE_POS + UNIT_POS_Y;
+
+    if bound_checks && plane_pos >= output.len() {
+        return;
+    }
+
+    // Compute the first index where to start the reduction.
+    let offset = compute_reduce_offset(plane_pos, input, output, line_size);
+    let stride = div_ceil(input.stride(axis_reduce), line_size); // 1
+    let shape = div_ceil(input.shape(axis_reduce), line_size);
+
+    let end = offset + shape * stride;
+    let out = reduce_slice_plane::<In, Inst>(
+        input.to_slice(),
+        offset,
+        select(end < input.len(), end, input.len()),
+        stride,
+        line_size,
+    );
+    output[plane_pos] = Inst::merge_line::<Out>(out, input.shape(axis_reduce))
 }
 
 #[cube]
@@ -133,7 +172,6 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
     stride: u32,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
-    #[comptime] use_planes: bool,
 ) -> Instr::Accumulator {
     let mut accumulator = Instr::init_accumulator(line_size);
 
@@ -143,17 +181,56 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
         let coordinates = match comptime!(line_mode) {
             LineMode::Parallel => {
                 let mut coordinates = Line::empty(line_size).fill(coordinate * line_size);
-                #[unroll]
-                for j in 0..line_size {
-                    coordinates[j] += j;
+                if line_size > 1 {
+                    #[unroll]
+                    for j in 0..line_size {
+                        coordinates[j] += j;
+                    }
                 }
                 coordinates
             }
             LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
         };
-        Instr::reduce(&mut accumulator, items[index], coordinates, use_planes);
+        Instr::reduce(&mut accumulator, items[index], coordinates, false);
         index += stride;
         coordinate += 1;
+    }
+    accumulator
+}
+
+#[cube]
+pub fn reduce_slice_plane<N: Numeric, Instr: Reduce<N>>(
+    items: Slice<Line<N>>,
+    start: u32,
+    end: u32,
+    stride: u32,
+    #[comptime] line_size: u32,
+) -> Instr::Accumulator {
+    let mut accumulator = Instr::init_accumulator(line_size);
+
+    let mut first_index = start;
+    let mut first_coordinate = 0;
+    while first_index < end {
+        let mut coordinates =
+            Line::empty(line_size).fill((first_coordinate + UNIT_POS_X) * line_size);
+        if line_size > 1 {
+            #[unroll]
+            for j in 0..line_size {
+                coordinates[j] += j;
+            }
+        }
+
+        let index = first_index + UNIT_POS_X * stride;
+        let item = select(
+            index < end,
+            items[index],
+            Line::empty(line_size).fill(Instr::null_value()),
+        );
+
+        Instr::reduce(&mut accumulator, item, coordinates, true);
+        let plane_dim = CUBE_DIM_X;
+        first_index += plane_dim * stride;
+        first_coordinate += plane_dim;
     }
     accumulator
 }
