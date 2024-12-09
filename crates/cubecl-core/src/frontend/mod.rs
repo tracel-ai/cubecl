@@ -10,6 +10,7 @@ mod element;
 mod indexation;
 mod operation;
 mod plane;
+mod ptr;
 mod topology;
 
 pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
@@ -20,4 +21,5 @@ pub use element::*;
 pub use indexation::*;
 pub use operation::*;
 pub use plane::*;
+pub use ptr::*;
 pub use topology::*;

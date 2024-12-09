@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::frontend::{
     CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
 };
-use crate::prelude::SizedContainer;
+use crate::prelude::{AsPtr, SizedContainer};
 use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
@@ -18,6 +18,8 @@ use crate::{
 pub struct Array<E> {
     _val: PhantomData<E>,
 }
+
+impl<E: CubePrimitive> AsPtr for Array<E> {}
 
 /// Module that contains the implementation details of the new function.
 mod new {

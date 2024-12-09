@@ -102,7 +102,7 @@ impl<D: Dialect> Display for Body<D> {
                 const_array.item, const_array.index, const_array.size
             ))?;
             let elem = const_array.item.elem;
-            for value in const_array.values.iter().copied() {
+            for value in const_array.values.iter().cloned() {
                 let value = match value {
                     Variable::ConstantScalar(value, _) => Variable::ConstantScalar(value, elem),
                     _ => unreachable!("Value is always constant"),
@@ -116,7 +116,7 @@ impl<D: Dialect> Display for Body<D> {
         for array in self.local_arrays.iter() {
             write!(
                 f,
-                "{} l_arr_{}_{}[{}];\n\n",
+                "{:?} l_arr_{}_{}[{}];\n\n",
                 array.item, array.index, array.depth, array.size
             )?;
         }

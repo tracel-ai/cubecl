@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::{ir::ConstantScalarValue, prelude::CubePrimitive};
 
 use super::{
@@ -21,6 +23,8 @@ pub struct Scope {
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     slices: Vec<Variable>,
+    // ptrs_ref: Rc<RefCellBTreeMap<(u16, u8), Variable>,
+    ptrs: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
     local_arrays: Vec<Variable>,
@@ -53,6 +57,8 @@ impl Scope {
             locals: Vec::new(),
             matrices: Vec::new(),
             slices: Vec::new(),
+            // ptrs_ref: BTreeMap::new(),
+            ptrs: Vec::new(),
             local_arrays: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),
@@ -121,6 +127,22 @@ impl Scope {
         );
         self.slices.push(variable);
         variable
+    }
+
+    /// Create a ptr variable
+    pub fn create_ptr(&mut self, variable: Variable) -> Variable {
+        // New ptr
+        let id = self.ptrs.len() as u16;
+        let ptr = Variable::new(
+            VariableKind::Ptr {
+                id,
+                depth: self.depth,
+            },
+            variable.item,
+        );
+        // self.ptrs_ref.insert(id, variable);
+        self.ptrs.push(ptr);
+        ptr
     }
 
     /// Create a local variable of the given [item type](Item).
@@ -258,6 +280,8 @@ impl Scope {
     /// Create an empty child scope.
     pub fn child(&mut self) -> Self {
         Self {
+            ptrs: Vec::new(),
+            // ptrs_ref: BTreeMap::new(),
             depth: self.depth + 1,
             operations: Vec::new(),
             locals: Vec::new(),

@@ -98,6 +98,10 @@ pub enum Instruction<D: Dialect> {
         end: Variable<D>,
         out: Variable<D>,
     },
+    Ptr {
+        kind: Variable<D>,
+        out: Variable<D>,
+    },
     Return,
     Break,
     Equal(BinaryInstruction<D>),
@@ -198,6 +202,22 @@ impl<D: Dialect> Display for Instruction<D> {
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
                 writeln!(f, "{item} *{out} = {input} + {start};")
             }
+            Instruction::Ptr { kind, out } => match kind {
+                Variable::WmmaFragment { frag, .. } => {
+                    D::compile_fragment(frag, f)?;
+                    writeln!(f, " *{out} = &{kind};")
+                }
+                Variable::Slice { .. } => {
+                    // A slice is already a ptr.
+                    let item = kind.item();
+                    writeln!(f, "{item} *{out} = &{kind};")
+                }
+
+                _ => {
+                    let item = kind.item();
+                    writeln!(f, "{item} {out} = &{kind};")
+                }
+            },
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),

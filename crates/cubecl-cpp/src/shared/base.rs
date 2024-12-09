@@ -11,8 +11,9 @@ use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
-    FragmentIdent, FragmentLayout, IndexedVariable, Instruction, Item, LocalArray, SharedMemory,
-    UnaryInstruction, Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
+    FragmentIdent, FragmentLayout, IndexedVariable, Instruction, Item, LocalArray, LocalArrayKind,
+    SharedMemory, UnaryInstruction, Variable, VariableSettings, WarpInstruction, WmmaCompiler,
+    WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -192,7 +193,7 @@ impl<D: Dialect> CppCompiler<D> {
         let processing = scope.process();
 
         for var in processing.variables {
-            if let gpu::VariableKind::Slice { .. } = var.kind {
+            if let gpu::VariableKind::Slice { .. } | gpu::VariableKind::Ptr { .. } = var.kind {
                 continue;
             }
             instructions.push(Instruction::DeclareVariable {
@@ -740,6 +741,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Cast(op) => {
                 instructions.push(Instruction::Assign(self.compile_unary(op, out)))
             }
+            gpu::Operator::Ptr(op) => instructions.push(Instruction::Ptr {
+                kind: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
         };
     }
 
@@ -795,6 +800,7 @@ impl<D: Dialect> CppCompiler<D> {
                 item: self.compile_item(item),
                 depth,
             },
+            gpu::VariableKind::Ptr { id, depth } => Variable::Ptr { id, depth },
             gpu::VariableKind::GlobalOutputArray(id) => {
                 Variable::GlobalOutputArray(id, self.compile_item(item))
             }
@@ -862,14 +868,28 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::UnitPosPlane => Variable::ThreadIdxWarp,
             },
             gpu::VariableKind::LocalArray { id, depth, length } => {
-                let item = self.compile_item(item);
+                println!("{value:?}");
+                let item = match value.kind {
+                    gpu::VariableKind::Matrix { mat, .. } => {
+                        let frag = self.compile_matrix(mat);
+                        LocalArrayKind::Fragment(frag)
+                    }
+                    gpu::VariableKind::Slice { .. } => {
+                        let item = self.compile_item(item);
+                        LocalArrayKind::Slice(item)
+                    }
+                    _ => {
+                        let item = self.compile_item(item);
+                        LocalArrayKind::Item(item)
+                    }
+                };
                 if !self
                     .local_arrays
                     .iter()
                     .any(|s| s.index == id && s.depth == depth)
                 {
                     self.local_arrays
-                        .push(LocalArray::new(id, item, depth, length));
+                        .push(LocalArray::new(id, item.clone(), depth, length));
                 }
                 Variable::LocalArray(id, item, depth, length)
             }

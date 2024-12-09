@@ -85,12 +85,6 @@ impl<C: CubePrimitive> IntoRuntime for Matrix<C> {
     }
 }
 
-// impl<C: CubePrimitive> Init for ExpandElementTyped<Matrix<C>> {
-//     fn init(self, _context: &mut CubeContext) -> Self {
-//         self
-//     }
-// }
-
 impl<C: CubePrimitive> Matrix<C> {
     /// Create a new uninitialized matrix that is going to be used in the
     /// [matrix-multiply and accumulate](execute()) function.
@@ -268,14 +262,17 @@ pub mod load {
         let out = *mat;
 
         let ident = match out.kind {
-            ir::VariableKind::Matrix { id, mat, depth } => mat.ident,
-            _ => unreachable!("{:?}", out.kind),
+            ir::VariableKind::Matrix { id, mat, depth } => {
+                assert_ne!(
+                    mat.ident,
+                    MatrixIdent::Accumulator,
+                    "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
+                );
+            }
+            _ => {
+                // Can't perform validation.
+            }
         };
-        assert_ne!(
-            ident,
-            MatrixIdent::Accumulator,
-            "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
-        );
 
         context.register(Instruction::new(
             ir::CoopMma::Load {

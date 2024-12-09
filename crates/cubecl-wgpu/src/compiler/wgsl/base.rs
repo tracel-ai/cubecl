@@ -56,6 +56,10 @@ pub enum Variable {
     NumWorkgroupsZ,
     SubgroupSize,
     SubgroupInvocationId,
+    Ptr {
+        id: u16,
+        depth: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -119,6 +123,7 @@ impl Variable {
             Variable::NumWorkgroups => true,
             Variable::SubgroupSize => true,
             Variable::SubgroupInvocationId => true,
+            Variable::Ptr { .. } => false,
         }
     }
     pub fn index(&self, index: usize) -> IndexedVariable {
@@ -178,6 +183,45 @@ impl Variable {
             Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
             Self::SubgroupSize => Item::Scalar(Elem::U32),
             Self::SubgroupInvocationId => Item::Scalar(Elem::U32),
+            Variable::GlobalInputArray(_, item) => todo!(),
+            Variable::GlobalOutputArray(_, item) => todo!(),
+            Variable::GlobalScalar(_, elem, elem1) => todo!(),
+            Variable::ConstantScalar(constant_scalar_value, elem) => todo!(),
+            Variable::Local { id, item, depth } => todo!(),
+            Variable::LocalBinding { id, item } => todo!(),
+            Variable::Named {
+                name,
+                item,
+                is_array,
+            } => todo!(),
+            Variable::Slice { id, item, depth } => todo!(),
+            Variable::LocalScalar { id, elem, depth } => todo!(),
+            Variable::SharedMemory(_, item, _) => todo!(),
+            Variable::ConstantArray(_, item, _) => todo!(),
+            Variable::LocalArray(_, item, _, _) => todo!(),
+            Variable::Id => todo!(),
+            Variable::LocalInvocationIndex => todo!(),
+            Variable::LocalInvocationIdX => todo!(),
+            Variable::LocalInvocationIdY => todo!(),
+            Variable::LocalInvocationIdZ => todo!(),
+            Variable::WorkgroupId => todo!(),
+            Variable::WorkgroupIdX => todo!(),
+            Variable::WorkgroupIdY => todo!(),
+            Variable::WorkgroupIdZ => todo!(),
+            Variable::GlobalInvocationIdX => todo!(),
+            Variable::GlobalInvocationIdY => todo!(),
+            Variable::GlobalInvocationIdZ => todo!(),
+            Variable::WorkgroupSize => todo!(),
+            Variable::WorkgroupSizeX => todo!(),
+            Variable::WorkgroupSizeY => todo!(),
+            Variable::WorkgroupSizeZ => todo!(),
+            Variable::NumWorkgroups => todo!(),
+            Variable::NumWorkgroupsX => todo!(),
+            Variable::NumWorkgroupsY => todo!(),
+            Variable::NumWorkgroupsZ => todo!(),
+            Variable::SubgroupSize => todo!(),
+            Variable::SubgroupInvocationId => todo!(),
+            Variable::Ptr { id, depth } => todo!(),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -344,6 +388,7 @@ impl Display for Variable {
             Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
             Variable::SubgroupSize => f.write_str("subgroup_size"),
             Variable::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
+            Variable::Ptr { id, depth } => todo!(),
         }
     }
 }

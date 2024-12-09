@@ -286,6 +286,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         | VariableKind::Matrix { .. } => None?,
         VariableKind::Slice { id, depth } => Value::Slice(id, depth, item),
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
+        VariableKind::Ptr { id, depth } => todo!(),
     };
     Some(val)
 }

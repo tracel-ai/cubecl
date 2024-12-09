@@ -10,6 +10,7 @@ pub mod launch;
 pub mod line;
 pub mod metadata;
 pub mod plane;
+pub mod ptr;
 pub mod sequence;
 pub mod slice;
 pub mod tensor;
@@ -80,6 +81,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
         cubecl_core::testgen_unary!();
+        cubecl_core::testgen_ptr!();
     };
 }
 

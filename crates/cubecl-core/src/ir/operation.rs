@@ -146,6 +146,7 @@ pub enum Operator {
     CopyMemory(CopyMemoryOperator),
     CopyMemoryBulk(CopyMemoryBulkOperator),
     Slice(SliceOperator),
+    Ptr(UnaryOperator),
     UncheckedIndex(BinaryOperator),
     IndexAssign(BinaryOperator),
     InitLine(LineInitOperator),
@@ -247,6 +248,7 @@ impl Display for Operator {
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
+            Operator::Ptr(op) => write!(f, "ptr({})", op.input),
         }
     }
 }

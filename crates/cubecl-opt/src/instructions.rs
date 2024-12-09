@@ -141,6 +141,7 @@ impl Optimizer {
                 visit_read(self, &mut select.then);
                 visit_read(self, &mut select.or_else);
             }
+            Operator::Ptr(op) => todo!(),
         }
     }
 

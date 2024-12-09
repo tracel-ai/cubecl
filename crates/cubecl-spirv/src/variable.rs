@@ -444,6 +444,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::CoopMatrix(id, depth, elem)
                 }
             }
+            core::VariableKind::Ptr { id, depth } => todo!(),
         }
     }
 

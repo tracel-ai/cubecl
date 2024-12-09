@@ -49,6 +49,7 @@ pub enum VariableKind {
     LocalArray { id: Id, depth: u8, length: u32 },
     Matrix { id: Id, mat: Matrix, depth: u8 },
     Slice { id: Id, depth: u8 },
+    Ptr { id: Id, depth: u8 },
     Builtin(Builtin),
 }
 
@@ -88,6 +89,7 @@ impl Variable {
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
             VariableKind::Slice { .. } => false,
+            VariableKind::Ptr { .. } => false,
             VariableKind::LocalArray { .. } => false,
             VariableKind::GlobalInputArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
@@ -376,6 +378,7 @@ impl Variable {
             VariableKind::Versioned { id, .. } => Some(id),
             VariableKind::LocalBinding { id, .. } => Some(id),
             VariableKind::Slice { id, .. } => Some(id),
+            VariableKind::Ptr { id, .. } => Some(id),
             VariableKind::GlobalOutputArray(id) => Some(id),
             VariableKind::ConstantScalar(_) => None,
             VariableKind::ConstantArray { id, .. } => Some(id),
@@ -411,6 +414,7 @@ impl Display for Variable {
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
             VariableKind::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
             VariableKind::Slice { id, depth } => write!(f, "slice({id}, {depth})"),
+            VariableKind::Ptr { id, depth } => write!(f, "ptr({id}, {depth})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
         }
     }

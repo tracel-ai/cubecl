@@ -483,6 +483,7 @@ impl WgslCompiler {
             cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
+            cube::VariableKind::Ptr { id, depth } => wgsl::Variable::Ptr { id, depth },
         }
     }
 
@@ -1036,6 +1037,7 @@ impl WgslCompiler {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::Ptr(unary_operator) => todo!(),
         }
     }
 

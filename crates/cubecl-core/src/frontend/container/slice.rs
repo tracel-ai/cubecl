@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     frontend::{indexation::Index, Tensor},
     ir::{self, Operator},
-    prelude::{CubeContext, IntoRuntime},
+    prelude::{AsPtr, CubeContext, IntoRuntime},
     unexpanded,
 };
 use crate::{
@@ -25,6 +25,9 @@ use super::Line;
 pub struct Slice<E> {
     _e: PhantomData<E>,
 }
+
+impl<E: CubePrimitive> AsPtr for Slice<E> {}
+impl<E: CubePrimitive> AsPtr for SliceMut<E> {}
 
 /// A read-write contiguous list of elements.
 ///

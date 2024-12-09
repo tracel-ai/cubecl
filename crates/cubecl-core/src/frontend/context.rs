@@ -84,6 +84,12 @@ impl CubeContext {
         ExpandElement::Plain(variable)
     }
 
+    /// Create a new ptr.
+    pub fn create_ptr(&mut self, var: Variable) -> ExpandElement {
+        let variable = self.scope.borrow_mut().create_ptr(var);
+        ExpandElement::Plain(variable)
+    }
+
     pub fn create_shared(&mut self, item: Item, size: u32) -> ExpandElement {
         ExpandElement::Plain(self.root.borrow_mut().create_shared(item, size))
     }

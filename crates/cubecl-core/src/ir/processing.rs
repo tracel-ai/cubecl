@@ -228,6 +228,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
                     }
                     Operator::Cast(_) => {}
+                    Operator::Ptr(_) => {}
                 },
                 Operation::Atomic(op) => match op {
                     AtomicOp::Load(_) => {}

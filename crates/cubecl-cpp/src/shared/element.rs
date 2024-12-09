@@ -5,7 +5,7 @@ use cubecl_core::{
 use half::{bf16, f16};
 use std::fmt::Display;
 
-use super::{Dialect, Fragment, FragmentIdent, COUNTER_TMP_VAR};
+use super::{Dialect, Fragment, FragmentIdent, LocalArrayKind, COUNTER_TMP_VAR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem<D: Dialect> {
@@ -122,6 +122,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Local { item, .. } => *item,
             Variable::ConstLocal { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
+            Variable::Ptr { .. } => Item::scalar(Elem::U32), // TODO: Change that
             Variable::ConstantScalar(_, e) => Item::scalar(*e),
             Variable::GlobalScalar(_, e, _) => Item::scalar(*e),
             Variable::IdxGlobal => Item::scalar(Elem::U32),
@@ -141,7 +142,11 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GridDimX => Item::scalar(Elem::U32),
             Variable::GridDimY => Item::scalar(Elem::U32),
             Variable::GridDimZ => Item::scalar(Elem::U32),
-            Variable::LocalArray(_, e, _, _) => *e,
+            Variable::LocalArray(_, e, _, _) => match e {
+                LocalArrayKind::Item(item) => *item,
+                LocalArrayKind::Slice(item) => *item,
+                LocalArrayKind::Fragment(frag) => Item::scalar(frag.elem),
+            },
             Variable::WarpSize => Item::scalar(Elem::U32),
             Variable::ThreadIdxWarp => Item::scalar(Elem::U32),
             Variable::WmmaFragment {
@@ -185,8 +190,12 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
         depth: u8,
     },
+    Ptr {
+        id: u16,
+        depth: u8,
+    },
     SharedMemory(u16, Item<D>, u32),
-    LocalArray(u16, Item<D>, u8, u32),
+    LocalArray(u16, LocalArrayKind<D>, u8, u32),
     IdxGlobal,
     ThreadIdxGlobal,
     ThreadIdxX,
@@ -227,6 +236,10 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, item: _, depth } => {
                 write!(f, "slice_{depth}_{id}")
             }
+            Variable::Ptr { id, depth } => {
+                write!(f, "*ptr_{depth}_{id}")
+            }
+
             Variable::GlobalOutputArray(number, _) => write!(f, "output_{number}"),
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
@@ -386,12 +399,21 @@ impl<D: Dialect> Variable<D> {
                 Variable::SharedMemory(*id, item, size / scaling)
             }
             Variable::LocalArray(id, item, vec, size) => {
-                let before = item.vectorization;
-                let item = item.optimized();
-                let after = item.vectorization;
-                let scaling = (before / after) as u32;
+                if let LocalArrayKind::Item(item) = item {
+                    let before = item.vectorization;
+                    let item = item.optimized();
+                    let after = item.vectorization;
+                    let scaling = (before / after) as u32;
 
-                Variable::LocalArray(*id, item.optimized(), *vec, size / scaling)
+                    Variable::LocalArray(
+                        *id,
+                        LocalArrayKind::Item(item.optimized()),
+                        *vec,
+                        size / scaling,
+                    )
+                } else {
+                    *self
+                }
             }
             _ => *self,
         }
@@ -413,6 +435,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Local { .. } => false,
             Variable::ConstLocal { .. } => false,
             Variable::Slice { .. } => false,
+            Variable::Ptr { .. } => false,
             Variable::BlockIdxX => true,
             Variable::BlockIdxY => true,
             Variable::BlockIdxZ => true,

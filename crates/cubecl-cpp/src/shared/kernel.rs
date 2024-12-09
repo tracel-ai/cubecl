@@ -1,4 +1,4 @@
-use super::{Body, Dialect, Item, Variable};
+use super::{Body, Dialect, Fragment, Item, Variable};
 use cubecl_core::{ir::CubeDim, CompilerRepresentation};
 use std::{collections::HashSet, fmt::Display};
 
@@ -26,13 +26,30 @@ pub struct ConstArray<D: Dialect> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray<D: Dialect> {
     pub index: u16,
-    pub item: Item<D>,
+    pub item: LocalArrayKind<D>,
     pub depth: u8,
     pub size: u32,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum LocalArrayKind<D: Dialect> {
+    Item(Item<D>),
+    Fragment(Fragment<D>),
+    Slice(Item<D>),
+}
+
+impl<D: Dialect> Display for LocalArrayKind<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocalArrayKind::Item(val) => write!(f, "{val}"),
+            LocalArrayKind::Slice(val) => write!(f, "*{val}"),
+            LocalArrayKind::Fragment(val) => write!(f, "{val}"),
+        }
+    }
+}
+
 impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: u16, item: Item<D>, depth: u8, size: u32) -> Self {
+    pub fn new(index: u16, item: LocalArrayKind<D>, depth: u8, size: u32) -> Self {
         Self {
             index,
             item,

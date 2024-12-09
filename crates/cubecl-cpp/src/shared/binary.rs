@@ -17,7 +17,7 @@ pub trait Binary<D: Dialect> {
         if out.item().vectorization == 1 {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
-            Self::format_scalar(f, *lhs, *rhs, out_item)?;
+            Self::format_scalar(f, lhs.clone(), rhs.clone(), out_item)?;
             f.write_str(";\n")
         } else {
             Self::unroll_vec(f, lhs, rhs, out)
@@ -40,7 +40,7 @@ pub trait Binary<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+        let optimized = Variable::optimized_args([lhs.clone(), rhs.clone(), out.clone()]);
         let [lhs, rhs, out_optimized] = optimized.args;
 
         let item_out_original = out.item();
@@ -284,7 +284,7 @@ impl<D: Dialect> Binary<D> for IndexAssign {
 
         if lhs.item().vectorization == 1 {
             write!(f, "{}[{lhs}] = ", out.fmt_left())?;
-            Self::format_scalar(f, *lhs, *rhs, out_item)?;
+            Self::format_scalar(f, lhs.clone(), rhs.clone(), out_item)?;
             f.write_str(";\n")
         } else {
             Self::unroll_vec(f, lhs, rhs, out)
@@ -309,7 +309,7 @@ impl<D: Dialect> Binary<D> for Index {
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
-            Self::format_scalar(f, *lhs, *rhs, item_out)?;
+            Self::format_scalar(f, lhs.clone(), rhs.clone(), item_out)?;
             f.write_str(";\n")
         }
     }
