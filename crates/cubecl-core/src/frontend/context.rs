@@ -7,6 +7,7 @@ pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,
     pub local_allocator: Rc<dyn LocalAllocator>,
+    pub debug_enabled: bool,
 }
 
 impl Default for CubeContext {
@@ -28,6 +29,10 @@ impl CubeContext {
             local_allocator: Rc::new(allocator),
             scope,
             root,
+            #[cfg(feature = "std")]
+            debug_enabled: std::env::var("CUBECL_DEBUG_LOG").is_ok(),
+            #[cfg(not(feature = "std"))]
+            debug_enabled: false,
         }
     }
 
@@ -42,6 +47,7 @@ impl CubeContext {
             scope: Rc::new(RefCell::new(scope)),
             root: self.root.clone(),
             local_allocator: self.local_allocator.clone(),
+            debug_enabled: self.debug_enabled,
         }
     }
 

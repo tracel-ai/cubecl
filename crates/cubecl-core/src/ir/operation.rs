@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Branch, CoopMma, Item, Plane, Scope, Select, Synchronization, Variable};
+use super::{Branch, CoopMma, DebugInfo, Item, Plane, Scope, Select, Synchronization, Variable};
 use crate::{
     cpa,
     ir::{Elem, UIntKind},
@@ -26,6 +26,8 @@ pub enum Operation {
     Synchronization(Synchronization),
     Plane(Plane),
     CoopMma(CoopMma),
+    /// Debug instructions, currently only for SPIR-V
+    Debug(DebugInfo),
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
@@ -106,6 +108,8 @@ impl Display for Operation {
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
+            // Debug info has no semantic meaning
+            Operation::Debug(_) => Ok(()),
         }
     }
 }
@@ -430,5 +434,20 @@ impl From<Synchronization> for Instruction {
 impl From<Metadata> for Operation {
     fn from(val: Metadata) -> Self {
         Operation::Metadata(val)
+    }
+}
+
+impl From<DebugInfo> for Operation {
+    fn from(val: DebugInfo) -> Self {
+        Operation::Debug(val)
+    }
+}
+
+impl From<DebugInfo> for Instruction {
+    fn from(value: DebugInfo) -> Self {
+        Instruction {
+            out: None,
+            operation: value.into(),
+        }
     }
 }

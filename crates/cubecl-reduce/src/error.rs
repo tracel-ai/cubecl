@@ -10,7 +10,7 @@ impl fmt::Display for ReduceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PlanesUnavailable => write!(f, "Trying to launch a kernel using plane instructions, but there are not supported by the hardware."),
-            Self::ImprecisePlaneDim => write!(f, "Trying to launch a kernel using plane instructions, but the min and max plane dimensions are differents.")
+            Self::ImprecisePlaneDim => write!(f, "Trying to launch a kernel using plane instructions, but the min and max plane dimensions are different.")
         }
     }
 }

@@ -32,6 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Plane(plane) => self.compile_plane(plane, inst.out),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
+            Operation::Debug(debug) => self.compile_debug(debug),
         }
     }
 

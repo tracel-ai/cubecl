@@ -316,6 +316,7 @@ impl ScopeProcessing {
                         // Nothing to do.
                     }
                 },
+                Operation::Debug(_) => {}
             });
         self
     }
