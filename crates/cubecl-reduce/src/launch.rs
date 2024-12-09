@@ -138,8 +138,6 @@ fn kernel_reduce_plane<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     let stride = div_ceil(input.stride(axis_reduce), line_size); // 1
     let shape = div_ceil(input.shape(axis_reduce), line_size);
 
-    output[plane_pos] = Out::cast_from(1000000 * stride + 1000 * shape + offset);
-
     let end = offset + shape * stride;
     let out = reduce_slice_plane::<In, Inst>(
         input.to_slice(),
