@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
-use crate::matmul::components::global::args::{GmmArgs, TensorInput, TensorOutput};
-use crate::matmul::components::MatmulProblem;
+use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
 };
+use crate::matmul::components::{InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -18,40 +18,24 @@ use super::{Config as _, CubeDispatch};
 ///
 /// The algorithm supports any number of cubes,
 /// looping as needed to process all data.
-pub struct Matmul<
-    GA: GmmArgs<EG>,
-    EG: Numeric,
-    ES: Numeric,
-    GMM: global::Matmul<GA, EG, ES>,
-    S: SpanMatmul,
-    C: CubeDispatch,
-> {
-    _ga: PhantomData<GA>,
-    _eg: PhantomData<EG>,
-    _es: PhantomData<ES>,
+pub struct Matmul<MS: MatmulSpec, GMM: global::Matmul<MS>, S: SpanMatmul, C: CubeDispatch> {
+    _ms: PhantomData<MS>,
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
     _c: PhantomData<C>,
 }
 
 #[cube]
-impl<
-        GA: GmmArgs<EG>,
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<GA, EG, ES>,
-        S: SpanMatmul,
-        C: CubeDispatch,
-    > batch::Matmul<GA, EG> for Matmul<GA, EG, ES, GMM, S, C>
+impl<MS: MatmulSpec, GMM: global::Matmul<MS>, S: SpanMatmul, C: CubeDispatch> batch::Matmul<MS>
+    for Matmul<MS, GMM, S, C>
 {
     fn execute(
-        lhs: TensorInput<EG, GA>,
-        rhs: TensorInput<EG, GA>,
-        out: TensorOutput<EG, GA>,
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         #[comptime] config: Self::Config,
     ) {
-        // let rank = out.rank();
-        let rank = 3u32;
+        let rank = out.rank();
         let shape_x = out.shape(rank - 2);
         let shape_y = out.shape(rank - 1);
 
@@ -81,18 +65,12 @@ impl<
 
         let gmm_config = config.to_gmm_config();
         let acc = GMM::init_accumulator(gmm_config);
-        S::execute::<GA, EG, ES, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
+        S::execute::<MS, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
     }
 }
 
-impl<
-        GA: GmmArgs<EG>,
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<GA, EG, ES>,
-        S: SpanMatmul,
-        C: CubeDispatch,
-    > MatmulKernel<EG, EG> for Matmul<GA, EG, ES, GMM, S, C>
+impl<MS: MatmulSpec, GMM: global::Matmul<MS>, S: SpanMatmul, C: CubeDispatch> MatmulKernel
+    for Matmul<MS, GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
 
@@ -123,25 +101,19 @@ impl<
     }
 }
 
-impl<
-        GA: GmmArgs<EG>,
-        EG: Numeric,
-        ES: Numeric,
-        GMM: global::Matmul<GA, EG, ES>,
-        S: SpanMatmul,
-        C: CubeDispatch,
-    > MatmulLaunch<EG, EG, GA> for Matmul<GA, EG, ES, GMM, S, C>
+impl<MS: MatmulSpec, GMM: global::Matmul<MS>, S: SpanMatmul, C: CubeDispatch> MatmulLaunch<MS>
+    for Matmul<MS, GMM, S, C>
 {
     unsafe fn launch_unchecked<'a, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
-        output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::batch_matmul::launch_unchecked::<GA, EG, Self, R>(
+        super::batch_matmul::launch_unchecked::<MS, Self, R>(
             client, cube_count, cube_dim, input, output, config,
         );
     }

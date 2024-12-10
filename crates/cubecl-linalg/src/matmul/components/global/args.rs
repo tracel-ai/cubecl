@@ -12,6 +12,10 @@ pub trait GmmArgs<EG: Numeric>: Send + Sync + 'static + Clone {
     fn read_lhs(state: &Self::State, coordinate: u32) -> Line<EG>;
     fn read_rhs(state: &Self::State, coordinate: u32) -> Line<EG>;
 
+    fn rank_lhs(state: &Self::State) -> u32;
+    fn rank_rhs(state: &Self::State) -> u32;
+    fn rank_out(state: &Self::State) -> u32;
+
     fn shape_lhs(state: &Self::State, dim: u32) -> u32;
     fn shape_rhs(state: &Self::State, dim: u32) -> u32;
     fn shape_out(state: &Self::State, dim: u32) -> u32;
@@ -147,6 +151,14 @@ impl<EG: Numeric, GA: GmmArgs<EG>> TensorInput<EG, GA> {
             }
         }
     }
+    pub fn rank(&self) -> u32 {
+        unsafe {
+            match comptime![&self.ident] {
+                Ident::Lhs => GA::rank_lhs(&(*self.state)),
+                Ident::Rhs => GA::rank_rhs(&(*self.state)),
+            }
+        }
+    }
 }
 
 #[cube]
@@ -163,6 +175,9 @@ impl<EG: Numeric, GA: GmmArgs<EG>> TensorOutput<EG, GA> {
     }
     pub fn stride(&self, dim: u32) -> u32 {
         unsafe { GA::stride_out(&mut (*self.state), dim) }
+    }
+    pub fn rank(&self) -> u32 {
+        unsafe { GA::rank_out(&mut (*self.state)) }
     }
 }
 
@@ -223,5 +238,17 @@ impl<EG: Numeric> GmmArgs<EG> for TensorArgs {
 
     fn write_out(state: &mut Self::State, coordinate: u32, value: Line<EG>) {
         unsafe { (*state.2)[coordinate] = value }
+    }
+
+    fn rank_lhs(state: &Self::State) -> u32 {
+        unsafe { (*state.0).rank() }
+    }
+
+    fn rank_rhs(state: &Self::State) -> u32 {
+        unsafe { (*state.1).rank() }
+    }
+
+    fn rank_out(state: &Self::State) -> u32 {
+        unsafe { (*state.2).rank() }
     }
 }

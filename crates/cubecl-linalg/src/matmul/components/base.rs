@@ -1,12 +1,12 @@
 use cubecl_core::prelude::*;
 
-use super::global::args::GmmArgs;
+use super::{InputRuntimeArg, MatmulSpec, OutputRuntimeArg};
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 
 use super::{config::MatmulConfig, MatmulProblem};
 
 /// Provides configuration for a matmul kernel at any level
-pub trait MatmulKernel<I: Numeric, O: Numeric> {
+pub trait MatmulKernel {
     /// Configuration tailored to the matmul implementation
     type Config: MatmulConfig;
 
@@ -28,7 +28,7 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
 }
 
 /// Provides launch entry point to solve a matmul
-pub trait MatmulLaunch<I: Numeric, O: Numeric, GA: GmmArgs<I>>: MatmulKernel<I, O> {
+pub trait MatmulLaunch<MS: MatmulSpec>: MatmulKernel {
     /// Entry point
     ///
     /// # Safety
@@ -38,8 +38,8 @@ pub trait MatmulLaunch<I: Numeric, O: Numeric, GA: GmmArgs<I>>: MatmulKernel<I, 
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
-        output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
-        config: <Self as MatmulKernel<I, O>>::Config,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        config: <Self as MatmulKernel>::Config,
     );
 }

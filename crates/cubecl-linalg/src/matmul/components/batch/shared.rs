@@ -1,21 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global;
-use crate::matmul::components::global::args::{GmmArgs, TensorInput, TensorOutput};
+use crate::matmul::components::global::args::{TensorInput, TensorOutput};
+use crate::matmul::components::{global, MatmulSpec};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute<
-    GA: GmmArgs<EG>,
-    EG: Numeric,
-    ES: Numeric,
-    GMM: global::Matmul<GA, EG, ES>,
->(
-    lhs: TensorInput<EG, GA>,
-    rhs: TensorInput<EG, GA>,
-    out: TensorOutput<EG, GA>,
+pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    lhs: TensorInput<MS::EG, MS::Args>,
+    rhs: TensorInput<MS::EG, MS::Args>,
+    out: TensorOutput<MS::EG, MS::Args>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
@@ -23,8 +18,7 @@ pub(crate) fn gmm_execute<
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
-    // let rank = out.rank();
-    let rank = 3u32;
+    let rank = out.rank();
     let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
     let mut batch_lhs = 0u32.runtime();
     let mut batch_rhs = 0u32.runtime();

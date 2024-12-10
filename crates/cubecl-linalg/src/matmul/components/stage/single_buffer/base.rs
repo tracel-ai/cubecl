@@ -145,7 +145,7 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS> MatmulKernel<I, O> for Matmul<I, O, Acc, TMM, SS>
+impl<I, O, Acc, TMM, SS> MatmulKernel for Matmul<I, O, Acc, TMM, SS>
 where
     I: Numeric,
     O: Numeric,

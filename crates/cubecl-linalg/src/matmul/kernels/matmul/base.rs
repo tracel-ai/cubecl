@@ -1,3 +1,5 @@
+use core::any::TypeId;
+
 use cubecl_core::prelude::*;
 
 use cubecl_core::{
@@ -5,8 +7,10 @@ use cubecl_core::{
 };
 
 use crate::matmul;
-use crate::matmul::components::global::args::{GmmArgs, TensorArgs, TensorInputsLaunch};
-use crate::matmul::components::{MatmulLaunch, MatmulProblem};
+use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulLaunch, MatmulProblem, MatmulSpec, OutputRuntimeArg, SingleMatmulSpec,
+};
 use crate::matmul::kernels::MatmulLaunchError;
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
@@ -141,47 +145,54 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         out_line_size,
     };
 
-    matmul_select_kernel::<TensorArgs, R, EG>(
-        client,
-        TensorInputsLaunch::new(
-            lhs.as_tensor_arg(lhs_line_size),
-            rhs.as_tensor_arg(rhs_line_size),
-        ),
-        out.as_tensor_arg(out_line_size),
-        problem,
-        disable_cmma,
-    )
+    if TypeId::of::<EG>() == TypeId::of::<half::f16>()
+        || TypeId::of::<EG>() == TypeId::of::<flex32>()
+    {
+        matmul_select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            disable_cmma,
+        )
+    } else {
+        matmul_select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            disable_cmma,
+        )
+    }
 }
 
-fn matmul_select_kernel<'a, GA, R, EG>(
+pub fn matmul_select_kernel<'a, MS: MatmulSpec, R>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
-    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     disable_cmma: bool,
 ) -> Result<(), MatmulLaunchError>
 where
-    GA: GmmArgs<EG>,
     R: Runtime,
-    EG: Numeric,
 {
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<GA, R, EG>(client, input, output, problem)
+        PlaneMmaSelector::select_kernel::<MS, R>(client, input, output, problem)
     } else {
-        CmmaSelector::select_kernel::<GA, R, EG>(client, input, output, problem)
+        CmmaSelector::select_kernel::<MS, R>(client, input, output, problem)
     }
 }
 
-pub(crate) fn matmul_cube_preparation<
-    'a,
-    GA: GmmArgs<EG>,
-    R: Runtime,
-    EG: Numeric,
-    D: Algorithm<GA, EG>,
->(
+pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorithm<MS>>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
-    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
 ) -> Result<(), MatmulLaunchError> {
     D::check_availability::<R>(client)?;
@@ -190,7 +201,7 @@ pub(crate) fn matmul_cube_preparation<
     let cube_count = D::cube_count(&problem);
     let advanced_config = D::advanced_config();
 
-    launch_matmul::<GA, R, EG, D>(
+    launch_matmul::<MS, R, D>(
         client,
         input,
         output,
@@ -202,13 +213,10 @@ pub(crate) fn matmul_cube_preparation<
 }
 
 #[allow(clippy::too_many_arguments)]
-fn launch_matmul<'a, GA: GmmArgs<EG>, R: Runtime, EG: Numeric, D: Algorithm<GA, EG>>(
+fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm<MS>>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: <GA::Input as LaunchArg>::RuntimeArg<'a, R>,
-    output: <GA::Output as LaunchArg>::RuntimeArg<'a, R>,
-    // lhs: &TensorHandleRef<'_, R>,
-    // rhs: &TensorHandleRef<'_, R>,
-    // out: &TensorHandleRef<'_, R>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
@@ -217,28 +225,7 @@ fn launch_matmul<'a, GA: GmmArgs<EG>, R: Runtime, EG: Numeric, D: Algorithm<GA, 
     let config = D::make_config(&problem, &cube_dim, &cube_count, &advanced_config)?;
 
     unsafe {
-        D::BatchMatmul::launch_unchecked::<R>(
-            client, cube_dim, cube_count, input, output,
-            // TensorArg::<R>::from_raw_parts::<D::EG>(
-            //     lhs.handle,
-            //     lhs.strides,
-            //     lhs.shape,
-            //     problem.lhs_line_size,
-            // ),
-            // TensorArg::<R>::from_raw_parts::<D::EG>(
-            //     rhs.handle,
-            //     rhs.strides,
-            //     rhs.shape,
-            //     problem.rhs_line_size,
-            // ),
-            // TensorArg::<R>::from_raw_parts::<D::EG>(
-            //     out.handle,
-            //     out.strides,
-            //     out.shape,
-            //     problem.out_line_size,
-            // ),
-            config,
-        );
+        D::BatchMatmul::launch_unchecked::<R>(client, cube_dim, cube_count, input, output, config);
     };
 
     Ok(())

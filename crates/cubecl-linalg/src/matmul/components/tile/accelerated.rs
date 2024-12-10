@@ -90,7 +90,7 @@ macro_rules! instruction {
             }
         }
 
-        impl<I: Numeric, O: Numeric> MatmulKernel<I, O> for $name<I, O>
+        impl<I: Numeric, O: Numeric> MatmulKernel for $name<I, O>
         where
             (I, O): CmmaValid<I, O>,
         {

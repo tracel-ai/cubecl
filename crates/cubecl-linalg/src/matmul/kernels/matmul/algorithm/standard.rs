@@ -3,66 +3,36 @@ use std::marker::PhantomData;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch::CubeCountDispatch;
-use crate::matmul::components::global::args::GmmArgs;
 use crate::matmul::components::global::full_load::CyclicLoading;
 use crate::matmul::components::stage::{self, StageSize};
-use crate::matmul::components::tile;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
+use crate::matmul::components::{tile, MatmulSpec};
 
 use super::base;
 
 type Dispatch = batch::SwizzleTransposedDispatch<2>;
 
-pub struct StandardAlgorithm<
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    Stage: StageSize,
-    TMM: tile::Matmul<ES, EA>,
-> {
-    pub _eg: PhantomData<EG>,
-    pub _es: PhantomData<ES>,
-    pub _ea: PhantomData<EA>,
+pub struct StandardAlgorithm<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> {
+    pub _ms: PhantomData<MS>,
     pub _stage: PhantomData<Stage>,
     pub _tmm: PhantomData<TMM>,
 }
 
-impl<
-        GA: GmmArgs<EG>,
-        EG: Numeric,
-        ES: Numeric,
-        EA: Numeric,
-        Stage: StageSize,
-        TMM: tile::Matmul<ES, EA>,
-    > base::Algorithm<GA, EG> for StandardAlgorithm<EG, ES, EA, Stage, TMM>
+impl<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> base::Algorithm<MS>
+    for StandardAlgorithm<MS, Stage, TMM>
 {
     const PLANE_DIM: u32 = 32;
 
-    type ES = ES;
-    type EA = EA;
-
     type TileMatmul = TMM;
+    type StageMatmul = stage::multi_buffer::Matmul<MS::ES, MS::EG, MS::EA, Self::TileMatmul, Stage>;
+    type GlobalMatmul =
+        global::full_load::Matmul<MS, Self::StageMatmul, CyclicLoading, CyclicLoading>;
 
-    type StageMatmul = stage::multi_buffer::Matmul<Self::ES, EG, Self::EA, Self::TileMatmul, Stage>;
-
-    type GlobalMatmul = global::full_load::Matmul<
-        EG,
-        Self::ES,
-        Self::EA,
-        Self::StageMatmul,
-        CyclicLoading,
-        CyclicLoading,
-    >;
-
-    type BatchMatmul = batch::one_to_one::Matmul<GA, EG, Self::ES, Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::one_to_one::Matmul<MS, Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(
-            <Self as base::Algorithm<GA, EG>>::PLANE_DIM,
-            Stage::NUM_M,
-            1,
-        )
+        CubeDim::new(<Self as base::Algorithm<MS>>::PLANE_DIM, Stage::NUM_M, 1)
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {

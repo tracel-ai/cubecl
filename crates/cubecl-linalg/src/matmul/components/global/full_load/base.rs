@@ -1,13 +1,13 @@
-use crate::matmul::components::global::args::{GmmArgs, TensorInput, TensorOutput};
+use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
-use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
+use crate::matmul::components::{stage, MatmulSpec};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -22,36 +22,34 @@ use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
 pub struct Matmul<
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    SMM: stage::Matmul<ES, EG, EA>,
+    MS: MatmulSpec,
+    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 > {
-    _eg: PhantomData<EG>,
-    _es: PhantomData<ES>,
-    _acc: PhantomData<EA>,
+    _ms: PhantomData<MS>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG, ES, EA, SMM, LL, RL> global::Matmul<GA, EG, ES>
-    for Matmul<EG, ES, EA, SMM, LL, RL>
+impl<MS: MatmulSpec, SMM, LL, RL> global::Matmul<MS> for Matmul<MS, SMM, LL, RL>
 where
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    SMM: stage::Matmul<ES, EG, EA, LhsReader = LhsReader<ES>, RhsReader = RhsReader<ES>>,
+    SMM: stage::Matmul<
+        MS::ES,
+        MS::EG,
+        MS::EA,
+        LhsReader = LhsReader<MS::ES>,
+        RhsReader = RhsReader<MS::ES>,
+    >,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
-    type LhsLoader = LhsLoader<GA, EG, ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<GA, EG, ES, SMM::Config, RL>;
+    type LhsLoader = LhsLoader<MS::Args, MS::EG, MS::ES, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<MS::Args, MS::EG, MS::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<GA, EG>;
+    type Out = Unloader<MS::Args, MS::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -103,7 +101,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: TensorInput<EG, GA>,
+        lhs: TensorInput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -113,7 +111,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: TensorInput<EG, GA>,
+        rhs: TensorInput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -123,7 +121,7 @@ where
     }
 
     fn init_unloader(
-        out: TensorOutput<EG, GA>,
+        out: TensorOutput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -140,12 +138,9 @@ where
     }
 }
 
-impl<EG, ES, EA, SMM, LL, RL> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM, LL, RL>
+impl<MS: MatmulSpec, SMM, LL, RL> MatmulKernel for Matmul<MS, SMM, LL, RL>
 where
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    SMM: stage::Matmul<ES, EG, EA>,
+    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {

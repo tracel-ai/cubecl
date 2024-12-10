@@ -17,7 +17,7 @@ use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, Matri
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 pub trait Matmul<I: Numeric, O: Numeric>:
-    'static + Send + Sync + MatmulKernel<I, O, Config: Config>
+    'static + Send + Sync + MatmulKernel<Config: Config>
 {
     /// Number of rows of LHS
     const M: u32;

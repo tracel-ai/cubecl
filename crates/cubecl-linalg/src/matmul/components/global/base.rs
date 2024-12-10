@@ -2,12 +2,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
-use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{MatmulKernel, MatmulSpec};
 
-use super::args::{GmmArgs, TensorInput, TensorOutput};
+use super::args::{TensorInput, TensorOutput};
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -28,13 +28,11 @@ use super::args::{GmmArgs, TensorInput, TensorOutput};
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
-pub trait Matmul<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric>:
-    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config>
-{
-    type LhsLoader: Loader<EG, ES, Self::Config>;
-    type RhsLoader: Loader<EG, ES, Self::Config>;
+pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: Config> {
+    type LhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
+    type RhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
     type AccumulatorLoader: CubeType;
-    type Out: Unloader<EG>;
+    type Out: Unloader<MS::EG>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -54,7 +52,7 @@ pub trait Matmul<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric>:
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: TensorInput<EG, GA>,
+        lhs: TensorInput<MS::EG, MS::Args>,
         m_offset: u32,
         k_offset: u32,
         batch_offset: u32,
@@ -63,7 +61,7 @@ pub trait Matmul<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric>:
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: TensorInput<EG, GA>,
+        rhs: TensorInput<MS::EG, MS::Args>,
         k_offset: u32,
         n_offset: u32,
         batch_offset: u32,
@@ -72,7 +70,7 @@ pub trait Matmul<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric>:
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
-        out: TensorOutput<EG, GA>,
+        out: TensorOutput<MS::EG, MS::Args>,
         m_offset: u32,
         n_offset: u32,
         batch_offset: u32,
