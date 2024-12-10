@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{LineMode, Reduce, ReduceConfig, ReduceInstruction, ReduceStrategy};
+use crate::{LineMode, Reduce, ReduceConfig, ReduceInstruction, ReduceShared, ReduceStrategy};
 
 /// Entry point for reduce.
 #[allow(clippy::too_many_arguments)]
@@ -46,6 +46,19 @@ pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruct
                 input.as_tensor_arg(config.line_size as u8),
                 output.as_tensor_arg(1),
                 ScalarArg::new(axis),
+                config.line_size,
+                config.bound_checks,
+            )
+        },
+        (false, true, LineMode::Parallel) => unsafe {
+            kernel_reduce_shared_parallel::launch_unchecked::<In, Out, Inst, R>(
+                client,
+                config.cube_count,
+                config.cube_dim,
+                input.as_tensor_arg(config.line_size as u8),
+                output.as_tensor_arg(1),
+                ScalarArg::new(axis),
+                config.cube_dim.num_elems(),
                 config.line_size,
                 config.bound_checks,
             )
@@ -149,6 +162,83 @@ fn kernel_reduce_plane<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     output[plane_pos] = Inst::merge_line::<Out>(out, input.shape(axis_reduce))
 }
 
+#[cube(launch_unchecked)]
+fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: ReduceShared<In>>(
+    input: &Tensor<Line<In>>,
+    output: &mut Tensor<Out>,
+    axis_reduce: u32,
+    #[comptime] accumulator_size: u32,
+    #[comptime] line_size: u32,
+    #[comptime] bound_checks: bool,
+) {
+    if bound_checks && CUBE_POS >= output.len() {
+        return;
+    }
+
+    // Compute the first index where to start the reduction.
+    let offset = compute_reduce_offset(CUBE_POS, input, output, line_size);
+    let stride = div_ceil(input.stride(axis_reduce), line_size);
+    let shape = div_ceil(input.shape(axis_reduce), line_size);
+
+    let end = offset + shape * stride;
+    let mut accumulator = reduce_slice_shared::<In, Inst>(
+        input.to_slice(),
+        offset,
+        select(end < input.len(), end, input.len()),
+        stride,
+        accumulator_size,
+        line_size,
+        LineMode::Parallel,
+    );
+
+    sync_units();
+
+    // Merge the accumulator like this with some padding if CUBE_DIM is not a power of 2.
+    //
+    // 0   1   2   3   4   5   6   7
+    // |   |   |   |   |   |   |   |
+    // +-+-+   +-+-+   +-+-+   +-+-+
+    //   |       |       |       |
+    //   +---+---+       +---+---+
+    //       |               |
+    //       +-------+-------+
+    //               |
+    //               *
+    if comptime!(CUBE_DIM.is_power_of_two()) {
+        let mut num_active_units = CUBE_DIM;
+        let mut jump = 1;
+        while num_active_units > 1 {
+            num_active_units /= 2;
+            let destination = jump * 2 * UNIT_POS;
+            let origin = jump * (2 * UNIT_POS + 1);
+            if UNIT_POS < num_active_units {
+                Inst::fuse_accumulator(&mut accumulator, destination, origin);
+            }
+            jump *= 2;
+            sync_units();
+        }
+    } else {
+        let mut num_remaining_items = CUBE_DIM;
+        let mut jump = 1;
+        while num_remaining_items > 1 {
+            let destination = jump * 2 * UNIT_POS;
+            let origin = jump * (2 * UNIT_POS + 1);
+            if UNIT_POS < num_remaining_items / 2 {
+                Inst::fuse_accumulator(&mut accumulator, destination, origin);
+            }
+            num_remaining_items = div_ceil(num_remaining_items, 2);
+            jump *= 2;
+            sync_units();
+        }
+    }
+    sync_units();
+
+    if UNIT_POS == 0 {
+        let line = Inst::get_first(accumulator);
+        output[CUBE_POS] = Inst::merge_line::<Out>(line, input.shape(axis_reduce))
+    }
+}
+
 #[cube]
 pub fn compute_reduce_offset<In: CubeType, Out: CubeType>(
     index: u32,
@@ -231,6 +321,49 @@ pub fn reduce_slice_plane<N: Numeric, Instr: Reduce<N>>(
         let plane_dim = CUBE_DIM_X;
         first_index += plane_dim * stride;
         first_coordinate += plane_dim;
+    }
+    accumulator
+}
+
+#[cube]
+pub fn reduce_slice_shared<N: Numeric, Instr: ReduceShared<N>>(
+    items: Slice<Line<N>>,
+    start: u32,
+    end: u32,
+    stride: u32,
+    #[comptime] accumulator_size: u32,
+    #[comptime] line_size: u32,
+    #[comptime] line_mode: LineMode,
+) -> Instr::Accumulator {
+    let mut accumulator = Instr::create_accumulator(accumulator_size, line_size);
+    Instr::init_accumulator(&mut accumulator, UNIT_POS, line_size);
+
+    let mut first_index = start;
+    let mut first_coordinate = 0;
+    while first_index < end {
+        let coordinate = first_coordinate + UNIT_POS;
+        let line_coordinate = match comptime!(line_mode) {
+            LineMode::Parallel => {
+                let mut coordinates = Line::empty(line_size).fill(coordinate * line_size);
+                if line_size > 1 {
+                    #[unroll]
+                    for j in 0..line_size {
+                        coordinates[j] += j;
+                    }
+                }
+                coordinates
+            }
+            LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
+        };
+        let index = first_index + UNIT_POS * stride;
+        let item = select(
+            index < end,
+            items[index],
+            Line::empty(line_size).fill(Instr::null_value()),
+        );
+        Instr::reduce(&mut accumulator, UNIT_POS, item, line_coordinate, false);
+        first_index += stride * CUBE_DIM;
+        first_coordinate += CUBE_DIM;
     }
     accumulator
 }

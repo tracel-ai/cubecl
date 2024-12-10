@@ -12,7 +12,7 @@ use crate::{
 };
 
 // All random values generated for tests will be in the set
-// {-1, -1 + E, -1 + 2E, ..., 1 - E, 1} with E = 1 / PRECISION.
+// {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
 // We choose this set to avoid precision issues with f16 and bf16 and
 // also to add multiple similar values to properly test ArgMax and ArgMin.
 const PRECISION: i32 = 4;
@@ -119,7 +119,8 @@ macro_rules! impl_test_reduce {
                         axis: $axis,
                     },
                     [ use_planes: false, shared: false ],
-                    [ use_planes: true, shared: false ]
+                    [ use_planes: true, shared: false ],
+                    [ use_planes: false, shared: true ]
                 }
             )*
         }
@@ -360,6 +361,9 @@ impl TestCase {
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
 
+        println!("output: {output_values:?}");
+        println!("expected: {expected_values:?}");
+
         assert_approx_equal(output_values, &expected_values);
     }
 
@@ -406,7 +410,7 @@ impl TestCase {
     fn random_input_values<F: Float>(&self) -> Vec<F> {
         let size = self.shape.iter().product::<usize>();
         let rng = StdRng::seed_from_u64(self.pseudo_random_seed());
-        let distribution = Uniform::new_inclusive(-PRECISION, PRECISION);
+        let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION);
         let factor = 1.0 / (PRECISION as f32);
         distribution
             .sample_iter(rng)

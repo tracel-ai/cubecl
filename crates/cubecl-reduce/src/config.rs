@@ -55,7 +55,7 @@ pub(crate) fn generate_config<R: Runtime>(
             let plane_dim = client.properties().hardware_properties().plane_size_min;
             generate_config_plane::<R>(input, output, axis, plane_dim)
         }
-        (false, true) => unimplemented!(),
+        (false, true) => generate_config_shared::<R>(input, output, axis),
         (true, true) => unimplemented!(),
     }
 }
@@ -127,6 +127,43 @@ fn generate_config_plane<R: Runtime>(
     let mut config = ReduceConfig::new(cube_count, cube_dim, line_mode, line_size);
     config.do_bound_checks_if(reduce_count % plane_count_per_cube != 0);
     config
+}
+
+fn generate_config_shared<R: Runtime>(
+    input: &TensorHandleRef<R>,
+    output: &TensorHandleRef<R>,
+    axis: u32,
+) -> ReduceConfig {
+    let stride = input.strides[axis as usize];
+    if stride == 1 {
+        generate_config_shared_parallel(input, output, axis)
+    } else {
+        generate_config_shared_perpendicular(input, output, axis)
+    }
+}
+
+fn generate_config_shared_parallel<R: Runtime>(
+    input: &TensorHandleRef<R>,
+    output: &TensorHandleRef<R>,
+    axis: u32,
+) -> ReduceConfig {
+    let reduce_count = output.size() as u32;
+
+    let cube_dim = DEFAULT_CUBE_DIM;
+    let cube_count = CubeCount::new_1d(reduce_count);
+
+    let line_mode = LineMode::Parallel;
+    let line_size = generate_line_size(input, axis, line_mode);
+
+    ReduceConfig::new(cube_count, cube_dim, line_mode, line_size)
+}
+
+fn generate_config_shared_perpendicular<R: Runtime>(
+    input: &TensorHandleRef<R>,
+    output: &TensorHandleRef<R>,
+    axis: u32,
+) -> ReduceConfig {
+    todo!()
 }
 
 fn generate_line_size<R: Runtime>(input: &TensorHandleRef<R>, axis: u32, mode: LineMode) -> u32 {
