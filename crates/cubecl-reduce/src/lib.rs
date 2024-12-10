@@ -16,7 +16,7 @@ pub mod test;
 use cubecl_core::prelude::*;
 
 /// Entry point for reduce.
-pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>>(
+pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
