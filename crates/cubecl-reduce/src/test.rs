@@ -7,7 +7,7 @@ use rand::{
     SeedableRng,
 };
 
-use crate::{reduce, ArgMax, ArgMin, Mean, Prod, ReduceError, ReduceStrategy, Reduce, Sum};
+use crate::{reduce, ArgMax, ArgMin, Mean, Prod, Reduce, ReduceError, ReduceStrategy, Sum};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
@@ -358,9 +358,6 @@ impl TestCase {
         let binding = output_handle.binding();
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
-
-        println!("output: {output_values:?}");
-        println!("expected: {expected_values:?}");
 
         assert_approx_equal(output_values, &expected_values);
     }

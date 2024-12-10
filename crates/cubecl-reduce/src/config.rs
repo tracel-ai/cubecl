@@ -78,13 +78,12 @@ fn generate_config_unit_parallel<R: Runtime>(
     output: &TensorHandleRef<R>,
     axis: u32,
 ) -> ReduceConfig {
-    let unit_count = output.size() as u32;
-
-    let cube_dim = DEFAULT_CUBE_DIM;
-    let cube_count = CubeCount::new_1d(unit_count.div_ceil(cube_dim.num_elems()));
-
     let line_mode = LineMode::Parallel;
     let line_size = generate_line_size(input, axis, line_mode);
+
+    let unit_count = output.size() as u32;
+    let cube_dim = DEFAULT_CUBE_DIM;
+    let cube_count = CubeCount::new_1d(unit_count.div_ceil(cube_dim.num_elems()));
 
     let mut config = ReduceConfig::new(cube_count, cube_dim, line_mode, line_size);
     config.do_bound_checks_if(unit_count % cube_dim.num_elems() != 0);
@@ -135,35 +134,22 @@ fn generate_config_shared<R: Runtime>(
     axis: u32,
 ) -> ReduceConfig {
     let stride = input.strides[axis as usize];
-    if stride == 1 {
-        generate_config_shared_parallel(input, output, axis)
+    let line_mode = if stride == 1 {
+        LineMode::Parallel
     } else {
-        generate_config_shared_perpendicular(input, output, axis)
-    }
-}
-
-fn generate_config_shared_parallel<R: Runtime>(
-    input: &TensorHandleRef<R>,
-    output: &TensorHandleRef<R>,
-    axis: u32,
-) -> ReduceConfig {
-    let reduce_count = output.size() as u32;
-
-    let cube_dim = DEFAULT_CUBE_DIM;
-    let cube_count = CubeCount::new_1d(reduce_count);
-
-    let line_mode = LineMode::Parallel;
+        LineMode::Perpendicular
+    };
     let line_size = generate_line_size(input, axis, line_mode);
 
-    ReduceConfig::new(cube_count, cube_dim, line_mode, line_size)
-}
+    let cube_dim = DEFAULT_CUBE_DIM;
 
-fn generate_config_shared_perpendicular<R: Runtime>(
-    input: &TensorHandleRef<R>,
-    output: &TensorHandleRef<R>,
-    axis: u32,
-) -> ReduceConfig {
-    todo!()
+    let reduce_count = output.size() as u32;
+    let cube_count = match line_mode {
+        LineMode::Parallel => CubeCount::new_1d(reduce_count),
+        LineMode::Perpendicular => CubeCount::new_1d(reduce_count / line_size),
+    };
+
+    ReduceConfig::new(cube_count, cube_dim, line_mode, line_size)
 }
 
 fn generate_line_size<R: Runtime>(input: &TensorHandleRef<R>, axis: u32, mode: LineMode) -> u32 {
