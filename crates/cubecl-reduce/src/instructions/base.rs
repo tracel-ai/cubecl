@@ -2,58 +2,27 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait ReduceInstruction<In: Numeric>: Reduce<In> + ReduceShared<In> {}
-
-#[cube]
 pub trait Reduce<In: Numeric>: Send + Sync + 'static {
-    type Accumulator: CubeType;
-
-    fn init_accumulator(#[comptime] line_size: u32) -> Self::Accumulator;
-
-    fn null_value() -> In;
-
-    fn reduce(
-        accumulator: &mut Self::Accumulator,
-        item: Line<In>,
-        coordinate: Line<u32>,
-        #[comptime] use_plane: bool,
-    );
-
-    fn merge_line<Out: Numeric>(accumulator: Self::Accumulator, shape_axis_reduce: u32) -> Out;
-
-    fn to_output_perpendicular<Out: Numeric>(
-        accumulator: Self::Accumulator,
-        shape_axis_reduce: u32,
-    ) -> Line<Out>;
-}
-
-#[cube]
-pub trait ReduceShared<In: Numeric>: Send + Sync + 'static {
-    type Accumulator: CubeType;
     type AccumulatorItem: CubeType;
+    type SharedAccumulator: SharedAccumulator<In, Item = Self::AccumulatorItem>;
 
-    fn create_accumulator(#[comptime] length: u32, #[comptime] line_size: u32)
-        -> Self::Accumulator;
+    fn null_input(#[comptime] line_size: u32) -> Line<In>;
 
-    fn init_accumulator(
-        accumulator: &mut Self::Accumulator,
-        index: u32,
-        #[comptime] line_size: u32,
-    );
+    fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem;
 
-    fn null_value() -> In;
+    fn update_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem);
 
     fn reduce(
-        accumulator: &mut Self::Accumulator,
-        destination: u32,
+        accumulator: &Self::AccumulatorItem,
         item: Line<In>,
         coordinate: Line<u32>,
-        #[comptime] use_plane: bool,
-    );
+        #[comptime] use_planes: bool,
+    ) -> Self::AccumulatorItem;
 
-    fn fuse_accumulator(accumulator: &mut Self::Accumulator, destination: u32, origin: u32);
-
-    fn get_first(accumulator: Self::Accumulator) -> Self::AccumulatorItem;
+    fn fuse_accumulators(
+        lhs: Self::AccumulatorItem,
+        rhs: Self::AccumulatorItem,
+    ) -> Self::AccumulatorItem;
 
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out;
 
@@ -64,14 +33,56 @@ pub trait ReduceShared<In: Numeric>: Send + Sync + 'static {
 }
 
 #[cube]
-pub trait SharedAccumulator<In: Numeric>: Send + Sync + 'static {
-    type Item;
+pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
+    type Item: CubeType;
 
     fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self;
 
-    fn init(&mut self, index: u32, #[comptime] line_size: u32);
+    fn read(accumulator: &Self, index: u32) -> Self::Item;
 
-    fn read(&self, index: u32) -> Self::Item;
+    fn write(accumulator: &mut Self, index: u32, item: Self::Item);
+}
 
-    fn write(&mut self, index: u32, item: Self::Item);
+#[cube]
+impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
+    type Item = Line<In>;
+
+    fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
+        SharedMemory::new_lined(length, line_size)
+    }
+
+    fn read(accumulator: &Self, index: u32) -> Self::Item {
+        accumulator[index]
+    }
+
+    fn write(accumulator: &mut Self, index: u32, item: Self::Item) {
+        accumulator[index] = item;
+    }
+}
+
+#[derive(CubeType)]
+pub struct ArgAccumulator<N: Numeric> {
+    pub elements: SharedMemory<Line<N>>,
+    pub args: SharedMemory<Line<u32>>,
+}
+
+#[cube]
+impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
+    type Item = (Line<In>, Line<u32>);
+
+    fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
+        ArgAccumulator::<In> {
+            elements: SharedMemory::new_lined(length, line_size),
+            args: SharedMemory::new_lined(length, line_size),
+        }
+    }
+
+    fn read(accumulator: &Self, index: u32) -> Self::Item {
+        (accumulator.elements[index], accumulator.args[index])
+    }
+
+    fn write(accumulator: &mut Self, index: u32, item: Self::Item) {
+        accumulator.elements[index] = item.0;
+        accumulator.args[index] = item.1;
+    }
 }

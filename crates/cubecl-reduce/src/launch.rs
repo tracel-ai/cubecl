@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::{LineMode, Reduce, ReduceConfig, ReduceInstruction, ReduceShared, ReduceStrategy};
+use crate::{LineMode, ReduceConfig, ReduceStrategy, Reduce, SharedAccumulator};
 
 /// Entry point for reduce.
 #[allow(clippy::too_many_arguments)]
-pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>>(
+pub fn launch_reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
@@ -163,7 +163,7 @@ fn kernel_reduce_plane<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: ReduceShared<In>>(
+fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -212,7 +212,11 @@ fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: ReduceShared<I
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_active_units {
-                Inst::fuse_accumulator(&mut accumulator, destination, origin);
+                let fused = Inst::fuse_accumulators(
+                    Inst::SharedAccumulator::read(&accumulator, destination),
+                    Inst::SharedAccumulator::read(&accumulator, origin),
+                );
+                Inst::SharedAccumulator::write(&mut accumulator, destination, fused);
             }
             jump *= 2;
             sync_units();
@@ -224,7 +228,11 @@ fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: ReduceShared<I
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_remaining_items / 2 {
-                Inst::fuse_accumulator(&mut accumulator, destination, origin);
+                let fused = Inst::fuse_accumulators(
+                    Inst::SharedAccumulator::read(&accumulator, destination),
+                    Inst::SharedAccumulator::read(&accumulator, origin),
+                );
+                Inst::SharedAccumulator::write(&mut accumulator, destination, fused);
             }
             num_remaining_items = div_ceil(num_remaining_items, 2);
             jump *= 2;
@@ -234,7 +242,7 @@ fn kernel_reduce_shared_parallel<In: Numeric, Out: Numeric, Inst: ReduceShared<I
     sync_units();
 
     if UNIT_POS == 0 {
-        let line = Inst::get_first(accumulator);
+        let line = Inst::SharedAccumulator::read(&accumulator, 0);
         output[CUBE_POS] = Inst::merge_line::<Out>(line, input.shape(axis_reduce))
     }
 }
@@ -262,8 +270,8 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
     stride: u32,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
-) -> Instr::Accumulator {
-    let mut accumulator = Instr::init_accumulator(line_size);
+) -> Instr::AccumulatorItem {
+    let mut accumulator = Instr::null_accumulator(line_size);
 
     let mut index = start;
     let mut coordinate = 0;
@@ -281,7 +289,8 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
             }
             LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
         };
-        Instr::reduce(&mut accumulator, items[index], coordinates, false);
+        let reduction = &Instr::reduce(&accumulator, items[index], coordinates, false);
+        Instr::update_accumulator(&mut accumulator, &reduction);
         index += stride;
         coordinate += 1;
     }
@@ -289,14 +298,14 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
 }
 
 #[cube]
-pub fn reduce_slice_plane<N: Numeric, Instr: Reduce<N>>(
+pub fn reduce_slice_plane<N: Numeric, Inst: Reduce<N>>(
     items: Slice<Line<N>>,
     start: u32,
     end: u32,
     stride: u32,
     #[comptime] line_size: u32,
-) -> Instr::Accumulator {
-    let mut accumulator = Instr::init_accumulator(line_size);
+) -> Inst::AccumulatorItem {
+    let mut accumulator = Inst::null_accumulator(line_size);
 
     let mut first_index = start;
     let mut first_coordinate = 0;
@@ -311,13 +320,10 @@ pub fn reduce_slice_plane<N: Numeric, Instr: Reduce<N>>(
         }
 
         let index = first_index + UNIT_POS_X * stride;
-        let item = select(
-            index < end,
-            items[index],
-            Line::empty(line_size).fill(Instr::null_value()),
-        );
+        let item = select(index < end, items[index], Inst::null_input(line_size));
 
-        Instr::reduce(&mut accumulator, item, coordinates, true);
+        let reduction = Inst::reduce(&accumulator, item, coordinates, true);
+        Inst::update_accumulator(&mut accumulator, &reduction);
         let plane_dim = CUBE_DIM_X;
         first_index += plane_dim * stride;
         first_coordinate += plane_dim;
@@ -326,7 +332,7 @@ pub fn reduce_slice_plane<N: Numeric, Instr: Reduce<N>>(
 }
 
 #[cube]
-pub fn reduce_slice_shared<N: Numeric, Instr: ReduceShared<N>>(
+pub fn reduce_slice_shared<N: Numeric, Inst: Reduce<N>>(
     items: Slice<Line<N>>,
     start: u32,
     end: u32,
@@ -334,9 +340,13 @@ pub fn reduce_slice_shared<N: Numeric, Instr: ReduceShared<N>>(
     #[comptime] accumulator_size: u32,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
-) -> Instr::Accumulator {
-    let mut accumulator = Instr::create_accumulator(accumulator_size, line_size);
-    Instr::init_accumulator(&mut accumulator, UNIT_POS, line_size);
+) -> Inst::SharedAccumulator {
+    let mut accumulator = Inst::SharedAccumulator::allocate(accumulator_size, line_size);
+    Inst::SharedAccumulator::write(
+        &mut accumulator,
+        UNIT_POS,
+        Inst::null_accumulator(line_size),
+    );
 
     let mut first_index = start;
     let mut first_coordinate = 0;
@@ -356,12 +366,14 @@ pub fn reduce_slice_shared<N: Numeric, Instr: ReduceShared<N>>(
             LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
         };
         let index = first_index + UNIT_POS * stride;
-        let item = select(
-            index < end,
-            items[index],
-            Line::empty(line_size).fill(Instr::null_value()),
+        let item = select(index < end, items[index], Inst::null_input(line_size));
+        let reduction = Inst::reduce(
+            &Inst::SharedAccumulator::read(&accumulator, UNIT_POS),
+            item,
+            line_coordinate,
+            false,
         );
-        Instr::reduce(&mut accumulator, UNIT_POS, item, line_coordinate, false);
+        Inst::SharedAccumulator::write(&mut accumulator, UNIT_POS, reduction);
         first_index += stride * CUBE_DIM;
         first_coordinate += CUBE_DIM;
     }

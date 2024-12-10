@@ -7,9 +7,7 @@ use rand::{
     SeedableRng,
 };
 
-use crate::{
-    reduce, ArgMax, ArgMin, Mean, Prod, ReduceError, ReduceInstruction, ReduceStrategy, Sum,
-};
+use crate::{reduce, ArgMax, ArgMin, Mean, Prod, ReduceError, ReduceStrategy, Reduce, Sum};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
@@ -90,7 +88,7 @@ macro_rules! testgen_reduce {
 }
 
 // For a given tensor description and cube settings
-// run the tests for `ReduceSum`, `ReduceProd`, `ReduceMean`, `ReduceArgMax` and `ReduceArgMin`
+// run the tests for `Sum`, `Prod`, `Mean`, `ArgMax` and `ArgMin`
 // for all strategies.
 // For each test, a reference reduction is computed on the CPU to compare the outcome of the kernel.
 #[macro_export]
@@ -321,7 +319,7 @@ impl TestCase {
         I: Numeric + CubeElement + std::fmt::Display,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: ReduceInstruction<I>,
+        K: Reduce<I>,
     {
         let client = R::client(device);
 
