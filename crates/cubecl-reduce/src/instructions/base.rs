@@ -86,3 +86,44 @@ impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
         accumulator.args[index] = item.1;
     }
 }
+
+#[cube]
+pub fn reduce_inplace<In: Numeric, R: Reduce<In>>(
+    accumulator: &mut R::AccumulatorItem,
+    item: Line<In>,
+    coordinate: Line<u32>,
+    #[comptime] use_planes: bool,
+) {
+    let reduction = &R::reduce(accumulator, item, coordinate, use_planes);
+    R::update_accumulator(accumulator, reduction);
+}
+
+#[cube]
+pub fn reduce_shared_inplace<In: Numeric, R: Reduce<In>>(
+    accumulator: &mut R::SharedAccumulator,
+    index: u32,
+    item: Line<In>,
+    coordinate: Line<u32>,
+    #[comptime] use_planes: bool,
+) {
+    let reduction = R::reduce(
+        &R::SharedAccumulator::read(accumulator, index),
+        item,
+        coordinate,
+        use_planes,
+    );
+    R::SharedAccumulator::write(accumulator, index, reduction);
+}
+
+#[cube]
+pub fn fuse_accumulator_inplace<In: Numeric, R: Reduce<In>>(
+    accumulator: &mut R::SharedAccumulator,
+    destination: u32,
+    origin: u32,
+) {
+    let fused = R::fuse_accumulators(
+        R::SharedAccumulator::read(accumulator, destination),
+        R::SharedAccumulator::read(accumulator, origin),
+    );
+    R::SharedAccumulator::write(accumulator, destination, fused);
+}
