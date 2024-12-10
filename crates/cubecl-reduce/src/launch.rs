@@ -41,8 +41,20 @@ pub fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce<In>>(
                 config.bound_checks,
             )
         },
-        (true, false, _) => unsafe {
-            kernel_reduce_plane::launch_unchecked::<In, Out, Rd, Run>(
+        (true, false, LineMode::Parallel) => unsafe {
+            kernel_reduce_plane_parallel::launch_unchecked::<In, Out, Rd, Run>(
+                client,
+                config.cube_count,
+                config.cube_dim,
+                input.as_tensor_arg(config.line_size as u8),
+                output.as_tensor_arg(1),
+                ScalarArg::new(axis),
+                config.line_size,
+                config.bound_checks,
+            )
+        },
+        (true, false, LineMode::Perpendicular) => unsafe {
+            kernel_reduce_plane_perpendicular::launch_unchecked::<In, Out, Rd, Run>(
                 client,
                 config.cube_count,
                 config.cube_dim,
@@ -148,7 +160,7 @@ fn kernel_reduce_unit_perpendicular<In: Numeric, Out: Numeric, R: Reduce<In>>(
 }
 
 #[cube(launch_unchecked)]
-fn kernel_reduce_plane<In: Numeric, Out: Numeric, R: Reduce<In>>(
+fn kernel_reduce_plane_parallel<In: Numeric, Out: Numeric, R: Reduce<In>>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -174,8 +186,47 @@ fn kernel_reduce_plane<In: Numeric, Out: Numeric, R: Reduce<In>>(
         select(end < input.len(), end, input.len()),
         stride,
         line_size,
+        LineMode::Parallel,
     );
     output[plane_pos] = R::merge_line::<Out>(out, input.shape(axis_reduce))
+}
+
+#[cube(launch_unchecked)]
+fn kernel_reduce_plane_perpendicular<In: Numeric, Out: Numeric, R: Reduce<In>>(
+    input: &Tensor<Line<In>>,
+    output: &mut Tensor<Out>,
+    axis_reduce: u32,
+    #[comptime] line_size: u32,
+    #[comptime] bound_checks: bool,
+) {
+    let plane_count_per_cube = CUBE_DIM_Y;
+    let plane_pos = plane_count_per_cube * CUBE_POS + UNIT_POS_Y;
+
+    if bound_checks && plane_pos >= output.len() {
+        return;
+    }
+
+    // Compute the first index where to start the reduction.
+    let offset = compute_reduce_offset(plane_pos * line_size, input, output, line_size);
+    let stride = div_ceil(input.stride(axis_reduce), line_size);
+    let shape = input.shape(axis_reduce);
+
+    let end = offset + shape * stride;
+    let out = reduce_slice_plane::<In, R>(
+        input.to_slice(),
+        offset,
+        select(end < input.len(), end, input.len()),
+        stride,
+        line_size,
+        LineMode::Perpendicular,
+    );
+
+    let out = R::to_output_perpendicular(out, input.shape(axis_reduce));
+
+    #[unroll]
+    for k in 0..line_size {
+        output[line_size * plane_pos + k] = out[k];
+    }
 }
 
 #[cube(launch_unchecked)]
@@ -316,20 +367,29 @@ pub fn reduce_slice_plane<N: Numeric, R: Reduce<N>>(
     end: u32,
     stride: u32,
     #[comptime] line_size: u32,
+    #[comptime] line_mode: LineMode,
 ) -> R::AccumulatorItem {
     let mut accumulator = R::null_accumulator(line_size);
 
     let mut first_index = start;
     let mut first_coordinate = 0;
     while first_index < end {
-        let mut coordinates =
-            Line::empty(line_size).fill((first_coordinate + UNIT_POS_X) * line_size);
-        if line_size > 1 {
-            #[unroll]
-            for j in 0..line_size {
-                coordinates[j] += j;
+        let coordinates = match comptime!(line_mode) {
+            LineMode::Parallel => {
+                let mut coordinates =
+                    Line::empty(line_size).fill((first_coordinate + UNIT_POS_X) * line_size);
+                if line_size > 1 {
+                    #[unroll]
+                    for j in 0..line_size {
+                        coordinates[j] += j;
+                    }
+                }
+                coordinates
             }
-        }
+            LineMode::Perpendicular => {
+                Line::empty(line_size).fill(first_coordinate + UNIT_POS_X)
+            }
+        };
 
         let index = first_index + UNIT_POS_X * stride;
         let item = select(index < end, items[index], R::null_input(line_size));
