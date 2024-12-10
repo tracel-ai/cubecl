@@ -300,7 +300,7 @@ pub fn reduce_slice<N: Numeric, Instr: Reduce<N>>(
             LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
         };
         let reduction = &Instr::reduce(&accumulator, items[index], coordinates, false);
-        Instr::update_accumulator(&mut accumulator, &reduction);
+        Instr::update_accumulator(&mut accumulator, reduction);
         index += stride;
         coordinate += 1;
     }
@@ -449,7 +449,7 @@ pub fn reduce_tree<N: Numeric, Inst: Reduce<N>>(
         }
     }
     sync_units();
-    Inst::SharedAccumulator::read(&accumulator, 0)
+    Inst::SharedAccumulator::read(accumulator, 0)
 }
 
 #[cube]
