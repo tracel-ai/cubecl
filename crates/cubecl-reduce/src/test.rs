@@ -118,7 +118,8 @@ macro_rules! impl_test_reduce {
                     },
                     [ use_planes: false, shared: false ],
                     [ use_planes: true, shared: false ],
-                    [ use_planes: false, shared: true ]
+                    [ use_planes: false, shared: true ],
+                    [ use_planes: true, shared: true ]
                 }
             )*
         }
