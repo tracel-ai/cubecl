@@ -1,3 +1,21 @@
+//! Uses non-semantic extensions to add debug info to the generated SPIR-V.
+//!
+//! Adds a dummy source with the kernel name as the file name and a dummy compilation unit.
+//! Then marks the top level function, and any inlined functions marked by debug instructions with
+//! their corresponding `OpDebugFunction`s and `OpDebugInlinedAt` instructions, and marks the extent
+//! with `OpDebugScope`.
+//!
+//! Also adds dummy `OpLine` instructions to allow Nsight to see the file name. Might add real
+//! line numbers in the future if possible.
+//!
+//! To get proper debugging, every instruction must be inside an `OpDebugScope` referencing the
+//! appropriate function.
+//!
+//! # Deduplication
+//!
+//! All debug instructions are deduplicated to ensure minimal binary size when functions are called
+//! in a loop or other similar situations.
+
 use cubecl_core::ir::{self as core, KernelDefinition};
 use hashbrown::HashMap;
 use rspirv::{

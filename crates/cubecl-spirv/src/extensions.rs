@@ -4,8 +4,13 @@ use crate::SpirvCompiler;
 
 use super::{GLCompute, SpirvTarget};
 
+/// To generate:
+/// `bindgen GLSL.std.450.h -o GLSL_std_450.rs --default-enum-style rust
 #[allow(warnings)]
 mod GLSL_std_450;
+/// To generate:
+/// `bindgen NonSemanticShaderDebugInfo100.h -o NonSemanticShaderDebugInfo100.rs --default-enum-style rust --bitfield-enum .+Flags`
+/// grep or equivalent: replace "NonSemanticShaderDebugInfo100" with ""
 #[allow(warnings)]
 pub mod NonSemanticShaderDebugInfo100;
 
