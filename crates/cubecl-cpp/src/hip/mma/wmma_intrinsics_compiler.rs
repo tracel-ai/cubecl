@@ -185,6 +185,9 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 frag_d,
                 warp_size,
             } => {
+                if *warp_size == 64 {
+                    panic!("Wavefront size 64 not yet supported.")
+                }
                 let ab_format = if let Variable::WmmaFragment { frag: inner_a, .. } = frag_a {
                     if let Variable::WmmaFragment { frag: inner_b, .. } = frag_b {
                         if inner_a.elem == inner_b.elem {
