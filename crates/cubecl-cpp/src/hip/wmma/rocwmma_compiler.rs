@@ -15,6 +15,10 @@ pub struct RocWmmaCompiler {}
 impl WmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     type Architecture = AMDArchitecture;
 
+    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("#include <rocwmma/rocwmma.hpp>\n")
+    }
+
     fn deftypes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
