@@ -18,7 +18,7 @@ default = [
   "is_hip",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-rocwmma = []
+wmma-intrinsics = []
 is_hip = []
 
 [dependencies]
