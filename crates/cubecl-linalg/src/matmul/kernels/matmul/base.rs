@@ -1,5 +1,4 @@
 use core::any::TypeId;
-
 use cubecl_core::prelude::*;
 
 use cubecl_core::{
@@ -116,13 +115,24 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
-    let available_vectorizations = R::supported_line_sizes();
-    let lhs_line_size =
-        tensor_line_size_parallel(available_vectorizations, lhs.shape, lhs.strides, rank - 1);
-    let rhs_line_size =
-        tensor_line_size_parallel(available_vectorizations, rhs.shape, rhs.strides, rank - 1);
-    let out_line_size =
-        tensor_line_size_parallel(available_vectorizations, out.shape, out.strides, rank - 1);
+    let lhs_line_size = tensor_line_size_parallel(
+        R::max_line_size_elem(&EG::as_elem()),
+        lhs.shape,
+        lhs.strides,
+        rank - 1,
+    );
+    let rhs_line_size = tensor_line_size_parallel(
+        R::max_line_size_elem(&EG::as_elem()),
+        rhs.shape,
+        rhs.strides,
+        rank - 1,
+    );
+    let out_line_size = tensor_line_size_parallel(
+        R::max_line_size_elem(&EG::as_elem()),
+        out.shape,
+        out.strides,
+        rank - 1,
+    );
 
     let problem = MatmulProblem {
         m: m as usize,

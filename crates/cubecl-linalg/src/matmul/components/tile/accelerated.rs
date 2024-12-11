@@ -103,6 +103,7 @@ macro_rules! instruction {
     };
 }
 
+instruction!(Accelerated16x16x8, 16, 16, 8);
 instruction!(Accelerated16x16x16, 16, 16, 16);
 instruction!(Accelerated32x8x16, 32, 8, 16);
 instruction!(Accelerated8x32x16, 8, 32, 16);

@@ -132,7 +132,7 @@ fn generate_config_plane<R: Runtime>(
 fn generate_line_size<R: Runtime>(input: &TensorHandleRef<R>, axis: u32, mode: LineMode) -> u32 {
     let line_size = match mode {
         LineMode::Parallel => tensor_line_size_parallel(
-            R::supported_line_sizes(),
+            R::supported_line_sizes().iter().cloned(),
             input.shape,
             input.strides,
             axis as usize,

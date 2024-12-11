@@ -88,12 +88,24 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let n = rhs.shape[rank - 1] as u32;
 
     let available_vectorizations = R::supported_line_sizes();
-    let lhs_vectorization =
-        tensor_line_size_parallel(available_vectorizations, lhs.shape, lhs.strides, rank - 1);
-    let rhs_vectorization =
-        tensor_line_size_parallel(available_vectorizations, rhs.shape, rhs.strides, rank - 1);
-    let out_vectorization =
-        tensor_line_size_parallel(available_vectorizations, out.shape, out.strides, rank - 1);
+    let lhs_vectorization = tensor_line_size_parallel(
+        available_vectorizations.iter().cloned(),
+        lhs.shape,
+        lhs.strides,
+        rank - 1,
+    );
+    let rhs_vectorization = tensor_line_size_parallel(
+        available_vectorizations.iter().cloned(),
+        rhs.shape,
+        rhs.strides,
+        rank - 1,
+    );
+    let out_vectorization = tensor_line_size_parallel(
+        available_vectorizations.iter().cloned(),
+        out.shape,
+        out.strides,
+        rank - 1,
+    );
 
     unsafe {
         cmma_launch::launch_unchecked::<F, f16, R>(
