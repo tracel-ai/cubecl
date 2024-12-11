@@ -87,6 +87,7 @@ impl Expression {
             }
             Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
+                let span = call.span();
                 let func = Box::new(Expression::from_expr(*call.func, context)?);
                 let args = call
                     .args
@@ -103,11 +104,13 @@ impl Expression {
                             func: Box::new(func),
                             args,
                             associated_type,
+                            span,
                         }
                     }
                 }
             }
             Expr::MethodCall(method) => {
+                let span = method.span();
                 let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
@@ -127,6 +130,7 @@ impl Expression {
                         method: method.method,
                         generics: method.turbofish,
                         args,
+                        span,
                     }
                 }
             }
@@ -412,6 +416,7 @@ fn generate_strided_index(
                 ty: index_ty.clone(),
             }],
             generics: None,
+            span,
         };
         Expression::Binary {
             left: Box::new(elem),

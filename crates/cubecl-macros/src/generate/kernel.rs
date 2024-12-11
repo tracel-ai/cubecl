@@ -1,25 +1,33 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
-    paths::{core_type, prelude_path, prelude_type},
+    paths::{core_type, frontend_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
+        let debug_source = frontend_type("debug_source_expand");
+
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
             KernelBody::Block(block) => &block.to_tokens(&mut self.context),
             KernelBody::Verbatim(tokens) => tokens,
         };
+        let name = &self.full_name;
+        let source = &self.source;
+        let debug_source = quote_spanned! {self.span=>
+            #debug_source(context, #name, #source)
+        };
 
         let out = quote! {
             #vis #sig {
+                #debug_source;
                 use #prelude_path::IntoRuntime as _;
 
                 #body

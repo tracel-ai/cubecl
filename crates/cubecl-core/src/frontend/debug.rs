@@ -1,16 +1,23 @@
+use std::panic::Location;
+
 use crate::ir::{DebugInfo, Variable};
 
 use super::CubeContext;
 
 /// Calls a function and inserts debug symbols if debug is enabled.
+#[track_caller]
 pub fn debug_call_expand<C>(
     context: &mut CubeContext,
     name: &'static str,
+    line: u32,
+    col: u32,
     call: impl FnOnce(&mut CubeContext) -> C,
 ) -> C {
     if context.debug_enabled {
         context.register(DebugInfo::BeginCall {
             name: name.to_string(),
+            line,
+            col,
         });
 
         let ret = call(context);
@@ -20,6 +27,18 @@ pub fn debug_call_expand<C>(
         ret
     } else {
         call(context)
+    }
+}
+
+/// Adds source instruction if debug is enabled
+#[track_caller]
+pub fn debug_source_expand(context: &mut CubeContext, name: &str, source: &str) {
+    if context.debug_enabled {
+        context.register(DebugInfo::Source {
+            file_name: name.into(),
+            source: source.into(),
+            line_offset: Location::caller().line(),
+        });
     }
 }
 

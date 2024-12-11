@@ -155,16 +155,17 @@ impl Expression {
                 func,
                 args,
                 associated_type: None,
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
                 let path_str = path.to_string();
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #path_str, |context| #path::expand #generics(context, #(#arg_names),*))
+                        #debug_call(context, #path_str, line!(), column!(), |context| #path::expand #generics(context, #(#arg_names),*))
                     }
                 }
             }
@@ -185,6 +186,7 @@ impl Expression {
             Expression::FunctionCall {
                 args,
                 associated_type: Some((ty_path, func)),
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
@@ -192,10 +194,10 @@ impl Expression {
                 let mut name = func.clone();
                 let name_str = format!("{}::{}", ty_path.to_token_stream(), name.to_token_stream());
                 name.ident = format_ident!("__expand_{}", name.ident);
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #name_str, |context| #ty_path::#name(context, #(#arg_names),*))
+                        #debug_call(context, #name_str, line!(), column!(), |context| #ty_path::#name(context, #(#arg_names),*))
                     }
                 }
             }
@@ -204,6 +206,7 @@ impl Expression {
                 method,
                 generics,
                 args,
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
@@ -214,10 +217,10 @@ impl Expression {
                     .unwrap_or_else(|| receiver.to_tokens(context));
                 let call_str = format!("{receiver}.{method_str}");
                 let (args, arg_names) = map_args(args, context);
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #call_str, |context| #receiver.#method #generics(context, #(#arg_names),*))
+                        #debug_call(context, #call_str, line!(), column!(), |context| #receiver.#method #generics(context, #(#arg_names),*))
                     }
                 }
             }

@@ -30,7 +30,10 @@ impl CubeImplItem {
     pub fn from_impl_item(struct_ty_name: &Type, item: ImplItem) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
-                let mut func = KernelFn::from_sig_and_block(func.vis, func.sig, func.block)?;
+                let name = func.sig.ident.clone();
+                let full_name = quote!(#struct_ty_name::#name).to_string();
+                let mut func =
+                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name)?;
                 let func_name_expand = format_ident!("__expand_{}", func.sig.name);
 
                 let is_method = func
@@ -126,6 +129,9 @@ impl CubeImplItem {
             vis: func.vis.clone(),
             sig: method_sig,
             body,
+            full_name: func.full_name.clone(),
+            source: func.source.clone(),
+            span: func.span,
             context: Context::new(func.context.return_type.clone()),
         }
     }
@@ -176,6 +182,9 @@ impl CubeImplItem {
             vis: func.vis.clone(),
             sig: func_sig,
             body: KernelBody::Verbatim(body),
+            full_name: func.full_name.clone(),
+            source: func.source.clone(),
+            span: func.span,
             context: Context::new(func.context.return_type.clone()),
         }
     }

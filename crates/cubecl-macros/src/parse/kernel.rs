@@ -1,6 +1,6 @@
 use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use std::iter;
 use syn::{
@@ -43,6 +43,9 @@ pub struct KernelFn {
     pub vis: Visibility,
     pub sig: KernelSignature,
     pub body: KernelBody,
+    pub full_name: String,
+    pub source: String,
+    pub span: Span,
     pub context: Context,
 }
 
@@ -213,7 +216,15 @@ impl KernelFn {
         vis: Visibility,
         sig: Signature,
         mut block: syn::Block,
+        full_name: String,
     ) -> syn::Result<Self> {
+        // Use span of first token since we only care about the start line/col
+        let span = vis.span();
+        let source = parse_quote!(
+            #vis #sig #block
+        );
+        let source = prettyplease::unparse(&source);
+
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
@@ -225,6 +236,9 @@ impl KernelFn {
             vis,
             sig,
             body: KernelBody::Block(block),
+            full_name,
+            source,
+            span,
             context,
         })
     }
@@ -236,6 +250,7 @@ impl Launch {
         let ret = function.sig.output.clone();
 
         let vis = function.vis;
+        let full_name = function.sig.ident.to_string();
         let func = KernelFn::from_sig_and_block(
             // When generating code, this function will be wrapped in
             // a module. By setting the visibility to pub here, we
@@ -244,6 +259,7 @@ impl Launch {
             Visibility::Public(parse_quote![pub]),
             function.sig,
             *function.block,
+            full_name,
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.

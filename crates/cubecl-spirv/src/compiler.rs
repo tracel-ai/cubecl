@@ -228,6 +228,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             })
             .collect::<Vec<_>>();
 
+        self.finish_debug();
+
         target.set_modes(self, main, builtins, cube_dims);
 
         let module = take(&mut self.builder).module();

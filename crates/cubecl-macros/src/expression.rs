@@ -45,6 +45,7 @@ pub enum Expression {
         func: Box<Expression>,
         args: Vec<Expression>,
         associated_type: Option<(Path, PathSegment)>,
+        span: Span,
     },
     CompilerIntrinsic {
         func: Path,
@@ -55,6 +56,7 @@ pub enum Expression {
         method: Ident,
         generics: Option<AngleBracketedGenericArguments>,
         args: Vec<Expression>,
+        span: Span,
     },
     Closure {
         params: Vec<Pat>,

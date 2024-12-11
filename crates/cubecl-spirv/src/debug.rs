@@ -31,17 +31,37 @@ use crate::{
 pub const DEBUG_EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
 pub const PRINT_EXT_NAME: &str = "NonSemantic.DebugPrintf";
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DebugFunction {
+    id: Word,
+    name: Word,
+    source: Word,
+    line_offset: u32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FunctionCall {
+    id: Word,
+    name: String,
+    inlined_at: Option<Word>,
+}
+
 #[derive(Clone, Debug)]
 pub struct DebugInfo {
     pub source: Word,
     pub name: Word,
+    pub name_str: String,
     pub compilation_unit: Word,
     pub entry_point: Word,
-    pub functions: Vec<(Word, Option<Word>)>,
+    pub functions: Vec<FunctionCall>,
     strings: HashMap<String, Word>,
-    function_defs: HashMap<String, Word>,
-    inlined_at_defs: HashMap<(Word, Option<Word>), Word>,
+    sources: HashMap<String, Word>,
+    function_defs: HashMap<String, DebugFunction>,
+    inlined_at_defs: Vec<(Word, u32, Option<Word>, Word)>,
     function_ty: Word,
+
+    line: Vec<u32>,
+    col: Vec<u32>,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -49,32 +69,48 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if self.debug {
             let mut strings = HashMap::new();
             let name = self.string(&kernel.kernel_name);
-            strings.insert(kernel.kernel_name, name);
+            strings.insert(kernel.kernel_name.clone(), name);
 
-            self.source(SourceLanguage::Unknown, 1, Some(name), Some("source"));
-            let source = self.void_debug(Instructions::DebugSource, [name]);
-            let version = self.const_u32(1);
-            let dwarf = self.const_u32(4);
-            let lang = self.const_u32(SourceLanguage::Unknown as u32);
-            let compilation_unit = self.void_debug(
-                Instructions::DebugCompilationUnit,
-                [version, dwarf, source, lang],
-            );
-            let source = self.void_debug(Instructions::DebugSource, [name]);
+            let source = self.id();
+
+            let compilation_unit = self.id();
             let flags = self.const_u32(DebugInfoFlags::None.0);
             let return_ty = self.type_void();
-            let function_ty = self.void_debug(Instructions::DebugTypeFunction, [flags, return_ty]);
+            let function_ty =
+                self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            let main_id = self.id();
+
+            let main = DebugFunction {
+                id: main_id,
+                name,
+                source,
+                ..Default::default()
+            };
+
+            let mut function_defs = HashMap::default();
+            function_defs.insert(kernel.kernel_name.clone(), main);
+
+            let main_call = FunctionCall {
+                id: main_id,
+                name: kernel.kernel_name.clone(),
+                inlined_at: None,
+            };
 
             self.debug_info = Some(DebugInfo {
                 source,
                 name,
+                name_str: kernel.kernel_name,
                 compilation_unit,
                 entry_point: 0,
-                functions: vec![],
+                functions: vec![main_call],
                 strings,
                 inlined_at_defs: Default::default(),
-                function_defs: Default::default(),
+                sources: Default::default(),
+                function_defs,
                 function_ty,
+
+                line: vec![0],
+                col: vec![0],
             });
         }
     }
@@ -97,7 +133,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let debug_function = self.debug.then(|| {
             let debug_function = self.debug_function(kernel_name);
             self.debug_info().entry_point = debug_function;
-            self.debug_info().functions.push((debug_function, None));
+            self.debug_info().functions.push(FunctionCall {
+                id: debug_function,
+                name: kernel_name.to_string(),
+                ..Default::default()
+            });
             debug_function
         });
 
@@ -122,26 +162,68 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_debug(&mut self, debug: core::DebugInfo) {
         if self.debug {
             match debug {
-                core::DebugInfo::BeginCall { name } => {
-                    let func = self.debug_function(name);
-                    let (parent, inline_parent) = *self.debug_info().functions.last().unwrap();
+                core::DebugInfo::Source {
+                    file_name,
+                    source,
+                    line_offset,
+                } => {
+                    let name = self.debug_string(file_name.clone());
+                    let source = self.debug_source(file_name.clone(), source);
 
-                    let inlined_at = self.inlined_at(parent, inline_parent);
+                    let current_func = self.debug_info().functions.last().unwrap().name.clone();
+                    let debug_func = self.debug_info().function_defs.get_mut(&current_func);
+
+                    if let Some(debug_func) = debug_func {
+                        debug_func.name = name;
+                        debug_func.source = source;
+                        debug_func.line_offset = line_offset;
+                    }
+
+                    self.line(name, 0, 0);
+                }
+                core::DebugInfo::BeginCall { name, line, col } => {
+                    let func = self.debug_function(name.clone());
+                    let parent = self.debug_info().functions.last().unwrap().clone();
+
+                    let parent_offset = self.debug_info().function_defs[&parent.name].line_offset;
+
+                    let line_rel = line - parent_offset;
+
+                    *self.debug_info().line.last_mut().unwrap() = line_rel;
+                    *self.debug_info().col.last_mut().unwrap() = col;
+
+                    self.debug_info().line.push(0);
+                    self.debug_info().col.push(0);
+
+                    let inlined_at = self.inlined_at(parent.id, line_rel, parent.inlined_at);
 
                     if self.is_last_instruction_scope() {
                         let _ = self.pop_instruction();
                     }
 
-                    self.debug_info().functions.push((func, Some(inlined_at)));
+                    self.debug_info().functions.push(FunctionCall {
+                        id: func,
+                        name,
+                        inlined_at: Some(inlined_at),
+                    });
                     self.void_op(Instructions::DebugScope, [func, inlined_at]);
                 }
                 core::DebugInfo::EndCall => {
                     self.debug_info().functions.pop();
+                    self.debug_info().line.pop();
+                    self.debug_info().col.pop();
+
                     if self.is_last_instruction_scope() {
                         let _ = self.pop_instruction();
                     }
-                    let (func, _) = *self.debug_info().functions.last().unwrap();
-                    self.void_op(Instructions::DebugScope, [func]);
+                    let func = self.debug_info().functions.last().unwrap().clone();
+                    let debug_func = self.debug_info().function_defs[&func.name];
+                    self.void_op(Instructions::DebugScope, [func.id]);
+
+                    let line = *self.debug_info().line.last().unwrap();
+                    let col = *self.debug_info().col.last().unwrap();
+
+                    self.line(debug_func.name, line, col);
                 }
                 core::DebugInfo::Print {
                     format_string,
@@ -165,75 +247,149 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     // Deduplicated inlined_at
-    fn inlined_at(&mut self, parent: Word, inline_parent: Option<Word>) -> Word {
+    fn inlined_at(&mut self, parent: Word, line: u32, inline_parent: Option<Word>) -> Word {
         let existing = self
             .debug_info()
             .inlined_at_defs
-            .get(&(parent, inline_parent));
+            .iter()
+            .find(|it| it.0 == parent && it.1 == line && it.2 == inline_parent);
+        if let Some(existing) = existing {
+            existing.3
+        } else {
+            let id = self.id();
+            self.debug_info()
+                .inlined_at_defs
+                .push((parent, line, inline_parent, id));
+            id
+        }
+    }
+
+    // Deduplicated debug_source
+    fn debug_source(&mut self, file: String, source: String) -> Word {
+        let existing = self.debug_info().sources.get(&file);
         if let Some(existing) = existing {
             *existing
         } else {
-            let zero = self.const_u32(0);
-            let inlined_at = if let Some(inline_parent) = inline_parent {
-                self.void_debug(Instructions::DebugInlinedAt, [zero, parent, inline_parent])
-            } else {
-                self.void_debug(Instructions::DebugInlinedAt, [zero, parent])
-            };
-            self.debug_info()
-                .inlined_at_defs
-                .insert((parent, inline_parent), inlined_at);
-            inlined_at
+            let file_id = self.debug_string(&file);
+            let source_id = self.debug_string(&source);
+            self.source(SourceLanguage::Unknown, 1, Some(file_id), Some(source));
+            let source = self.void_debug(None, Instructions::DebugSource, [file_id, source_id]);
+            self.debug_info().sources.insert(file, source);
+            source
         }
     }
 
     fn debug_function(&mut self, name: impl Into<String>) -> Word {
         let name: String = name.into();
         if let Some(func) = self.debug_info().function_defs.get(&name).copied() {
-            func
+            func.id
         } else {
             let name_id = self.debug_string(&name);
-            let flags = self.const_u32(DebugInfoFlags::None.0);
-            let debug_type = self.debug_info().function_ty;
+            let id = self.id();
             let source = self.debug_info().source;
-            let compilation_unit = self.debug_info().compilation_unit;
-            let zero = self.const_u32(0);
-            let debug_func = self.void_debug(
-                Instructions::DebugFunction,
-                [
-                    name_id,
-                    debug_type,
+
+            self.debug_info().function_defs.insert(
+                name,
+                DebugFunction {
+                    id,
+                    name: name_id,
                     source,
-                    zero,
-                    zero,
-                    compilation_unit,
-                    name_id,
-                    flags,
-                    zero,
-                ],
+                    ..Default::default()
+                },
             );
-            self.debug_info().function_defs.insert(name, debug_func);
-            debug_func
+            id
         }
+    }
+
+    pub fn finish_debug(&mut self) {
+        let compilation_unit = self.debug_info().compilation_unit;
+        let entry_name = self.debug_info().name_str.clone();
+        let source = self.debug_info().function_defs[&entry_name].source;
+        let version = self.const_u32(1);
+        let dwarf = self.const_u32(4);
+        let lang = self.const_u32(SourceLanguage::Unknown as u32);
+        self.void_debug(
+            Some(compilation_unit),
+            Instructions::DebugCompilationUnit,
+            [version, dwarf, source, lang],
+        );
+
+        if let Some(debug_info) = self.debug_info.clone() {
+            for function in debug_info.function_defs.values() {
+                self.declare_debug_function(function);
+            }
+
+            for (parent, line, inline_parent, id) in debug_info.inlined_at_defs.iter().copied() {
+                self.declare_inlined_at(id, parent, line, inline_parent);
+            }
+        }
+    }
+
+    fn declare_debug_function(&mut self, function: &DebugFunction) {
+        let name_id = function.name;
+        let flags = self.const_u32(DebugInfoFlags::None.0);
+        let debug_type = self.debug_info().function_ty;
+        let source = function.source;
+        let compilation_unit = self.debug_info().compilation_unit;
+        let zero = self.const_u32(0);
+        self.void_debug(
+            Some(function.id),
+            Instructions::DebugFunction,
+            [
+                name_id,
+                debug_type,
+                source,
+                zero,
+                zero,
+                compilation_unit,
+                name_id,
+                flags,
+                zero,
+            ],
+        );
+    }
+
+    // Deduplicated inlined_at
+    fn declare_inlined_at(
+        &mut self,
+        out_id: Word,
+        parent: Word,
+        line: u32,
+        inline_parent: Option<Word>,
+    ) {
+        let line = self.const_u32(line);
+        if let Some(inline_parent) = inline_parent {
+            self.void_debug(
+                Some(out_id),
+                Instructions::DebugInlinedAt,
+                [line, parent, inline_parent],
+            )
+        } else {
+            self.void_debug(Some(out_id), Instructions::DebugInlinedAt, [line, parent])
+        };
     }
 
     pub fn debug_scope(&mut self) {
         if self.debug {
-            let (func, _) = *self.debug_info().functions.last().unwrap();
-            let name = self.debug_info().name;
-            self.line(name, 0, 0);
-            self.void_op(Instructions::DebugScope, [func]);
+            let func = self.debug_info().functions.last().unwrap().clone();
+            let func = self.debug_info().function_defs[&func.name];
+            let line = *self.debug_info().line.last().unwrap();
+            let col = *self.debug_info().col.last().unwrap();
+            self.line(func.name, line, col);
+            self.void_op(Instructions::DebugScope, [func.id]);
         }
     }
 
     fn void_debug<const N: usize>(
         &mut self,
+        out_id: Option<Word>,
         instruction: Instructions,
         operands: [Word; N],
     ) -> Word {
         let ext = self.state.extensions[DEBUG_EXT_NAME];
         let void = self.type_void();
         let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
-        let out = self.id();
+        let out = out_id.unwrap_or_else(|| self.id());
         let mut ops = vec![
             Operand::IdRef(ext),
             Operand::LiteralExtInstInteger(instruction as u32),
