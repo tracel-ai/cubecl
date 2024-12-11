@@ -155,47 +155,40 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         out_line_size,
     };
 
-    if TypeId::of::<EG>() == TypeId::of::<half::f16>()
-        || TypeId::of::<EG>() == TypeId::of::<flex32>()
-    {
-        matmul_select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
-            client,
-            TensorInputsLaunch::new(
-                lhs.as_tensor_arg(lhs_line_size),
-                rhs.as_tensor_arg(rhs_line_size),
-            ),
-            out.as_tensor_arg(out_line_size),
-            problem,
-            disable_cmma,
-        )
-    } else {
-        matmul_select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
-            client,
-            TensorInputsLaunch::new(
-                lhs.as_tensor_arg(lhs_line_size),
-                rhs.as_tensor_arg(rhs_line_size),
-            ),
-            out.as_tensor_arg(out_line_size),
-            problem,
-            disable_cmma,
-        )
-    }
-}
-
-pub fn matmul_select_kernel<'a, MS: MatmulSpec, R>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
-    problem: MatmulProblem,
-    disable_cmma: bool,
-) -> Result<(), MatmulLaunchError>
-where
-    R: Runtime,
-{
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<MS, R>(client, input, output, problem)
+        PlaneMmaSelector::select_kernel::<SingleMatmulSpec<EG, f32, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+        )
     } else {
-        CmmaSelector::select_kernel::<MS, R>(client, input, output, problem)
+        if TypeId::of::<EG>() == TypeId::of::<half::f16>()
+            || TypeId::of::<EG>() == TypeId::of::<flex32>()
+        {
+            CmmaSelector::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
+                client,
+                TensorInputsLaunch::new(
+                    lhs.as_tensor_arg(lhs_line_size),
+                    rhs.as_tensor_arg(rhs_line_size),
+                ),
+                out.as_tensor_arg(out_line_size),
+                problem,
+            )
+        } else {
+            CmmaSelector::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
+                client,
+                TensorInputsLaunch::new(
+                    lhs.as_tensor_arg(lhs_line_size),
+                    rhs.as_tensor_arg(rhs_line_size),
+                ),
+                out.as_tensor_arg(out_line_size),
+                problem,
+            )
+        }
     }
 }
 

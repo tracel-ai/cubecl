@@ -38,7 +38,7 @@ impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> batch::Matmul<MS>
         let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
         let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
         let nth_batch = C::batch_index();
-        let rank = 3u32;
+        let rank = lhs.rank();
         let k_range = (0, lhs.shape(rank - 1));
 
         let gmm_config = config.to_gmm_config();

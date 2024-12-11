@@ -17,8 +17,8 @@ pub struct TilewiseLoading {}
 
 #[cube]
 impl LoadingStrategy for TilewiseLoading {
-    fn load_to_slice<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
-        read_view: &TensorReader<GA, EG>,
+    fn load_to_slice<MA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
+        read_view: &TensorReader<MA, EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
