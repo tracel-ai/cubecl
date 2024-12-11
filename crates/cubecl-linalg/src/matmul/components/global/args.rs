@@ -144,17 +144,17 @@ impl<EG: Numeric, GA: MatmulArgs<EG>> TensorOutput<EG, GA> {
 
     /// Get the shape of the tensor at the given axis.
     pub fn shape(&self, axis: u32) -> u32 {
-        unsafe { GA::shape_out(&mut (*self.state), axis) }
+        unsafe { GA::shape_out(&(*self.state), axis) }
     }
 
     /// Get the stride of the tensor at the given axis.
     pub fn stride(&self, dim: u32) -> u32 {
-        unsafe { GA::stride_out(&mut (*self.state), dim) }
+        unsafe { GA::stride_out(&(*self.state), dim) }
     }
 
     /// Get the rank of the tensor.
     pub fn rank(&self) -> u32 {
-        unsafe { GA::rank_out(&mut (*self.state)) }
+        unsafe { GA::rank_out(&(*self.state)) }
     }
 }
 
@@ -247,7 +247,7 @@ mod __input {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                ident: self.ident.clone(),
+                ident: self.ident,
             }
         }
     }
@@ -260,10 +260,7 @@ mod __input {
     }
     impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorInput<EG, GA> {
         fn clone(&self) -> Self {
-            Self {
-                state: self.state.clone(),
-                ident: self.ident.clone(),
-            }
+            *self
         }
     }
     impl<EG: Numeric, GA: MatmulArgs<EG>> Copy for TensorInput<EG, GA> {}
@@ -284,9 +281,7 @@ mod __output {
 
     impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorOutput<EG, GA> {
         fn clone(&self) -> Self {
-            Self {
-                state: self.state.clone(),
-            }
+            *self
         }
     }
 

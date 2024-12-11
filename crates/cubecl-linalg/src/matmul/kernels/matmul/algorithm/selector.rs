@@ -149,6 +149,7 @@ impl CmmaSelector {
 /// A heuristic to choose the instruction to use, based on input shape
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
+#[allow(clippy::type_complexity)]
 fn find_instruction_shape(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
