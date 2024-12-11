@@ -1,4 +1,6 @@
-use cubecl_core::{prelude::*, tensor_line_size_parallel, tensor_line_size_perpendicular};
+use cubecl_core::{
+    ir::Elem, prelude::*, tensor_line_size_parallel, tensor_line_size_perpendicular,
+};
 
 use crate::ReduceStrategy;
 
@@ -47,13 +49,14 @@ pub(crate) fn generate_config<R: Runtime>(
     output: &TensorHandleRef<R>,
     axis: u32,
     strategy: &ReduceStrategy,
+    elem: &Elem,
 ) -> ReduceConfig {
     match (strategy.use_planes, strategy.shared) {
-        (false, false) => generate_config_unit::<R>(input, output, axis),
+        (false, false) => generate_config_unit::<R>(input, output, axis, elem),
         (true, false) => {
             // This assumes that the strategy is already validated. Thus the plane dim is fixed.
             let plane_dim = client.properties().hardware_properties().plane_size_min;
-            generate_config_plane::<R>(input, output, axis, plane_dim)
+            generate_config_plane::<R>(input, output, axis, plane_dim, elem)
         }
         (false, true) => unimplemented!(),
         (true, true) => unimplemented!(),
@@ -64,12 +67,13 @@ fn generate_config_unit<R: Runtime>(
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     axis: u32,
+    elem: &Elem,
 ) -> ReduceConfig {
     let stride = input.strides[axis as usize];
     if stride == 1 {
-        generate_config_unit_parallel(input, output, axis)
+        generate_config_unit_parallel(input, output, axis, elem)
     } else {
-        generate_config_unit_perpendicular(input, output, axis)
+        generate_config_unit_perpendicular(input, output, axis, elem)
     }
 }
 
@@ -77,6 +81,7 @@ fn generate_config_unit_parallel<R: Runtime>(
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     axis: u32,
+    elem: &Elem,
 ) -> ReduceConfig {
     let unit_count = output.size() as u32;
 
@@ -84,7 +89,7 @@ fn generate_config_unit_parallel<R: Runtime>(
     let cube_count = CubeCount::new_1d(unit_count.div_ceil(cube_dim.num_elems()));
 
     let line_mode = LineMode::Parallel;
-    let line_size = generate_line_size(input, axis, line_mode);
+    let line_size = generate_line_size(input, axis, line_mode, elem);
 
     let mut config = ReduceConfig::new(cube_count, cube_dim, line_mode, line_size);
     config.do_bound_checks_if(unit_count % cube_dim.num_elems() != 0);
@@ -95,6 +100,7 @@ fn generate_config_unit_perpendicular<R: Runtime>(
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     axis: u32,
+    elem: &Elem,
 ) -> ReduceConfig {
     let unit_count = output.size() as u32;
 
@@ -102,7 +108,7 @@ fn generate_config_unit_perpendicular<R: Runtime>(
     let cube_count = CubeCount::new_1d(unit_count.div_ceil(cube_dim.num_elems()));
 
     let line_mode = LineMode::Perpendicular;
-    let line_size = generate_line_size(input, axis, line_mode);
+    let line_size = generate_line_size(input, axis, line_mode, elem);
 
     let mut config = ReduceConfig::new(cube_count, cube_dim, line_mode, line_size);
     config.do_bound_checks_if((unit_count / line_size) % cube_dim.num_elems() != 0);
@@ -114,6 +120,7 @@ fn generate_config_plane<R: Runtime>(
     output: &TensorHandleRef<R>,
     axis: u32,
     plane_dim: u32,
+    elem: &Elem,
 ) -> ReduceConfig {
     let reduce_count = output.size() as u32;
     let plane_count_per_cube = 8;
@@ -122,23 +129,28 @@ fn generate_config_plane<R: Runtime>(
     let cube_count = CubeCount::new_1d(reduce_count.div_ceil(plane_count_per_cube));
 
     let line_mode = LineMode::Parallel;
-    let line_size = generate_line_size(input, axis, line_mode);
+    let line_size = generate_line_size(input, axis, line_mode, elem);
 
     let mut config = ReduceConfig::new(cube_count, cube_dim, line_mode, line_size);
     config.do_bound_checks_if(reduce_count % plane_count_per_cube != 0);
     config
 }
 
-fn generate_line_size<R: Runtime>(input: &TensorHandleRef<R>, axis: u32, mode: LineMode) -> u32 {
+fn generate_line_size<R: Runtime>(
+    input: &TensorHandleRef<R>,
+    axis: u32,
+    mode: LineMode,
+    elem: &Elem,
+) -> u32 {
     let line_size = match mode {
         LineMode::Parallel => tensor_line_size_parallel(
-            R::supported_line_sizes().iter().cloned(),
+            R::max_line_size_elem(elem),
             input.shape,
             input.strides,
             axis as usize,
         ),
         LineMode::Perpendicular => tensor_line_size_perpendicular(
-            R::supported_line_sizes(),
+            R::max_line_size_elem(elem),
             input.shape,
             input.strides,
             axis as usize,

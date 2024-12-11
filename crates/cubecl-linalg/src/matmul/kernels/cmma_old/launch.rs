@@ -87,21 +87,20 @@ fn matmul_cmma_ref_no_check<R: Runtime, F: Float>(
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
-    let available_vectorizations = R::supported_line_sizes();
     let lhs_vectorization = tensor_line_size_parallel(
-        available_vectorizations.iter().cloned(),
+        R::max_line_size_elem(&F::as_elem()),
         lhs.shape,
         lhs.strides,
         rank - 1,
     );
     let rhs_vectorization = tensor_line_size_parallel(
-        available_vectorizations.iter().cloned(),
+        R::max_line_size_elem(&F::as_elem()),
         rhs.shape,
         rhs.strides,
         rank - 1,
     );
     let out_vectorization = tensor_line_size_parallel(
-        available_vectorizations.iter().cloned(),
+        R::max_line_size_elem(&F::as_elem()),
         out.shape,
         out.strides,
         rank - 1,

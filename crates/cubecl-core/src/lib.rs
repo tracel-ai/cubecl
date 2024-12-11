@@ -131,7 +131,7 @@ pub fn tensor_line_size_parallel(
 /// and that the product of all shapes of axes with smaller strides is equal to the stride of the axis.
 /// The second condition ensure that elements within the stride are contiguous.
 pub fn tensor_line_size_perpendicular(
-    supported_line_sizes: &[u8],
+    supported_line_sizes: impl Iterator<Item = u8>,
     shape: &[usize],
     strides: &[usize],
     axis: usize,
@@ -153,8 +153,6 @@ pub fn tensor_line_size_perpendicular(
     }
 
     supported_line_sizes
-        .iter()
-        .cloned()
         .filter(|line_size| axis_stride % *line_size as usize == 0)
         .max()
         .unwrap_or(1)
