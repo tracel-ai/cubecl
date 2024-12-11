@@ -20,6 +20,7 @@ pub trait WmmaCompiler<D: Dialect>:
 {
     type Architecture: Architecture;
 
+    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 

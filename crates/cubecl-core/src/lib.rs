@@ -79,7 +79,7 @@ pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim:
 /// from the supported line sizes or return 1 if vectorization is impossible.
 ///
 /// This function is designed to never return a line size above 1 by error,
-/// but doesn't garantees to always return the actual maximum possible line size.
+/// but doesn't guarantees to always return the actual maximum possible line size.
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
@@ -124,7 +124,7 @@ pub fn tensor_line_size_parallel(
 /// from the supported line sizes or return 1 if vectorization is impossible.
 ///
 /// This function is designed to never return a line size above 1 by error,
-/// but doesn't garantees to always return the actual maximum possible line size.
+/// but doesn't guarantees to always return the actual maximum possible line size.
 /// That is, it may be overly strict.
 ///
 /// Currently, this checks that the stride of the axis is divisible by a candidate line size
