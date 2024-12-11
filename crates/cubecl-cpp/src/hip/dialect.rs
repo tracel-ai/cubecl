@@ -10,6 +10,10 @@ pub struct HipDialect<M> {
 impl<M: WmmaCompiler<Self>> WmmaCompiler<Self> for HipDialect<M> {
     type Architecture = M::Architecture;
 
+    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        M::wmma_includes(f)
+    }
+
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         M::deftypes(f)
     }
@@ -63,9 +67,6 @@ impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     }
     fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")
-    }
-    fn include_wmma(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("hip_bfloat16")
