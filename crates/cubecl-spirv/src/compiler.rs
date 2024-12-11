@@ -3,7 +3,6 @@ use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
     collections::HashSet,
-    env,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
