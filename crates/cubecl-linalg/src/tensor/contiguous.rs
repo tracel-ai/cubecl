@@ -65,7 +65,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes(),
+        R::supported_line_sizes().iter().cloned(),
         input.shape,
         input.strides,
         rank - 1,
@@ -93,7 +93,7 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let vectorization_factor = tensor_line_size_parallel(
-        R::supported_line_sizes(),
+        R::supported_line_sizes().iter().cloned(),
         input.shape,
         input.strides,
         rank - 1,

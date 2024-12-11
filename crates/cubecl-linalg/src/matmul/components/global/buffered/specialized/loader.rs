@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
+use crate::matmul::components::global::args::{MatmulArgs, TensorInput};
 use crate::matmul::components::global::base::Config as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
 use crate::matmul::components::global::buffered::specialized;
@@ -14,8 +15,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
-    pub tensor_view: TensorReader<EG>,
+pub struct LhsBufferLoader<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config> {
+    pub tensor_view: TensorReader<GA, EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
     num_buffers: u32,
@@ -24,8 +25,8 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[derive(CubeType)]
-pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
-    pub tensor_view: TensorReader<EG>,
+pub struct RhsBufferLoader<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config> {
+    pub tensor_view: TensorReader<GA, EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
     num_buffers: u32,
@@ -34,14 +35,14 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Config<S>>
-    for LhsBufferLoader<EG, ES, S>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config>
+    Loader<EG, ES, specialized::Config<S>> for LhsBufferLoader<GA, EG, ES, S>
 {
     type StageReader = LhsBufferReader<ES>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: specialized::Config<S>) {
         if this.is_producer {
-            load_buffer::<EG, ES, S>(
+            load_buffer::<GA, EG, ES, S>(
                 this.buffer_iter,
                 &this.tensor_view,
                 &mut this.stage,
@@ -65,9 +66,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Con
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config>
+    LhsBufferLoader<GA, EG, ES, S>
+{
     pub fn new(
-        tensor: &Tensor<Line<EG>>,
+        tensor: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -77,7 +80,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        LhsBufferLoader::<EG, ES, S> {
+        LhsBufferLoader::<GA, EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0u32.runtime(),
@@ -89,14 +92,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Config<S>>
-    for RhsBufferLoader<EG, ES, S>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config>
+    Loader<EG, ES, specialized::Config<S>> for RhsBufferLoader<GA, EG, ES, S>
 {
     type StageReader = RhsBufferReader<ES>;
 
     fn fill_stage(this: &mut Self, #[comptime] config: specialized::Config<S>) {
         if this.is_producer {
-            load_buffer::<EG, ES, S>(
+            load_buffer::<GA, EG, ES, S>(
                 this.buffer_iter,
                 &this.tensor_view,
                 &mut this.stage,
@@ -120,9 +123,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Con
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config>
+    RhsBufferLoader<GA, EG, ES, S>
+{
     pub fn new(
-        tensor: &Tensor<Line<EG>>,
+        tensor: TensorInput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -132,7 +137,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        RhsBufferLoader::<EG, ES, S> {
+        RhsBufferLoader::<GA, EG, ES, S> {
             tensor_view,
             stage,
             buffer_iter: 0u32.runtime(),
@@ -144,9 +149,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
+fn load_buffer<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config>(
     buffer_iter: u32,
-    tensor_view: &TensorReader<EG>,
+    tensor_view: &TensorReader<GA, EG>,
     stage: &mut Stage<ES>,
     #[comptime] ident: Ident,
     #[comptime] config: specialized::Config<S>,
@@ -162,7 +167,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, specialized::Config<S>>(
+    BufferLoading::load_to_slice::<GA, EG, ES, specialized::Config<S>>(
         tensor_view,
         buffer_slice,
         config.num_producers(),

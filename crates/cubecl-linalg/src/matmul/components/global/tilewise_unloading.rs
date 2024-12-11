@@ -4,6 +4,8 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::args::MatmulArgs;
+
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
 /// iterating with steps determined by the plane's dimension.
@@ -11,8 +13,8 @@ pub struct TilewiseUnloading {}
 
 #[cube]
 impl TilewiseUnloading {
-    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: Config>(
-        write_view: &mut TensorWriter<EG>,
+    pub fn unload_from_slice<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
+        write_view: &mut TensorWriter<GA, EG>,
         slice: Slice<Line<ES>>,
         tile_x: u32,
         tile_y: u32,

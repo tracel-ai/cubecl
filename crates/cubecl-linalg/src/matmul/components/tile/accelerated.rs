@@ -8,16 +8,7 @@ use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
-use half::{bf16, f16};
 use std::marker::PhantomData;
-
-/// Implementations are pairs of element types that are allowed for CMMA
-pub trait CmmaValid<I: Numeric, O: Numeric> {}
-
-impl CmmaValid<f16, f16> for (f16, f16) {}
-impl CmmaValid<f16, f32> for (f16, f32) {}
-impl CmmaValid<bf16, f32> for (bf16, f32) {}
-impl CmmaValid<tf32, f32> for (tf32, f32) {}
 
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
@@ -27,10 +18,7 @@ macro_rules! instruction {
         }
 
         #[cube]
-        impl<I: Numeric, O: Numeric> tile::Matmul<I, O> for $name<I, O>
-        where
-            (I, O): CmmaValid<I, O>,
-        {
+        impl<I: Numeric, O: Numeric> tile::Matmul<I, O> for $name<I, O> {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
@@ -90,10 +78,7 @@ macro_rules! instruction {
             }
         }
 
-        impl<I: Numeric, O: Numeric> MatmulKernel<I, O> for $name<I, O>
-        where
-            (I, O): CmmaValid<I, O>,
-        {
+        impl<I: Numeric, O: Numeric> MatmulKernel for $name<I, O> {
             type Config = Config;
 
             fn check_config(config: Self::Config) {
@@ -118,6 +103,7 @@ macro_rules! instruction {
     };
 }
 
+instruction!(Accelerated16x16x8, 16, 16, 8);
 instruction!(Accelerated16x16x16, 16, 16, 16);
 instruction!(Accelerated32x8x16, 32, 8, 16);
 instruction!(Accelerated8x32x16, 8, 32, 16);

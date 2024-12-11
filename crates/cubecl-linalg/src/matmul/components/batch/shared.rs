@@ -1,15 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global;
+use crate::matmul::components::global::args::{TensorInput, TensorOutput};
+use crate::matmul::components::{global, MatmulSpec};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
-    lhs: &Tensor<Line<EG>>,
-    rhs: &Tensor<Line<EG>>,
-    out: &mut Tensor<Line<EG>>,
+pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    lhs: TensorInput<MS::EG, MS::Args>,
+    rhs: TensorInput<MS::EG, MS::Args>,
+    out: TensorOutput<MS::EG, MS::Args>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,

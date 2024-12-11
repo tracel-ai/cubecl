@@ -1,11 +1,12 @@
 use cubecl_core::prelude::*;
 
+use super::{InputRuntimeArg, MatmulSpec, OutputRuntimeArg};
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 
 use super::{config::MatmulConfig, MatmulProblem};
 
 /// Provides configuration for a matmul kernel at any level
-pub trait MatmulKernel<I: Numeric, O: Numeric> {
+pub trait MatmulKernel {
     /// Configuration tailored to the matmul implementation
     type Config: MatmulConfig;
 
@@ -27,19 +28,18 @@ pub trait MatmulKernel<I: Numeric, O: Numeric> {
 }
 
 /// Provides launch entry point to solve a matmul
-pub trait MatmulLaunch<I: Numeric, O: Numeric>: MatmulKernel<I, O> {
+pub trait MatmulLaunch<MS: MatmulSpec>: MatmulKernel {
     /// Entry point
     ///
     /// # Safety
     ///
     /// Out-of-bounds can happen
-    unsafe fn launch_unchecked<R: Runtime>(
+    unsafe fn launch_unchecked<'a, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        lhs: TensorArg<'_, R>,
-        rhs: TensorArg<'_, R>,
-        out: TensorArg<'_, R>,
-        config: <Self as MatmulKernel<I, O>>::Config,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        config: <Self as MatmulKernel>::Config,
     );
 }

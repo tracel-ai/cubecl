@@ -1,10 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::batch;
-use crate::matmul::components::{
-    config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
-};
+use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
+use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg};
+use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
 
 #[cube]
 /// Provides matrix multiplication operations at the batch level.
@@ -24,14 +23,12 @@ use crate::matmul::components::{
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
-pub trait Matmul<EG: Numeric>:
-    'static + Send + Sync + MatmulKernel<EG, EG, Config: Config> + MatmulLaunch<EG, EG>
-{
+pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulLaunch<MS, Config: Config> {
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         #[comptime] config: Self::Config,
     );
 }
@@ -58,11 +55,16 @@ pub trait Config: MatmulConfig {
 }
 
 #[cube(launch_unchecked)]
-pub(crate) fn batch_matmul<EG: Numeric, BMM: batch::Matmul<EG>>(
-    lhs: &Tensor<Line<EG>>,
-    rhs: &Tensor<Line<EG>>,
-    out: &mut Tensor<Line<EG>>,
+pub(crate) fn batch_matmul<MS: MatmulSpec, BMM: batch::Matmul<MS>>(
+    inputs: &InputArg<MS>,
+    output: &mut OutputArg<MS>,
     #[comptime] config: BMM::Config,
 ) {
+    let mut state = MS::Args::init_state(inputs, output);
+
+    let lhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Rhs);
+    let out = TensorOutput::<MS::EG, MS::Args>::new(&mut state);
+
     BMM::execute(lhs, rhs, out, config);
 }
