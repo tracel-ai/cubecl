@@ -2,6 +2,7 @@ use crate::ir::{self, Elem, Instruction, Item, ReusingAllocator, Scope, Variable
 use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
+use cubecl_runtime::debug::DebugLogger;
 
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
@@ -29,10 +30,7 @@ impl CubeContext {
             local_allocator: Rc::new(allocator),
             scope,
             root,
-            #[cfg(feature = "std")]
-            debug_enabled: std::env::var("CUBECL_DEBUG_LOG").is_ok(),
-            #[cfg(not(feature = "std"))]
-            debug_enabled: false,
+            debug_enabled: DebugLogger::default().is_activated(),
         }
     }
 

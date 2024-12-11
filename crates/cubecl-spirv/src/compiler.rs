@@ -1,5 +1,6 @@
 use cubecl_core::{ir as core, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
+use cubecl_runtime::debug::DebugLogger;
 use std::{
     collections::HashSet,
     env,
@@ -89,7 +90,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
-            debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
+            debug: DebugLogger::default().is_activated(),
             visited: Default::default(),
             metadata: Default::default(),
             debug_info: Default::default(),
