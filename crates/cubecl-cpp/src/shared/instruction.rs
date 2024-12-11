@@ -173,6 +173,10 @@ pub enum Instruction<D: Dialect> {
         out_index: Variable<D>,
         len: u32,
     },
+    Printf {
+        format_string: String,
+        args: Vec<Variable<D>>,
+    },
 }
 
 impl<D: Dialect> Display for Instruction<D> {
@@ -522,8 +526,27 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
             }
+            Instruction::Printf {
+                format_string,
+                args,
+            } => {
+                let format_string = escape_string(format_string);
+                let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
+                let args = match args.is_empty() {
+                    true => "".to_string(),
+                    false => format!(", {}", args.join(",")),
+                };
+                writeln!(f, "printf(\"{format_string}\"{args});",)
+            }
         }
     }
+}
+
+fn escape_string(format_string: &str) -> String {
+    format_string
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
 }
 
 struct Fma<D: Dialect> {

@@ -35,11 +35,11 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
 }
 
-mod glcompute {
+pub mod glcompute {
     use super::*;
     use GLSL_std_450::GLSLstd450::{self, *};
 
-    pub const NAME: &str = "GLSL.std.450";
+    pub const STD_NAME: &str = "GLSL.std.450";
 
     fn ext_op<T: SpirvTarget, const N: usize>(
         b: &mut SpirvCompiler<T>,
@@ -48,7 +48,7 @@ mod glcompute {
         instruction: GLSLstd450,
         operands: [Word; N],
     ) {
-        let ext = b.state.extensions[NAME];
+        let ext = b.state.extensions[STD_NAME];
         let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
         b.ext_inst(ty, Some(out), ext, instruction as u32, operands)
             .unwrap();

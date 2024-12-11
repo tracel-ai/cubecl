@@ -1,5 +1,5 @@
-use crate as cubecl;
 use crate::prelude::*;
+use crate::{self as cubecl, debug_print};
 
 #[cube]
 fn helper_fn<F: Float>(num: F) -> F {
@@ -61,6 +61,37 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
     assert_eq!(actual[0], 1000.0);
 }
 
+#[cube(launch)]
+fn debug_print_kernel<F: Float>(out: &mut Array<F>) {
+    if UNIT_POS == 0 {
+        let val = out[0];
+        debug_print!("Test value: %f\n", val);
+        out[0] = helper_fn::<F>(val);
+    }
+}
+
+pub fn test_debug_print<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    //let logger = MemoryLogger::setup(log::Level::Info);
+
+    let handle = client.create(f32::as_bytes(&[10.0, 1.0]));
+
+    let vectorization = 1;
+
+    debug_print_kernel::launch::<f32, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::default(),
+        unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 2, vectorization) },
+    );
+
+    let actual = client.read_one(handle.binding());
+    let actual = f32::from_bytes(&actual);
+
+    // No way to assert the log is happening right now because CUDA prints to stdout, which can't be
+    // easily captured
+    assert_eq!(actual[0], 100.0);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_debug {
@@ -77,6 +108,12 @@ macro_rules! testgen_debug {
         fn test_nested_call_debug() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client);
+        }
+
+        #[test]
+        fn test_debug_print() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::debug::test_debug_print::<TestRuntime>(client);
         }
     };
 }

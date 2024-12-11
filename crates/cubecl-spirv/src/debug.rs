@@ -10,7 +10,8 @@ use crate::{
     SpirvCompiler, SpirvTarget,
 };
 
-const EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
+pub const DEBUG_EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
+pub const PRINT_EXT_NAME: &str = "NonSemantic.DebugPrintf";
 
 #[derive(Clone, Debug)]
 pub struct DebugInfo {
@@ -124,6 +125,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let (func, _) = *self.debug_info().functions.last().unwrap();
                     self.void_op(Instructions::DebugScope, [func]);
                 }
+                core::DebugInfo::Print {
+                    format_string,
+                    args,
+                } => {
+                    let ext = self.state.extensions[PRINT_EXT_NAME];
+                    let void = self.type_void();
+                    let args = args
+                        .into_iter()
+                        .map(|arg| {
+                            let var = self.compile_variable(arg);
+                            Operand::IdRef(self.read(&var))
+                        })
+                        .collect::<Vec<_>>();
+                    let mut operands = vec![Operand::IdRef(self.debug_string(format_string))];
+                    operands.extend(args);
+                    self.ext_inst(void, None, ext, 1, operands).unwrap();
+                }
             };
         }
     }
@@ -194,7 +212,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         instruction: Instructions,
         operands: [Word; N],
     ) -> Word {
-        let ext = self.state.extensions[EXT_NAME];
+        let ext = self.state.extensions[DEBUG_EXT_NAME];
         let void = self.type_void();
         let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
         let out = self.id();
@@ -209,7 +227,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn void_op<const N: usize>(&mut self, instruction: Instructions, operands: [Word; N]) -> Word {
-        let ext = self.state.extensions[EXT_NAME];
+        let ext = self.state.extensions[DEBUG_EXT_NAME];
         let void = self.type_void();
         let operands = operands.into_iter().map(Operand::IdRef).collect::<Vec<_>>();
         self.ext_inst(void, None, ext, instruction as u32, operands)
@@ -230,7 +248,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let block = &self.module_ref().functions[selected_function].blocks[selected_block];
 
         let inst = block.instructions.last();
-        let ext = self.state.extensions[EXT_NAME];
+        let ext = self.state.extensions[DEBUG_EXT_NAME];
 
         if let Some(Instruction {
             class, operands, ..

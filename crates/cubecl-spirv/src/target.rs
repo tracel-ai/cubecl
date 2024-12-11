@@ -5,7 +5,12 @@ use rspirv::spirv::{
 };
 use std::fmt::Debug;
 
-use crate::{extensions::TargetExtensions, item::Item, SpirvCompiler};
+use crate::{
+    debug,
+    extensions::{glcompute, TargetExtensions},
+    item::Item,
+    SpirvCompiler,
+};
 
 pub trait SpirvTarget:
     TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
@@ -130,13 +135,17 @@ impl SpirvTarget for GLCompute {
     fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> HashMap<String, Word> {
         let mut extensions = HashMap::new();
         extensions.insert(
-            "GLSL.std.450".to_string(),
-            b.ext_inst_import("GLSL.std.450"),
+            glcompute::STD_NAME.to_string(),
+            b.ext_inst_import(glcompute::STD_NAME),
         );
         if b.debug {
             extensions.insert(
-                "NonSemantic.Shader.DebugInfo.100".to_string(),
-                b.ext_inst_import("NonSemantic.Shader.DebugInfo.100"),
+                debug::DEBUG_EXT_NAME.to_string(),
+                b.ext_inst_import(debug::DEBUG_EXT_NAME),
+            );
+            extensions.insert(
+                debug::PRINT_EXT_NAME.to_string(),
+                b.ext_inst_import(debug::PRINT_EXT_NAME),
             );
         }
         extensions

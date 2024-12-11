@@ -59,6 +59,7 @@ pub struct CppCompiler<D: Dialect> {
     wmma: bool,
     bf16: bool,
     f16: bool,
+    printf: bool,
     num_inputs: usize,
     num_outputs: usize,
     ext_meta_positions: Vec<u32>,
@@ -283,8 +284,23 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
-            // No good way to attach debug info
-            gpu::Operation::Debug(_) => {}
+            gpu::Operation::Debug(debug) => match debug {
+                // No good way to attach debug info
+                gpu::DebugInfo::BeginCall { .. } | gpu::DebugInfo::EndCall => {}
+                gpu::DebugInfo::Print {
+                    format_string,
+                    args,
+                } => {
+                    self.printf = true;
+                    instructions.push(Instruction::Printf {
+                        format_string,
+                        args: args
+                            .into_iter()
+                            .map(|arg| self.compile_variable(arg))
+                            .collect(),
+                    })
+                }
+            },
         }
     }
 
