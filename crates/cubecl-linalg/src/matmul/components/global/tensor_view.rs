@@ -50,8 +50,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric> TensorReader<GA, EG> {
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
-        // let rank = tensor.rank();
-        let rank = 3u32;
+        let rank = tensor.rank();
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);
@@ -155,8 +154,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric> TensorWriter<GA, EG> {
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
-        // let rank = tensor.rank();
-        let rank = 3u32;
+        let rank = tensor.rank();
         let stride_x = tensor.stride(rank - 2);
         let stride_y = tensor.stride(rank - 1);
         let shape_x = tensor.shape(rank - 2);

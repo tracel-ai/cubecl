@@ -5,12 +5,12 @@ use cubecl_core::server::Handle;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
 
-use crate::matmul::components::global::args::TensorArgs;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
+use crate::matmul::components::SingleMatmulSpec;
 use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::CastInto;
@@ -27,11 +27,13 @@ struct TensorRawParts<F: Float + CubeElement> {
     original_data: Option<Vec<F>>,
 }
 
+type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
+
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, EG, ES, R>(problem: MatmulProblem, device: &R::Device)
 where
-    A: Algorithm<TensorArgs, EG>,
+    A: Algorithm<Spec<EG, ES>>,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
