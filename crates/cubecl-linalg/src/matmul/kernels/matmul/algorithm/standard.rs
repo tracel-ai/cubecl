@@ -13,7 +13,7 @@ use super::base;
 
 type Dispatch = batch::SwizzleTransposedDispatch<2>;
 
-pub struct StandardAlgorithm<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> {
+pub struct StandardAlgorithm<MS: MatmulSpec, Stage: StageSize, TMM> {
     pub _ms: PhantomData<MS>,
     pub _stage: PhantomData<Stage>,
     pub _tmm: PhantomData<TMM>,
