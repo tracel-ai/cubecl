@@ -22,8 +22,6 @@ pub struct StandardAlgorithm<MS: MatmulSpec, Stage: StageSize, TMM> {
 impl<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> base::Algorithm<MS>
     for StandardAlgorithm<MS, Stage, TMM>
 {
-    const PLANE_DIM: u32 = 32;
-
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::Matmul<MS::ES, MS::EG, MS::EA, Self::TileMatmul, Stage>;
     type GlobalMatmul =
@@ -32,7 +30,7 @@ impl<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> base::
     type BatchMatmul = batch::one_to_one::Matmul<MS, Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(<Self as base::Algorithm<MS>>::PLANE_DIM, Stage::NUM_M, 1)
+        CubeDim::new(MS::PLANE_DIM, Stage::NUM_M, 1)
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {

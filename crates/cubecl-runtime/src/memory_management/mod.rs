@@ -103,3 +103,14 @@ pub struct HardwareProperties {
     /// minimum number of bindings for a kernel that can be used at once.
     pub max_bindings: u32,
 }
+
+impl HardwareProperties {
+    /// Plane size that is defined for the device.
+    pub fn defined_plane_size(&self) -> Option<u32> {
+        if self.plane_size_min == self.plane_size_max {
+            Some(self.plane_size_min)
+        } else {
+            None
+        }
+    }
+}
