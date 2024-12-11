@@ -45,12 +45,13 @@ impl Architecture for AMDArchitecture {
     }
 
     fn is_wmma_capable(&self) -> bool {
-        match self {
-            AMDArchitecture::GFX11
-            | AMDArchitecture::GFX908
-            | AMDArchitecture::GFX90A
-            | AMDArchitecture::GFX94 => true,
-            AMDArchitecture::Other => false,
-        }
+        matches!(self, AMDArchitecture::GFX11)
+    }
+
+    fn is_mfma_capable(&self) -> bool {
+        matches!(
+            self,
+            AMDArchitecture::GFX908 | AMDArchitecture::GFX90A | AMDArchitecture::GFX94
+        )
     }
 }

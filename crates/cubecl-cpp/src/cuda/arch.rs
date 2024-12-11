@@ -32,4 +32,8 @@ impl Architecture for CudaArchitecture {
     fn is_wmma_capable(&self) -> bool {
         true
     }
+
+    fn is_mfma_capable(&self) -> bool {
+        false
+    }
 }
