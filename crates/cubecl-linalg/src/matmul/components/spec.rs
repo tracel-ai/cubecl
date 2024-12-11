@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::prelude::{LaunchArg, Numeric};
 
-use super::global::args::{GmmArgs, TensorArgs};
+use super::global::args::{MatmulArgs, TensorArgs};
 
 /// Matrix multiplication spec definiting each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
@@ -14,14 +14,14 @@ pub trait MatmulSpec: Send + Sync + Clone + 'static {
     /// Element type of the intermediate representation of the output accumulator.
     type EA: Numeric;
     /// How the input and output tensors are passed as arguments.
-    type Args: GmmArgs<Self::EG>;
+    type Args: MatmulArgs<Self::EG>;
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as GmmArgs<EG<MS>>>::Input;
+pub type InputArg<MS> = <Args<MS> as MatmulArgs<EG<MS>>>::Input;
 
 /// Output argument
-pub type OutputArg<MS> = <Args<MS> as GmmArgs<EG<MS>>>::Output;
+pub type OutputArg<MS> = <Args<MS> as MatmulArgs<EG<MS>>>::Output;
 
 /// Input runtime argument
 pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;

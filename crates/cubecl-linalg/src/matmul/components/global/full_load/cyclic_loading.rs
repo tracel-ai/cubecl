@@ -1,4 +1,4 @@
-use crate::matmul::components::global::args::GmmArgs;
+use crate::matmul::components::global::args::MatmulArgs;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
@@ -17,7 +17,7 @@ pub struct CyclicLoading {}
 
 #[cube]
 impl LoadingStrategy for CyclicLoading {
-    fn load_to_slice<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
+    fn load_to_slice<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
         read_view: &TensorReader<GA, EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

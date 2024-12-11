@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::args::{GmmArgs, TensorInput};
+use crate::matmul::components::global::args::{MatmulArgs, TensorInput};
 use crate::matmul::components::global::full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Loader;
@@ -12,7 +12,7 @@ use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 pub struct LhsLoader<
-    GA: GmmArgs<EG>,
+    GA: MatmulArgs<EG>,
     EG: Numeric,
     ES: Numeric,
     S: stage::Config,
@@ -26,7 +26,7 @@ pub struct LhsLoader<
 
 #[derive(CubeType)]
 pub struct RhsLoader<
-    GA: GmmArgs<EG>,
+    GA: MatmulArgs<EG>,
     EG: Numeric,
     ES: Numeric,
     S: stage::Config,
@@ -39,7 +39,7 @@ pub struct RhsLoader<
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
     Loader<EG, ES, full_load::Config<S>> for LhsLoader<GA, EG, ES, S, L>
 {
     type StageReader = LhsReader<ES>;
@@ -63,7 +63,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStra
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
     LhsLoader<GA, EG, ES, S, L>
 {
     pub fn new<G: global::Config>(
@@ -86,7 +86,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStra
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
     Loader<EG, ES, full_load::Config<S>> for RhsLoader<GA, EG, ES, S, L>
 {
     type StageReader = RhsReader<ES>;
@@ -110,7 +110,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStra
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
+impl<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
     RhsLoader<GA, EG, ES, S, L>
 {
     pub fn new<G: global::Config>(
@@ -134,7 +134,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStra
 
 #[cube]
 pub trait LoadingStrategy: 'static + Send + Sync + Clone {
-    fn load_to_slice<GA: GmmArgs<EG>, EG: Numeric, ES: Numeric, G: global::Config>(
+    fn load_to_slice<GA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: global::Config>(
         read_view: &TensorReader<GA, EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

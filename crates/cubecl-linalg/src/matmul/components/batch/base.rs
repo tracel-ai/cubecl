@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::args::{self, GmmArgs, TensorInput, TensorOutput};
+use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
 use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
 
@@ -62,8 +62,8 @@ pub(crate) fn batch_matmul<MS: MatmulSpec, BMM: batch::Matmul<MS>>(
 ) {
     let mut state = MS::Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::Ident::Lhs);
-    let rhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::Ident::Rhs);
+    let lhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Rhs);
     let out = TensorOutput::<MS::EG, MS::Args>::new(&mut state);
 
     BMM::execute(lhs, rhs, out, config);

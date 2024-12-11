@@ -4,13 +4,13 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::args::{GmmArgs, TensorInput, TensorOutput};
+use super::args::{MatmulArgs, TensorInput, TensorOutput};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<GA: GmmArgs<E>, E: Numeric> {
+pub struct TensorReader<GA: MatmulArgs<E>, E: Numeric> {
     pub tensor: TensorInput<E, GA>,
     pub x_offset: u32,
     pub y_offset: u32,
@@ -25,7 +25,7 @@ pub struct TensorReader<GA: GmmArgs<E>, E: Numeric> {
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<GA: GmmArgs<E>, E: Numeric> {
+pub struct TensorWriter<GA: MatmulArgs<E>, E: Numeric> {
     pub tensor: TensorOutput<E, GA>,
     pub x_offset: u32,
     pub y_offset: u32,
@@ -36,13 +36,13 @@ pub struct TensorWriter<GA: GmmArgs<E>, E: Numeric> {
     pub batch_offset: u32,
 }
 
-unsafe impl<GA: GmmArgs<E>, E: Numeric> Sync for TensorReader<GA, E> {}
-unsafe impl<GA: GmmArgs<E>, E: Numeric> Send for TensorReader<GA, E> {}
-unsafe impl<GA: GmmArgs<E>, E: Numeric> Sync for TensorWriter<GA, E> {}
-unsafe impl<GA: GmmArgs<E>, E: Numeric> Send for TensorWriter<GA, E> {}
+unsafe impl<GA: MatmulArgs<E>, E: Numeric> Sync for TensorReader<GA, E> {}
+unsafe impl<GA: MatmulArgs<E>, E: Numeric> Send for TensorReader<GA, E> {}
+unsafe impl<GA: MatmulArgs<E>, E: Numeric> Sync for TensorWriter<GA, E> {}
+unsafe impl<GA: MatmulArgs<E>, E: Numeric> Send for TensorWriter<GA, E> {}
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric> TensorReader<GA, EG> {
+impl<GA: MatmulArgs<EG>, EG: Numeric> TensorReader<GA, EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
         tensor: TensorInput<EG, GA>,
@@ -146,7 +146,7 @@ impl<GA: GmmArgs<EG>, EG: Numeric> TensorReader<GA, EG> {
 }
 
 #[cube]
-impl<GA: GmmArgs<EG>, EG: Numeric> TensorWriter<GA, EG> {
+impl<GA: MatmulArgs<EG>, EG: Numeric> TensorWriter<GA, EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
         tensor: TensorOutput<EG, GA>,
