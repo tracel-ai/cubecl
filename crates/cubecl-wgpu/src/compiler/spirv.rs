@@ -76,13 +76,13 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 let layout = server
                     .device
                     .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                        label: None,
+                        label: Some(&kernel.entrypoint_name),
                         entries: &bindings,
                     });
                 let layout = server
                     .device
                     .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: None,
+                        label: Some(&kernel.entrypoint_name),
                         bind_group_layouts: &[&layout],
                         push_constant_ranges: &[],
                     });
@@ -93,7 +93,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     server
                         .device
                         .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
-                            label: None,
+                            label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
                 };
@@ -112,7 +112,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                     server
                         .device
                         .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                            label: None,
+                            label: Some(&kernel.entrypoint_name),
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
                         })
                 };
@@ -123,7 +123,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             server
                 .device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: None,
+                    label: Some(&kernel.entrypoint_name),
                     layout: layout.as_ref(),
                     module: &module,
                     entry_point: Some(&kernel.entrypoint_name),

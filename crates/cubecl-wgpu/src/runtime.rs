@@ -9,13 +9,18 @@ use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
+use cubecl_runtime::{
+    channel::MutexComputeChannel,
+    client::ComputeClient,
+    debug::{DebugLogger, ProfileLevel},
+    ComputeRuntime,
+};
 use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
-use wgpu::RequestAdapterOptions;
+use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
@@ -234,8 +239,16 @@ pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
 }
 
 async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
+    let debug = DebugLogger::default();
+    let instance_flags = match (debug.profile_level(), debug.is_activated()) {
+        (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
+        (_, true) => InstanceFlags::debugging(),
+        (_, false) => InstanceFlags::default(),
+    };
+    log::debug!("{instance_flags:?}");
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: G::backend().into(),
+        flags: instance_flags,
         ..Default::default()
     });
 

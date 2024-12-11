@@ -1,8 +1,9 @@
-use quote::format_ident;
+use quote::{format_ident, quote};
 use syn::{Pat, Stmt, Type, TypeReference};
 
 use crate::{
     expression::Expression,
+    paths::core_type,
     scope::Context,
     statement::{Pattern, Statement},
 };
@@ -37,16 +38,19 @@ impl Statement {
             }
             Stmt::Item(_) => Statement::Skip,
             Stmt::Macro(val) => {
-                if val
-                    .mac
-                    .path
-                    .get_ident()
-                    .filter(|ident| *ident == "comptime")
-                    .is_some()
-                {
+                if val.mac.path.is_ident("comptime") {
                     Statement::Expression {
                         expression: Box::new(Expression::Verbatim {
                             tokens: val.mac.tokens,
+                        }),
+                        terminated: val.semi_token.is_some(),
+                    }
+                } else if val.mac.path.is_ident("debug_print") {
+                    let expand = core_type("debug_print_expand");
+                    let args = val.mac.tokens;
+                    Statement::Expression {
+                        expression: Box::new(Expression::Verbatim {
+                            tokens: quote![#expand!(context, #args)],
                         }),
                         terminated: val.semi_token.is_some(),
                     }

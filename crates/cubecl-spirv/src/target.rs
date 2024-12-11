@@ -1,15 +1,21 @@
 use cubecl_core::ir::{Binding, Location, Visibility};
+use hashbrown::HashMap;
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };
 use std::fmt::Debug;
 
-use crate::{extensions::TargetExtensions, item::Item, SpirvCompiler};
+use crate::{
+    debug,
+    extensions::{glcompute, TargetExtensions},
+    item::Item,
+    SpirvCompiler,
+};
 
 pub trait SpirvTarget:
     TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
 {
-    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word>;
+    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> HashMap<String, Word>;
     fn set_modes(
         &mut self,
         b: &mut SpirvCompiler<Self>,
@@ -59,7 +65,6 @@ impl SpirvTarget for GLCompute {
             .chain(b.state.inputs.iter().copied())
             .chain(b.state.outputs.iter().copied())
             .chain(b.state.named.values().copied())
-            .chain(b.state.const_arrays.iter().map(|it| it.id))
             .chain(b.state.shared_memories.values().map(|it| it.id))
             .collect();
 
@@ -74,6 +79,10 @@ impl SpirvTarget for GLCompute {
 
         if caps.contains(&Capability::CooperativeMatrixKHR) {
             b.extension("SPV_KHR_cooperative_matrix");
+        }
+
+        if b.debug {
+            b.extension("SPV_KHR_non_semantic_info");
         }
 
         b.memory_model(AddressingModel::Logical, MemoryModel::Vulkan);
@@ -123,8 +132,23 @@ impl SpirvTarget for GLCompute {
         var
     }
 
-    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> Vec<Word> {
-        vec![b.ext_inst_import("GLSL.std.450")]
+    fn extensions(&mut self, b: &mut SpirvCompiler<Self>) -> HashMap<String, Word> {
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            glcompute::STD_NAME.to_string(),
+            b.ext_inst_import(glcompute::STD_NAME),
+        );
+        if b.debug {
+            extensions.insert(
+                debug::DEBUG_EXT_NAME.to_string(),
+                b.ext_inst_import(debug::DEBUG_EXT_NAME),
+            );
+            extensions.insert(
+                debug::PRINT_EXT_NAME.to_string(),
+                b.ext_inst_import(debug::PRINT_EXT_NAME),
+            );
+        }
+        extensions
     }
 
     fn set_kernel_name(&mut self, name: impl Into<String>) {

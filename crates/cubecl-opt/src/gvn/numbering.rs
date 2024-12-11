@@ -120,6 +120,7 @@ impl ValueTable {
             Operation::Branch(_) | Operation::Synchronization(_) | Operation::CoopMma(_) => {
                 Err(None)
             }
+            Operation::Debug(_) => Err(None),
         }
     }
 
