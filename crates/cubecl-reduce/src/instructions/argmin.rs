@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{lowest_coordinate_matching, ArgAccumulator, Reduce};
+use super::{lowest_coordinate_matching, ArgAccumulator, ReduceInstruction};
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
 pub struct ArgMin;
@@ -29,7 +29,7 @@ impl ArgMin {
 }
 
 #[cube]
-impl<In: Numeric> Reduce<In> for ArgMin {
+impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     type AccumulatorItem = (Line<In>, Line<u32>);
     type SharedAccumulator = ArgAccumulator<In>;
 

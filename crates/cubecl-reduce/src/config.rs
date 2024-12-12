@@ -16,16 +16,16 @@ pub enum LineMode {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReduceConfig {
-    pub cube_count: CubeCount,
-    pub cube_dim: CubeDim,
-    pub line_mode: LineMode,
-    pub line_size: u32,
-    pub bound_checks: bool,
+pub(crate) struct ReduceConfig {
+    pub(crate) cube_count: CubeCount,
+    pub(crate) cube_dim: CubeDim,
+    pub(crate) line_mode: LineMode,
+    pub(crate) line_size: u32,
+    pub(crate) bound_checks: bool,
 }
 
 impl ReduceConfig {
-    pub fn generate<R: Runtime>(
+    pub(crate) fn generate<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,

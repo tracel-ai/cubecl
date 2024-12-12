@@ -7,7 +7,7 @@ use rand::{
     SeedableRng,
 };
 
-use crate::{reduce, ArgMax, ArgMin, Mean, Prod, Reduce, ReduceError, ReduceStrategy, Sum};
+use crate::{instructions::*, reduce, ReduceInstruction, ReduceError, ReduceStrategy};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
@@ -346,7 +346,7 @@ impl TestCase {
         I: Numeric + CubeElement + std::fmt::Display,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: Reduce<I>,
+        K: ReduceInstruction<I>,
     {
         let client = R::client(device);
 

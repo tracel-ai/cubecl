@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::Reduce;
+use super::ReduceInstruction;
 
 pub struct Sum;
 
 #[cube]
-impl<In: Numeric> Reduce<In> for Sum {
+impl<In: Numeric> ReduceInstruction<In> for Sum {
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
 

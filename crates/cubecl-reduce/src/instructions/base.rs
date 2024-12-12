@@ -1,17 +1,40 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+/// An instruction for a reduce algorithm that works with [`Line`].
+///
+/// See a provided implementation, such as [`Sum`] or [`ArgMax`] for an example how to implement
+/// this trait for a custom instruction.
+///
+/// A reduction works at three levels. First, it takes input data of type `In` and reduce them
+/// with their coordinate into an `AccumulatorItem`. Then, multiple `AccumulatorItem` are possibly fused
+/// together into a single accumulator that is converted to the expected output type.
 #[cube]
-pub trait Reduce<In: Numeric>: Send + Sync + 'static {
+pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static {
+    /// The intermediate state into which we accumulate new input elements.
+    /// This is most likely a `Line<T>` or a struct or tuple of lines.
     type AccumulatorItem: CubeType;
+
+    /// When multiple agents are collaborating to reduce a single slice,
+    /// we need a share accumulator to store multiple `AccumulatorItem`.
+    /// This is most likely a `SharedMemory<Line<T>>` or a struct or tuple of lined shared memories.
     type SharedAccumulator: SharedAccumulator<In, Item = Self::AccumulatorItem>;
 
+    /// A input such that `Self::reduce(accumulator, Self::null_input(), coordinate, use_planes)`
+    /// is guaranteed to return `accumulator` unchanged for any choice of `coordinate`.
     fn null_input(#[comptime] line_size: u32) -> Line<In>;
 
+    /// A accumulator such that `Self::fuse_accumulators(accumulator, Self::null_accumulator()` always returns
+    /// is guaranteed to return `accumulator` unchanged.
     fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem;
 
+    /// Assign the value of `source` into `destination`.
+    /// In spirit, this is equivalent to `destination = source;`,
+    /// but this syntax is not currently supported by CubeCL.
     fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem);
 
+    /// If `use_planes` is `true`, reduce all the `item` and `coordinate` within the `accumulator`.
+    /// Else, reduce the given `item` and `coordinate` into the accumulator.
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
@@ -19,19 +42,23 @@ pub trait Reduce<In: Numeric>: Send + Sync + 'static {
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem;
 
+    /// Reduce two accumulators into a single accumulator.
     fn fuse_accumulators(
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem;
 
+    /// Reduce all elements of the accumulator into a single output element of type `Out`.
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out;
 
+    /// Convert each element of the accumulator into the expected output element of type `Out`.
     fn to_output_perpendicular<Out: Numeric>(
         accumulator: Self::AccumulatorItem,
         shape_axis_reduce: u32,
     ) -> Line<Out>;
 }
 
+/// A simple trait that abstract over a single or multiple shared memory.
 #[cube]
 pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
     type Item: CubeType;
@@ -60,6 +87,7 @@ impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
     }
 }
 
+/// A pair of shared memory used for [`ArgMax`] and [`ArgMin`].
 #[derive(CubeType)]
 pub struct ArgAccumulator<N: Numeric> {
     pub elements: SharedMemory<Line<N>>,
@@ -88,7 +116,7 @@ impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
 }
 
 #[cube]
-pub fn reduce_inplace<In: Numeric, R: Reduce<In>>(
+pub fn reduce_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::AccumulatorItem,
     item: Line<In>,
     coordinate: Line<u32>,
@@ -99,7 +127,7 @@ pub fn reduce_inplace<In: Numeric, R: Reduce<In>>(
 }
 
 #[cube]
-pub fn reduce_shared_inplace<In: Numeric, R: Reduce<In>>(
+pub fn reduce_shared_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::SharedAccumulator,
     index: u32,
     item: Line<In>,
@@ -112,7 +140,7 @@ pub fn reduce_shared_inplace<In: Numeric, R: Reduce<In>>(
 }
 
 #[cube]
-pub fn fuse_accumulator_inplace<In: Numeric, R: Reduce<In>>(
+pub fn fuse_accumulator_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::SharedAccumulator,
     destination: u32,
     origin: u32,
