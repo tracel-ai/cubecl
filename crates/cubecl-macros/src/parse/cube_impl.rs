@@ -130,7 +130,6 @@ impl CubeImplItem {
             sig: method_sig,
             body,
             full_name: func.full_name.clone(),
-            source: func.source.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
         }
@@ -183,7 +182,6 @@ impl CubeImplItem {
             sig: func_sig,
             body: KernelBody::Verbatim(body),
             full_name: func.full_name.clone(),
-            source: func.source.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
         }

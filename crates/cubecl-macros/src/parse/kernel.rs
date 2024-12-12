@@ -44,7 +44,6 @@ pub struct KernelFn {
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub full_name: String,
-    pub source: String,
     pub span: Span,
     pub context: Context,
 }
@@ -220,11 +219,6 @@ impl KernelFn {
     ) -> syn::Result<Self> {
         // Use span of first token since we only care about the start line/col
         let span = vis.span();
-        let source = parse_quote!(
-            #vis #sig #block
-        );
-        let source = prettyplease::unparse(&source);
-
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
@@ -237,7 +231,6 @@ impl KernelFn {
             sig,
             body: KernelBody::Block(block),
             full_name,
-            source,
             span,
             context,
         })
