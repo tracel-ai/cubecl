@@ -1,5 +1,3 @@
-use std::panic::Location;
-
 use crate::ir::{DebugInfo, Variable};
 
 use super::CubeContext;
@@ -30,14 +28,33 @@ pub fn debug_call_expand<C>(
     }
 }
 
+/// Calls an intrinsic op and inserts debug symbols if debug is enabled.
+#[track_caller]
+pub fn spanned_expand<C>(
+    context: &mut CubeContext,
+    line: u32,
+    col: u32,
+    call: impl FnOnce(&mut CubeContext) -> C,
+) -> C {
+    if context.debug_enabled {
+        context.register(DebugInfo::Span { line, col });
+        call(context)
+    } else {
+        call(context)
+    }
+}
+
 /// Adds source instruction if debug is enabled
 #[track_caller]
-pub fn debug_source_expand(context: &mut CubeContext, name: &str, source: &str) {
+pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, line: u32, col: u32) {
     if context.debug_enabled {
+        // Normalize to linux separators
+        let file = file.replace("\\", "/");
         context.register(DebugInfo::Source {
-            file_name: name.into(),
-            source: source.into(),
-            line_offset: Location::caller().line(),
+            name: name.into(),
+            file_name: format!("./{file}"),
+            line,
+            col,
         });
     }
 }

@@ -288,7 +288,8 @@ impl<D: Dialect> CppCompiler<D> {
                 // No good way to attach debug info
                 gpu::DebugInfo::BeginCall { .. }
                 | gpu::DebugInfo::EndCall
-                | gpu::DebugInfo::Source { .. } => {}
+                | gpu::DebugInfo::Source { .. }
+                | gpu::DebugInfo::Span { .. } => {}
                 gpu::DebugInfo::Print {
                     format_string,
                     args,

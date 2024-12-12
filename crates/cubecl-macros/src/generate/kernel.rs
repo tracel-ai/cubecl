@@ -20,9 +20,8 @@ impl KernelFn {
             KernelBody::Verbatim(tokens) => tokens,
         };
         let name = &self.full_name;
-        let source = &self.source;
         let debug_source = quote_spanned! {self.span=>
-            #debug_source(context, #name, #source)
+            #debug_source(context, #name, file!(), line!(), column!())
         };
 
         let out = quote! {
