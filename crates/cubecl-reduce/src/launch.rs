@@ -66,8 +66,6 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce<In>>(
 
     let range = ReduceRange::new::<In, Out>(reduce_index, input, output, axis_reduce, params);
 
-    sync_units();
-
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
             let mut accumulator = reduce_slice_shared::<In, R>(
@@ -88,8 +86,6 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce<In>>(
             reduce_slice::<In, R>(input.to_slice(), range, params.line_size, params.line_mode)
         }
     };
-
-    sync_units();
 
     if elected_writer(params) {
         write_to_output::<In, Out, R>(
@@ -322,7 +318,6 @@ pub fn reduce_slice_shared<N: Numeric, R: Reduce<N>>(
         accumulator_index,
         R::null_accumulator(line_size),
     );
-    sync_units();
 
     let mut first_index = range.start;
     let mut first_coordinate = 0;
@@ -344,7 +339,6 @@ pub fn reduce_slice_shared<N: Numeric, R: Reduce<N>>(
         );
         first_index += range.step * CUBE_DIM;
         first_coordinate += CUBE_DIM;
-        sync_units();
     }
     accumulator
 }

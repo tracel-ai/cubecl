@@ -57,9 +57,7 @@ impl<In: Numeric> Reduce<In> for ArgMax {
     ) -> Self::AccumulatorItem {
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_max(item);
-            sync_units();
             let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
-            sync_units();
             (candidate_item, candidate_coordinate)
         } else {
             (item, coordinate)

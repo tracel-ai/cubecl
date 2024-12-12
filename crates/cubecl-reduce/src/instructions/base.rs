@@ -108,9 +108,7 @@ pub fn reduce_shared_inplace<In: Numeric, R: Reduce<In>>(
 ) {
     let acc_item = R::SharedAccumulator::read(accumulator, index);
     let reduction = R::reduce(&acc_item, item, coordinate, use_planes);
-    sync_units();
     R::SharedAccumulator::write(accumulator, index, reduction);
-    sync_units();
 }
 
 #[cube]
