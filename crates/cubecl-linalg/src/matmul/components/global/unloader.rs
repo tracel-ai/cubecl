@@ -6,13 +6,15 @@ use crate::matmul::components::global::tensor_view::TensorWriter;
 use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
 use crate::matmul::components::stage::StageWriter;
 
+use super::args::{MatmulArgs, TensorOutput};
+
 #[derive(CubeType)]
-pub struct Unloader<EG: Numeric> {
-    pub tensor_view: TensorWriter<EG>,
+pub struct Unloader<GA: MatmulArgs<EG>, EG: Numeric> {
+    pub tensor_view: TensorWriter<GA, EG>,
 }
 
 #[cube]
-impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
+impl<GA: MatmulArgs<EG>, EG: Numeric> global::Unloader<EG> for Unloader<GA, EG> {
     type StageWriter = Self;
 
     fn as_stage_writer<G: global::Config>(this: Self) -> Self::StageWriter {
@@ -21,21 +23,21 @@ impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
 }
 
 #[cube]
-impl<EG: Numeric> Unloader<EG> {
+impl<GA: MatmulArgs<EG>, EG: Numeric> Unloader<GA, EG> {
     pub fn new(
-        tensor: &mut Tensor<Line<EG>>,
+        tensor: TensorOutput<EG, GA>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self {
-        Unloader::<EG> {
+        Unloader::<GA, EG> {
             tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
+impl<GA: MatmulArgs<EG>, EG: Numeric> StageWriter<EG> for Unloader<GA, EG> {
     fn write<ES: Numeric, G: global::Config>(
         this: &mut Self,
         slice: Slice<Line<ES>>,
@@ -43,7 +45,7 @@ impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
         accumulator_offset: u32,
         #[comptime] config: G,
     ) {
-        TilewiseUnloading::unload_from_slice::<EG, ES, G>(
+        TilewiseUnloading::unload_from_slice::<GA, EG, ES, G>(
             &mut this.tensor_view,
             slice,
             compute_plane_offset,

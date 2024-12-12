@@ -62,15 +62,17 @@ impl ReduceConfig {
     }
 
     fn generate_line_size<R: Runtime>(mut self, input: &TensorHandleRef<R>, axis: usize) -> Self {
+        let supported_line_sizes = 
+                R::supported_line_sizes().iter().cloned();
         self.line_size = match self.line_mode {
             LineMode::Parallel => tensor_line_size_parallel(
-                R::supported_line_sizes(),
+                supported_line_sizes,
                 input.shape,
                 input.strides,
                 axis,
             ) as u32,
             LineMode::Perpendicular => tensor_line_size_perpendicular(
-                R::supported_line_sizes(),
+                supported_line_sizes,
                 input.shape,
                 input.strides,
                 axis,

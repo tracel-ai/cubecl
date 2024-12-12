@@ -17,7 +17,7 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_cpp::{
-    cuda::{arch::CudaArchitecture, wmma::CudaWmmaCompiler},
+    cuda::{arch::CudaArchitecture, mma::CudaWmmaCompiler},
     register_supported_types,
     shared::register_wmma_features,
     CudaCompiler, WmmaCompiler,

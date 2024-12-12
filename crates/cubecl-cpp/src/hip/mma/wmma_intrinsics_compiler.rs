@@ -13,6 +13,11 @@ pub struct WmmaIntrinsicCompiler {}
 impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     type Architecture = AMDArchitecture;
 
+    fn wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // nothing to do
+        Ok(())
+    }
+
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
         f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
@@ -180,6 +185,9 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 frag_d,
                 warp_size,
             } => {
+                if *warp_size == 64 {
+                    panic!("Wavefront size 64 not yet supported.")
+                }
                 let ab_format = if let Variable::WmmaFragment { frag: inner_a, .. } = frag_a {
                     if let Variable::WmmaFragment { frag: inner_b, .. } = frag_b {
                         if inner_a.elem == inner_b.elem {

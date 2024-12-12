@@ -1,12 +1,13 @@
+use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
-use crate::matmul::components::stage;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::MatmulKernel;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
+use crate::matmul::components::{stage, MatmulSpec};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -20,26 +21,26 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct Matmul<EG: Numeric, ES: Numeric, EA: Numeric, SMM: stage::Matmul<ES, EG, EA>> {
-    _eg: PhantomData<EG>,
-    _es: PhantomData<ES>,
-    _acc: PhantomData<EA>,
+pub struct Matmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
+    _ms: PhantomData<MS>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<EG, ES, EA, SMM> global::Matmul<EG, ES> for Matmul<EG, ES, EA, SMM>
+impl<MS: MatmulSpec, SMM> global::Matmul<MS> for Matmul<MS, SMM>
 where
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    SMM:
-        stage::Matmul<ES, EG, EA, LhsReader = LhsBufferReader<ES>, RhsReader = RhsBufferReader<ES>>,
+    SMM: stage::Matmul<
+        MS::ES,
+        MS::EG,
+        MS::EA,
+        LhsReader = LhsBufferReader<MS::ES>,
+        RhsReader = RhsBufferReader<MS::ES>,
+    >,
 {
-    type LhsLoader = LhsBufferLoader<EG, ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<EG, ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MS::Args, MS::EG, MS::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MS::Args, MS::EG, MS::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<EG>;
+    type Out = Unloader<MS::Args, MS::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -134,7 +135,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: &Tensor<Line<EG>>,
+        lhs: TensorInput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -144,7 +145,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: &Tensor<Line<EG>>,
+        rhs: TensorInput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -154,7 +155,7 @@ where
     }
 
     fn init_unloader(
-        out: &mut Tensor<Line<EG>>,
+        out: TensorOutput<MS::EG, MS::Args>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -171,12 +172,9 @@ where
     }
 }
 
-impl<EG, ES, EA, SMM> MatmulKernel<EG, EG> for Matmul<EG, ES, EA, SMM>
+impl<MS: MatmulSpec, SMM> MatmulKernel for Matmul<MS, SMM>
 where
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    SMM: stage::Matmul<ES, EG, EA>,
+    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
 {
     type Config = Config<SMM::Config>;
 

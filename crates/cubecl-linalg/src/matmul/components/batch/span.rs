@@ -3,7 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     batch::shared::swizzle,
-    global::{self},
+    global::{
+        self,
+        args::{TensorInput, TensorOutput},
+    },
+    MatmulSpec,
 };
 
 use super::shared::gmm_execute;
@@ -28,10 +32,10 @@ pub struct SpanDim {
 #[cube]
 /// Iterates on several global matmul across a span
 pub trait SpanMatmul: 'static + Send + Sync {
-    fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         span: Span,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -85,10 +89,10 @@ impl SpanDim {
 
 #[cube]
 impl SpanMatmul for RowMajorSpanMatmul {
-    fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -98,7 +102,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
             for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                 for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                     GMM::zero_accumulator(&mut acc, config);
-                    gmm_execute::<EG, ES, GMM>(
+                    gmm_execute::<MS, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
                 }
@@ -109,10 +113,10 @@ impl SpanMatmul for RowMajorSpanMatmul {
 
 #[cube]
 impl SpanMatmul for ColMajorSpanMatmul {
-    fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -122,7 +126,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
             for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                 for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                     GMM::zero_accumulator(&mut acc, config);
-                    gmm_execute::<EG, ES, GMM>(
+                    gmm_execute::<MS, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
                 }
@@ -133,10 +137,10 @@ impl SpanMatmul for ColMajorSpanMatmul {
 
 #[cube]
 impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
-    fn execute<EG: Numeric, ES: Numeric, GMM: global::Matmul<EG, ES>>(
-        lhs: &Tensor<Line<EG>>,
-        rhs: &Tensor<Line<EG>>,
-        out: &mut Tensor<Line<EG>>,
+    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -151,7 +155,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
 
                 let row_iter = span.row.start + row * span.row.step;
                 let col_iter = span.col.start + col * span.col.step;
-                gmm_execute::<EG, ES, GMM>(
+                gmm_execute::<MS, GMM>(
                     lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                 );
             }

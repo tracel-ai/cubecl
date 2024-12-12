@@ -1,8 +1,8 @@
 use cubecl_core::{ir as core, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
+use cubecl_runtime::debug::DebugLogger;
 use std::{
     collections::HashSet,
-    env,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
@@ -14,10 +14,11 @@ use cubecl_core::{
 };
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, FunctionControl, Op, StorageClass, Word},
+    spirv::{BuiltIn, Capability, Decoration, Op, StorageClass, Word},
 };
 
 use crate::{
+    debug::DebugInfo,
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
@@ -44,6 +45,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub state: LookupTables,
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
+    pub debug_info: Option<DebugInfo>,
     compilation_options: CompilationOptions,
 }
 
@@ -67,6 +69,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             debug: self.debug,
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
+            debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
             compilation_options: self.compilation_options.clone(),
         }
@@ -86,9 +89,10 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
-            debug: env::var("CUBECL_DEBUG_LOG").is_ok(),
+            debug: DebugLogger::default().is_activated(),
             visited: Default::default(),
             metadata: Default::default(),
+            debug_info: Default::default(),
             ext_meta_pos: Default::default(),
             compilation_options: Default::default(),
         }
@@ -174,20 +178,17 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
         self.set_version(1, 6);
 
-        self.init_state(kernel.clone());
-        let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
-
         let mut target = self.target.clone();
-        target.set_kernel_name(kernel.kernel_name);
-
         let extensions = target.extensions(self);
         self.state.extensions = extensions;
 
-        let void = self.type_void();
-        let voidf = self.type_function(void, vec![]);
-        let main = self
-            .begin_function(void, None, FunctionControl::NONE, voidf)
-            .unwrap();
+        self.init_state(kernel.clone());
+        self.init_debug(kernel.clone());
+        let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
+
+        target.set_kernel_name(kernel.kernel_name.clone());
+
+        let (main, debug_setup) = self.declare_main(&kernel.kernel_name);
 
         let setup = self.id();
         self.debug_name(setup, "setup");
@@ -195,7 +196,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let entry = self.opt.entry();
         let body = self.label(entry);
-        let setup_block = self.setup(setup);
+        let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
         self.compile_block(entry);
 
@@ -233,12 +234,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         (module, self.opt.clone())
     }
 
-    fn setup(&mut self, label: Word) -> usize {
+    fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
 
         for const_arr in self.opt.const_arrays() {
             self.register_const_array(const_arr);
         }
+
+        debug_setup(self);
 
         let setup_block = self.selected_block().unwrap();
         self.select_block(None).unwrap();
@@ -270,6 +273,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let label = self.label(block);
         self.begin_block(Some(label)).unwrap();
         let block_id = self.selected_block().unwrap();
+
+        self.debug_scope();
 
         let operations = self.current_block().ops.borrow().clone();
         for (_, operation) in operations {
