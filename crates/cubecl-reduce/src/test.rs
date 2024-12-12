@@ -32,6 +32,14 @@ macro_rules! testgen_reduce {
         }
     };
 
+    // Generate all the tests for f32
+    () => {
+        mod test_reduce {
+            use super::*;
+            $crate::testgen_reduce!(f32);
+        }
+    };
+
     // Generate all the tests for a specific float type.
     ($float:ident) => {
         use cubecl_reduce::test::TestCase;
@@ -41,46 +49,64 @@ macro_rules! testgen_reduce {
             $float,
             [
                 {
-                    id: "reduce_columns_small_matrix_row_major",
+                    id: "vector_small",
+                    shape: [22],
+                    stride: [1],
+                    axis: 0,
+                },
+                {
+                    id: "vector_large",
+                    shape: [1024],
+                    stride: [1],
+                    axis: 0,
+                },
+                {
+                    id: "parallel_matrix_small",
                     shape: [4, 8],
                     stride: [8, 1],
                     axis: 1,
                 },
                 {
-                    id: "reduce_rows_small_matrix_row_major",
+                    id: "perpendicular_matrix_small",
                     shape: [4, 8],
                     stride: [8, 1],
                     axis: 0,
                 },
                 {
-                    id: "reduce_columns_large_matrix_row_major",
+                    id: "parallel_matrix_large",
                     shape: [8, 256],
                     stride: [256, 1],
                     axis: 1,
                 },
                 {
-                    id: "reduce_rows_large_matrix_row_major",
+                    id: "perpendicular_matrix_large",
                     shape: [8, 256],
                     stride: [256, 1],
                     axis: 0,
                 },
                 {
-                    id: "rank_three_tensor",
+                    id: "parallel_rank_three_tensor",
                     shape: [16, 16, 16],
                     stride: [1, 256, 16],
-                    axis: 2,
+                    axis: 0,
                 },
                 {
-                    id: "rank_three_tensor_unexact_shape",
+                    id: "perpendicular_rank_three_tensor",
+                    shape: [16, 16, 16],
+                    stride: [1, 256, 16],
+                    axis: 1,
+                },
+                {
+                    id: "perpendicular_rank_three_tensor_unexact_shape",
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     axis: 1,
                 },
                 {
-                    id: "reduce_rows_large_matrix_row_major_line_size_four",
-                    shape: [32, 64],
-                    stride: [64, 1],
-                    axis: 0,
+                    id: "parallel_rank_three_tensor_unexact_shape",
+                    shape: [11, 12, 13],
+                    stride: [156, 13, 1],
+                    axis: 2,
                 }
             ]
         );
@@ -141,7 +167,7 @@ macro_rules! impl_test_reduce_with_strategy {
         ::paste::paste! {
             $(
                 #[test]
-                pub fn [< reduce_argmax_ $id _plane_ $use_planes _shared_ $shared >]() {
+                pub fn [< argmax_plane_ $use_planes _shared_ $shared _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -152,7 +178,7 @@ macro_rules! impl_test_reduce_with_strategy {
                 }
 
                 #[test]
-                pub fn [< reduce_argmin_ $id _plane_ $use_planes _shared_ $shared >]() {
+                pub fn [< argmin_plane_ $use_planes _shared_ $shared _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -163,7 +189,7 @@ macro_rules! impl_test_reduce_with_strategy {
                 }
 
                 #[test]
-                pub fn [< reduce_mean_ $id _plane_ $use_planes _shared_ $shared >]() {
+                pub fn [< mean_plane_ $use_planes _shared_ $shared _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -174,7 +200,7 @@ macro_rules! impl_test_reduce_with_strategy {
                 }
 
                 #[test]
-                pub fn [< reduce_prod_ $id _plane_ $use_planes _shared_ $shared >]() {
+                pub fn [< prod_plane_ $use_planes _shared_ $shared _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -185,7 +211,7 @@ macro_rules! impl_test_reduce_with_strategy {
                 }
 
                 #[test]
-                pub fn [< reduce_sum_ $id _plane_ $use_planes _shared_ $shared >]() {
+                pub fn [< sum_plane_ $use_planes _shared_ $shared _ $id >]() {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
@@ -359,6 +385,12 @@ impl TestCase {
         let binding = output_handle.binding();
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
+        // if self.shape == [8, 256] && self.stride == [256, 1] {
+        //     println!("input {:?}", &input_values[6 * 256..6 * 256 + 64]);
+        // }
+        println!("input {input_values:?}");
+        println!("output {output_values:?}");
+        println!("expected {expected_values:?}");
 
         assert_approx_equal(output_values, &expected_values);
     }
@@ -419,38 +451,6 @@ impl TestCase {
     fn pseudo_random_seed(&self) -> u64 {
         123456789
     }
-
-    // fn cpu_prod<F: Float>(&self, values: &[F]) -> Vec<F> {
-    //     let mut expected = vec![F::new(1.0); self.num_output_values()];
-    //     #[allow(clippy::needless_range_loop)]
-    //     for value_index in 0..values.len() {
-    //         let output_index = self.to_output_index(value_index);
-    //         expected[output_index] *= values[value_index];
-    //     }
-    //     expected
-    // }
-
-    // fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
-    //     self.cpu_sum(values)
-    //         .into_iter()
-    //         .map(|sum| sum / F::new(self.shape[self.axis as usize] as f32))
-    //         .collect()
-    // }
-
-    // fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
-    //     let mut expected = vec![(F::MAX, 0_u32); self.num_output_values()];
-    //     #[allow(clippy::needless_range_loop)]
-    //     for input_index in 0..values.len() {
-    //         let output_index = self.to_output_index(input_index);
-    //         let (best, _) = expected[output_index];
-    //         let candidate = values[input_index];
-    //         if candidate < best {
-    //             let coordinate = self.to_input_coordinate(input_index as usize);
-    //             expected[output_index] = (candidate, coordinate[self.axis as usize] as u32);
-    //         }
-    //     }
-    //     expected.into_iter().map(|(_, i)| i).collect()
-    // }
 }
 
 pub fn assert_approx_equal<N: Numeric>(actual: &[N], expected: &[N]) {
