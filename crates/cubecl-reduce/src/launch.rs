@@ -91,7 +91,6 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce<In>>(
 
     sync_units();
 
-    // output[0] = R::to_output_perpendicular(accumulator, input.shape(axis_reduce))[1];
     if elected_writer(params) {
         write_to_output::<In, Out, R>(
             output,
