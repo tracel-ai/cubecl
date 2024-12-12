@@ -37,7 +37,7 @@ pub fn spanned_expand<C>(
     call: impl FnOnce(&mut CubeContext) -> C,
 ) -> C {
     if context.debug_enabled {
-        context.register(DebugInfo::Span { line, col });
+        context.register(DebugInfo::Line { line, col });
         call(context)
     } else {
         call(context)

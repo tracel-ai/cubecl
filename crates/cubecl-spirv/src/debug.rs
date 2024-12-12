@@ -263,8 +263,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                     self.stack_top().line = line;
                     self.stack_top().col = col;
-
-                    self.line(file_name, line, col);
                 }
                 core::DebugInfo::BeginCall { name, line, col } => {
                     let func = self.debug_function(name.clone());
@@ -303,7 +301,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                     self.line(new_func.file_name, line, col);
                 }
-                core::DebugInfo::Span { line, col } => {
+                core::DebugInfo::Line { line, col } => {
                     self.stack_top().line = line;
                     self.stack_top().col = col;
 

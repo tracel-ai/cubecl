@@ -17,11 +17,13 @@ pub enum Expression {
         operator: Operator,
         right: Box<Expression>,
         ty: Option<Type>,
+        span: Span,
     },
     Unary {
         input: Box<Expression>,
         operator: Operator,
         ty: Option<Type>,
+        span: Span,
     },
     Variable(ManagedVar),
     FieldAccess {
@@ -119,6 +121,7 @@ pub enum Expression {
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
+        span: Span,
     },
     Slice {
         expr: Box<Expression>,

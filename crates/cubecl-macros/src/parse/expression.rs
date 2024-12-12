@@ -28,6 +28,7 @@ impl Expression {
                 }
             }
             Expr::Binary(binary) => {
+                let span = binary.span();
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
@@ -41,6 +42,7 @@ impl Expression {
                         operator: parse_binop(&binary.op)?,
                         right: Box::new(right),
                         ty,
+                        span,
                     }
                 }
             }
@@ -73,12 +75,14 @@ impl Expression {
                 }
             }
             Expr::Unary(unary) => {
+                let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 let ty = input.ty();
                 Expression::Unary {
                     input: Box::new(input),
                     operator: parse_unop(&unary.op)?,
                     ty,
+                    span,
                 }
             }
             Expr::Block(block) => {
@@ -248,6 +252,7 @@ impl Expression {
                     Expression::Index {
                         expr: Box::new(expr),
                         index: Box::new(index),
+                        span,
                     }
                 }
             }
@@ -423,6 +428,7 @@ fn generate_strided_index(
             operator: Operator::Mul,
             right: Box::new(stride),
             ty: None,
+            span,
         }
     });
     let sum = strided_indices
@@ -431,6 +437,7 @@ fn generate_strided_index(
             operator: Operator::Add,
             right: Box::new(b),
             ty: None,
+            span,
         })
         .unwrap();
     Ok(sum)

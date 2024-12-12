@@ -16,7 +16,7 @@ pub enum DebugInfo {
         col: u32,
     },
     EndCall,
-    Span {
+    Line {
         line: u32,
         col: u32,
     },

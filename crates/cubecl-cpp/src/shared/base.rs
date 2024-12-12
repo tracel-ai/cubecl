@@ -289,7 +289,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::DebugInfo::BeginCall { .. }
                 | gpu::DebugInfo::EndCall
                 | gpu::DebugInfo::Source { .. }
-                | gpu::DebugInfo::Span { .. } => {}
+                | gpu::DebugInfo::Line { .. } => {}
                 gpu::DebugInfo::Print {
                     format_string,
                     args,
