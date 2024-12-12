@@ -45,7 +45,7 @@ use cubecl_core::prelude::*;
 /// This examples show how to sum the rows of a small `2 x 2` matrix into a `1 x 2` vector.
 /// For more details, see the CubeCL documentation.
 ///
-/// ```rust, ignored
+/// ```ignore
 /// use cubecl_reduce::instructions::Sum;
 ///
 /// let client = /* ... */;
