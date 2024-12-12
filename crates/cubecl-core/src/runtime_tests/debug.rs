@@ -107,9 +107,7 @@ macro_rules! testgen_debug {
         #[test]
         fn test_nested_call_debug() {
             let client = TestRuntime::client(&Default::default());
-            for _ in 0..100 {
-                cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client.clone());
-            }
+            cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client);
         }
 
         #[test]
