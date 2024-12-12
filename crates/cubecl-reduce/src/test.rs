@@ -7,7 +7,7 @@ use rand::{
     SeedableRng,
 };
 
-use crate::{instructions::*, reduce, ReduceInstruction, ReduceError, ReduceStrategy};
+use crate::{instructions::*, reduce, ReduceError, ReduceInstruction, ReduceStrategy};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.

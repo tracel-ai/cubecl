@@ -3,19 +3,16 @@ use core::fmt;
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ReduceError {
     /// Indicate that the hardware / API doesn't support SIMT plane instructions.
-    PlanesUnavailable, 
+    PlanesUnavailable,
     /// Indicate that min_plane_dim != max_plane_dim, thus the exact plane_dim is not fixed.
-    ImprecisePlaneDim, 
+    ImprecisePlaneDim,
     /// Indicate the axis is too large.
-    InvalidAxis {
-        axis: usize,
-        rank: usize,
-    }, 
+    InvalidAxis { axis: usize, rank: usize },
     /// Indicate that the shape of the output tensor is invalid for the given input and axis.
     MismatchShape {
         expected_shape: Vec<usize>,
         output_shape: Vec<usize>,
-    }, 
+    },
 }
 
 impl fmt::Display for ReduceError {
