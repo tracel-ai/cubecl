@@ -18,7 +18,7 @@ impl<In: Numeric> Reduce<In> for Sum {
         Self::null_input(line_size)
     }
 
-    fn update_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
         *destination = *source;
     }
 

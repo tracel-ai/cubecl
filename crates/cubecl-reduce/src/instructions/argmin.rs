@@ -40,11 +40,11 @@ impl<In: Numeric> Reduce<In> for ArgMin {
     fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
         (
             Self::null_input(line_size),
-            Line::empty(line_size).fill(0u32),
+            Line::empty(line_size).fill(u32::MAX),
         )
     }
 
-    fn update_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
         destination.0 = source.0;
         destination.1 = source.1;
     }
@@ -82,20 +82,25 @@ impl<In: Numeric> Reduce<In> for ArgMin {
         _shape_axis_reduce: u32,
     ) -> Out {
         let line_size = accumulator.0.size();
-        let mut min = In::MAX.runtime();
-        let mut coordinate = 0;
-        #[unroll]
-        for k in 0..line_size {
-            let acc_element = accumulator.0[k];
-            let acc_coordinate = accumulator.1[k];
-            if acc_element == min && acc_coordinate < coordinate {
-                coordinate = acc_coordinate;
-            } else if acc_element < min {
-                min = acc_element;
-                coordinate = acc_coordinate;
+        if comptime!(line_size > 1) {
+            let mut min = In::MAX.runtime();
+            let mut coordinate = 0;
+            #[unroll]
+            for k in 0..line_size {
+                let acc_element = accumulator.0[k];
+                let acc_coordinate = accumulator.1[k];
+                // TODO replace with select
+                if acc_element == min && acc_coordinate < coordinate {
+                    coordinate = acc_coordinate;
+                } else if acc_element < min {
+                    min = acc_element;
+                    coordinate = acc_coordinate;
+                }
             }
+            Out::cast_from(coordinate)
+        } else {
+            Out::cast_from(accumulator.1)
         }
-        Out::cast_from(coordinate)
     }
 
     fn to_output_perpendicular<Out: Numeric>(

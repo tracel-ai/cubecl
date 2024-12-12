@@ -66,25 +66,19 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce<In>>(
 
     let range = ReduceRange::new::<In, Out>(reduce_index, input, output, axis_reduce, params);
 
+    sync_units();
+
     let accumulator = match comptime!((params.shared, params.use_planes)) {
-        (Some(accumulator_size), true) => {
-            let mut accumulator = reduce_slice_shared_plane::<In, R>(
-                input.to_slice(),
-                range,
-                accumulator_size,
-                params.line_size,
-                params.line_mode,
-            );
-            reduce_tree::<In, R>(&mut accumulator, accumulator_size)
-        }
-        (Some(accumulator_size), false) => {
+        (Some(accumulator_size), use_planes) => {
             let mut accumulator = reduce_slice_shared::<In, R>(
                 input.to_slice(),
                 range,
                 accumulator_size,
                 params.line_size,
                 params.line_mode,
+                use_planes,
             );
+            sync_units();
             reduce_tree::<In, R>(&mut accumulator, accumulator_size)
         }
         (None, true) => {
@@ -95,6 +89,9 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce<In>>(
         }
     };
 
+    sync_units();
+
+    // output[0] = R::to_output_perpendicular(accumulator, input.shape(axis_reduce))[1];
     if elected_writer(params) {
         write_to_output::<In, Out, R>(
             output,
@@ -314,71 +311,64 @@ pub fn reduce_slice_shared<N: Numeric, R: Reduce<N>>(
     #[comptime] accumulator_size: u32,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
+    #[comptime] use_planes: bool,
 ) -> R::SharedAccumulator {
+    // The index used to read and write into the accumulator.
+    let accumulator_index = if use_planes { UNIT_POS_Y } else { UNIT_POS };
+
     let mut accumulator = R::SharedAccumulator::allocate(accumulator_size, line_size);
-    R::SharedAccumulator::write(&mut accumulator, UNIT_POS, R::null_accumulator(line_size));
+
+    R::SharedAccumulator::write(
+        &mut accumulator,
+        accumulator_index,
+        R::null_accumulator(line_size),
+    );
+    sync_units();
 
     let mut first_index = range.start;
     let mut first_coordinate = 0;
     while first_index < range.end {
-        let coordinate = first_coordinate + UNIT_POS;
-        let line_coordinate = match comptime!(line_mode) {
-            LineMode::Parallel => {
-                let mut coordinates = Line::empty(line_size).fill(coordinate * line_size);
-                if line_size > 1 {
-                    #[unroll]
-                    for j in 0..line_size {
-                        coordinates[j] += j;
-                    }
-                }
-                coordinates
-            }
-            LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
-        };
         let index = first_index + UNIT_POS * range.step;
         let item = select(index < range.end, items[index], R::null_input(line_size));
-        reduce_shared_inplace::<N, R>(&mut accumulator, UNIT_POS, item, line_coordinate, false);
+        let coordinate = fill_coordinate_line(first_coordinate + UNIT_POS, line_size, line_mode);
+        let coordinate = select(
+            index < range.end,
+            coordinate,
+            Line::empty(line_size).fill(u32::MAX),
+        );
+        reduce_shared_inplace::<N, R>(
+            &mut accumulator,
+            accumulator_index,
+            item,
+            coordinate,
+            use_planes,
+        );
         first_index += range.step * CUBE_DIM;
         first_coordinate += CUBE_DIM;
+        sync_units();
     }
     accumulator
 }
 
 #[cube]
-pub fn reduce_slice_shared_plane<N: Numeric, R: Reduce<N>>(
-    items: Slice<Line<N>>,
-    range: ReduceRange,
-    #[comptime] accumulator_size: u32,
+fn fill_coordinate_line(
+    first: u32,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
-) -> R::SharedAccumulator {
-    let mut accumulator = R::SharedAccumulator::allocate(accumulator_size, line_size);
-    R::SharedAccumulator::write(&mut accumulator, UNIT_POS_Y, R::null_accumulator(line_size));
-
-    let mut first_index = range.start;
-    let mut first_coordinate = 0;
-    while first_index < range.end {
-        let coordinate = first_coordinate + UNIT_POS;
-        let line_coordinate = match comptime!(line_mode) {
-            LineMode::Parallel => {
-                let mut coordinates = Line::empty(line_size).fill(coordinate * line_size);
-                if line_size > 1 {
-                    #[unroll]
-                    for j in 0..line_size {
-                        coordinates[j] += j;
-                    }
+) -> Line<u32> {
+    match comptime!(line_mode) {
+        LineMode::Parallel => {
+            let mut coordinates = Line::empty(line_size).fill(first * line_size);
+            if line_size > 1 {
+                #[unroll]
+                for j in 0..line_size {
+                    coordinates[j] += j;
                 }
-                coordinates
             }
-            LineMode::Perpendicular => Line::empty(line_size).fill(coordinate),
-        };
-        let index = first_index + UNIT_POS * range.step;
-        let item = select(index < range.end, items[index], R::null_input(line_size));
-        reduce_shared_inplace::<N, R>(&mut accumulator, UNIT_POS_Y, item, line_coordinate, true);
-        first_index += range.step * CUBE_DIM;
-        first_coordinate += CUBE_DIM;
+            coordinates
+        }
+        LineMode::Perpendicular => Line::empty(line_size).fill(first),
     }
-    accumulator
 }
 
 /// Use all units within a cube to fuse an accumulator inplace like this with some padding if `size` is not a power of 2.

@@ -18,8 +18,8 @@ impl<In: Numeric> Reduce<In> for Mean {
         Sum::null_accumulator(line_size)
     }
 
-    fn update_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
-        Sum::update_accumulator(destination, source);
+    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+        Sum::assign_accumulator(destination, source);
     }
 
     fn reduce(
@@ -40,6 +40,8 @@ impl<In: Numeric> Reduce<In> for Mean {
 
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out {
         Sum::merge_line::<Out>(accumulator, shape_axis_reduce) / Out::cast_from(shape_axis_reduce)
+        // Sum::merge_line::<Out>(accumulator, shape_axis_reduce)
+        // Out::cast_from(shape_axis_reduce)
     }
 
     fn to_output_perpendicular<Out: Numeric>(

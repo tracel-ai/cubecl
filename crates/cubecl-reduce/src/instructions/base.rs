@@ -10,7 +10,7 @@ pub trait Reduce<In: Numeric>: Send + Sync + 'static {
 
     fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem;
 
-    fn update_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem);
+    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem);
 
     fn reduce(
         accumulator: &Self::AccumulatorItem,
@@ -95,7 +95,7 @@ pub fn reduce_inplace<In: Numeric, R: Reduce<In>>(
     #[comptime] use_planes: bool,
 ) {
     let reduction = &R::reduce(accumulator, item, coordinate, use_planes);
-    R::update_accumulator(accumulator, reduction);
+    R::assign_accumulator(accumulator, reduction);
 }
 
 #[cube]
@@ -106,13 +106,11 @@ pub fn reduce_shared_inplace<In: Numeric, R: Reduce<In>>(
     coordinate: Line<u32>,
     #[comptime] use_planes: bool,
 ) {
-    let reduction = R::reduce(
-        &R::SharedAccumulator::read(accumulator, index),
-        item,
-        coordinate,
-        use_planes,
-    );
+    let acc_item = R::SharedAccumulator::read(accumulator, index);
+    let reduction = R::reduce(&acc_item, item, coordinate, use_planes);
+    sync_units();
     R::SharedAccumulator::write(accumulator, index, reduction);
+    sync_units();
 }
 
 #[cube]

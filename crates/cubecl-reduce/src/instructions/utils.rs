@@ -11,10 +11,12 @@ pub(crate) fn lowest_coordinate_matching<E: CubePrimitive>(
 ) -> Line<u32> {
     let line_size = item.size();
     let is_candidate = item.equal(target);
+    sync_units();
     let candidate_coordinate = select_many(
         is_candidate,
         coordinate,
         Line::empty(line_size).fill(u32::MAX),
     );
+    sync_units();
     plane_min(candidate_coordinate)
 }
