@@ -144,7 +144,7 @@ where
         let output = Self::empty(client, shape);
 
         let vectorization_factor = tensor_line_size_parallel(
-            R::supported_line_sizes(),
+            R::supported_line_sizes().iter().cloned(),
             &output.shape,
             &output.strides,
             rank - 1,

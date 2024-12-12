@@ -349,7 +349,7 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel<I, O>
+impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKernel
     for PlaneMma<I, O, M, N, K>
 {
     type Config = Config;

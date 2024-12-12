@@ -6,6 +6,7 @@ pub mod matmul_launch;
 #[macro_export]
 macro_rules! testgen_cmma_matmul {
     () => {
+        #[allow(non_snake_case)]
         mod cmma_matmul {
             $crate::testgen_cmma_matmul!(f32);
         }
@@ -18,6 +19,8 @@ macro_rules! testgen_cmma_matmul {
             use cubecl_core::prelude::*;
             use cubecl_linalg::matmul::{
                 components::{
+                    SingleMatmulSpec,
+                    MatmulSpec,
                     batch, global,
                     stage::{self, *},
                     tile::plane::PlaneMma16x16x16,
@@ -29,14 +32,15 @@ macro_rules! testgen_cmma_matmul {
             use cubecl_core::prelude::*;
 
             pub type FloatT = $float;
+            pub type Spec = SingleMatmulSpec<FloatT, half::f16, f32>;
+            pub type EG = FloatT;
+            pub type ES = half::f16;
+            pub type EA = f32;
 
             cubecl_linalg::matmul_test_define!(
                 Accelerated16x16x16,
                 Accelerated32x8x16,
                 Accelerated8x32x16,
-                FloatT,
-                half::f16,
-                f32,
                 32
             );
 
@@ -46,6 +50,7 @@ macro_rules! testgen_cmma_matmul {
     };
 
     ([$($float:ident),*]) => {
+        #[allow(non_snake_case)]
         mod cmma_matmul {
             use super::*;
             ::paste::paste! {
@@ -62,6 +67,7 @@ macro_rules! testgen_cmma_matmul {
 #[macro_export]
 macro_rules! testgen_plane_mma {
     () => {
+        #[allow(non_snake_case)]
         mod plane_mma_matmul {
             $crate::testgen_plane_mma!(f32, f32);
         }
@@ -73,6 +79,8 @@ macro_rules! testgen_plane_mma {
             use cubecl_linalg::matmul::components::tile::plane::*;
             use cubecl_linalg::matmul::{
                 components::{
+                    SingleMatmulSpec,
+                    MatmulSpec,
                     batch, global,
                     stage::{self, *},
                     tile::plane::PlaneMma16x16x16,
@@ -85,14 +93,17 @@ macro_rules! testgen_plane_mma {
 
             pub type FloatGlobal = $float;
             pub type FloatStage = $float_stage;
+            pub type Spec = SingleMatmulSpec<FloatGlobal, FloatStage, f32>;
+            pub type EG = FloatGlobal;
+            pub type ES = FloatStage;
+            pub type EA = f32;
+
+
 
             cubecl_linalg::matmul_test_define!(
                 PlaneMma16x16x16,
                 PlaneMma32x8x16,
                 PlaneMma8x32x16,
-                FloatGlobal,
-                FloatStage,
-                f32,
                 32
             );
 
@@ -105,6 +116,7 @@ macro_rules! testgen_plane_mma {
         ::paste::paste! {
             $(
                 // Generate a unique module for each `float` type with the single `float_stage`
+                #[allow(non_snake_case)]
                 mod [<plane_mma_matmul_ $float _ $float_stage>] {
                     use super::*;
                     $crate::testgen_plane_mma!($float, $float_stage);

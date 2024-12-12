@@ -1,17 +1,16 @@
-use cubecl_core::{
-    client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
-    Runtime,
-};
+use cubecl_core::{client::ComputeClient, ir::Elem, prelude::CubePrimitive, Feature, Runtime};
+use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
         stage::*,
         tile::{
-            accelerated::{Accelerated16x16x16, Accelerated32x8x16, Accelerated8x32x16},
+            accelerated::{
+                Accelerated16x16x16, Accelerated16x16x8, Accelerated32x8x16, Accelerated8x32x16,
+            },
             plane::{PlaneMma16x16x16, PlaneMma32x8x16, PlaneMma8x32x16},
         },
-        MatmulProblem,
+        InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
 };
@@ -24,17 +23,20 @@ const NUM_TENSOR_CORES_APPROX: usize = 8;
 pub struct CmmaSelector;
 
 impl CmmaSelector {
-    pub fn select_kernel<R: Runtime, EG: Numeric>(
+    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        lhs: &TensorHandleRef<'_, R>,
-        rhs: &TensorHandleRef<'_, R>,
-        out: &TensorHandleRef<'_, R>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
     ) -> Result<(), MatmulLaunchError> {
-        type ES = half::f16;
-        type EA = f32;
-
-        let (instruction_m, instruction_n) = find_instruction_shape(problem.m, problem.n);
+        let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+            Some((
+                client.properties(),
+                (MS::ES::as_elem(), MS::ES::as_elem(), MS::EA::as_elem()),
+            )),
+            problem.m,
+            problem.n,
+        );
 
         let stage_size_m_n = find_stage_size_m_n(
             problem.m,
@@ -46,74 +48,97 @@ impl CmmaSelector {
             instruction_n,
         );
 
-        match (instruction_m, instruction_n) {
-            (16, 16) => match stage_size_m_n {
+        match (instruction_m, instruction_n, instruction_k) {
+            (16, 16, 8) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, Accelerated16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, Accelerated16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, Accelerated16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, Accelerated16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
-            (32, 8) => match stage_size_m_n {
+            (16, 16, 16) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, Accelerated32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, Accelerated32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, Accelerated32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, Accelerated32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
-            (8, 32) => match stage_size_m_n {
+            (32, 8, 16) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, Accelerated8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, Accelerated8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, Accelerated8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, Accelerated8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
+                _ => panic!("No configuration found for this stage size. "),
+            },
+            (8, 32, 16) => match stage_size_m_n {
+                1 => matmul_cube_preparation::<
+                    MS,
+                    R,
+                    StandardAlgorithm<MS, S1x1x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
+                2 => matmul_cube_preparation::<
+                    MS,
+                    R,
+                    StandardAlgorithm<MS, S2x2x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
+                4 => matmul_cube_preparation::<
+                    MS,
+                    R,
+                    StandardAlgorithm<MS, S4x4x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
+                8 => matmul_cube_preparation::<
+                    MS,
+                    R,
+                    StandardAlgorithm<MS, S8x8x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
             _ => panic!("No configuration found for instruction shapes."),
@@ -124,13 +149,26 @@ impl CmmaSelector {
 /// A heuristic to choose the instruction to use, based on input shape
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
-fn find_instruction_shape(m: usize, n: usize) -> (usize, usize) {
-    if m >= 4 * n {
-        (32, 8)
-    } else if n >= 4 * n {
-        (8, 32)
+#[allow(clippy::type_complexity)]
+fn find_instruction_shape(
+    properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
+    m: usize,
+    n: usize,
+) -> (usize, usize, usize) {
+    let supported = |m: u8, n: u8, k: u8| {
+        properties
+            .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
+            .unwrap_or(true)
+    };
+
+    if m >= 4 * n && supported(32, 8, 16) {
+        (32, 8, 16)
+    } else if n >= 4 * n && supported(8, 32, 16) {
+        (8, 32, 16)
+    } else if supported(16, 16, 16) {
+        (16, 16, 16)
     } else {
-        (16, 16)
+        (16, 16, 8)
     }
 }
 
@@ -188,17 +226,14 @@ fn find_stage_size_m_n(
 pub struct PlaneMmaSelector;
 
 impl PlaneMmaSelector {
-    pub fn select_kernel<R: Runtime, EG: Numeric>(
+    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        lhs: &TensorHandleRef<'_, R>,
-        rhs: &TensorHandleRef<'_, R>,
-        out: &TensorHandleRef<'_, R>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
     ) -> Result<(), MatmulLaunchError> {
-        type ES = f32;
-        type EA = f32;
-
-        let (instruction_m, instruction_n) = find_instruction_shape(problem.m, problem.n);
+        let (instruction_m, instruction_n, instruction_k) =
+            find_instruction_shape(None, problem.m, problem.n);
 
         let stage_size_m_n = find_stage_size_m_n(
             problem.m,
@@ -210,74 +245,74 @@ impl PlaneMmaSelector {
             instruction_n,
         );
 
-        match (instruction_m, instruction_n) {
-            (16, 16) => match stage_size_m_n {
+        match (instruction_m, instruction_n, instruction_k) {
+            (16, 16, 16) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, PlaneMma16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, PlaneMma16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, PlaneMma16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, PlaneMma16x16x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
-            (32, 8) => match stage_size_m_n {
+            (32, 8, 16) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, PlaneMma32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, PlaneMma32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, PlaneMma32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, PlaneMma32x8x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
-            (8, 32) => match stage_size_m_n {
+            (8, 32, 16) => match stage_size_m_n {
                 1 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S1x1x2, PlaneMma8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S1x1x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S2x2x2, PlaneMma8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S2x2x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S4x4x2, PlaneMma8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S4x4x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
+                    MS,
                     R,
-                    EG,
-                    StandardAlgorithm<EG, ES, EA, S8x8x2, PlaneMma8x32x16<ES, EA>>,
-                >(client, lhs, rhs, out, problem),
+                    StandardAlgorithm<MS, S8x8x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
             _ => panic!("No configuration found for instruction shapes."),

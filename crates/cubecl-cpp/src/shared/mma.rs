@@ -13,6 +13,7 @@ pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(
 pub trait Architecture: FromStr<Err = String> {
     fn warp_size(&self) -> u32;
     fn is_wmma_capable(&self) -> bool;
+    fn is_mfma_capable(&self) -> bool;
 }
 
 pub trait WmmaCompiler<D: Dialect>:
@@ -20,6 +21,7 @@ pub trait WmmaCompiler<D: Dialect>:
 {
     type Architecture: Architecture;
 
+    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
