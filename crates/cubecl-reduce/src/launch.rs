@@ -6,15 +6,6 @@ use crate::{
     ReduceConfig, ReduceStrategy, SharedAccumulator,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ReduceParams {
-    pub shared: Option<u32>, // shared if Some(x) where x is the accumulator size.
-    pub use_planes: bool,
-    pub line_size: u32,
-    pub line_mode: LineMode,
-    pub bound_checks: bool,
-}
-
 /// Entry point for reduce.
 #[allow(clippy::too_many_arguments)]
 pub fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce<In>>(
@@ -49,6 +40,15 @@ pub fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce<In>>(
             settings,
         );
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReduceParams {
+    pub shared: Option<u32>, // shared if Some(x) where x is the accumulator size.
+    pub use_planes: bool,
+    pub line_size: u32,
+    pub line_mode: LineMode,
+    pub bound_checks: bool,
 }
 
 #[cube(launch_unchecked)]

@@ -229,7 +229,7 @@ macro_rules! impl_test_reduce_with_strategy {
 pub struct TestCase {
     pub shape: Vec<usize>,
     pub stride: Vec<usize>,
-    pub axis: u32,
+    pub axis: usize,
     pub strategy: ReduceStrategy,
 }
 
@@ -251,7 +251,7 @@ impl TestCase {
             let (best, _) = expected[output_index];
             if value > best {
                 let coordinate = self.to_input_coordinate(input_index);
-                expected[output_index] = (value, coordinate[self.axis as usize] as u32);
+                expected[output_index] = (value, coordinate[self.axis] as u32);
             }
         }
         expected.into_iter().map(|(_, i)| i).collect()
@@ -274,7 +274,7 @@ impl TestCase {
             let (best, _) = expected[output_index];
             if value < best {
                 let coordinate = self.to_input_coordinate(input_index);
-                expected[output_index] = (value, coordinate[self.axis as usize] as u32);
+                expected[output_index] = (value, coordinate[self.axis] as u32);
             }
         }
         expected.into_iter().map(|(_, i)| i).collect()
@@ -293,7 +293,7 @@ impl TestCase {
     fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
         self.cpu_sum(values)
             .into_iter()
-            .map(|sum| sum / F::new(self.shape[self.axis as usize] as f32))
+            .map(|sum| sum / F::new(self.shape[self.axis] as f32))
             .collect()
     }
 
@@ -357,7 +357,7 @@ impl TestCase {
         let output_handle =
             client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
         let mut output_shape = self.shape.clone();
-        output_shape[self.axis as usize] = 1;
+        output_shape[self.axis] = 1;
         let output_stride = self.output_stride();
 
         let input = unsafe {
@@ -390,12 +390,12 @@ impl TestCase {
     }
 
     fn num_output_values(&self) -> usize {
-        self.shape.iter().product::<usize>() / self.shape[self.axis as usize]
+        self.shape.iter().product::<usize>() / self.shape[self.axis]
     }
 
     fn to_output_index(&self, input_index: usize) -> usize {
         let mut coordinate = self.to_input_coordinate(input_index);
-        coordinate[self.axis as usize] = 0;
+        coordinate[self.axis] = 0;
         self.from_output_coordinate(coordinate)
     }
 
@@ -417,8 +417,8 @@ impl TestCase {
     }
 
     fn output_stride(&self) -> Vec<usize> {
-        let stride = self.stride[self.axis as usize];
-        let shape = self.shape[self.axis as usize];
+        let stride = self.stride[self.axis];
+        let shape = self.shape[self.axis];
         self.stride
             .iter()
             .map(|s| match s.cmp(&stride) {
