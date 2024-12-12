@@ -385,12 +385,6 @@ impl TestCase {
         let binding = output_handle.binding();
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
-        // if self.shape == [8, 256] && self.stride == [256, 1] {
-        //     println!("input {:?}", &input_values[6 * 256..6 * 256 + 64]);
-        // }
-        println!("input {input_values:?}");
-        println!("output {output_values:?}");
-        println!("expected {expected_values:?}");
 
         assert_approx_equal(output_values, &expected_values);
     }
