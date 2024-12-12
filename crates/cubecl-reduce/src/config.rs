@@ -38,7 +38,6 @@ impl ReduceConfig {
             .generate_line_size(input, axis)
             .generate_cube_dim(client, strategy.use_planes)
             .generate_cube_count(reduce_count, strategy)
-            .generate_bound_checks(reduce_count, strategy)
     }
 
     fn new() -> Self {
@@ -101,28 +100,20 @@ impl ReduceConfig {
                 ReduceStrategy { use_planes: true, .. } => self.cube_dim.y,
                 ReduceStrategy { use_planes: false, .. } => self.cube_dim.num_elems(),
             };
-        self.cube_count = CubeCount::new_1d(reduce_count.div_ceil(agent_count_per_cube));
+        let reduce_count_per_cube = match self.line_mode {
+            LineMode::Parallel => agent_count_per_cube,
+            LineMode::Perpendicular => agent_count_per_cube * self.line_size,
+        };
+
+        let cube_count = reduce_count.div_ceil(reduce_count_per_cube);
+
+        self.do_bound_checks_if(reduce_count_per_cube * cube_count > reduce_count);
+        self.cube_count = CubeCount::new_1d(cube_count);
+
         self
     }
 
-    fn generate_bound_checks(mut self, reduce_count: u32, strategy: &ReduceStrategy) -> Self {
-        // When using the shared strategy, we use exactly one cube per reduction. Thus, there is no need for bound checks.
-        if strategy.shared {
-            return self;
-        }
-
-        let reduce_count_lined = match self.line_mode {
-            LineMode::Parallel => reduce_count,
-            LineMode::Perpendicular => reduce_count / self.line_size,
-        };
-
-        let agent_count_per_cube = if strategy.use_planes {
-            self.cube_dim.y
-        } else {
-            self.cube_dim.num_elems()
-        };
-
-        self.bound_checks = reduce_count_lined % agent_count_per_cube != 0;
-        self
+    fn do_bound_checks_if(&mut self, condition: bool) {
+        self.bound_checks = self.bound_checks || condition;
     }
 }
