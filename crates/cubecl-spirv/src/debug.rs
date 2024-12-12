@@ -31,13 +31,14 @@ use crate::{
 
 pub const DEBUG_EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
 pub const PRINT_EXT_NAME: &str = "NonSemantic.DebugPrintf";
+pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FunctionDefinition {
     id: Word,
     name: Word,
     file_name: Word,
-    source: Word,
+    source: SourceFile,
     line: u32,
     col: u32,
 }
@@ -90,7 +91,7 @@ impl StackFrame {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct SourceFile {
     /// Id of the `DebugSource` instruction
     id: Word,
@@ -137,7 +138,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn collect_sources(&mut self, kernel_name: String, opt: &Optimizer) {
         let name_id = self.debug_string(kernel_name.clone());
         let main_id = self.id();
-        let main_source = self.id();
+        let main_source = SourceFile {
+            id: self.id(),
+            compilation_unit: self.id(),
+        };
         self.definitions().functions.insert(
             kernel_name.clone(),
             FunctionDefinition {
@@ -370,10 +374,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     // Deduplicated debug_source
-    fn debug_source(&mut self, file: String) -> Word {
+    fn debug_source(&mut self, file: String) -> SourceFile {
         let existing = self.definitions().source_files.get(&file);
         if let Some(existing) = existing {
-            existing.id
+            *existing
         } else {
             let file_id = self.debug_string(&file);
 
@@ -385,7 +389,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 compilation_unit: comp_unit,
             };
             self.definitions().source_files.insert(file, source_file);
-            source
+            source_file
         }
     }
 
@@ -434,21 +438,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.declare_inlined_at(inlined_at);
             }
         }
+
+        // Declare entry
+        let entry_name = self.debug_info().name_str.clone();
+        let entry_def = self.definitions().functions[&entry_name];
+        let args = self.debug_string("");
+        let signature = self.debug_string(SIGNATURE);
+        self.void_debug(
+            None,
+            Instructions::DebugEntryPoint,
+            [
+                entry_def.id,
+                entry_def.source.compilation_unit,
+                signature,
+                args,
+            ],
+        );
     }
 
     fn declare_debug_function(&mut self, function: &FunctionDefinition) {
-        let compilation_unit = self
-            .definitions()
-            .source_files
-            .values()
-            .find(|it| it.id == function.source)
-            .unwrap()
-            .compilation_unit;
-
         let name_id = function.name;
         let flags = self.const_u32(DebugInfoFlags::None.0);
         let debug_type = self.debug_info().function_ty;
-        let source = function.source;
+        let source = function.source.id;
+        let compilation_unit = function.source.compilation_unit;
         let line = self.const_u32(function.line);
         let col = self.const_u32(function.col);
         let zero = self.const_u32(0);
