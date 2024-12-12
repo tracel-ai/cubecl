@@ -92,10 +92,6 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
     assert_eq!(actual[0], 100.0);
 }
 
-pub fn init_log() {
-    env_logger::init();
-}
-
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_debug {
@@ -110,8 +106,6 @@ macro_rules! testgen_debug {
 
         #[test]
         fn test_nested_call_debug() {
-            cubecl_core::runtime_tests::debug::init_log();
-
             let client = TestRuntime::client(&Default::default());
             for _ in 0..100 {
                 cubecl_core::runtime_tests::debug::test_nested_call::<TestRuntime>(client.clone());
