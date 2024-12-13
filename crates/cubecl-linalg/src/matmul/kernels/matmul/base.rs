@@ -219,6 +219,16 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             out.as_tensor_arg(out_line_size),
             problem,
         )
+    } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
+        CmmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, half::bf16, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+        )
     } else {
         CmmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, tf32, f32>, R>(
             client,
