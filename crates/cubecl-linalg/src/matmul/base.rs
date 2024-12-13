@@ -7,7 +7,6 @@ use cubecl_core::{
 use crate::tensor::TensorHandle;
 
 use super::kernels::{
-    // cmma_old::{self, CmmaConfig},
     matmul, simple,
     tiling2d::{self, Tiling2dConfig},
     MatmulLaunchError,
@@ -18,7 +17,6 @@ pub enum Strategy {
     Accelerated,
     PlaneMma,
     Simple,
-    // CmmaOld(CmmaConfig),
     Tiling2D(Tiling2dConfig),
     #[default]
     Auto,
@@ -50,10 +48,6 @@ pub fn launch_ref<R: Runtime, EG: Float>(
     match strategy {
         Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false),
         Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
-        // Strategy::CmmaOld(config) => {
-        //     cmma_old::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
-        //     Ok(())
-        // }
         Strategy::Tiling2D(config) => {
             tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
             Ok(())

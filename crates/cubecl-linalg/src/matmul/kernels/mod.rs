@@ -1,5 +1,3 @@
-/// Matmul using Accelerator
-pub mod cmma_old;
 /// Matmul using Accelerator or PlaneMma
 pub mod matmul;
 /// Simple non-cooperative matmul that can be very fast on small matrices.

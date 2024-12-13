@@ -92,6 +92,11 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valide_output_shape(input.shape, output.shape, axis)?;
+    println!(
+        "PLANE: max = {}, min = {}",
+        client.properties().hardware_properties().plane_size_max,
+        client.properties().hardware_properties().plane_size_min,
+    );
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
