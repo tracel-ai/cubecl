@@ -91,7 +91,6 @@ fn main() {
             matmul::Strategy::Tiling2D(Default::default()),
         );
         run::<R, half::f16>(Default::default(), matmul::Strategy::Accelerated);
-
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
