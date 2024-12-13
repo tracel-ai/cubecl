@@ -6,12 +6,11 @@ use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use half::f16;
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
-use std::{mem::transmute, num::NonZero};
+use std::mem::transmute;
 
 use crate::{
-    ir::{Elem, FloatKind, Item},
+    ir::{Elem, FloatKind},
     prelude::Numeric,
-    unexpanded,
 };
 
 use super::{
@@ -228,26 +227,6 @@ impl Float for tf32 {
 
     fn new(val: f32) -> Self {
         tf32(val)
-    }
-
-    fn vectorized(_val: f32, _vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn vectorized_empty(_vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_vectorized_empty(
-        context: &mut super::CubeContext,
-        vectorization: u32,
-    ) -> <Self as super::CubeType>::ExpandType {
-        context
-            .create_local_variable(Item::vectorized(
-                Self::as_elem(),
-                NonZero::new(vectorization as u8),
-            ))
-            .into()
     }
 }
 

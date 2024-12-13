@@ -1,7 +1,6 @@
 use core::f32;
 use std::{
     cmp::Ordering,
-    num::NonZero,
     ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
 };
 
@@ -13,9 +12,8 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Item},
+    ir::{Elem, FloatKind},
     prelude::Numeric,
-    unexpanded,
 };
 
 use super::{
@@ -217,26 +215,6 @@ impl Float for flex32 {
 
     fn new(val: f32) -> Self {
         flex32::from_f32(val)
-    }
-
-    fn vectorized(_val: f32, _vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn vectorized_empty(_vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_vectorized_empty(
-        context: &mut super::CubeContext,
-        vectorization: u32,
-    ) -> <Self as super::CubeType>::ExpandType {
-        context
-            .create_local_variable(Item::vectorized(
-                Self::as_elem(),
-                NonZero::new(vectorization as u8),
-            ))
-            .into()
     }
 }
 

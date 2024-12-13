@@ -8,7 +8,6 @@ use crate::Runtime;
 
 use super::{
     init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
-    __expand_vectorized,
 };
 
 /// Signed or unsigned integer. Used as input in int kernels
@@ -40,16 +39,8 @@ pub trait Int:
     const BITS: u32;
 
     fn new(val: i64) -> Self;
-    fn vectorized(val: i64, vectorization: u32) -> Self;
     fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
         __expand_new(context, val)
-    }
-    fn __expand_vectorized(
-        context: &mut CubeContext,
-        val: i64,
-        vectorization: u32,
-    ) -> <Self as CubeType>::ExpandType {
-        __expand_vectorized(context, val, vectorization, Self::as_elem())
     }
 }
 
@@ -91,10 +82,6 @@ macro_rules! impl_int {
 
             fn new(val: i64) -> Self {
                 val as $type
-            }
-
-            fn vectorized(val: i64, _vectorization: u32) -> Self {
-                Self::new(val)
             }
         }
 

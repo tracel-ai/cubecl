@@ -61,10 +61,6 @@ macro_rules! declare_uint {
             fn new(val: i64) -> Self {
                 val as $primitive
             }
-
-            fn vectorized(val: i64, _vectorization: u32) -> Self {
-                Self::new(val)
-            }
         }
     };
 }
