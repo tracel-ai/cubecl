@@ -1,5 +1,6 @@
 mod branch;
 mod cmma;
+mod comment;
 mod debug;
 mod kernel;
 mod local_allocator;
@@ -14,6 +15,7 @@ mod variable;
 pub use super::frontend::AtomicOp;
 pub use branch::*;
 pub use cmma::*;
+pub use comment::*;
 pub use debug::*;
 pub use kernel::*;
 pub use local_allocator::*;

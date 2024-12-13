@@ -316,6 +316,9 @@ impl ScopeProcessing {
                         // Nothing to do.
                     }
                 },
+                Operation::Comment(_) => {
+                    // Nothing to do
+                }
                 Operation::Debug(_) => {}
             });
         self

@@ -230,6 +230,9 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
+            gpu::Operation::Comment(val) => instructions.push(Instruction::Comment {
+                content: val.content,
+            }),
             gpu::Operation::Plane(op) => {
                 self.warp_size_checked = true;
                 let out = self.compile_variable(out.unwrap());

@@ -19,5 +19,5 @@ pub use crate::frontend::{plane_all, plane_max, plane_min, plane_prod, plane_sum
 pub use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::server::CubeCount;
 
-pub use crate::comptime;
 pub use crate::frontend::*;
+pub use crate::{comment, comptime};

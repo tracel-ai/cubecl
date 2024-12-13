@@ -151,6 +151,23 @@ pub fn comptime(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
+/// Insert a literal comment into the kernel source code.
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(input: u32) -> u32 {
+///     comment!("Add five to the input");
+///     input + 5
+/// }
+/// ```
+#[proc_macro]
+pub fn comment(input: TokenStream) -> TokenStream {
+    let tokens: proc_macro2::TokenStream = input.into();
+    quote![{ #tokens }].into()
+}
+
 /// Implements display and initialization for autotune keys.
 ///
 /// # Helper

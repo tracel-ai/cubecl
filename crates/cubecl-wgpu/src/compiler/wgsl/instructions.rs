@@ -360,6 +360,9 @@ pub enum Instruction {
         out_index: Variable,
         len: u32,
     },
+    Comment {
+        content: String,
+    },
 }
 
 impl Display for Instruction {
@@ -908,6 +911,13 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}({})", inputs.join(", "))
+            }
+            Instruction::Comment { content } => {
+                if content.contains('\n') {
+                    writeln!(f, "/* {content} */")
+                } else {
+                    writeln!(f, "// {content}")
+                }
             }
         }
     }
