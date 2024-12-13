@@ -5,9 +5,9 @@ use crate::instructions::*;
 use crate::primitives::*;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
 
-// Launch a reduce kernel. This function assumes that all parameters are already validated.
-// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
-// with the appropriate assumptions.
+/// Launch a reduce kernel. This function assumes that all parameters are already validated.
+/// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
+/// with the appropriate assumptions.
 pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceInstruction<In>>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
