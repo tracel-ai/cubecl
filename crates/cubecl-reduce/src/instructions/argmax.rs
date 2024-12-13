@@ -106,7 +106,6 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {
-        // Line::cast_from(Line::abs(accumulator.0))
         Line::cast_from(accumulator.1)
     }
 }

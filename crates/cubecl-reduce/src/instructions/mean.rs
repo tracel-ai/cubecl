@@ -40,8 +40,6 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
 
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out {
         Sum::merge_line::<Out>(accumulator, shape_axis_reduce) / Out::cast_from(shape_axis_reduce)
-        // Sum::merge_line::<Out>(accumulator, shape_axis_reduce)
-        // Out::cast_from(shape_axis_reduce)
     }
 
     fn to_output_perpendicular<Out: Numeric>(
