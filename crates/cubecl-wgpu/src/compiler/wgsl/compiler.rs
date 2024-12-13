@@ -548,6 +548,7 @@ impl WgslCompiler {
             cube::Operation::CoopMma(_) => {
                 panic!("Cooperative matrix-multiply and accumulate isn't supported on wgpu.")
             }
+            cube::Operation::Comment(comment) => self.compile_comment(instructions, comment),
             // No good way to attach debug info
             cube::Operation::Debug(_) => {}
         }
@@ -651,6 +652,16 @@ impl WgslCompiler {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
         };
+    }
+
+    fn compile_comment(
+        &mut self,
+        instructions: &mut Vec<wgsl::Instruction>,
+        comment: cube::Comment,
+    ) {
+        instructions.push(wgsl::Instruction::Comment {
+            content: comment.content,
+        })
     }
 
     fn compile_metadata(
