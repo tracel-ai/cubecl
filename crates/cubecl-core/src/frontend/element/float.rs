@@ -5,7 +5,6 @@ use half::{bf16, f16};
 use crate::{
     ir::{Elem, FloatKind, Item},
     prelude::*,
-    unexpanded,
 };
 
 use super::Numeric;
@@ -112,16 +111,6 @@ macro_rules! impl_float {
         impl Numeric for $primitive {
             const MAX: Self = $primitive::MAX;
             const MIN: Self = $primitive::MIN;
-        }
-
-        impl Vectorized for $primitive {
-            fn vectorization_factor(&self) -> u32 {
-                1
-            }
-
-            fn vectorize(self, _factor: u32) -> Self {
-                unexpanded!()
-            }
         }
 
         impl ExpandElementBaseInit for $primitive {

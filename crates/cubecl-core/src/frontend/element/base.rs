@@ -1,4 +1,4 @@
-use super::{flex32, CubePrimitive, Numeric, Vectorized};
+use super::{flex32, CubePrimitive, Numeric};
 use crate::tf32;
 use crate::{
     ir::{ConstantScalarValue, Elem, Item, Operation, Variable, VariableKind},
@@ -250,19 +250,6 @@ impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
-    fn vectorization_factor(&self) -> u32 {
-        self.expand.vectorization_factor()
-    }
-
-    fn vectorize(self, factor: u32) -> Self {
-        Self {
-            expand: self.expand.vectorize(factor),
-            _type: PhantomData,
-        }
-    }
-}
-
 impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of vectorization factor.
     pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
@@ -271,13 +258,6 @@ impl<T: CubeType> ExpandElementTyped<T> {
             .vectorization
             .map(|it| it.get())
             .unwrap_or(1) as u32
-    }
-
-    pub fn __expand_vectorize_method(self, _context: &mut CubeContext, factor: u32) -> Self {
-        Self {
-            expand: self.expand.vectorize(factor),
-            _type: PhantomData,
-        }
     }
 }
 

@@ -7,7 +7,7 @@ mod float;
 mod int;
 mod numeric;
 mod uint;
-mod vectorized;
+// mod vectorized;
 
 pub use atomic::*;
 pub use base::*;
@@ -17,4 +17,4 @@ pub use cube_elem::*;
 pub use float::*;
 pub use int::*;
 pub use numeric::*;
-pub use vectorized::*;
+// pub use vectorized::*;

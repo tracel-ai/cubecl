@@ -21,7 +21,7 @@ use crate::{
 use super::{
     init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
     ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
-    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, Vectorized,
+    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 /// A floating point type with relaxed precision, minimum [`f16`], max [`f32`].
@@ -180,16 +180,6 @@ impl IntoRuntime for flex32 {
 impl Numeric for flex32 {
     const MAX: Self = flex32::from_f32(f32::MAX);
     const MIN: Self = flex32::from_f32(f32::MIN);
-}
-
-impl Vectorized for flex32 {
-    fn vectorization_factor(&self) -> u32 {
-        1
-    }
-
-    fn vectorize(self, _factor: u32) -> Self {
-        unexpanded!()
-    }
 }
 
 impl ExpandElementBaseInit for flex32 {

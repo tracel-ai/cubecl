@@ -6,8 +6,8 @@ use cubecl_core::prelude::*;
 #[cube]
 pub(crate) trait BlockLoader<F: Float, FC: Float> {
     fn load_single<I: LoadInfo>(
-        tensor: &Tensor<F>,
-        shared_memory: &mut SharedMemory<FC>,
+        tensor: &Tensor<Line<F>>,
+        shared_memory: &mut SharedMemory<Line<FC>>,
         read_row: u32,
         read_col: u32,
         write_pos: u32,
@@ -19,8 +19,8 @@ pub(crate) trait BlockLoader<F: Float, FC: Float> {
 pub(crate) trait BlockWriter<F: Float>: Send + Sync + 'static {
     #[allow(clippy::too_many_arguments)]
     fn write_single(
-        out: &mut Tensor<F>,
-        accumulator_sm: SharedMemory<F>,
+        out: &mut Tensor<Line<F>>,
+        accumulator_sm: SharedMemory<Line<F>>,
         batch_offset: u32,
         read_position: u32,
         write_row: u32,

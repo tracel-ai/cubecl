@@ -11,7 +11,7 @@ mod for_loop;
 mod function_call;
 mod generic_kernel;
 mod r#if;
-mod intrinsics;
+// mod intrinsics;
 mod kernel;
 mod literal;
 mod r#loop;
