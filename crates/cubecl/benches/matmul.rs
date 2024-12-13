@@ -84,8 +84,6 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        use cubecl_linalg::matmul::kernels::cmma_old::PredefinedCmmaConfig;
-
         type R = cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>;
 
         run::<R, half::f16>(
@@ -93,10 +91,7 @@ fn main() {
             matmul::Strategy::Tiling2D(Default::default()),
         );
         run::<R, half::f16>(Default::default(), matmul::Strategy::Accelerated);
-        run::<R, half::f16>(
-            Default::default(),
-            matmul::Strategy::CmmaOld(PredefinedCmmaConfig::M128K16.into()),
-        );
+
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
