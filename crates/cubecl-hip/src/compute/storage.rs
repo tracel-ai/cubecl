@@ -66,7 +66,7 @@ pub struct HipResource {
 unsafe impl Send for HipResource {}
 
 impl ComputeStorage for HipStorage {
-    const ALIGNMENT: u64 = 4;
+    const ALIGNMENT: u64 = 32;
 
     type Resource = HipResource;
 
