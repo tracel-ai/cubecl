@@ -41,7 +41,7 @@ impl Optimizer {
             Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
-            Operation::Synchronization(_) | Operation::Debug(_) => {}
+            Operation::Synchronization(_) | Operation::Debug(_) | Operation::Comment(_) => {}
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),

@@ -177,6 +177,9 @@ pub enum Instruction<D: Dialect> {
         format_string: String,
         args: Vec<Variable<D>>,
     },
+    Comment {
+        content: String,
+    },
 }
 
 impl<D: Dialect> Display for Instruction<D> {
@@ -536,7 +539,14 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     true => "".to_string(),
                     false => format!(", {}", args.join(",")),
                 };
-                writeln!(f, "printf(\"{format_string}\"{args});",)
+                writeln!(f, "printf(\"{format_string}\"{args});")
+            }
+            Instruction::Comment { content } => {
+                if content.contains('\n') {
+                    writeln!(f, "/* {content} */")
+                } else {
+                    writeln!(f, "// {content}")
+                }
             }
         }
     }

@@ -490,6 +490,10 @@ impl Expression {
                     }
                 }
             }
+            Expression::Comment { content } => {
+                let frontend_path = frontend_path();
+                quote![#frontend_path::cube_comment::expand(context, #content)]
+            }
         }
     }
 }

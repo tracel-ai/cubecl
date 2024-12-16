@@ -135,13 +135,13 @@ fn reduce_comparison<D: Dialect>(
 
     for k in 0..optimized.item().vectorization {
         let indexed = optimized.index(k);
-        let __shfl_down = D::warp_shuffle_down(&indexed);
+        let __shfl_xor = D::warp_shuffle_xor(&indexed);
         write!(
             f,
             "
             {{
                 for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-                    {indexed} = {instruction}({indexed}, {__shfl_down});
+                    {indexed} = {instruction}({indexed}, {__shfl_xor});
                 }}
             }}
             "

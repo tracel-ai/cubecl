@@ -1,7 +1,8 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, Member, Pat, Path, PathArguments, PathSegment, Type,
+    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    PathSegment, Type,
 };
 
 use crate::{
@@ -146,6 +147,9 @@ pub enum Expression {
         const_expr: syn::Expr,
         arms: Vec<ConstMatchArm>,
     },
+    Comment {
+        content: LitStr,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -196,6 +200,7 @@ impl Expression {
             Expression::Keyword { .. } => None,
             Expression::CompilerIntrinsic { .. } => None,
             Expression::ConstMatch { .. } => None,
+            Expression::Comment { .. } => None,
         }
     }
 
