@@ -1,11 +1,15 @@
 use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{ir::CubeDim, CompilerRepresentation};
+use cubecl_core::{
+    ir::{CubeDim, Visibility},
+    CompilerRepresentation,
+};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding<D: Dialect> {
     pub item: Item<D>,
     pub size: Option<usize>,
+    pub vis: Visibility,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -133,7 +137,14 @@ extern \"C\" __global__ void {}(
         let mut binding_index = 0;
         for (index, binding) in self.inputs.iter().enumerate() {
             binding_index += 1;
-            write!(f, "{} input_{}[]", binding.item, index)?;
+            match binding.vis {
+                Visibility::Read => {
+                    write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+                }
+                Visibility::ReadWrite => {
+                    write!(f, "{} input_{}[]", binding.item, index)?;
+                }
+            }
             if binding_index < num_bindings {
                 f.write_str(",")?;
             }
@@ -147,7 +158,15 @@ extern \"C\" __global__ void {}(
         }
         for (name, binding) in self.named.iter() {
             binding_index += 1;
-            write!(f, "{} {}[]", binding.item, name)?;
+
+            match binding.vis {
+                Visibility::Read => {
+                    write!(f, "const {}* __restrict__ {}", binding.item, name)?;
+                }
+                Visibility::ReadWrite => {
+                    write!(f, "{} {}[]", binding.item, name)?;
+                }
+            }
 
             if binding_index < num_bindings {
                 f.write_str(",")?;

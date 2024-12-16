@@ -27,7 +27,7 @@ struct TensorRawParts<F: Float + CubeElement> {
     original_data: Option<Vec<F>>,
 }
 
-type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
+type Spec<EG, ES> = SingleMatmulSpec<32, EG, ES, f32>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
