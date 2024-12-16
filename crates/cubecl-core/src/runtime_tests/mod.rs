@@ -27,12 +27,17 @@ macro_rules! testgen_all {
         type IntType = i32;
         type UintType = u32;
 
-        cubecl_core::testgen_index!();
         cubecl_core::testgen_assign!();
+        cubecl_core::testgen_binary!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
+        cubecl_core::testgen_index!();
         cubecl_core::testgen_launch!();
+        cubecl_core::testgen_line!();
+        cubecl_core::testgen_plane!();
+        cubecl_core::testgen_sequence!();
+        cubecl_core::testgen_unary!();
 
         $crate::testgen_untyped!();
     };
@@ -75,6 +80,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
+        cubecl_core::testgen_index!();
         cubecl_core::testgen_launch!();
         cubecl_core::testgen_line!();
         cubecl_core::testgen_plane!();

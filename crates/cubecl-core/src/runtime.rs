@@ -36,13 +36,14 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// Returns the supported line sizes for the current runtime's compiler.
     fn supported_line_sizes() -> &'static [u8];
 
-    /// Returns the max line size that is useful to perform IO operation on the given element.
-    fn max_line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> {
+    /// Returns all line sizes that are useful to perform IO operation on the given element.
+    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> {
         Self::supported_line_sizes()
             .iter()
             .filter(|v| **v as usize * elem.size() <= 16)
             .cloned() // 128 bits
     }
+
     /// Returns the maximum cube count on each dimension that can be launched.
     fn max_cube_count() -> (u32, u32, u32);
 }
