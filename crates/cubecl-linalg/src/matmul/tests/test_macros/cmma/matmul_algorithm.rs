@@ -1393,7 +1393,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_gfl256x256x256_s4x4x2_t16x16x16_rc_ln4_ColMajor() {
+        pub fn bo_gfl256x256x256_s4x4x2_t16x16x16_rc_ln4_col_major() {
             let problem = MatmulProblem {
                 m: 256,
                 n: 256,
@@ -1445,7 +1445,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_gfl32x32x32_s1x1x1_t16x16x16_cc_ln4_ColMajor() {
+        pub fn bo_gfl32x32x32_s1x1x1_t16x16x16_cc_ln4_col_major() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -1497,7 +1497,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_gfl32x32x32_s1x1x1_t16x16x16_R() {
+        pub fn bo_gfl32x32x32_s1x1x1_t16x16x16_rr_ln4() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,
@@ -3124,7 +3124,7 @@ macro_rules! matmul_test_define {
         }
 
         #[test]
-        pub fn bo_gfl32x32x32_s2x2x2_t16x16x16_rr_ln4_ColMajor() {
+        pub fn bo_gfl32x32x32_s2x2x2_t16x16x16_rr_ln4_col_major() {
             let problem = MatmulProblem {
                 m: 32,
                 n: 32,

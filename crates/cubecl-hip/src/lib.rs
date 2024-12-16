@@ -27,6 +27,6 @@ mod tests {
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_cmma_matmul!();
+    cubecl_linalg::testgen_matmul_cmma!();
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
 }

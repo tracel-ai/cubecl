@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
-use crate::matmul::kernels::tiling2d;
+use crate::{matmul::kernels::simple, tensor::TensorHandle};
 
 use super::test_utils::{assert_equals_approx, MatmulTestCase};
 
-pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_small<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -14,10 +14,10 @@ pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display>(device: &R::D
         batch: 1,
     };
 
-    test_tiling2d::<R, F>(case, device);
+    test_simple::<R, F>(case, device);
 }
 
-pub fn test_several_cubes<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_large<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 256,
         k: 256,
@@ -25,7 +25,7 @@ pub fn test_several_cubes<R: Runtime, F: Float + CubeElement + Display>(device: 
         batch: 1,
     };
 
-    test_tiling2d::<R, F>(case, device);
+    test_simple::<R, F>(case, device);
 }
 
 pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
@@ -36,7 +36,7 @@ pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(devi
         batch: 1,
     };
 
-    test_tiling2d::<R, F>(case, device);
+    test_simple::<R, F>(case, device);
 }
 
 pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
@@ -47,10 +47,10 @@ pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &
         batch: 3,
     };
 
-    test_tiling2d::<R, F>(case, device);
+    test_simple::<R, F>(case, device);
 }
 
-fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display>(
+fn test_simple<R: Runtime, F: Float + CubeElement + Display>(
     case: MatmulTestCase,
     device: &R::Device,
 ) {
@@ -60,15 +60,10 @@ fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display>(
 
     let expected = case.matmul_cpu::<R, F>(&lhs, &rhs, &client);
 
-    let out = tiling2d::launch::<R, F>(
-        &client,
-        lhs,
-        rhs,
-        case.empty_out(&client),
-        Default::default(),
-    );
+    let out: TensorHandle<R, F> = case.empty_out(&client);
+    simple::launch::<R, F>(&client, lhs, rhs, &out.as_ref());
 
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01) {
+    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 10e-4) {
         panic!("{}", e);
     }
 }

@@ -92,7 +92,7 @@ pub fn launch_ref<R: Runtime, E: Float>(
     launch(client, lhs, rhs, out);
 }
 
-fn launch<R: Runtime, E: Float>(
+pub fn launch<R: Runtime, E: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
