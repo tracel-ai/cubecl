@@ -18,6 +18,7 @@ mod tests {
     cubecl_linalg::testgen_cmma_matmul!([f16]);
     cubecl_linalg::testgen_plane_mma!([f16], f16);
     cubecl_linalg::testgen_plane_mma!([f16], f32);
+    cubecl_linalg::testgen_simple!([f16, bf16, f32]);
     cubecl_linalg::testgen_tiling2d!([f16, bf16, f32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
 }
