@@ -65,11 +65,11 @@ macro_rules! testgen_cmma_matmul {
 }
 
 #[macro_export]
-macro_rules! testgen_plane_mma {
+macro_rules! testgen_plane_mma_matmul {
     () => {
         #[allow(non_snake_case)]
         mod plane_mma_matmul {
-            $crate::testgen_plane_mma!(f32, f32);
+            $crate::testgen_plane_mma_matmul!(f32, f32);
         }
     };
 
@@ -119,7 +119,7 @@ macro_rules! testgen_plane_mma {
                 #[allow(non_snake_case)]
                 mod [<plane_mma_matmul_ $float _ $float_stage>] {
                     use super::*;
-                    $crate::testgen_plane_mma!($float, $float_stage);
+                    $crate::testgen_plane_mma_matmul!($float, $float_stage);
                 }
             )*
         }

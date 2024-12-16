@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
 #[macro_export]
-macro_rules! testgen_tiling2d {
+macro_rules! testgen_tiling2d_matmul {
     () => {
         mod tiling2d {
-            $crate::testgen_tiling2d!(f32);
+            $crate::testgen_tiling2d_matmul!(f32);
         }
     };
     ($float:ident) => {
@@ -14,7 +14,37 @@ macro_rules! testgen_tiling2d {
 
             pub type FloatT = $float;
 
-            $crate::testgen_tiling2d_matmul!();
+            #[test]
+            pub fn test_tiling2d_matmul_one_cube() {
+                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_one_cube::<
+                    TestRuntime,
+                    FloatT,
+                >(&Default::default())
+            }
+
+            #[test]
+            pub fn test_tiling2d_matmul_several_cubes() {
+                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_several_cubes::<
+                    TestRuntime,
+                    FloatT,
+                >(&Default::default())
+            }
+
+            #[test]
+            pub fn test_tiling2d_matmul_with_check_bounds() {
+                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_with_check_bounds::<
+                    TestRuntime,
+                    FloatT,
+                >(&Default::default())
+            }
+
+            #[test]
+            pub fn test_tiling2d_matmul_with_batches() {
+                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_with_batches::<
+                    TestRuntime,
+                    FloatT,
+                >(&Default::default())
+            }
     };
     ([$($float:ident),*]) => {
         mod tiling2d {
@@ -23,48 +53,9 @@ macro_rules! testgen_tiling2d {
                 $(mod [<$float _ty>] {
                     use super::*;
 
-                    $crate::testgen_tiling2d!($float);
+                    $crate::testgen_tiling2d_matmul!($float);
                 })*
             }
-        }
-    };
-}
-#[allow(missing_docs)]
-#[macro_export]
-macro_rules! testgen_tiling2d_matmul {
-    () => {
-        use super::*;
-
-        #[test]
-        pub fn test_matmul_tiling2d_one_cube() {
-            cubecl_linalg::matmul::tests::tiling2d::test_matmul_tiling2d_one_cube::<
-                TestRuntime,
-                FloatT,
-            >(&Default::default())
-        }
-
-        #[test]
-        pub fn test_matmul_tiling2d_several_cubes() {
-            cubecl_linalg::matmul::tests::tiling2d::test_matmul_tiling2d_several_cubes::<
-                TestRuntime,
-                FloatT,
-            >(&Default::default())
-        }
-
-        #[test]
-        pub fn test_matmul_tiling2d_with_check_bounds() {
-            cubecl_linalg::matmul::tests::tiling2d::test_matmul_tiling2d_with_check_bounds::<
-                TestRuntime,
-                FloatT,
-            >(&Default::default())
-        }
-
-        #[test]
-        pub fn test_matmul_tiling2d_with_batches() {
-            cubecl_linalg::matmul::tests::tiling2d::test_matmul_tiling2d_with_batches::<
-                TestRuntime,
-                FloatT,
-            >(&Default::default())
         }
     };
 }

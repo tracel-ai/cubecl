@@ -6,7 +6,7 @@ use crate::{matmul::kernels::simple, tensor::TensorHandle};
 
 use super::test_utils::{assert_equals_approx, MatmulTestCase};
 
-pub fn test_matmul_simple_small<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_simple_matmul_small<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -17,7 +17,7 @@ pub fn test_matmul_simple_small<R: Runtime, F: Float + CubeElement + Display>(de
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_matmul_simple_large<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_simple_matmul_large<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 256,
         k: 256,
@@ -28,7 +28,7 @@ pub fn test_matmul_simple_large<R: Runtime, F: Float + CubeElement + Display>(de
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_matmul_simple_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(
+pub fn test_simple_matmul_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(
     device: &R::Device,
 ) {
     let case = MatmulTestCase {
@@ -41,7 +41,7 @@ pub fn test_matmul_simple_with_check_bounds<R: Runtime, F: Float + CubeElement +
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_matmul_simple_with_batches<R: Runtime, F: Float + CubeElement + Display>(
+pub fn test_simple_matmul_with_batches<R: Runtime, F: Float + CubeElement + Display>(
     device: &R::Device,
 ) {
     let case = MatmulTestCase {
