@@ -4,11 +4,11 @@ pub mod matmul_algorithm;
 pub mod matmul_launch;
 
 #[macro_export]
-macro_rules! testgen_cmma_matmul {
+macro_rules! testgen_matmul_cmma {
     () => {
         #[allow(non_snake_case)]
         mod cmma_matmul {
-            $crate::testgen_cmma_matmul!(f32);
+            $crate::testgen_matmul_cmma!(f32);
         }
     };
 
@@ -51,13 +51,13 @@ macro_rules! testgen_cmma_matmul {
 
     ([$($float:ident),*]) => {
         #[allow(non_snake_case)]
-        mod cmma_matmul {
+        mod matmul_cmma {
             use super::*;
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
 
-                    $crate::testgen_cmma_matmul!($float);
+                    $crate::testgen_matmul_cmma!($float);
                 })*
             }
         }
@@ -65,11 +65,11 @@ macro_rules! testgen_cmma_matmul {
 }
 
 #[macro_export]
-macro_rules! testgen_plane_mma_matmul {
+macro_rules! testgen_matmul_plane_mma {
     () => {
         #[allow(non_snake_case)]
-        mod plane_mma_matmul {
-            $crate::testgen_plane_mma_matmul!(f32, f32);
+        mod matmul_plane_mma{
+            $crate::testgen_matmul_plane_mma!(f32, f32);
         }
     };
 
@@ -117,9 +117,9 @@ macro_rules! testgen_plane_mma_matmul {
             $(
                 // Generate a unique module for each `float` type with the single `float_stage`
                 #[allow(non_snake_case)]
-                mod [<plane_mma_matmul_ $float _ $float_stage>] {
+                mod [<matmul_plane_mma_ $float _ $float_stage>] {
                     use super::*;
-                    $crate::testgen_plane_mma_matmul!($float, $float_stage);
+                    $crate::testgen_matmul_plane_mma!($float, $float_stage);
                 }
             )*
         }

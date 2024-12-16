@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
 #[macro_export]
-macro_rules! testgen_simple_matmul {
+macro_rules! testgen_matmul_simple {
     () => {
         mod simple {
-            $crate::testgen_simple_matmul!(f32);
+            $crate::testgen_matmul_simple!(f32);
         }
     };
     ($float:ident) => {
@@ -15,30 +15,30 @@ macro_rules! testgen_simple_matmul {
             pub type FloatT = $float;
 
             #[test]
-            pub fn test_simple_matmul_small() {
-                cubecl_linalg::matmul::tests::simple::test_simple_matmul_small::<TestRuntime, FloatT>(
+            pub fn test_small() {
+                cubecl_linalg::matmul::tests::simple::test_small::<TestRuntime, FloatT>(
                     &Default::default(),
                 )
             }
 
             #[test]
             pub fn test_simple_matmul_large() {
-                cubecl_linalg::matmul::tests::simple::test_simple_matmul_large::<TestRuntime, FloatT>(
+                cubecl_linalg::matmul::tests::simple::test_large::<TestRuntime, FloatT>(
                     &Default::default(),
                 )
             }
 
             #[test]
-            pub fn test_simple_matmul_with_check_bounds() {
-                cubecl_linalg::matmul::tests::simple::test_simple_matmul_with_check_bounds::<
+            pub fn test_with_check_bounds() {
+                cubecl_linalg::matmul::tests::simple::test_with_check_bounds::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
             }
 
             #[test]
-            pub fn test_simple_matmul_with_batches() {
-                cubecl_linalg::matmul::tests::simple::test_simple_matmul_with_batches::<
+            pub fn test_with_batches() {
+                cubecl_linalg::matmul::tests::simple::test_with_batches::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
@@ -51,7 +51,7 @@ macro_rules! testgen_simple_matmul {
                 $(mod [<$float _ty>] {
                     use super::*;
 
-                    $crate::testgen_simple_matmul!($float);
+                    $crate::testgen_matmul_simple!($float);
                 })*
             }
         }

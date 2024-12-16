@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
 #[macro_export]
-macro_rules! testgen_tiling2d_matmul {
+macro_rules! testgen_matmul_tiling2d {
     () => {
-        mod tiling2d {
-            $crate::testgen_tiling2d_matmul!(f32);
+        mod matmul_tiling2d {
+            $crate::testgen_matmul_tiling2d!(f32);
         }
     };
     ($float:ident) => {
@@ -15,45 +15,45 @@ macro_rules! testgen_tiling2d_matmul {
             pub type FloatT = $float;
 
             #[test]
-            pub fn test_tiling2d_matmul_one_cube() {
-                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_one_cube::<
+            pub fn test_one_cube() {
+                cubecl_linalg::matmul::tests::tiling2d::test_one_cube::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
             }
 
             #[test]
-            pub fn test_tiling2d_matmul_several_cubes() {
-                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_several_cubes::<
+            pub fn test_several_cubes() {
+                cubecl_linalg::matmul::tests::tiling2d::test_several_cubes::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
             }
 
             #[test]
-            pub fn test_tiling2d_matmul_with_check_bounds() {
-                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_with_check_bounds::<
+            pub fn test_with_check_bounds() {
+                cubecl_linalg::matmul::tests::tiling2d::test_with_check_bounds::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
             }
 
             #[test]
-            pub fn test_tiling2d_matmul_with_batches() {
-                cubecl_linalg::matmul::tests::tiling2d::test_tiling2d_matmul_with_batches::<
+            pub fn test_with_batches() {
+                cubecl_linalg::matmul::tests::tiling2d::test_with_batches::<
                     TestRuntime,
                     FloatT,
                 >(&Default::default())
             }
     };
     ([$($float:ident),*]) => {
-        mod tiling2d {
+        mod matmul_tiling2d {
             use super::*;
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
 
-                    $crate::testgen_tiling2d_matmul!($float);
+                    $crate::testgen_matmul_tiling2d!($float);
                 })*
             }
         }
