@@ -378,7 +378,9 @@ impl TestCase {
         };
 
         let result = reduce::<R, I, O, K>(&client, input, output, self.axis, Some(self.strategy));
-        if result.is_err_and(|e| e == ReduceError::PlanesUnavailable) {
+        if result.is_err_and(|e| {
+            e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim
+        }) {
             return; // We don't test in that case.
         }
 

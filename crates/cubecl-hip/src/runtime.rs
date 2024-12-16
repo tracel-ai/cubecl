@@ -12,6 +12,7 @@ use cubecl_runtime::{
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    storage::ComputeStorage,
     ComputeRuntime, DeviceProperties,
 };
 
@@ -38,8 +39,6 @@ pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
-
-const MEMORY_OFFSET_ALIGNMENT: u64 = 32;
 
 fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     device: &HipDevice,
@@ -105,7 +104,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     let storage = HipStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
-        alignment: MEMORY_OFFSET_ALIGNMENT,
+        alignment: HipStorage::ALIGNMENT,
     };
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
@@ -153,7 +152,7 @@ impl Runtime for HipRuntime {
     }
 
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 4, 2]
+        &[8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
