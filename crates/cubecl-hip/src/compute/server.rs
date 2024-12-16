@@ -34,7 +34,6 @@ pub struct HipServer {
 
 #[derive(Debug)]
 pub(crate) struct HipContext {
-    context: cubecl_hip_sys::hipCtx_t,
     stream: cubecl_hip_sys::hipStream_t,
     memory_management: MemoryManagement<HipStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
@@ -321,13 +320,11 @@ impl HipContext {
         memory_management: MemoryManagement<HipStorage>,
         compilation_options: CompilationOptions,
         stream: cubecl_hip_sys::hipStream_t,
-        context: cubecl_hip_sys::hipCtx_t,
     ) -> Self {
         Self {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            context,
             timestamps: KernelTimestamps::Disabled,
             compilation_options,
         }
@@ -536,9 +533,6 @@ impl HipServer {
     }
 
     fn get_context_with_logger(&mut self) -> (&mut HipContext, &mut DebugLogger) {
-        unsafe {
-            cubecl_hip_sys::hipCtxSetCurrent(self.ctx.context);
-        };
         (&mut self.ctx, &mut self.logger)
     }
 }
