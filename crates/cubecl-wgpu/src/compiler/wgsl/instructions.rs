@@ -1150,7 +1150,11 @@ fn index_assign(
                     Item::Scalar(_) => Item::Scalar(elem_out),
                 };
                 let rhs = rhs.fmt_cast_to(casting_type);
-                writeln!(f, "{out}[{lhs}] = {rhs};")
+                if matches!(out.item(), Item::Scalar(_)) {
+                    writeln!(f, "{out} = {rhs};")
+                } else {
+                    writeln!(f, "{out}[{lhs}] = {rhs};")
+                }
             } else {
                 let item_rhs = rhs.item();
                 let item_out = out.item();

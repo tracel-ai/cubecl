@@ -116,19 +116,19 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     let n = rhs.shape[rank - 1] as u32;
 
     let lhs_line_size = tensor_line_size_parallel(
-        R::max_line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&EG::as_elem()),
         lhs.shape,
         lhs.strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::max_line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&EG::as_elem()),
         rhs.shape,
         rhs.strides,
         rank - 1,
     );
     let out_line_size = tensor_line_size_parallel(
-        R::max_line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&EG::as_elem()),
         out.shape,
         out.strides,
         rank - 1,

@@ -1,6 +1,71 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
+#[cube(launch_unchecked)]
+pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size: u32) {
+    if UNIT_POS == 0 {
+        let line = Line::empty(line_size).fill(F::new(5.0));
+        output[0] = line[0];
+    }
+}
+
+pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    for line_size in R::line_size_elem(&F::as_elem()) {
+        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        unsafe {
+            kernel_line_index::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                ArrayArg::from_raw_parts::<F>(&handle, line_size as usize, 1),
+                line_size as u32,
+            );
+        }
+        let actual = client.read_one(handle.binding());
+        let actual = F::from_bytes(&actual);
+
+        let mut expected = vec![F::new(0.0); line_size as usize];
+        expected[0] = F::new(5.0);
+
+        assert_eq!(actual, expected);
+    }
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
+    if UNIT_POS == 0 {
+        let mut line = output[0];
+        line[0] = F::new(5.0);
+        output[0] = line;
+    }
+}
+
+pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    for line_size in R::line_size_elem(&F::as_elem()) {
+        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        unsafe {
+            kernel_line_index_assign::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
+            );
+        }
+
+        let actual = client.read_one(handle.binding());
+        let actual = F::from_bytes(&actual);
+
+        let mut expected = vec![F::new(0.0); line_size as usize];
+        expected[0] = F::new(5.0);
+
+        assert_eq!(actual, expected);
+    }
+}
+
 macro_rules! impl_line_comparison {
     ($cmp:ident, $expected:expr) => {
         ::paste::paste! {
@@ -54,6 +119,20 @@ impl_line_comparison!(greater_equal, [1, 0, 1, 1]);
 macro_rules! testgen_line {
     () => {
         use super::*;
+
+        #[test]
+        fn test_line_index() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_index::<TestRuntime, FloatType>(client);
+        }
+
+        #[test]
+        fn test_line_index_assign() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_index_assign::<TestRuntime, FloatType>(
+                client,
+            );
+        }
 
         #[test]
         fn test_line_equal() {
