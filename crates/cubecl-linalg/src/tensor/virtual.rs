@@ -50,7 +50,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 }
 
 impl<E: Numeric> VirtualTensor<E, Read> {
-    pub fn new<V: VirtualTensorOperations<E> + 'static>(v: &V) -> Self {
+    pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {
         unexpanded!()
     }
 
@@ -70,7 +70,7 @@ impl<E: Numeric> VirtualTensor<E, Read> {
 }
 
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
-    pub fn new<V: VirtualTensorOperations<E> + 'static>(v: &mut V) -> Self {
+    pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &mut V) -> Self {
         unexpanded!()
     }
 
