@@ -1,5 +1,6 @@
+use crate::tensor::{VirtualTensorOperations, VirtualTensorOperationsExpand};
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl};
 
 #[cube]
 /// Arguments for the matrix multiplication algorithm.
@@ -58,6 +59,91 @@ pub enum TensorInputIdent {
 pub struct TensorInput<EG: Numeric, GA: MatmulArgs<EG>> {
     state: *const GA::State,
     ident: TensorInputIdent,
+}
+
+impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperations<EG> for TensorInput<EG, MA> {}
+impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperations<EG> for TensorOutput<EG, MA> {}
+
+impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
+    for TensorOutputExpand<EG, MA>
+{
+    fn __expand_read_method(
+        &self,
+        _context: &mut CubeContext,
+        _index: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Line<EG>> {
+        panic!("Can't read output tensor");
+    }
+
+    fn __expand_write_method(
+        &self,
+        context: &mut CubeContext,
+        index: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<Line<EG>>,
+    ) {
+        TensorOutputExpand::__expand_write_method(self.clone(), context, index, value)
+    }
+
+    fn __expand_shape_method(
+        &self,
+        context: &mut CubeContext,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_shape_method(self.clone(), context, axis)
+    }
+
+    fn __expand_stride_method(
+        &self,
+        context: &mut CubeContext,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_stride_method(self.clone(), context, axis)
+    }
+
+    fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_rank_method(self.clone(), context)
+    }
+}
+
+impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
+    for TensorInputExpand<EG, MA>
+{
+    fn __expand_read_method(
+        &self,
+        context: &mut CubeContext,
+        index: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Line<EG>> {
+        TensorInputExpand::__expand_read_method(self.clone(), context, index)
+    }
+
+    fn __expand_write_method(
+        &self,
+        _context: &mut CubeContext,
+        _index: ExpandElementTyped<u32>,
+        _value: ExpandElementTyped<Line<EG>>,
+    ) {
+        panic!("Can't write to input tensor");
+    }
+
+    fn __expand_shape_method(
+        &self,
+        context: &mut CubeContext,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_shape_method(self.clone(), context, axis)
+    }
+
+    fn __expand_stride_method(
+        &self,
+        context: &mut CubeContext,
+        axis: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_stride_method(self.clone(), context, axis)
+    }
+
+    fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_rank_method(self.clone(), context)
+    }
 }
 
 /// Tensor output representation.

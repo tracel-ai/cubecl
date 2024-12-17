@@ -131,21 +131,21 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     ) -> Line<F> {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization_factor = vectorization_of(tensor);
-        let is_scalar = vectorization_factor == 1;
+        let line_size = tensor.line_size();
+        let is_scalar = comptime!(line_size == 1);
 
         let mut vector = Line::empty(tile_size).fill(F::new(0.0));
 
         #[unroll(unroll)]
-        for i in 0u32..tile_size / vectorization_factor {
+        for i in 0u32..comptime!(tile_size / line_size) {
             if comptime!(is_scalar) {
                 vector[i] = tensor[gm_position + i][0];
             } else {
                 let intermediate = tensor[gm_position + i];
 
                 #[unroll(unroll)]
-                for j in 0..vectorization_factor {
-                    vector[i * vectorization_factor + j] = intermediate[j];
+                for j in 0..comptime!(line_size) {
+                    vector[i * line_size + j] = intermediate[j];
                 }
             }
         }
@@ -162,15 +162,15 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     ) -> Line<F> {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization_factor = vectorization_of(tensor);
-        let is_scalar = vectorization_factor == 1;
+        let line_size = tensor.line_size();
+        let is_scalar = comptime!(line_size == 1);
 
         let mut vector = Line::empty(tile_size).fill(F::new(0.));
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {
             let num_reads = Min::min(check_bounds.dim_horizontal - read_info.read_col, tile_size);
-            num_loops = num_reads / vectorization_factor;
+            num_loops = num_reads / line_size;
         }
 
         for i in 0..num_loops {
@@ -180,8 +180,8 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
                 let intermediate = tensor[gm_position + i];
 
                 #[unroll(unroll)]
-                for j in 0..vectorization_factor {
-                    vector[i * vectorization_factor + j] = intermediate[j];
+                for j in 0..comptime!(line_size) {
+                    vector[i * line_size + j] = intermediate[j];
                 }
             }
         }
@@ -197,23 +197,23 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     ) {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization_factor = vectorization_of(out);
-        let is_scalar = vectorization_factor == 1;
+        let line_size = out.line_size();
+        let is_scalar = comptime!(line_size == 1);
 
         #[unroll(unroll)]
-        for i in 0..tile_size / vectorization_factor {
+        for i in 0..comptime!(tile_size / line_size) {
             if comptime!(is_scalar) {
                 out[i + positions.out] = Line::new(results[positions.result + i]);
             } else {
-                let mut output_elem = Line::empty(vectorization_factor);
+                let mut output_elem = Line::empty(line_size);
 
                 #[unroll(unroll)]
-                for j in 0..vectorization_factor {
-                    let index = i * vectorization_factor + j;
+                for j in 0..comptime!(line_size) {
+                    let index = i * line_size + j;
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / vectorization_factor] = output_elem;
+                out[i + positions.out / line_size] = output_elem;
             }
         }
     }
@@ -227,13 +227,13 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
         #[comptime] config: CubeTiling2dConfig,
     ) {
         let tile_size = config.tile_size;
-        let vectorization_factor = vectorization_of(out);
-        let is_scalar = vectorization_factor == 1;
+        let line_size = out.line_size();
+        let is_scalar = comptime!(line_size == 1);
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > write_col {
             let num_writes = Min::min(check_bounds.dim_horizontal - write_col, tile_size);
-            num_loops = num_writes / vectorization_factor;
+            num_loops = num_writes / line_size;
         }
 
         for i in 0..num_loops {
@@ -242,15 +242,15 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
             if comptime!(is_scalar) {
                 out[i + positions.out] = Line::new(results[positions.result + i]);
             } else {
-                let mut output_elem = Line::empty(vectorization_factor);
+                let mut output_elem = Line::empty(line_size);
 
                 #[unroll(unroll)]
-                for j in 0u32..vectorization_factor {
-                    let index = i * vectorization_factor + j;
+                for j in 0u32..line_size {
+                    let index = i * line_size + j;
                     output_elem[j] = results[positions.result + index];
                 }
 
-                out[i + positions.out / vectorization_factor] = output_elem;
+                out[i + positions.out / line_size] = output_elem;
             }
         }
     }

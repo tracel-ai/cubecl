@@ -76,3 +76,4 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 [profile.dev]
 opt-level = 2
+debug = 0 # Speed up compilation time and not necessary.

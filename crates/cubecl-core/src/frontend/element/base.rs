@@ -1,15 +1,13 @@
-use super::{flex32, CubePrimitive, Numeric, Vectorized};
+use super::{flex32, CubePrimitive, Numeric};
 use crate::tf32;
 use crate::{
-    ir::{ConstantScalarValue, Elem, Item, Operation, Variable, VariableKind},
-    prelude::{
-        cast as ir_cast, init_expand, CubeContext, CubeIndex, KernelBuilder, KernelLauncher,
-    },
+    ir::{ConstantScalarValue, Operation, Variable, VariableKind},
+    prelude::{init_expand, CubeContext, KernelBuilder, KernelLauncher},
     Runtime,
 };
 use alloc::rc::Rc;
 use half::{bf16, f16};
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 /// Types used in a cube function must implement this trait
 ///
@@ -250,19 +248,6 @@ impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
     }
 }
 
-impl<T: CubeType> Vectorized for ExpandElementTyped<T> {
-    fn vectorization_factor(&self) -> u32 {
-        self.expand.vectorization_factor()
-    }
-
-    fn vectorize(self, factor: u32) -> Self {
-        Self {
-            expand: self.expand.vectorize(factor),
-            _type: PhantomData,
-        }
-    }
-}
-
 impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of vectorization factor.
     pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
@@ -271,13 +256,6 @@ impl<T: CubeType> ExpandElementTyped<T> {
             .vectorization
             .map(|it| it.get())
             .unwrap_or(1) as u32
-    }
-
-    pub fn __expand_vectorize_method(self, _context: &mut CubeContext, factor: u32) -> Self {
-        Self {
-            expand: self.expand.vectorize(factor),
-            _type: PhantomData,
-        }
     }
 }
 
@@ -430,21 +408,4 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 ) -> ExpandElementTyped<Out> {
     let val = Out::from(val).unwrap();
     val.into()
-}
-
-/// Create a vectorized constant element of the correct type during expansion.
-pub(crate) fn __expand_vectorized<C: Numeric + CubeIndex<u32>, Out: Numeric>(
-    context: &mut CubeContext,
-    val: C,
-    vectorization: u32,
-    elem: Elem,
-) -> ExpandElementTyped<Out> {
-    let new_var =
-        context.create_local_binding(Item::vectorized(elem, NonZero::new(vectorization as u8)));
-    let val = Out::from(val).unwrap();
-    let val: ExpandElementTyped<Out> = val.into();
-
-    ir_cast::expand(context, val, new_var.clone().into());
-
-    new_var.into()
 }

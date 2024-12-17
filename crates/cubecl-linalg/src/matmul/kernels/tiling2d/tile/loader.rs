@@ -152,7 +152,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
 ) {
     let coordinates = load_info.coordinates;
 
-    let vectorization = vectorization_of(tensor);
+    let line_size = tensor.line_size();
     let tile_size = config.tile_size;
     let sm_dim_vertical = config.block_size_k;
 
@@ -175,7 +175,7 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
     let mut sm = load_info.shared_memory;
 
     if write_row < sm_dim_vertical {
-        if vectorization == tile_size {
+        if line_size == tile_size {
             L::load_tile_plain::<MatchingVectorization>(
                 tensor,
                 &mut sm,

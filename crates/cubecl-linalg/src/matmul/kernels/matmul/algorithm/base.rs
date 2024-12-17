@@ -22,8 +22,6 @@ type ES<MS> = <MS as MatmulSpec>::ES;
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm<MS: MatmulSpec> {
-    const PLANE_DIM: u32;
-
     type TileMatmul: tile::Matmul<MS::ES, MS::EA> + MatmulKernel;
 
     type StageMatmul: stage::Matmul<

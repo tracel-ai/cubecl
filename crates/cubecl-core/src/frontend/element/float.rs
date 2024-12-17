@@ -1,11 +1,8 @@
-use std::num::NonZero;
-
 use half::{bf16, f16};
 
 use crate::{
-    ir::{Elem, FloatKind, Item},
+    ir::{Elem, FloatKind},
     prelude::*,
-    unexpanded,
 };
 
 use super::Numeric;
@@ -61,23 +58,9 @@ pub trait Float:
     const RADIX: u32;
 
     fn new(val: f32) -> Self;
-    fn vectorized(val: f32, vectorization: u32) -> Self;
-    fn vectorized_empty(vectorization: u32) -> Self;
     fn __expand_new(context: &mut CubeContext, val: f32) -> <Self as CubeType>::ExpandType {
         __expand_new(context, val)
     }
-    fn __expand_vectorized(
-        context: &mut CubeContext,
-        val: f32,
-        vectorization: u32,
-    ) -> <Self as CubeType>::ExpandType {
-        __expand_vectorized(context, val, vectorization, Self::as_elem())
-    }
-
-    fn __expand_vectorized_empty(
-        context: &mut CubeContext,
-        vectorization: u32,
-    ) -> <Self as CubeType>::ExpandType;
 }
 
 macro_rules! impl_float {
@@ -114,16 +97,6 @@ macro_rules! impl_float {
             const MIN: Self = $primitive::MIN;
         }
 
-        impl Vectorized for $primitive {
-            fn vectorization_factor(&self) -> u32 {
-                1
-            }
-
-            fn vectorize(self, _factor: u32) -> Self {
-                unexpanded!()
-            }
-        }
-
         impl ExpandElementBaseInit for $primitive {
             fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
@@ -146,26 +119,6 @@ macro_rules! impl_float {
 
             fn new(val: f32) -> Self {
                 $new(val)
-            }
-
-            fn vectorized(val: f32, _vectorization: u32) -> Self {
-                Self::new(val)
-            }
-
-            fn vectorized_empty(vectorization: u32) -> Self {
-                Self::vectorized(0., vectorization)
-            }
-
-            fn __expand_vectorized_empty(
-                context: &mut CubeContext,
-                vectorization: u32,
-            ) -> <Self as CubeType>::ExpandType {
-                context
-                    .create_local_variable(Item::vectorized(
-                        Self::as_elem(),
-                        NonZero::new(vectorization as u8),
-                    ))
-                    .into()
             }
         }
 
