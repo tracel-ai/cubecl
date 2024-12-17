@@ -1,4 +1,3 @@
-use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::global::unloader::Unloader;
 use crate::matmul::components::global::{Config as _, Loader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -11,6 +10,7 @@ use crate::matmul::components::{stage, MatmulSpec};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -39,10 +39,10 @@ where
         RhsReader = RhsBufferReader<MS::ES>,
     >,
 {
-    type LhsLoader = LhsBufferLoader<MS::Args, MS::EG, MS::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MS::Args, MS::EG, MS::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MS::Args, MS::EG>;
+    type Out = Unloader<MS::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -102,7 +102,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: TensorInput<MS::EG, MS::Args>,
+        lhs: VirtualTensor<MS::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -119,7 +119,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: TensorInput<MS::EG, MS::Args>,
+        rhs: VirtualTensor<MS::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -136,7 +136,7 @@ where
     }
 
     fn init_unloader(
-        out: TensorOutput<MS::EG, MS::Args>,
+        out: VirtualTensor<MS::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

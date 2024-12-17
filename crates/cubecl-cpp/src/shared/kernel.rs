@@ -139,7 +139,11 @@ extern \"C\" __global__ void {}(
             binding_index += 1;
             match binding.vis {
                 Visibility::Read => {
-                    write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+                    write!(f, "{} input_{}[]", binding.item, index)?;
+                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                    // we should have multiple pointer types to enable that optimization.
+                    //
+                    // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
                 }
                 Visibility::ReadWrite => {
                     write!(f, "{} input_{}[]", binding.item, index)?;
@@ -161,7 +165,11 @@ extern \"C\" __global__ void {}(
 
             match binding.vis {
                 Visibility::Read => {
-                    write!(f, "const {}* __restrict__ {}", binding.item, name)?;
+                    write!(f, "{} {}[]", binding.item, name)?;
+                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                    // we should have multiple pointer types to enable that optimization.
+                    //
+                    // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
                 }
                 Visibility::ReadWrite => {
                     write!(f, "{} {}[]", binding.item, name)?;
