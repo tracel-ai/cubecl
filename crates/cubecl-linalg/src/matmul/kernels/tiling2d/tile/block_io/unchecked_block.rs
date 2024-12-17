@@ -26,11 +26,11 @@ impl<F: Float> BlockLoader<F> for UncheckedBlockIO {
     ) {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
-        let vectorization = vectorization_of(tensor);
+        let line_size = tensor.line_size().runtime();
 
         #[unroll(unroll)]
         for i in 0..tile_size {
-            let gm_position = (info.gm_position_base + i * info.gm_stride) / vectorization;
+            let gm_position = (info.gm_position_base + i * info.gm_stride) / line_size;
             let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
             shared_memory[sm_position] = A::read_contiguous_unchecked(tensor, gm_position, config);

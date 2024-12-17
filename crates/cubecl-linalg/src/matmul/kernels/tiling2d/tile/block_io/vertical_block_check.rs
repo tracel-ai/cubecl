@@ -24,7 +24,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
         check_bounds: CheckBounds,
     ) {
         let tile_size = config.tile_size;
-        let vectorization = vectorization_of(tensor);
+        let line_size = tensor.line_size().runtime();
 
         let mut num_reads = 0;
         let row = check_bounds.skip_row + info.read_row;
@@ -33,7 +33,7 @@ impl<F: Float> BlockLoader<F> for VerticalCheckBlockIO {
         }
 
         for i in 0..num_reads {
-            let gm_position = (info.gm_position_base + i * info.gm_stride) / vectorization;
+            let gm_position = (info.gm_position_base + i * info.gm_stride) / line_size;
             let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
             shared_memory[sm_position] = A::read_contiguous_unchecked(tensor, gm_position, config);
