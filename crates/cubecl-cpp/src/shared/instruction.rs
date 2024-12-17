@@ -98,6 +98,13 @@ pub enum Instruction<D: Dialect> {
         end: Variable<D>,
         out: Variable<D>,
     },
+    CheckedSlice {
+        input: Variable<D>,
+        start: Variable<D>,
+        end: Variable<D>,
+        out: Variable<D>,
+        len: Variable<D>,
+    },
     Return,
     Break,
     Equal(BinaryInstruction<D>),
@@ -202,7 +209,18 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
-                writeln!(f, "const uint {out}_length = {end} - {start};")?;
+                writeln!(f, "const uint {out}_length = {end};")?;
+                writeln!(f, "{item} *{out} = {input} + {start};")
+            }
+            Instruction::CheckedSlice {
+                input,
+                start,
+                end,
+                out,
+                len,
+            } => {
+                let item = out.item();
+                writeln!(f, "const uint {out}_length = min({len}, {end}) - {start};")?;
                 writeln!(f, "{item} *{out} = {input} + {start};")
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
