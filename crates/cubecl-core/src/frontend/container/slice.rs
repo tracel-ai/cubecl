@@ -264,7 +264,9 @@ impl<T: CubeType> Iterator for Slice<T> {
 pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     type Expand: SliceOperatorExpand<E>;
 
-    /// Return a read-only view of all elements comprise between the start and end index.
+    /// Return a read-only view of all elements comprise between the `start` and `end` indices.
+    /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
+    /// the length of `self`.
     #[allow(unused_variables)]
     fn slice<Start: Index, End: Index>(&self, start: Start, end: End) -> Slice<E> {
         unexpanded!()
@@ -279,7 +281,9 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
         expand.__expand_slice_method(context, start, end)
     }
 
-    /// Return a read-write view of all elements comprise between the start and end index.
+    /// Return a read-write view of all elements comprise between the `start` and `end` indices.
+    /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
+    /// the length of `self`.
     #[allow(unused_variables)]
     fn slice_mut<Start: Index, End: Index>(&mut self, start: Start, end: End) -> SliceMut<E> {
         unexpanded!()

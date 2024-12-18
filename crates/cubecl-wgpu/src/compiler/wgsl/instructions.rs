@@ -267,6 +267,13 @@ pub enum Instruction {
         end: Variable,
         out: Variable,
     },
+    CheckedSlice {
+        input: Variable,
+        start: Variable,
+        end: Variable,
+        out: Variable,
+        len: Variable, // The length of the input.
+    },
     Bitcast {
         input: Variable,
         out: Variable,
@@ -389,6 +396,17 @@ impl Display for Instruction {
             } => {
                 writeln!(f, "let {out}_offset = {start};")?;
                 writeln!(f, "let {out}_length = {end} - {start};")?;
+                writeln!(f, "let {out}_ptr = &{input};")
+            }
+            Instruction::CheckedSlice {
+                input,
+                start,
+                end,
+                out,
+                len,
+            } => {
+                writeln!(f, "let {out}_offset = {start};")?;
+                writeln!(f, "let {out}_length = min({len}, {end}) - {start};")?;
                 writeln!(f, "let {out}_ptr = &{input};")
             }
             Instruction::Fma { a, b, c, out } => {
@@ -1056,13 +1074,13 @@ fn index(
     let (mut value, index) = if is_scalar {
         (format!("{lhs}"), None)
     } else {
-        let index = if let Some(offset) = offset {
-            format!("{rhs}+{offset}")
+        let value = if let Some(offset) = offset {
+            format!("{lhs}[{rhs}+{offset}]")
         } else {
-            format!("{rhs}")
+            format!("{lhs}[{rhs}]")
         };
 
-        (format!("{lhs}[{index}]"), Some(index))
+        (value, Some(format!("{rhs}")))
     };
 
     if out.item().elem().is_atomic() {
@@ -1150,7 +1168,11 @@ fn index_assign(
                     Item::Scalar(_) => Item::Scalar(elem_out),
                 };
                 let rhs = rhs.fmt_cast_to(casting_type);
-                writeln!(f, "{out}[{lhs}] = {rhs};")
+                if matches!(out.item(), Item::Scalar(_)) {
+                    writeln!(f, "{out} = {rhs};")
+                } else {
+                    writeln!(f, "{out}[{lhs}] = {rhs};")
+                }
             } else {
                 let item_rhs = rhs.item();
                 let item_out = out.item();

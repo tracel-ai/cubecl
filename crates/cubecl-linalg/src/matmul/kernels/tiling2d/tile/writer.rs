@@ -28,7 +28,7 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
         dims: Dimensions,
         #[comptime] config: CubeTiling2dConfig,
     ) {
-        let vectorization = vectorization_of(out);
+        let line_size = out.line_size();
         let tile_size = config.tile_size;
         let coordinates = write_info.coordinates;
 
@@ -39,7 +39,7 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
             skip_col: coordinates.skip_col,
         };
 
-        if vectorization == tile_size {
+        if line_size == tile_size {
             B::write_output::<MatchingVectorization>(
                 out,
                 results,

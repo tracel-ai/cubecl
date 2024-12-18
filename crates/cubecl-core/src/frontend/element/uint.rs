@@ -1,14 +1,14 @@
+use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
     ir::UIntKind,
 };
-use crate::{ir::Elem, unexpanded};
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings, Vectorized,
+    LaunchArgExpand, ScalarArgSettings,
 };
 
 macro_rules! declare_uint {
@@ -60,20 +60,6 @@ macro_rules! declare_uint {
 
             fn new(val: i64) -> Self {
                 val as $primitive
-            }
-
-            fn vectorized(val: i64, _vectorization: u32) -> Self {
-                Self::new(val)
-            }
-        }
-
-        impl Vectorized for $primitive {
-            fn vectorization_factor(&self) -> u32 {
-                1
-            }
-
-            fn vectorize(self, _factor: u32) -> Self {
-                unexpanded!()
             }
         }
     };

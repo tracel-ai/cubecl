@@ -1,4 +1,3 @@
-use crate::matmul::components::global::args::MatmulArgs;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::Config;
 use crate::matmul::components::stage::{
@@ -17,8 +16,8 @@ pub struct TilewiseLoading {}
 
 #[cube]
 impl LoadingStrategy for TilewiseLoading {
-    fn load_to_slice<MA: MatmulArgs<EG>, EG: Numeric, ES: Numeric, G: Config>(
-        read_view: &TensorReader<MA, EG>,
+    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+        read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

@@ -8,8 +8,8 @@ use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 #[cube(launch_unchecked)]
 fn matmul_kernel<F: Float>(
-    lhs: &Tensor<F>,
-    rhs: &Tensor<F>,
+    lhs: &Tensor<Line<F>>,
+    rhs: &Tensor<Line<F>>,
     out: &mut Tensor<F>,
     // number of dimensions not involved in the matmul
     #[comptime] num_batches: Option<u32>,
@@ -30,7 +30,7 @@ fn matmul_kernel<F: Float>(
         return;
     }
 
-    let vectorization_factor = vectorization_of(lhs);
+    let line_size = lhs.line_size();
 
     let mut offset_lhs = 0;
     let mut offset_rhs = 0;
@@ -44,12 +44,12 @@ fn matmul_kernel<F: Float>(
         offset_rhs += ogwl % rhs.shape(i) * rhs.stride(i);
     }
 
-    offset_lhs /= vectorization_factor;
-    offset_rhs /= vectorization_factor;
+    offset_lhs /= line_size.runtime();
+    offset_rhs /= line_size.runtime();
 
-    let mut sum = F::vectorized(0., vectorization_factor);
+    let mut sum = Line::empty(line_size).fill(F::from_int(0));
 
-    k /= vectorization_factor;
+    k /= line_size.runtime();
 
     for i in 0..k {
         let lhs_index = row * k + i + offset_lhs;
@@ -61,19 +61,19 @@ fn matmul_kernel<F: Float>(
     let mut out_index = row * n_cols + col;
     out_index += offset_out;
 
-    let unroll_sum = vectorization_factor != 1;
+    let unroll_sum = line_size != 1;
     if unroll_sum {
         let mut accum = F::new(0.);
         // we unroll the loop to sum `vectorization_factor` elements at once, which lets us
         // use SIMD instructions to speed up the computation
         #[unroll]
-        for v in 0..vectorization_factor {
+        for v in 0..line_size {
             accum += sum[v];
         }
 
         out[out_index] = accum;
     } else {
-        out[out_index] = sum;
+        out[out_index] = sum[0];
     }
 }
 
@@ -92,7 +92,7 @@ pub fn launch_ref<R: Runtime, E: Float>(
     launch(client, lhs, rhs, out);
 }
 
-fn launch<R: Runtime, E: Float>(
+pub fn launch<R: Runtime, E: Float>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,

@@ -1,7 +1,6 @@
 use core::f32;
 use std::{
     cmp::Ordering,
-    num::NonZero,
     ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
 };
 
@@ -13,15 +12,14 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Item},
+    ir::{Elem, FloatKind},
     prelude::Numeric,
-    unexpanded,
 };
 
 use super::{
     init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
     ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
-    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, Vectorized,
+    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 /// A floating point type with relaxed precision, minimum [`f16`], max [`f32`].
@@ -182,16 +180,6 @@ impl Numeric for flex32 {
     const MIN: Self = flex32::from_f32(f32::MIN);
 }
 
-impl Vectorized for flex32 {
-    fn vectorization_factor(&self) -> u32 {
-        1
-    }
-
-    fn vectorize(self, _factor: u32) -> Self {
-        unexpanded!()
-    }
-}
-
 impl ExpandElementBaseInit for flex32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
@@ -227,26 +215,6 @@ impl Float for flex32 {
 
     fn new(val: f32) -> Self {
         flex32::from_f32(val)
-    }
-
-    fn vectorized(_val: f32, _vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn vectorized_empty(_vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_vectorized_empty(
-        context: &mut super::CubeContext,
-        vectorization: u32,
-    ) -> <Self as super::CubeType>::ExpandType {
-        context
-            .create_local_variable(Item::vectorized(
-                Self::as_elem(),
-                NonZero::new(vectorization as u8),
-            ))
-            .into()
     }
 }
 

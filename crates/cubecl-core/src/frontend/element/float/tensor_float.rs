@@ -6,18 +6,17 @@ use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use half::f16;
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
-use std::{mem::transmute, num::NonZero};
+use std::mem::transmute;
 
 use crate::{
-    ir::{Elem, FloatKind, Item},
+    ir::{Elem, FloatKind},
     prelude::Numeric,
-    unexpanded,
 };
 
 use super::{
     init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
     ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
-    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, Vectorized,
+    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
@@ -192,16 +191,6 @@ impl Numeric for tf32 {
     const MIN: Self = tf32::from_f32(f32::MIN);
 }
 
-impl Vectorized for tf32 {
-    fn vectorization_factor(&self) -> u32 {
-        1
-    }
-
-    fn vectorize(self, _factor: u32) -> Self {
-        unexpanded!()
-    }
-}
-
 impl ExpandElementBaseInit for tf32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
@@ -238,26 +227,6 @@ impl Float for tf32 {
 
     fn new(val: f32) -> Self {
         tf32(val)
-    }
-
-    fn vectorized(_val: f32, _vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn vectorized_empty(_vectorization: u32) -> Self {
-        unexpanded!()
-    }
-
-    fn __expand_vectorized_empty(
-        context: &mut super::CubeContext,
-        vectorization: u32,
-    ) -> <Self as super::CubeType>::ExpandType {
-        context
-            .create_local_variable(Item::vectorized(
-                Self::as_elem(),
-                NonZero::new(vectorization as u8),
-            ))
-            .into()
     }
 }
 

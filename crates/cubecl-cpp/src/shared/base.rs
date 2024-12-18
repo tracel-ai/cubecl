@@ -543,12 +543,35 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
             }
-            gpu::Operator::Slice(op) => instructions.push(Instruction::Slice {
-                input: self.compile_variable(op.input),
-                start: self.compile_variable(op.start),
-                end: self.compile_variable(op.end),
-                out: self.compile_variable(out),
-            }),
+            gpu::Operator::Slice(op) => {
+                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
+                    let input = op.input;
+                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+
+                    instructions.extend(self.compile_scope(scope));
+
+                    let length = match input.has_buffer_length() {
+                        true => gpu::Metadata::BufferLength { var: input },
+                        false => gpu::Metadata::Length { var: input },
+                    };
+
+                    instructions.push(self.compile_metadata(length, Some(input_len)));
+                    instructions.push(Instruction::CheckedSlice {
+                        input: self.compile_variable(op.input),
+                        start: self.compile_variable(op.start),
+                        end: self.compile_variable(op.end),
+                        out: self.compile_variable(out),
+                        len: self.compile_variable(input_len),
+                    });
+                } else {
+                    instructions.push(Instruction::Slice {
+                        input: self.compile_variable(op.input),
+                        start: self.compile_variable(op.start),
+                        end: self.compile_variable(op.end),
+                        out: self.compile_variable(out),
+                    })
+                }
+            }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
                     let lhs = op.lhs;
@@ -938,6 +961,7 @@ impl<D: Dialect> CppCompiler<D> {
         Binding {
             item: self.compile_item(binding.item),
             size: binding.size,
+            vis: binding.visibility,
         }
     }
 

@@ -6,8 +6,7 @@ use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulKernel, MatmulSpec};
-
-use super::args::{TensorInput, TensorOutput};
+use crate::tensor::{ReadWrite, VirtualTensor};
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -52,7 +51,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: TensorInput<MS::EG, MS::Args>,
+        lhs: VirtualTensor<MS::EG>,
         m_offset: u32,
         k_offset: u32,
         batch_offset: u32,
@@ -61,7 +60,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: TensorInput<MS::EG, MS::Args>,
+        rhs: VirtualTensor<MS::EG>,
         k_offset: u32,
         n_offset: u32,
         batch_offset: u32,
@@ -70,7 +69,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
-        out: TensorOutput<MS::EG, MS::Args>,
+        out: VirtualTensor<MS::EG, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
         batch_offset: u32,

@@ -24,7 +24,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
         check_bounds: CheckBounds,
     ) {
         let tile_size = config.tile_size;
-        let vectorization = vectorization_of(tensor);
+        let line_size = tensor.line_size().runtime();
 
         let col = check_bounds.skip_col + info.read_col;
         if check_bounds.dim_horizontal > col {
@@ -35,7 +35,7 @@ impl<F: Float> BlockLoader<F> for WholeCheckBlockIO {
             }
 
             for i in 0..num_reads_vertical {
-                let gm_position = (info.gm_position_base + i * info.gm_stride) / vectorization;
+                let gm_position = (info.gm_position_base + i * info.gm_stride) / line_size;
                 let sm_position = (info.sm_position_base + i * info.sm_stride) / tile_size;
 
                 shared_memory[sm_position] =

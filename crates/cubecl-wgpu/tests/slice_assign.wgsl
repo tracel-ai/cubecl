@@ -21,17 +21,19 @@ fn slice_assign_kernel(
 ) {
 let _0 = local_idx == 0u;
 if _0 {
-let slice_1_0_offset = 2u;
-let slice_1_0_length = 3u - 2u;
-let slice_1_0_ptr = &output_0_global;
 var l_1_0: u32;
-l_1_0 = info[0u];
-let _1 = select(f32(0), input_0_global[0u], 0u < l_1_0);
+l_1_0 = info[1u];
+let slice_1_0_offset = 2u;
+let slice_1_0_length = min(l_1_0, 3u) - 2u;
+let slice_1_0_ptr = &output_0_global;
 var l_1_1: u32;
-var l_1_2: bool;
-l_1_1 = slice_1_0_length;
-l_1_2 = 0u < l_1_1;
-if l_1_2 {
+l_1_1 = info[0u];
+let _1 = select(f32(0), input_0_global[0u], 0u < l_1_1);
+var l_1_2: u32;
+var l_1_3: bool;
+l_1_2 = slice_1_0_length;
+l_1_3 = 0u < l_1_2;
+if l_1_3 {
 (*slice_1_0_ptr)[0u + slice_1_0_offset] = _1;
 }
 }

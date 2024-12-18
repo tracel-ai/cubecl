@@ -7,6 +7,9 @@ use super::global::args::{MatmulArgs, TensorArgs};
 /// Matrix multiplication spec definiting each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait MatmulSpec: Send + Sync + Clone + 'static {
+    /// The plane size used by this kernel.
+    const PLANE_DIM: u32;
+
     /// Element type of each input and output tensor of the kernel.
     type EG: Numeric;
     /// Element type of the intermediate representation of the inputs.
@@ -34,13 +37,17 @@ type Args<MS> = <MS as MatmulSpec>::Args;
 
 /// Specification for a simple standard matmul using global tensor as inputs.
 #[derive(Clone)]
-pub struct SingleMatmulSpec<EG: Numeric, ES: Numeric, EA: Numeric> {
+pub struct SingleMatmulSpec<const PLANE_DIM: u32, EG: Numeric, ES: Numeric, EA: Numeric> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _ea: PhantomData<EA>,
 }
 
-impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulSpec for SingleMatmulSpec<EG, ES, EA> {
+impl<EG: Numeric, ES: Numeric, EA: Numeric, const PLANE_DIM: u32> MatmulSpec
+    for SingleMatmulSpec<PLANE_DIM, EG, ES, EA>
+{
+    const PLANE_DIM: u32 = PLANE_DIM;
+
     type EG = EG;
     type ES = ES;
     type EA = EA;
