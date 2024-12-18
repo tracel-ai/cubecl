@@ -288,7 +288,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
             gpu::Operation::Debug(debug) => match debug {
                 // No good way to attach debug info
-                gpu::DebugInfo::BeginCall { .. } | gpu::DebugInfo::EndCall => {}
+                gpu::DebugInfo::BeginCall { .. }
+                | gpu::DebugInfo::EndCall
+                | gpu::DebugInfo::Source { .. }
+                | gpu::DebugInfo::Line { .. } => {}
                 gpu::DebugInfo::Print {
                     format_string,
                     args,

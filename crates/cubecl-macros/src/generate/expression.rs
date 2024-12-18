@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{spanned::Spanned, Member, PathArguments};
 
@@ -22,6 +22,7 @@ impl Expression {
                 left,
                 operator,
                 right,
+                span,
                 ..
             } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
                 let elem = frontend_type("ExpandElementTyped");
@@ -37,32 +38,39 @@ impl Expression {
                     .map(|as_const| quote![#elem::from_lit(#as_const)])
                     .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
-                quote! {
-                    {
-                        let _array = #array;
-                        let _index = #index;
-                        let _value = #right;
-                        #frontend_path::#op::expand(context, _array, _index, _value)
-                    }
-                }
+                with_span(
+                    *span,
+                    quote! {
+                        {
+                            let _array = #array;
+                            let _index = #index;
+                            let _value = #right;
+                            #frontend_path::#op::expand(context, _array, _index, _value)
+                        }
+                    },
+                )
             }
             Expression::Binary {
                 left,
                 operator,
                 right,
+                span,
                 ..
             } => {
                 let frontend_path = frontend_path();
                 let op = format_ident!("{}", operator.op_name());
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                quote! {
-                    {
-                        let _lhs = #left;
-                        let _rhs = #right;
-                        #frontend_path::#op::expand(context, _lhs, _rhs)
-                    }
-                }
+                with_span(
+                    *span,
+                    quote! {
+                        {
+                            let _lhs = #left;
+                            let _rhs = #right;
+                            #frontend_path::#op::expand(context, _lhs, _rhs)
+                        }
+                    },
+                )
             }
             Expression::Unary {
                 input,
@@ -70,17 +78,23 @@ impl Expression {
                 ..
             } => input.to_tokens(context),
             Expression::Unary {
-                input, operator, ..
+                input,
+                operator,
+                span,
+                ..
             } => {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
-                quote! {
-                    {
-                        let _inner = #input;
-                        #frontend_path::#op::expand(context, _inner)
-                    }
-                }
+                with_span(
+                    *span,
+                    quote! {
+                        {
+                            let _inner = #input;
+                            #frontend_path::#op::expand(context, _inner)
+                        }
+                    },
+                )
             }
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]
@@ -139,32 +153,36 @@ impl Expression {
                     }
                 }
             }
-            Expression::Index { expr, index } => {
+            Expression::Index { expr, index, span } => {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
-                quote! {
-                    {
-                        let _array = #expr;
-                        let _index = #index;
-                        #index_fn::expand(context, _array, _index)
-                    }
-                }
+                with_span(
+                    *span,
+                    quote! {
+                        {
+                            let _array = #expr;
+                            let _index = #index;
+                            #index_fn::expand(context, _array, _index)
+                        }
+                    },
+                )
             }
             Expression::FunctionCall {
                 func,
                 args,
                 associated_type: None,
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
                 let path_str = path.to_string();
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #path_str, |context| #path::expand #generics(context, #(#arg_names),*))
+                        #debug_call(context, #path_str, line!(), column!(), |context| #path::expand #generics(context, #(#arg_names),*))
                     }
                 }
             }
@@ -185,6 +203,7 @@ impl Expression {
             Expression::FunctionCall {
                 args,
                 associated_type: Some((ty_path, func)),
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
@@ -192,10 +211,10 @@ impl Expression {
                 let mut name = func.clone();
                 let name_str = format!("{}::{}", ty_path.to_token_stream(), name.to_token_stream());
                 name.ident = format_ident!("__expand_{}", name.ident);
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #name_str, |context| #ty_path::#name(context, #(#arg_names),*))
+                        #debug_call(context, #name_str, line!(), column!(), |context| #ty_path::#name(context, #(#arg_names),*))
                     }
                 }
             }
@@ -204,6 +223,7 @@ impl Expression {
                 method,
                 generics,
                 args,
+                span,
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
@@ -214,10 +234,10 @@ impl Expression {
                     .unwrap_or_else(|| receiver.to_tokens(context));
                 let call_str = format!("{receiver}.{method_str}");
                 let (args, arg_names) = map_args(args, context);
-                quote! {
+                quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #call_str, |context| #receiver.#method #generics(context, #(#arg_names),*))
+                        #debug_call(context, #call_str, line!(), column!(), |context| #receiver.#method #generics(context, #(#arg_names),*))
                     }
                 }
             }
@@ -581,4 +601,11 @@ fn init_fields<'a>(
             }
         }
     })
+}
+
+fn with_span(span: Span, tokens: TokenStream) -> TokenStream {
+    let debug_spanned = frontend_type("spanned_expand");
+    quote_spanned! {span=>
+        #debug_spanned(context, line!(), column!(), |context| #tokens)
+    }
 }
