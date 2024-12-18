@@ -544,7 +544,6 @@ impl<D: Dialect> CppCompiler<D> {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
                     let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
-
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {
