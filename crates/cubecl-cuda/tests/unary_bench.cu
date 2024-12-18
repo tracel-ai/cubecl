@@ -37,11 +37,29 @@ extern "C" __global__ void execute_unary_kernel_f32(float_4 input_0[],
       l_0_2 = l_0_0 == uint(0);
       if (l_0_2) {
         uint l_3_0;
+        bool l_3_1;
+        float_4 l_3_2;
         l_3_0 = info[uint(0)];
-        l_0_3 = (idxGlobal < l_3_0) ? input_0[idxGlobal] : float_4{};
-        uint l_3_1;
-        l_3_1 = info[uint(1)];
-        l_0_4 = (idxGlobal < l_3_1) ? input_1[idxGlobal] : float_4{};
+        l_3_1 = idxGlobal < l_3_0;
+        l_3_2 = input_0[idxGlobal];
+        l_0_3 = float_4{
+            (l_3_1) ? l_3_2.i_0 : float(0.0),
+            (l_3_1) ? l_3_2.i_1 : float(0.0),
+            (l_3_1) ? l_3_2.i_2 : float(0.0),
+            (l_3_1) ? l_3_2.i_3 : float(0.0),
+        };
+        uint l_3_3;
+        bool l_3_4;
+        float_4 l_3_5;
+        l_3_3 = info[uint(1)];
+        l_3_4 = idxGlobal < l_3_3;
+        l_3_5 = input_1[idxGlobal];
+        l_0_4 = float_4{
+            (l_3_4) ? l_3_5.i_0 : float(0.0),
+            (l_3_4) ? l_3_5.i_1 : float(0.0),
+            (l_3_4) ? l_3_5.i_2 : float(0.0),
+            (l_3_4) ? l_3_5.i_3 : float(0.0),
+        };
         l_0_4 = float_4{
             l_0_3.i_0 * l_0_4.i_0,
             l_0_3.i_1 * l_0_4.i_1,
@@ -54,29 +72,56 @@ extern "C" __global__ void execute_unary_kernel_f32(float_4 input_0[],
             cos(l_0_4.i_2),
             cos(l_0_4.i_3),
         };
-        uint l_3_2;
-        l_3_2 = info[uint(2)];
-        l_0_3 = (idxGlobal < l_3_2) ? output_0[idxGlobal] : float_4{};
+        uint l_3_6;
+        bool l_3_7;
+        float_4 l_3_8;
+        l_3_6 = info[uint(2)];
+        l_3_7 = idxGlobal < l_3_6;
+        l_3_8 = output_0[idxGlobal];
+        l_0_3 = float_4{
+            (l_3_7) ? l_3_8.i_0 : float(0.0),
+            (l_3_7) ? l_3_8.i_1 : float(0.0),
+            (l_3_7) ? l_3_8.i_2 : float(0.0),
+            (l_3_7) ? l_3_8.i_3 : float(0.0),
+        };
         l_0_3 = float_4{
             l_0_3.i_0 - l_0_4.i_0,
             l_0_3.i_1 - l_0_4.i_1,
             l_0_3.i_2 - l_0_4.i_2,
             l_0_3.i_3 - l_0_4.i_3,
         };
-        uint l_3_3;
-        bool l_3_4;
-        l_3_3 = info[uint(2)];
-        l_3_4 = idxGlobal < l_3_3;
-        if (l_3_4) {
+        uint l_3_9;
+        bool l_3_10;
+        l_3_9 = info[uint(2)];
+        l_3_10 = idxGlobal < l_3_9;
+        if (l_3_10) {
           output_0[idxGlobal] = l_0_3;
         }
       } else {
         uint l_3_0;
+        bool l_3_1;
+        float_4 l_3_2;
         l_3_0 = info[uint(0)];
-        l_0_4 = (idxGlobal < l_3_0) ? input_0[idxGlobal] : float_4{};
-        uint l_3_1;
-        l_3_1 = info[uint(1)];
-        l_0_3 = (idxGlobal < l_3_1) ? input_1[idxGlobal] : float_4{};
+        l_3_1 = idxGlobal < l_3_0;
+        l_3_2 = input_0[idxGlobal];
+        l_0_4 = float_4{
+            (l_3_1) ? l_3_2.i_0 : float(0.0),
+            (l_3_1) ? l_3_2.i_1 : float(0.0),
+            (l_3_1) ? l_3_2.i_2 : float(0.0),
+            (l_3_1) ? l_3_2.i_3 : float(0.0),
+        };
+        uint l_3_3;
+        bool l_3_4;
+        float_4 l_3_5;
+        l_3_3 = info[uint(1)];
+        l_3_4 = idxGlobal < l_3_3;
+        l_3_5 = input_1[idxGlobal];
+        l_0_3 = float_4{
+            (l_3_4) ? l_3_5.i_0 : float(0.0),
+            (l_3_4) ? l_3_5.i_1 : float(0.0),
+            (l_3_4) ? l_3_5.i_2 : float(0.0),
+            (l_3_4) ? l_3_5.i_3 : float(0.0),
+        };
         l_0_4 = float_4{
             l_0_4.i_0 * l_0_3.i_0,
             l_0_4.i_1 * l_0_3.i_1,
@@ -89,20 +134,29 @@ extern "C" __global__ void execute_unary_kernel_f32(float_4 input_0[],
             cos(l_0_4.i_2),
             cos(l_0_4.i_3),
         };
-        uint l_3_2;
-        l_3_2 = info[uint(2)];
-        l_0_3 = (idxGlobal < l_3_2) ? output_0[idxGlobal] : float_4{};
+        uint l_3_6;
+        bool l_3_7;
+        float_4 l_3_8;
+        l_3_6 = info[uint(2)];
+        l_3_7 = idxGlobal < l_3_6;
+        l_3_8 = output_0[idxGlobal];
+        l_0_3 = float_4{
+            (l_3_7) ? l_3_8.i_0 : float(0.0),
+            (l_3_7) ? l_3_8.i_1 : float(0.0),
+            (l_3_7) ? l_3_8.i_2 : float(0.0),
+            (l_3_7) ? l_3_8.i_3 : float(0.0),
+        };
         l_0_3 = float_4{
             l_0_3.i_0 + l_0_4.i_0,
             l_0_3.i_1 + l_0_4.i_1,
             l_0_3.i_2 + l_0_4.i_2,
             l_0_3.i_3 + l_0_4.i_3,
         };
-        uint l_3_3;
-        bool l_3_4;
-        l_3_3 = info[uint(2)];
-        l_3_4 = idxGlobal < l_3_3;
-        if (l_3_4) {
+        uint l_3_9;
+        bool l_3_10;
+        l_3_9 = info[uint(2)];
+        l_3_10 = idxGlobal < l_3_9;
+        if (l_3_10) {
           output_0[idxGlobal] = l_0_3;
         }
       }

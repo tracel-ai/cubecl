@@ -26,7 +26,9 @@ pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 pub fn slice_assign() {
     let kernel = SliceAssignKernel::<WgpuRuntime>::new(settings(1, 1), tensor(), tensor());
     let expected = load_kernel_string!("slice_assign.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
@@ -43,7 +45,9 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 pub fn plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_sum.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
@@ -56,7 +60,9 @@ pub fn kernel_elect(output: &mut Tensor<u32>) {
 pub fn plane_elect() {
     let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_elect.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
@@ -78,7 +84,9 @@ pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
 pub fn sequence_for_loop() {
     let kernel = SequenceForLoopKernel::<WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("sequence_for_loop.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
@@ -103,7 +111,9 @@ pub fn unary_bench() {
         tensor_vec(4),
     );
     let expected = load_kernel_string!("unary_bench.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 #[cube(launch, create_dummy_kernel)]
@@ -121,7 +131,9 @@ pub fn constant_array() {
 
     let kernel = ConstantArrayKernel::<f32, WgpuRuntime>::new(settings(16, 16), tensor(), data);
     let expected = load_kernel_string!("constant_array.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }
 
 // This kernel just exists to have a few generics in order to observe
@@ -138,5 +150,7 @@ fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array
 pub fn naming() {
     let kernel = NamingKernel::<f32, u8, bf16, i64, WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("naming.wgsl");
-    assert_eq!(compile(kernel), expected);
+    let compiled = compile(kernel);
+    println!("{}", compiled);
+    assert_eq!(compiled, expected);
 }

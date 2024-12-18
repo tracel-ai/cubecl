@@ -34,42 +34,96 @@ let _3 = l_2_2 % 2u;
 let _4 = _3 == 0u;
 if _4 {
 var l_3_0: u32;
+var l_3_1: bool;
+var l_3_2: vec4<f32>;
 l_3_0 = info[0u];
-let _5 = select(vec4<f32>(0), input_0_global[id], id < l_3_0);
-var l_3_1: u32;
-l_3_1 = info[1u];
-let _6 = select(vec4<f32>(0), input_1_global[id], id < l_3_1);
-let _7 = _5 * _6;
-let _8 = cos(_7);
-var l_3_2: u32;
-l_3_2 = info[2u];
-let _9 = select(vec4<f32>(0), output_0_global[id], id < l_3_2);
-let _10 = _9 - _8;
+l_3_1 = id < l_3_0;
+l_3_2 = input_0_global[id];
+let _5 = vec4(
+select(0f, l_3_2[0], l_3_1),
+select(0f, l_3_2[1], l_3_1),
+select(0f, l_3_2[2], l_3_1),
+select(0f, l_3_2[3], l_3_1),
+);
 var l_3_3: u32;
 var l_3_4: bool;
-l_3_3 = info[2u];
+var l_3_5: vec4<f32>;
+l_3_3 = info[1u];
 l_3_4 = id < l_3_3;
-if l_3_4 {
+l_3_5 = input_1_global[id];
+let _6 = vec4(
+select(0f, l_3_5[0], l_3_4),
+select(0f, l_3_5[1], l_3_4),
+select(0f, l_3_5[2], l_3_4),
+select(0f, l_3_5[3], l_3_4),
+);
+let _7 = _5 * _6;
+let _8 = cos(_7);
+var l_3_6: u32;
+var l_3_7: bool;
+var l_3_8: vec4<f32>;
+l_3_6 = info[2u];
+l_3_7 = id < l_3_6;
+l_3_8 = output_0_global[id];
+let _9 = vec4(
+select(0f, l_3_8[0], l_3_7),
+select(0f, l_3_8[1], l_3_7),
+select(0f, l_3_8[2], l_3_7),
+select(0f, l_3_8[3], l_3_7),
+);
+let _10 = _9 - _8;
+var l_3_9: u32;
+var l_3_10: bool;
+l_3_9 = info[2u];
+l_3_10 = id < l_3_9;
+if l_3_10 {
 output_0_global[id] = _10;
 }
 } else {
 var l_3_0: u32;
+var l_3_1: bool;
+var l_3_2: vec4<f32>;
 l_3_0 = info[0u];
-let _11 = select(vec4<f32>(0), input_0_global[id], id < l_3_0);
-var l_3_1: u32;
-l_3_1 = info[1u];
-let _12 = select(vec4<f32>(0), input_1_global[id], id < l_3_1);
-let _13 = _11 * _12;
-let _14 = cos(_13);
-var l_3_2: u32;
-l_3_2 = info[2u];
-let _15 = select(vec4<f32>(0), output_0_global[id], id < l_3_2);
-let _16 = _15 + _14;
+l_3_1 = id < l_3_0;
+l_3_2 = input_0_global[id];
+let _11 = vec4(
+select(0f, l_3_2[0], l_3_1),
+select(0f, l_3_2[1], l_3_1),
+select(0f, l_3_2[2], l_3_1),
+select(0f, l_3_2[3], l_3_1),
+);
 var l_3_3: u32;
 var l_3_4: bool;
-l_3_3 = info[2u];
+var l_3_5: vec4<f32>;
+l_3_3 = info[1u];
 l_3_4 = id < l_3_3;
-if l_3_4 {
+l_3_5 = input_1_global[id];
+let _12 = vec4(
+select(0f, l_3_5[0], l_3_4),
+select(0f, l_3_5[1], l_3_4),
+select(0f, l_3_5[2], l_3_4),
+select(0f, l_3_5[3], l_3_4),
+);
+let _13 = _11 * _12;
+let _14 = cos(_13);
+var l_3_6: u32;
+var l_3_7: bool;
+var l_3_8: vec4<f32>;
+l_3_6 = info[2u];
+l_3_7 = id < l_3_6;
+l_3_8 = output_0_global[id];
+let _15 = vec4(
+select(0f, l_3_8[0], l_3_7),
+select(0f, l_3_8[1], l_3_7),
+select(0f, l_3_8[2], l_3_7),
+select(0f, l_3_8[3], l_3_7),
+);
+let _16 = _15 + _14;
+var l_3_9: u32;
+var l_3_10: bool;
+l_3_9 = info[2u];
+l_3_10 = id < l_3_9;
+if l_3_10 {
 output_0_global[id] = _16;
 }
 }

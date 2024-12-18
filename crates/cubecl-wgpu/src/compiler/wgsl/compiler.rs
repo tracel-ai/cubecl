@@ -8,7 +8,7 @@ use crate::{
     WgpuServer,
 };
 
-use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign, ReusingAllocator};
+use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
 use cubecl_core::{
     ir::{self as cube, HybridAllocator, UIntKind},
     prelude::CompiledKernel,
