@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::CheckedIndexAssign;
+use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
 use cubecl_core::{
     ir::{self as gpu},
     prelude::CubePrimitive,
@@ -570,28 +570,14 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-                    let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
-
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match lhs.has_buffer_length() {
-                        true => gpu::Metadata::BufferLength { var: lhs },
-                        false => gpu::Metadata::Length { var: lhs },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(out),
-                    });
-                } else {
-                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
-                }
+                if let ExecutionMode::Checked = self.strategy {
+                    if op.lhs.has_length() {
+                        expand_checked_index(scope, op.lhs, op.rhs, out);
+                        instructions.extend(self.compile_scope(scope));
+                        return;
+                    }
+                };
+                instructions.push(Instruction::Index(self.compile_binary(op, out)));
             }
             gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_binary(op, out)))
@@ -599,17 +585,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if out.has_length() {
-                        CheckedIndexAssign {
-                            lhs: op.lhs,
-                            rhs: op.rhs,
-                            out,
-                        }
-                        .expand(scope);
+                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
                     }
                 };
-
                 instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)));
             }
             gpu::Operator::UncheckedIndexAssign(op) => {

@@ -13,7 +13,6 @@ pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 pub fn slice_len<F: Float>(input: &Array<F>, output: &mut Array<u32>) {
     if UNIT_POS == 0 {
         let slice = input.slice(2, 4);
-        let _tmp = slice[0]; // It must be used at least once, otherwise wgpu isn't happy.
         output[0] = slice.len();
     }
 }
@@ -43,7 +42,6 @@ pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 pub fn slice_mut_len(output: &mut Array<u32>) {
     if UNIT_POS == 0 {
         let slice = output.slice_mut(0, 2).into_aligned();
-        let _tmp = slice[0]; // It must be used at least once, otherwise wgpu isn't happy.
         output[0] = slice.len();
     }
 }
