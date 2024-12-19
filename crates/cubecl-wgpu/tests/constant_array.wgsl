@@ -19,16 +19,16 @@ fn constant_array_kernel_f32(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
 let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;
-let b_0_0 = info[1u];
-let b_0_1 = id < b_0_0;
-if b_0_1 {
-let b_1_0 = arrays_0[id];
-var l_1_1: u32;
-var l_1_2: bool;
-l_1_1 = info[0u];
-l_1_2 = id < l_1_1;
-if l_1_2 {
-output_0_global[id] = b_1_0;
+let l_0_0 = info[1u];
+let l_0_1 = id < l_0_0;
+if l_0_1 {
+let l_1_0 = arrays_0[id];
+var l_mut_1_1: u32;
+var l_mut_1_2: bool;
+l_mut_1_1 = info[0u];
+l_mut_1_2 = id < l_mut_1_1;
+if l_mut_1_2 {
+output_0_global[id] = l_1_0;
 }
 }
 }

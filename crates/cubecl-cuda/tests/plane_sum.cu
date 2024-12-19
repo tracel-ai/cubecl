@@ -10,32 +10,30 @@ extern "C" __global__ void kernel_sum(float output_0[], uint info[]) {
                         threadIdx.z * (blockDim.x * blockDim.y);
 
   int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
-  float l_0_0;
-  float l_0_1;
-  bool l_0_2;
-  uint l_0_3;
-  bool l_0_4;
-  float l_0_5;
-  l_0_3 = info[uint(0)];
-  l_0_4 = threadIdxGlobal < l_0_3;
-  l_0_5 = output_0[threadIdxGlobal];
-  l_0_0 = (l_0_4) ? l_0_5 : float(0.0);
+  float l_mut_0_1;
+  uint l_mut_0_3;
+  bool l_mut_0_4;
+  float l_mut_0_5;
+  l_mut_0_3 = info[uint(0)];
+  l_mut_0_4 = threadIdxGlobal < l_mut_0_3;
+  l_mut_0_5 = output_0[threadIdxGlobal];
+  const float l_0_0 = (l_mut_0_4) ? l_mut_0_5 : float(0.0);
 
-  l_0_1 = l_0_0;
+  l_mut_0_1 = l_0_0;
 
   {
     for (int offset = 1; offset < warpSizeChecked; offset *= 2) {
-      l_0_1 += __shfl_xor_sync(-1, l_0_1, offset);
+      l_mut_0_1 += __shfl_xor_sync(-1, l_mut_0_1, offset);
     }
   }
-  l_0_2 = threadIdxGlobal == uint(0);
+  const bool l_0_2 = threadIdxGlobal == uint(0);
   if (l_0_2) {
-    uint l_1_0;
-    bool l_1_1;
-    l_1_0 = info[uint(0)];
-    l_1_1 = uint(0) < l_1_0;
-    if (l_1_1) {
-      output_0[uint(0)] = l_0_1;
+    uint l_mut_1_0;
+    bool l_mut_1_1;
+    l_mut_1_0 = info[uint(0)];
+    l_mut_1_1 = uint(0) < l_mut_1_0;
+    if (l_mut_1_1) {
+      output_0[uint(0)] = l_mut_0_1;
     }
   }
 }
