@@ -27,7 +27,6 @@ pub fn slice_assign() {
     let kernel = SliceAssignKernel::<WgpuRuntime>::new(settings(1, 1), tensor(), tensor());
     let expected = load_kernel_string!("slice_assign.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -46,7 +45,6 @@ pub fn plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_sum.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -61,7 +59,6 @@ pub fn plane_elect() {
     let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_elect.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -85,7 +82,6 @@ pub fn sequence_for_loop() {
     let kernel = SequenceForLoopKernel::<WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("sequence_for_loop.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -112,7 +108,6 @@ pub fn unary_bench() {
     );
     let expected = load_kernel_string!("unary_bench.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -132,7 +127,6 @@ pub fn constant_array() {
     let kernel = ConstantArrayKernel::<f32, WgpuRuntime>::new(settings(16, 16), tensor(), data);
     let expected = load_kernel_string!("constant_array.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
 
@@ -151,6 +145,5 @@ pub fn naming() {
     let kernel = NamingKernel::<f32, u8, bf16, i64, WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("naming.wgsl");
     let compiled = compile(kernel);
-    println!("{}", compiled);
     assert_eq!(compiled, expected);
 }
