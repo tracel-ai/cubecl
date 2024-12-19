@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign, CubeAllocator};
+use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign, Allocator};
 use cubecl_core::{
     ir::{self as gpu},
     prelude::CubePrimitive,
@@ -95,8 +95,8 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         49152
     }
 
-    fn local_allocator() -> CubeAllocator {
-        CubeAllocator::new()
+    fn local_allocator() -> Allocator {
+        Allocator::new()
     }
 }
 
@@ -543,7 +543,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let input_len = scope.create_local_mut(gpu::Item::new(u32::as_elem()));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {
@@ -797,17 +797,17 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::VariableKind::Local { id, depth } => Variable::Local {
+            gpu::VariableKind::LocalMut { id, depth } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::Versioned { id, depth, .. } => Variable::Local {
+            gpu::VariableKind::Versioned { id, depth, .. } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::LocalBinding { id, depth } => Variable::ConstLocal {
+            gpu::VariableKind::LocalConst { id, depth } => Variable::LocalConst {
                 id,
                 item: self.compile_item(item),
                 depth,

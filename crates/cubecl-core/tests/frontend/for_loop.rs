@@ -43,7 +43,7 @@ mod tests {
         let unroll = true;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
-        let rhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let rhs = context.create_local(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
@@ -58,7 +58,7 @@ mod tests {
         let unroll = false;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
-        let rhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let rhs = context.create_local(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
@@ -88,11 +88,11 @@ mod tests {
 
         let mut scope = context.into_scope();
         let lhs = scope.create_local_array(item, 4u32);
-        let rhs = scope.create_local(item);
+        let rhs = scope.create_local_mut(item);
         let end = 4u32;
 
         // Kernel
-        let tmp1 = scope.create_local(item);
+        let tmp1 = scope.create_local_mut(item);
         cpa!(scope, tmp1 = rhs * rhs);
         cpa!(scope, tmp1 = tmp1 + rhs);
 
@@ -114,12 +114,12 @@ mod tests {
 
         let mut scope = context.into_scope();
         let input = scope.create_local_array(item, 4u32);
-        let sum = scope.create_local(item);
-        let end = scope.create_local(Item::new(u32::as_elem()));
+        let sum = scope.create_local_mut(item);
+        let end = scope.create_local_mut(Item::new(u32::as_elem()));
         let zero: Variable = ElemType::new(0.0).into();
 
         // Kernel
-        let tmp1 = scope.create_local(item);
+        let tmp1 = scope.create_local_mut(item);
         cpa!(scope, sum = zero);
         cpa!(scope, end = len(input));
 

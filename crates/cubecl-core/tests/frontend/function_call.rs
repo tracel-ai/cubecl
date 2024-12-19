@@ -56,12 +56,12 @@ mod tests {
     #[test]
     fn cube_call_equivalent_to_no_call_no_arg_test() {
         let mut caller_context = CubeContext::default();
-        let x = caller_context.create_variable(Item::new(u32::as_elem()));
+        let x = caller_context.create_local(Item::new(u32::as_elem()));
         caller_no_arg::expand(&mut caller_context, x.into());
         let caller_scope = caller_context.into_scope();
 
         let mut no_call_context = CubeContext::default();
-        let x = no_call_context.create_variable(Item::new(u32::as_elem()));
+        let x = no_call_context.create_local(Item::new(u32::as_elem()));
         no_call_no_arg::expand(&mut no_call_context, x.into());
         let no_call_scope = no_call_context.into_scope();
 
@@ -75,12 +75,12 @@ mod tests {
     fn cube_call_equivalent_to_no_call_with_arg_test() {
         let mut caller_context = CubeContext::default();
 
-        let x = caller_context.create_variable(Item::new(u32::as_elem()));
+        let x = caller_context.create_local(Item::new(u32::as_elem()));
         caller_with_arg::expand(&mut caller_context, x.into());
         let caller_scope = caller_context.into_scope();
 
         let mut no_call_context = CubeContext::default();
-        let x = no_call_context.create_variable(Item::new(u32::as_elem()));
+        let x = no_call_context.create_local(Item::new(u32::as_elem()));
         no_call_with_arg::expand(&mut no_call_context, x.into());
         let no_call_scope = no_call_context.into_scope();
 
@@ -94,12 +94,12 @@ mod tests {
     fn cube_call_equivalent_to_no_call_with_generics_test() {
         let mut caller_context = CubeContext::default();
         type ElemType = i64;
-        let x = caller_context.create_variable(Item::new(ElemType::as_elem()));
+        let x = caller_context.create_local(Item::new(ElemType::as_elem()));
         caller_with_generics::expand::<ElemType>(&mut caller_context, x.into());
         let caller_scope = caller_context.into_scope();
 
         let mut no_call_context = CubeContext::default();
-        let x = no_call_context.create_variable(Item::new(ElemType::as_elem()));
+        let x = no_call_context.create_local(Item::new(ElemType::as_elem()));
         no_call_with_generics::expand::<ElemType>(&mut no_call_context, x.into());
         let no_call_scope = no_call_context.into_scope();
 

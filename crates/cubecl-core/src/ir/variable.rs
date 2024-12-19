@@ -40,13 +40,13 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    Local { id: Id, depth: u8 },
+    LocalArray { id: Id, depth: u8, length: u32 },
+    LocalMut { id: Id, depth: u8 },
+    LocalConst { id: Id, depth: u8 },
     Versioned { id: Id, depth: u8, version: u16 },
-    LocalBinding { id: Id, depth: u8 },
     ConstantScalar(ConstantScalarValue),
     ConstantArray { id: Id, length: u32 },
     SharedMemory { id: Id, length: u32 },
-    LocalArray { id: Id, depth: u8, length: u32 },
     Matrix { id: Id, mat: Matrix, depth: u8 },
     Slice { id: Id, depth: u8 },
     Builtin(Builtin),
@@ -84,7 +84,7 @@ impl Variable {
     pub fn is_immutable(&self) -> bool {
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
-            VariableKind::Local { .. } => false,
+            VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
             VariableKind::Slice { .. } => false,
@@ -92,7 +92,7 @@ impl Variable {
             VariableKind::GlobalInputArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
             VariableKind::Versioned { .. } => true,
-            VariableKind::LocalBinding { .. } => true,
+            VariableKind::LocalConst { .. } => true,
             VariableKind::ConstantScalar(_) => true,
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
@@ -373,9 +373,9 @@ impl Variable {
         match self.kind {
             VariableKind::GlobalInputArray(id)
             | VariableKind::GlobalScalar(id)
-            | VariableKind::Local { id, .. }
+            | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
-            | VariableKind::LocalBinding { id, .. }
+            | VariableKind::LocalConst { id, .. }
             | VariableKind::Slice { id, .. }
             | VariableKind::GlobalOutputArray(id)
             | VariableKind::ConstantArray { id, .. }
@@ -388,9 +388,9 @@ impl Variable {
 
     pub fn depth(&self) -> Option<u8> {
         match self.kind {
-            VariableKind::Local { depth, .. }
+            VariableKind::LocalMut { depth, .. }
             | VariableKind::Versioned { depth, .. }
-            | VariableKind::LocalBinding { depth, .. }
+            | VariableKind::LocalConst { depth, .. }
             | VariableKind::LocalArray { depth, .. }
             | VariableKind::Matrix { depth, .. }
             | VariableKind::Slice { depth, .. } => Some(depth),
@@ -413,11 +413,11 @@ impl Display for Variable {
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
-            VariableKind::Local { id, depth } => write!(f, "local({id}, {depth})"),
+            VariableKind::LocalMut { id, depth } => write!(f, "local({id}, {depth})"),
             VariableKind::Versioned { id, depth, version } => {
                 write!(f, "local({id}, {depth}).v{version}")
             }
-            VariableKind::LocalBinding { id, depth } => write!(f, "binding({id}, {depth})"),
+            VariableKind::LocalConst { id, depth } => write!(f, "binding({id}, {depth})"),
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),

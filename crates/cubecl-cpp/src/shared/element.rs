@@ -104,7 +104,7 @@ impl<D: Dialect> Component<D> for IndexedVariable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self.var, Variable::ConstLocal { .. })
+        matches!(self.var, Variable::LocalConst { .. })
     }
 }
 
@@ -119,8 +119,8 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GlobalOutputArray(_, e) => *e,
             Variable::SharedMemory(_, e, _) => *e,
             Variable::ConstantArray(_, e, _) => *e,
-            Variable::Local { item, .. } => *item,
-            Variable::ConstLocal { item, .. } => *item,
+            Variable::LocalMut { item, .. } => *item,
+            Variable::LocalConst { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::ConstantScalar(_, e) => Item::scalar(*e),
             Variable::GlobalScalar(_, e, _) => Item::scalar(*e),
@@ -157,7 +157,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
     }
 
     fn is_const(&self) -> bool {
-        matches!(self, Variable::ConstLocal { .. })
+        matches!(self, Variable::LocalConst { .. })
     }
 }
 
@@ -170,12 +170,12 @@ pub enum Variable<D: Dialect> {
     GlobalScalar(u16, Elem<D>, gpu::Elem),
     ConstantArray(u16, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
-    Local {
+    LocalMut {
         id: u16,
         item: Item<D>,
         depth: u8,
     },
-    ConstLocal {
+    LocalConst {
         id: u16,
         item: Item<D>,
         depth: u8,
@@ -222,8 +222,8 @@ impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
-            Variable::Local { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
-            Variable::ConstLocal { id, depth, .. } => f.write_fmt(format_args!("ssa_{depth}_{id}")),
+            Variable::LocalMut { id, depth, .. } => f.write_fmt(format_args!("l_mut_{depth}_{id}")),
+            Variable::LocalConst { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
             Variable::Slice { id, item: _, depth } => {
                 write!(f, "slice_{depth}_{id}")
             }
@@ -362,12 +362,12 @@ impl<D: Dialect> Variable<D> {
             Variable::GlobalOutputArray(id, item) => {
                 Variable::GlobalOutputArray(*id, item.optimized())
             }
-            Variable::Local { id, item, depth } => Variable::Local {
+            Variable::LocalMut { id, item, depth } => Variable::LocalMut {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
             },
-            Variable::ConstLocal { id, item, depth } => Variable::ConstLocal {
+            Variable::LocalConst { id, item, depth } => Variable::LocalConst {
                 id: *id,
                 item: item.optimized(),
                 depth: *depth,
@@ -410,8 +410,8 @@ impl<D: Dialect> Variable<D> {
             Variable::GlobalOutputArray(_, _) => false,
             Variable::SharedMemory(_, _, _) => false,
             Variable::ConstantArray(_, _, _) => false,
-            Variable::Local { .. } => false,
-            Variable::ConstLocal { .. } => false,
+            Variable::LocalMut { .. } => false,
+            Variable::LocalConst { .. } => false,
             Variable::Slice { .. } => false,
             Variable::BlockIdxX => true,
             Variable::BlockIdxY => true,
@@ -452,7 +452,7 @@ pub trait FmtLeft: Display {
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
-            Self::ConstLocal { item, .. } => format!("const {item} {self}"),
+            Self::LocalConst { item, .. } => format!("const {item} {self}"),
             Variable::Tmp { item, .. } => format!("{item} {self}"),
             var => format!("{var}"),
         }
@@ -462,7 +462,7 @@ impl<D: Dialect> FmtLeft for Variable<D> {
 impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
         match self.var {
-            Variable::ConstLocal { item, .. } => format!("const {item} {self}"),
+            Variable::LocalConst { item, .. } => format!("const {item} {self}"),
             Variable::Tmp { item, .. } => format!("{item} {self}"),
             _ => format!("{self}"),
         }
@@ -485,7 +485,7 @@ pub struct IndexedVariable<D: Dialect> {
 impl<D: Dialect> Display for IndexedVariable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var = &self.var;
-        let ref_ = matches!(var, Variable::ConstLocal { .. })
+        let ref_ = matches!(var, Variable::LocalConst { .. })
             .then_some("const&")
             .unwrap_or("&");
 

@@ -10,7 +10,7 @@ use crate::{
 
 use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
 use cubecl_core::{
-    ir::{self as cube, CubeAllocator, UIntKind},
+    ir::{self as cube, Allocator, UIntKind},
     prelude::CompiledKernel,
     prelude::CubePrimitive,
     server::ComputeServer,
@@ -82,8 +82,8 @@ impl cubecl_core::Compiler for WgslCompiler {
         32768
     }
 
-    fn local_allocator() -> CubeAllocator {
-        CubeAllocator::new()
+    fn local_allocator() -> Allocator {
+        Allocator::new()
     }
 }
 
@@ -358,13 +358,13 @@ impl WgslCompiler {
             cube::VariableKind::GlobalScalar(id) => {
                 wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
-            cube::VariableKind::Local { id, depth }
-            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::Local {
+            cube::VariableKind::LocalMut { id, depth }
+            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::LocalMut {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::VariableKind::LocalBinding { id, depth } => wgsl::Variable::LocalBinding {
+            cube::VariableKind::LocalConst { id, depth } => wgsl::Variable::LocalConst {
                 id,
                 item: Self::compile_item(item),
                 depth,
@@ -978,7 +978,7 @@ impl WgslCompiler {
             cube::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(cube::Item::new(u32::as_elem()));
+                    let input_len = scope.create_local_mut(cube::Item::new(u32::as_elem()));
 
                     instructions.extend(self.compile_scope(scope));
 

@@ -19,7 +19,7 @@ pub trait Cast: CubePrimitive {
             return value.expand.into();
         }
 
-        let new_var = context.create_variable(Item::vectorized(
+        let new_var = context.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
             value.expand.item.vectorization,
         ));
@@ -49,7 +49,7 @@ pub trait BitCast: CubePrimitive {
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
-        let new_var = context.create_variable(Item::vectorized(
+        let new_var = context.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(),
             var.item.vectorization,
         ));

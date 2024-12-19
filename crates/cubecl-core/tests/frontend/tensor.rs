@@ -33,9 +33,9 @@ mod tests {
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let x = scope.create_local(Item::new(u32::as_elem()));
-        let y = scope.create_local(Item::new(u32::as_elem()));
-        let z = scope.create_local(Item::new(u32::as_elem()));
+        let x = scope.create_local_mut(Item::new(u32::as_elem()));
+        let y = scope.create_local_mut(Item::new(u32::as_elem()));
+        let z = scope.create_local_mut(Item::new(u32::as_elem()));
 
         cpa!(&mut scope, x = shape(input, 1u32));
         cpa!(&mut scope, y = stride(input, 1u32));

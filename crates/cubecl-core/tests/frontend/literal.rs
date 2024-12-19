@@ -24,7 +24,7 @@ mod tests {
     fn cube_literal_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
         literal::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -36,7 +36,7 @@ mod tests {
     fn cube_literal_float_no_decimal_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
         literal_float_no_decimals::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -47,7 +47,7 @@ mod tests {
     fn inline_macro_ref() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_variable(item);
+        let lhs = context.create_local(item);
 
         let mut scope = context.into_scope();
         let lhs: Variable = lhs.into();

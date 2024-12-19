@@ -1,4 +1,4 @@
-use crate::ir::{CubeAllocator, Elem, Item, Visibility};
+use crate::ir::{Allocator, Elem, Item, Visibility};
 use crate::prelude::KernelDefinition;
 use crate::KernelSettings;
 use crate::{
@@ -117,7 +117,7 @@ impl KernelBuilder {
         .integrate(settings)
     }
 
-    pub fn with_local_allocator(allocator: CubeAllocator) -> Self {
+    pub fn with_local_allocator(allocator: Allocator) -> Self {
         Self {
             context: CubeContext::root(allocator),
             inputs: Vec::new(),
@@ -131,6 +131,6 @@ impl KernelBuilder {
 
 impl Default for KernelBuilder {
     fn default() -> Self {
-        Self::with_local_allocator(CubeAllocator::new())
+        Self::with_local_allocator(Allocator::new())
     }
 }

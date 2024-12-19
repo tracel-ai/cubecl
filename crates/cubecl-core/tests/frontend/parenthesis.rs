@@ -20,9 +20,9 @@ mod tests {
     fn cube_parenthesis_priority_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_variable(Item::new(ElemType::as_elem()));
-        let y = context.create_variable(Item::new(ElemType::as_elem()));
-        let z = context.create_variable(Item::new(ElemType::as_elem()));
+        let x = context.create_local(Item::new(ElemType::as_elem()));
+        let y = context.create_local(Item::new(ElemType::as_elem()));
+        let z = context.create_local(Item::new(ElemType::as_elem()));
 
         parenthesis::expand::<ElemType>(&mut context, x.into(), y.into(), z.into());
         let scope = context.into_scope();
@@ -33,9 +33,9 @@ mod tests {
     fn inline_macro_ref() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_variable(item);
-        let y = context.create_variable(item);
-        let z = context.create_variable(item);
+        let x = context.create_local(item);
+        let y = context.create_local(item);
+        let z = context.create_local(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();

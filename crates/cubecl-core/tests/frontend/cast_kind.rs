@@ -45,7 +45,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(f64::as_elem());
 
-        let input = context.create_variable(item);
+        let input = context.create_local(item);
 
         cast_float_kind::expand::<f64, f32>(&mut context, input.into());
         let scope = context.into_scope();
@@ -58,7 +58,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_variable(item);
+        let input = context.create_local(item);
 
         cast_int_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -71,7 +71,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_variable(item);
+        let input = context.create_local(item);
 
         cast_numeric_to_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -84,7 +84,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_variable(item);
+        let input = context.create_local(item);
 
         cast_int_to_numeric::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -96,11 +96,11 @@ mod tests {
         let mut context = CubeContext::default();
         let float_64 = Item::new(f64::as_elem());
         let float_32 = Item::new(f32::as_elem());
-        let input = context.create_variable(float_64);
+        let input = context.create_local(float_64);
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let y = scope.create_local(float_32);
+        let y = scope.create_local_mut(float_32);
 
         cpa!(scope, input = input + 5.9f32 as f64);
         cpa!(scope, y = cast(input));
@@ -113,11 +113,11 @@ mod tests {
         let mut context = CubeContext::default();
         let int_32 = Item::new(i32::as_elem());
         let int_64 = Item::new(i64::as_elem());
-        let input = context.create_variable(int_32);
+        let input = context.create_local(int_32);
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let y = scope.create_local(int_64);
+        let y = scope.create_local_mut(int_64);
 
         cpa!(scope, input = input + 5i32);
         cpa!(scope, y = cast(input));

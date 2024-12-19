@@ -37,8 +37,8 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let x = scope.create_local(Item::new(u32::as_elem()));
-        let y = scope.create_local(Item::new(u32::as_elem()));
+        let x = scope.create_local_mut(Item::new(u32::as_elem()));
+        let y = scope.create_local_mut(Item::new(u32::as_elem()));
 
         let zero: Variable = 0u32.into();
         let one: Variable = 1u32.into();
@@ -63,8 +63,8 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let a = scope.create_local(Item::new(u32::as_elem()));
-        let b = scope.create_local(Item::new(u32::as_elem()));
+        let a = scope.create_local_mut(Item::new(u32::as_elem()));
+        let b = scope.create_local_mut(Item::new(u32::as_elem()));
 
         let one: Variable = 1u32.into();
 

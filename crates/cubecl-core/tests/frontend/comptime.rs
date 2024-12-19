@@ -140,7 +140,7 @@ mod tests {
     fn cube_comptime_if_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
         comptime_if_else::expand::<ElemType>(&mut context, lhs.into(), true);
         let scope = context.into_scope();
@@ -155,7 +155,7 @@ mod tests {
     fn cube_comptime_if_numeric_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
         comptime_if_expr::expand::<ElemType>(&mut context, lhs.into(), 4, 5);
         let scope = context.into_scope();
@@ -170,7 +170,7 @@ mod tests {
     fn cube_comptime_else_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+        let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
         comptime_if_else::expand::<ElemType>(&mut context, lhs.into(), false);
         let scope = context.into_scope();
@@ -186,12 +186,12 @@ mod tests {
         for cond1 in [false, true] {
             for cond2 in [false, true] {
                 let mut context1 = CubeContext::default();
-                let lhs = context1.create_variable(Item::new(ElemType::as_elem()));
+                let lhs = context1.create_local(Item::new(ElemType::as_elem()));
                 comptime_else_then_if::expand::<ElemType>(&mut context1, lhs.into(), cond1, cond2);
                 let scope1 = context1.into_scope();
 
                 let mut context2 = CubeContext::default();
-                let lhs = context2.create_variable(Item::new(ElemType::as_elem()));
+                let lhs = context2.create_local(Item::new(ElemType::as_elem()));
                 comptime_elsif::expand::<ElemType>(&mut context2, lhs.into(), cond1, cond2);
                 let scope2 = context2.into_scope();
 
@@ -207,7 +207,7 @@ mod tests {
     fn cube_comptime_elsif_runtime1_test() {
         for cond in [false, true] {
             let mut context = CubeContext::default();
-            let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+            let lhs = context.create_local(Item::new(ElemType::as_elem()));
             comptime_elsif_with_runtime1::expand::<ElemType>(&mut context, lhs.into(), cond);
             let scope = context.into_scope();
 
@@ -222,7 +222,7 @@ mod tests {
     fn cube_comptime_elsif_runtime2_test() {
         for cond in [false, true] {
             let mut context = CubeContext::default();
-            let lhs = context.create_variable(Item::new(ElemType::as_elem()));
+            let lhs = context.create_local(Item::new(ElemType::as_elem()));
 
             comptime_elsif_with_runtime2::expand::<ElemType>(&mut context, lhs.into(), cond);
             let scope = context.into_scope();
@@ -280,7 +280,7 @@ mod tests {
     fn cube_comptime_block_test() {
         let mut context = CubeContext::default();
 
-        let a = context.create_variable(Item::new(ElemType::as_elem()));
+        let a = context.create_local(Item::new(ElemType::as_elem()));
 
         comptime_block::expand::<ElemType>(&mut context, a.into());
 
@@ -295,11 +295,11 @@ mod tests {
     fn inline_macro_ref_comptime(cond: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_variable(item);
+        let x = context.create_local(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
-        let y = scope.create_local(item);
+        let y = scope.create_local_mut(item);
 
         if cond {
             cpa!(scope, y = x + 4.0f32);
@@ -313,7 +313,7 @@ mod tests {
     fn inline_macro_ref_comptime2(cond: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_variable(item);
+        let x = context.create_local(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
@@ -330,12 +330,12 @@ mod tests {
     fn inline_macro_ref_elsif_runtime1(comptime_cond: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_variable(item);
+        let x = context.create_local(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
-        let runtime_cond = scope.create_local(Item::new(Elem::Bool));
-        let y = scope.create_local(item);
+        let runtime_cond = scope.create_local_mut(Item::new(Elem::Bool));
+        let y = scope.create_local_mut(item);
         cpa!(scope, runtime_cond = x >= 2.0f32);
 
         if comptime_cond {
@@ -354,12 +354,12 @@ mod tests {
     fn inline_macro_ref_elsif_runtime2(comptime_cond: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_variable(item);
+        let x = context.create_local(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
-        let runtime_cond = scope.create_local(Item::new(Elem::Bool));
-        let y = scope.create_local(item);
+        let runtime_cond = scope.create_local_mut(Item::new(Elem::Bool));
+        let y = scope.create_local_mut(item);
         cpa!(scope, runtime_cond = x >= 2.0f32);
 
         cpa!(&mut scope, if(runtime_cond).then(|scope| {
@@ -378,7 +378,7 @@ mod tests {
     fn inline_macro_ref_comptime_block() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let a = context.create_variable_mut(item);
+        let a = context.create_local_mut(item);
         let comptime_var: Variable = ElemType::from_int(4).into();
 
         let mut scope = context.into_scope();

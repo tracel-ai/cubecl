@@ -276,7 +276,7 @@ impl<D: Dialect> Binary<D> for IndexAssign {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        if matches!(out, Variable::Local { .. } | Variable::ConstLocal { .. }) {
+        if matches!(out, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
             return IndexAssignVector::format(f, lhs, rhs, out);
         };
 
@@ -299,7 +299,7 @@ impl<D: Dialect> Binary<D> for Index {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        if matches!(lhs, Variable::Local { .. } | Variable::ConstLocal { .. }) {
+        if matches!(lhs, Variable::LocalMut { .. } | Variable::LocalConst { .. }) {
             return IndexVector::format(f, lhs, rhs, out);
         }
 

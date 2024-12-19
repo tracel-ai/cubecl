@@ -35,8 +35,8 @@ mod tests {
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
-        let x = scope.create_local(Item::new(u32::as_elem()));
-        let y = scope.create_local(item);
+        let x = scope.create_local_mut(Item::new(u32::as_elem()));
+        let y = scope.create_local_mut(item);
 
         let id = Variable::builtin(Builtin::AbsolutePos);
         cpa!(&mut scope, x = id + 4u32);

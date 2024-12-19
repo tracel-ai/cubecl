@@ -94,7 +94,7 @@ mod tests {
         let item = Item::new(ElemType::as_elem());
 
         let mut scope = context.into_scope();
-        let var = scope.create_local(item);
+        let var = scope.create_local_mut(item);
         let pos: Variable = 0u32.into();
 
         // Create
@@ -124,7 +124,7 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let local = scope.create_local(Item::new(u32::as_elem()));
+        let local = scope.create_local_mut(Item::new(u32::as_elem()));
 
         let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(u32::as_elem()));
         let index: Variable = 1u32.into();
@@ -149,8 +149,8 @@ mod tests {
         cpa!(scope, array[pos0] = 0.0_f32);
         cpa!(scope, array[pos1] = 1.0_f32);
 
-        let vectorized_var = scope.create_local(vectorized_item);
-        let tmp = scope.create_local(scalar_item);
+        let vectorized_var = scope.create_local_mut(vectorized_item);
+        let tmp = scope.create_local_mut(scalar_item);
         cpa!(scope, tmp = array[pos0]);
         cpa!(scope, vectorized_var[pos0] = tmp);
         cpa!(scope, tmp = array[pos1]);
@@ -169,8 +169,8 @@ mod tests {
         let array = scope.create_local_array(scalar_item, 1);
         cpa!(scope, array[pos0] = 3.0_f32);
 
-        let unvectorized_var = scope.create_local(unvectorized_item);
-        let tmp = scope.create_local(scalar_item);
+        let unvectorized_var = scope.create_local_mut(unvectorized_item);
+        let tmp = scope.create_local_mut(scalar_item);
         cpa!(scope, tmp = array[pos0]);
         cpa!(scope, unvectorized_var = tmp);
 
@@ -181,7 +181,7 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let local = scope.create_local(Item::new(u32::as_elem()));
+        let local = scope.create_local_mut(Item::new(u32::as_elem()));
 
         let array = Variable::new(VariableKind::GlobalInputArray(0), Item::new(u32::as_elem()));
         let index: Variable = 6u32.into();

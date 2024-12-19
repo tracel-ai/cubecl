@@ -33,7 +33,7 @@ mod tests {
         let item = Item::new(ElemType::as_elem());
 
         let mut scope = context.into_scope();
-        let var = scope.create_local(item);
+        let var = scope.create_local_mut(item);
         let pos: Variable = 0u32.into();
 
         // Create

@@ -17,7 +17,7 @@ pub mod plane_elect {
 
     /// Expand method of [plane_elect()].
     pub fn expand(context: &mut CubeContext) -> ExpandElementTyped<bool> {
-        let output = context.create_variable_mut(Item::new(Elem::Bool));
+        let output = context.create_local_mut(Item::new(Elem::Bool));
         let out = *output;
 
         context.register(Instruction::new(Plane::Elect, out));
@@ -44,7 +44,7 @@ pub mod plane_broadcast {
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
-        let output = context.create_variable_mut(value.expand.item);
+        let output = context.create_local_mut(value.expand.item);
         let out = *output;
         let lhs = *value.expand;
         let rhs = *id.expand;
@@ -74,7 +74,7 @@ pub mod plane_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
@@ -100,7 +100,7 @@ pub mod plane_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
@@ -126,7 +126,7 @@ pub mod plane_max {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
@@ -152,7 +152,7 @@ pub mod plane_min {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
@@ -179,7 +179,7 @@ pub mod plane_all {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
@@ -206,7 +206,7 @@ pub mod plane_any {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_variable_mut(elem.item);
+        let output = context.create_local_mut(elem.item);
 
         let out = *output;
         let input = *elem;
