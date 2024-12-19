@@ -1,8 +1,8 @@
 use crate::{expression::Block, paths::prelude_type, scope::Context, statement::Pattern};
 use darling::{ast::NestedMeta, util::Flag, FromMeta};
 use proc_macro2::TokenStream;
-use quote::ToTokens;
-use std::iter;
+use quote::{quote, ToTokens};
+use std::{collections::HashMap, iter};
 use syn::{
     parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
     Generics, Ident, ItemFn, ReturnType, Signature, TraitItemFn, Type, Visibility,
@@ -30,12 +30,144 @@ impl KernelArgs {
     }
 }
 
+pub struct GenericAnalysis {
+    pub map: HashMap<syn::Ident, syn::PathSegment>,
+}
+
+impl GenericAnalysis {
+    pub fn process_generics(&self, ty: &syn::Generics) -> TokenStream {
+        let mut output = quote![];
+
+        if ty.params.is_empty() {
+            return output;
+        }
+
+        for param in ty.params.pairs() {
+            match param.value() {
+                syn::GenericParam::Type(type_param) => {
+                    if let Some(ty) = self.map.get(&type_param.ident) {
+                        output.extend(quote![#ty,]);
+                    } else {
+                        let ident = &type_param.ident;
+                        output.extend(quote![#ident,]);
+                    }
+                }
+                _ => todo!(),
+            }
+        }
+
+        quote! {
+            ::<#output>
+        }
+    }
+
+    pub fn register_type(&self) -> TokenStream {
+        let mut output = quote![];
+
+        for (name, ty) in self.map.iter() {
+            output.extend(quote! {
+                builder
+                    .context
+                    .register_type::<#ty>(#name::as_elem_native_unchecked());
+            });
+        }
+
+        output
+    }
+
+    pub fn process_ty(&self, ty: &syn::Type) -> syn::Type {
+        let type_path = match &ty {
+            Type::Path(type_path) => type_path,
+            _ => return ty.clone(),
+        };
+        let path = &type_path.path;
+
+        let mut returned = syn::Path {
+            leading_colon: path.leading_colon.clone(),
+            segments: syn::punctuated::Punctuated::new(),
+        };
+
+        for segment in path.segments.iter() {
+            if let Some(segment) = self.map.get(&segment.ident) {
+                returned.segments.push_value(segment.clone());
+            } else {
+                if let syn::PathArguments::AngleBracketed(arg) = &segment.arguments {
+                    let mut args = syn::punctuated::Punctuated::new();
+                    arg.args.iter().for_each(|arg| match arg {
+                        syn::GenericArgument::Type(ty) => {
+                            let ty = self.process_ty(ty);
+                            args.push(syn::GenericArgument::Type(ty));
+                        }
+                        _ => args.push_value(arg.clone()),
+                    });
+
+                    let segment = syn::PathSegment {
+                        ident: segment.ident.clone(),
+                        arguments: syn::PathArguments::AngleBracketed(
+                            syn::AngleBracketedGenericArguments {
+                                colon2_token: arg.colon2_token.clone(),
+                                lt_token: arg.lt_token.clone(),
+                                args,
+                                gt_token: arg.gt_token.clone(),
+                            },
+                        ),
+                    };
+                    returned.segments.push_value(segment);
+                } else {
+                    returned.segments.push_value(segment.clone());
+                }
+            }
+        }
+
+        syn::Type::Path(syn::TypePath {
+            qself: type_path.qself.clone(),
+            path: returned,
+        })
+    }
+
+    pub fn from_generics(generics: &syn::Generics) -> Self {
+        let mut map = HashMap::new();
+
+        for param in generics.params.pairs() {
+            if let syn::GenericParam::Type(type_param) = param.value() {
+                type_param.bounds.first().map(|a| {
+                    if let syn::TypeParamBound::Trait(trait_bound) = a {
+                        if let Some(bound) = trait_bound.path.get_ident() {
+                            let name = bound.to_string();
+                            let index = map.len() as u8;
+
+                            match name.as_str() {
+                                "Float" => {
+                                    map.insert(
+                                        type_param.ident.clone(),
+                                        parse_quote!(FloatExpand<#index>),
+                                    );
+                                }
+                                "Numeric" => {
+                                    map.insert(
+                                        type_param.ident.clone(),
+                                        parse_quote!(NumericExpand<#index>),
+                                    );
+                                }
+                                _ => {}
+                            };
+                        }
+                    }
+                });
+            };
+        }
+
+        Self { map }
+    }
+}
+
 pub struct Launch {
     pub args: KernelArgs,
     pub vis: Visibility,
     pub func: KernelFn,
     pub kernel_generics: Generics,
     pub launch_generics: Generics,
+    pub analysis: GenericAnalysis,
 }
 
 #[derive(Clone)]
@@ -268,6 +400,7 @@ impl Launch {
         let mut expand_generics = kernel_generics.clone();
         expand_generics.params =
             Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(expand_generics.params));
+        let analysis = GenericAnalysis::from_generics(&func.sig.generics);
 
         Ok(Launch {
             args,
@@ -275,6 +408,7 @@ impl Launch {
             func,
             kernel_generics,
             launch_generics: expand_generics,
+            analysis,
         })
     }
 }

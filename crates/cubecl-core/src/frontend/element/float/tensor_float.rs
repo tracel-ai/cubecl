@@ -15,8 +15,8 @@ use crate::{
 
 use super::{
     init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
-    ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
-    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
+    ExpandElementBaseInit, ExpandElementTyped, Float, FloatExpand, Init, IntoRuntime,
+    KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, TypeMap,
 };
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
@@ -194,6 +194,15 @@ impl Numeric for tf32 {
 impl ExpandElementBaseInit for tf32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
+    }
+}
+
+impl<const POS: u8> TypeMap<POS> for tf32 {
+    type ExpandGeneric = FloatExpand<POS>;
+
+    fn register(context: &mut CubeContext) {
+        let elem = Self::as_elem(context);
+        context.register_type::<Self::ExpandGeneric>(elem);
     }
 }
 

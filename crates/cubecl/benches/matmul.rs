@@ -27,7 +27,13 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn name(&self) -> String {
-        format!("matmul-{}-{}-{:?}", R::name(), E::as_elem(), self.strategy).to_lowercase()
+        format!(
+            "matmul-{}-{}-{:?}",
+            R::name(),
+            E::as_elem_native_unchecked(),
+            self.strategy
+        )
+        .to_lowercase()
     }
 
     fn sync(&self) {
@@ -131,11 +137,32 @@ fn main() {
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Accelerated);
         run::<cubecl::cuda::CudaRuntime, half::f16>(
             Default::default(),
-            matmul::Strategy::Accelerated,
+            matmul::Strategy::Tiling2D(Default::default()),
         );
+        run::<cubecl::cuda::CudaRuntime, half::bf16>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, flex32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, f64>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Accelerated);
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Accelerated,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, half::f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Accelerated,
+        // );
     }
 }

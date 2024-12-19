@@ -48,7 +48,7 @@ mod tests {
     use super::*;
     use cubecl_core::{
         cpa,
-        ir::{Elem, Instruction, Item, Variable},
+        ir::{Elem, Instruction, Item, UIntKind, Variable},
     };
 
     #[test]
@@ -65,7 +65,7 @@ mod tests {
     fn cube_mut_assign_input_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_local_binding(Item::new(Elem::UInt(UIntKind::U32)));
 
         mut_assign_input::expand(&mut context, y.into());
         let scope = context.into_scope();
@@ -77,7 +77,7 @@ mod tests {
     fn cube_assign_mut_input_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_local_binding(Item::new(Elem::UInt(UIntKind::U32)));
 
         assign_mut_input::expand(&mut context, y.into());
         let scope = context.into_scope();
@@ -89,7 +89,7 @@ mod tests {
     fn cube_assign_deref_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_local_binding(Item::new(Elem::UInt(UIntKind::U32)));
         assign_deref::expand(&mut context, y.into());
 
         let scope = context.into_scope();
@@ -101,7 +101,7 @@ mod tests {
         let context = CubeContext::default();
 
         let mut scope = context.into_scope();
-        let x = scope.create_local(Item::new(u32::as_elem()));
+        let x = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
 
         let zero: Variable = 0u32.into();
         let one: Variable = 1u32.into();
@@ -114,7 +114,7 @@ mod tests {
 
     fn inline_macro_ref_mut_assign_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
-        let item = Item::new(u32::as_elem());
+        let item = Item::new(Elem::UInt(UIntKind::U32));
         let y = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
@@ -133,7 +133,7 @@ mod tests {
 
     fn inline_macro_ref_assign_mut_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
-        let item = Item::new(u32::as_elem());
+        let item = Item::new(Elem::UInt(UIntKind::U32));
         let y = context.create_local_variable(item);
         println!("{:?}", y.index());
 
@@ -153,7 +153,7 @@ mod tests {
 
     fn inline_macro_ref_assign_vectorized() -> Vec<Instruction> {
         let mut context = CubeContext::default();
-        let item = Item::vectorized(u32::as_elem(), NonZero::new(4));
+        let item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
         let y = context.create_local_binding(item);
 
         let mut scope = context.into_scope();
@@ -174,7 +174,7 @@ mod tests {
     fn inline_macro_ref_assign_deref() -> Vec<Instruction> {
         let context = CubeContext::default();
         let mut scope = context.into_scope();
-        let y = scope.create_local(Item::new(u32::as_elem()));
+        let y = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
 
         let one: Variable = 1u32.into();
 

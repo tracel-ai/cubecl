@@ -166,6 +166,8 @@ impl Launch {
         let mut define = quote! {};
 
         let expand_fn = |ident, expand_name, ty| {
+            let ty = self.analysis.process_ty(&ty);
+
             quote! {
                 let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident, &mut builder);
             }
@@ -196,10 +198,10 @@ impl Launch {
         let runtime = prelude_type("Runtime");
         let compiler = core_type("Compiler");
         let io_map = self.io_mappings();
+        let register_type = self.analysis.register_type();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
-        let (_, generics, _) = self.func.sig.generics.split_for_impl();
-        let generics = generics.as_turbofish();
+        let generics = self.analysis.process_generics(&self.func.sig.generics);
         let allocator = self.args.local_allocator.as_ref();
         let allocator = allocator.map(|it| it.to_token_stream()).unwrap_or_else(
             || quote![<<__R as #runtime>::Compiler as #compiler>::local_allocator()],
@@ -207,6 +209,7 @@ impl Launch {
 
         quote! {
             let mut builder = #kernel_builder::with_local_allocator(#allocator);
+            #register_type
             #io_map
             expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())

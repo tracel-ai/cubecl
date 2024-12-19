@@ -119,7 +119,7 @@ mod tests {
     use cubecl_core::{
         cpa,
         frontend::{CubeContext, CubePrimitive},
-        ir::{Elem, Item, Variable},
+        ir::{Elem, FloatKind, IntKind, Item, UIntKind, Variable},
     };
 
     macro_rules! cast_test {
@@ -144,63 +144,63 @@ mod tests {
     cast_test!(
         cube_float_to_int_test,
         float_to_int::expand,
-        Item::new(f32::as_elem()),
-        Item::new(i32::as_elem())
+        Item::new(Elem::Float(FloatKind::F32)),
+        Item::new(Elem::Int(IntKind::I32))
     );
 
     cast_test!(
         cube_float_to_u32_test,
         float_to_u32::expand,
-        Item::new(f32::as_elem()),
-        Item::new(u32::as_elem())
+        Item::new(Elem::Float(FloatKind::F32)),
+        Item::new(Elem::UInt(UIntKind::U32))
     );
 
     cast_test!(
         cube_float_to_bool_test,
         float_to_bool::expand,
-        Item::new(f32::as_elem()),
+        Item::new(Elem::Float(FloatKind::F32)),
         Item::new(Elem::Bool)
     );
 
     cast_test!(
         cube_int_to_float_test,
         int_to_float::expand,
-        Item::new(i32::as_elem()),
-        Item::new(f32::as_elem())
+        Item::new(Elem::Int(IntKind::I32)),
+        Item::new(Elem::Float(FloatKind::F32))
     );
 
     cast_test!(
         cube_int_to_u32_test,
         int_to_u32::expand,
-        Item::new(i32::as_elem()),
-        Item::new(u32::as_elem())
+        Item::new(Elem::Int(IntKind::I32)),
+        Item::new(Elem::UInt(UIntKind::U32))
     );
 
     cast_test!(
         cube_int_to_bool_test,
         int_to_bool::expand,
-        Item::new(i32::as_elem()),
+        Item::new(Elem::Int(IntKind::I32)),
         Item::new(Elem::Bool)
     );
 
     cast_test!(
         cube_u32_to_float_test,
         u32_to_float::expand,
-        Item::new(u32::as_elem()),
-        Item::new(f32::as_elem())
+        Item::new(Elem::UInt(UIntKind::U32)),
+        Item::new(Elem::Float(FloatKind::F32))
     );
 
     cast_test!(
         cube_u32_to_int_test,
         u32_to_int::expand,
-        Item::new(u32::as_elem()),
-        Item::new(i32::as_elem())
+        Item::new(Elem::UInt(UIntKind::U32)),
+        Item::new(Elem::Int(IntKind::I32))
     );
 
     cast_test!(
         cube_u32_to_bool_test,
         u32_to_bool::expand,
-        Item::new(u32::as_elem()),
+        Item::new(Elem::UInt(UIntKind::U32)),
         Item::new(Elem::Bool)
     );
 
@@ -208,21 +208,21 @@ mod tests {
         cube_bool_to_float_test,
         bool_to_float::expand,
         Item::new(Elem::Bool),
-        Item::new(f32::as_elem())
+        Item::new(Elem::Float(FloatKind::F32))
     );
 
     cast_test!(
         cube_bool_to_int_test,
         bool_to_int::expand,
         Item::new(Elem::Bool),
-        Item::new(i32::as_elem())
+        Item::new(Elem::Int(IntKind::I32))
     );
 
     cast_test!(
         cube_bool_to_u32_test,
         bool_to_u32::expand,
         Item::new(Elem::Bool),
-        Item::new(u32::as_elem())
+        Item::new(Elem::UInt(UIntKind::U32))
     );
 
     fn inline_macro_ref_cast(from_item: Item, to_item: Item) -> String {

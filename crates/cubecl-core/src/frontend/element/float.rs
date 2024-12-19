@@ -9,9 +9,11 @@ use super::Numeric;
 
 mod relaxed;
 mod tensor_float;
+mod typemap;
 
 pub use relaxed::*;
 pub use tensor_float::*;
+pub use typemap::*;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -73,6 +75,15 @@ macro_rules! impl_float {
     ($primitive:ident, $kind:ident, $new:expr) => {
         impl CubeType for $primitive {
             type ExpandType = ExpandElementTyped<$primitive>;
+        }
+
+        impl<const POS: u8> TypeMap<POS> for $primitive {
+            type ExpandGeneric = FloatExpand<POS>;
+
+            fn register(context: &mut CubeContext) {
+                let elem = Self::as_elem(context);
+                context.register_type::<Self::ExpandGeneric>(elem);
+            }
         }
 
         impl CubePrimitive for $primitive {

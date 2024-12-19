@@ -10,6 +10,7 @@ use super::{flex32, tf32, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
+    // + TypeMap
     + ExpandElementBaseInit
     + IntoRuntime
     + core::cmp::PartialEq
@@ -26,6 +27,9 @@ pub trait CubePrimitive:
 
     fn as_elem_native() -> Option<Elem> {
         None
+    }
+    fn as_elem_native_unchecked() -> Elem {
+        Self::as_elem_native().expect("To be a native type")
     }
 
     fn size() -> Option<usize> {

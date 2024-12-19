@@ -3,12 +3,15 @@ use crate::{frontend::ExpandElement, ir::LocalAllocator};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use cubecl_runtime::debug::DebugLogger;
+use std::any::TypeId;
+use std::collections::HashMap;
 
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,
     pub local_allocator: Rc<dyn LocalAllocator>,
     pub debug_enabled: bool,
+    pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
 }
 
 impl Default for CubeContext {
@@ -24,6 +27,7 @@ impl CubeContext {
     /// The allocator will define the strategy for creating local intermediates and mutable variables
     pub fn root(allocator: impl LocalAllocator + 'static) -> CubeContext {
         let root = Rc::new(RefCell::new(Scope::root()));
+        let typemap = Rc::new(RefCell::new(HashMap::new()));
         let scope = root.clone();
 
         Self {
@@ -31,11 +35,25 @@ impl CubeContext {
             scope,
             root,
             debug_enabled: DebugLogger::default().is_activated(),
+            typemap,
         }
     }
 
     pub fn register<O: Into<Instruction>>(&mut self, op: O) {
         self.scope.borrow_mut().register(op)
+    }
+
+    pub fn resolve_type<T: 'static>(&self) -> Option<Elem> {
+        let map = self.typemap.borrow();
+
+        let result = map.get(&TypeId::of::<T>());
+        result.cloned()
+    }
+
+    pub fn register_type<T: 'static>(&mut self, elem: Elem) {
+        let mut map = self.typemap.borrow_mut();
+
+        map.insert(TypeId::of::<T>(), elem);
     }
 
     pub fn child(&mut self) -> CubeContext {
@@ -46,6 +64,7 @@ impl CubeContext {
             root: self.root.clone(),
             local_allocator: self.local_allocator.clone(),
             debug_enabled: self.debug_enabled,
+            typemap: self.typemap.clone(),
         }
     }
 

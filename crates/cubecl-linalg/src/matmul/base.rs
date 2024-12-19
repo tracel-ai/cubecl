@@ -47,32 +47,33 @@ pub fn launch_ref<R: Runtime, EG: Float>(
 ) -> Result<(), MatmulLaunchError> {
     match strategy {
         Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
+        // Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
         Strategy::Tiling2D(config) => {
             tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
             Ok(())
         }
-        Strategy::Simple => {
-            simple::launch_ref::<R, EG>(client, lhs, rhs, out);
-            Ok(())
-        }
-        Strategy::Auto => {
-            if let Err(err) = matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false) {
-                match err {
-                    super::kernels::MatmulLaunchError::Unavailable(_) => {
-                        tiling2d::launch_ref::<R, EG>(
-                            client,
-                            lhs,
-                            rhs,
-                            out,
-                            Tiling2dConfig::default(),
-                        )
-                    }
-                    _ => panic!("{err:?}"),
-                }
-            }
+        _ => todo!(),
+        // Strategy::Simple => {
+        //     simple::launch_ref::<R, EG>(client, lhs, rhs, out);
+        //     Ok(())
+        // }
+        // Strategy::Auto => {
+        //     if let Err(err) = matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false) {
+        //         match err {
+        //             super::kernels::MatmulLaunchError::Unavailable(_) => {
+        //                 tiling2d::launch_ref::<R, EG>(
+        //                     client,
+        //                     lhs,
+        //                     rhs,
+        //                     out,
+        //                     Tiling2dConfig::default(),
+        //                 )
+        //             }
+        //             _ => panic!("{err:?}"),
+        //         }
+        //     }
 
-            Ok(())
-        }
+        //     Ok(())
+        // }
     }
 }

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::prelude::{LaunchArg, Numeric};
+use cubecl_core::prelude::{FloatExpand, LaunchArg, Numeric, TypeMap};
 
 use super::global::args::{MatmulArgs, TensorArgs};
 
@@ -37,7 +37,7 @@ type Args<MS> = <MS as MatmulSpec>::Args;
 
 /// Specification for a simple standard matmul using global tensor as inputs.
 #[derive(Clone)]
-pub struct SingleMatmulSpec<const PLANE_DIM: u32, EG: Numeric, ES: Numeric, EA: Numeric> {
+pub struct SingleMatmulSpec<const PLANE_DIM: u32, EG, ES, EA> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _ea: PhantomData<EA>,
@@ -52,4 +52,21 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric, const PLANE_DIM: u32> MatmulSpec
     type ES = ES;
     type EA = EA;
     type Args = TensorArgs;
+}
+
+impl<const POS: u8, const PLANE_DIM: u32, EG: Numeric, ES: Numeric, EA: Numeric> TypeMap<POS>
+    for SingleMatmulSpec<PLANE_DIM, EG, ES, EA>
+{
+    type ExpandGeneric =
+        SingleMatmulSpec<PLANE_DIM, FloatExpand<0>, FloatExpand<1>, FloatExpand<2>>;
+
+    fn register(context: &mut cubecl_core::prelude::CubeContext) {
+        let eg = EG::as_elem(&context);
+        let es = EG::as_elem(&context);
+        let ea = EG::as_elem(&context);
+
+        context.register_type::<FloatExpand<0>>(eg);
+        context.register_type::<FloatExpand<1>>(es);
+        context.register_type::<FloatExpand<2>>(ea);
+    }
 }

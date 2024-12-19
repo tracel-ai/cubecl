@@ -91,7 +91,7 @@ mod tests {
 
     fn inline_macro_ref_read_write() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
-        let item = Item::new(ElemType::as_elem());
+        let item = Item::new(ElemType::as_elem_native().unwrap());
 
         let mut scope = context.into_scope();
         let var = scope.create_local(item);
@@ -142,8 +142,9 @@ mod tests {
 
     fn inline_macro_ref_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
-        let scalar_item = Item::new(ElemType::as_elem());
-        let vectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(2));
+        let scalar_item = Item::new(ElemType::as_elem_native().unwrap());
+        let vectorized_item =
+            Item::vectorized(ElemType::as_elem_native().unwrap(), NonZero::new(2));
 
         let mut scope = context.into_scope();
         let pos0: Variable = 0u32.into();
@@ -164,8 +165,9 @@ mod tests {
 
     fn inline_macro_ref_one_to_vectorized() -> Vec<ir::Instruction> {
         let context = CubeContext::default();
-        let scalar_item = Item::new(ElemType::as_elem());
-        let unvectorized_item = Item::vectorized(ElemType::as_elem(), NonZero::new(1));
+        let scalar_item = Item::new(ElemType::as_elem_native().unwrap());
+        let unvectorized_item =
+            Item::vectorized(ElemType::as_elem_native().unwrap(), NonZero::new(1));
 
         let mut scope = context.into_scope();
         let pos0: Variable = 0u32.into();
