@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use common::*;
 use constant_array_kernel::ConstantArrayKernel;
 use cubecl_core as cubecl;
@@ -5,6 +7,7 @@ use cubecl_core::prelude::*;
 use cubecl_cuda::CudaRuntime;
 use execute_unary_kernel::ExecuteUnaryKernel;
 use half::bf16;
+use half::f16;
 use kernel_sum::KernelSum;
 use naming_kernel::NamingKernel;
 use pretty_assertions::assert_eq;
@@ -132,5 +135,58 @@ pub fn naming() {
     let kernel = NamingKernel::<f32, u8, bf16, i64, CudaRuntime>::new(settings(), array());
     let expected = include_str!("naming.cu").replace("\r\n", "\n");
     let expected = expected.trim();
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube(launch, create_dummy_kernel)]
+fn clamp_kernel<F: Float>(input: &Array<F>, out: &mut Array<F>) {
+    out[ABSOLUTE_POS] = F::clamp(input[0], F::from_int(0), F::from_int(2));
+}
+
+#[test]
+pub fn test_clamp() {
+    let kernel = clamp_kernel::ClampKernel::<f32, CudaRuntime>::new(settings(), array(), array());
+    let expected = include_str!("clamp_f32.cu").replace("\r\n", "\n");
+    assert_eq!(compile(kernel), expected);
+
+    let kernel = clamp_kernel::ClampKernel::<f16, CudaRuntime>::new(settings(), array(), array());
+    let expected = include_str!("clamp_f16.cu").replace("\r\n", "\n");
+    assert_eq!(compile(kernel), expected);
+}
+
+#[cube(launch, create_dummy_kernel)]
+fn lined_clamp_kernel<F: Float>(input: &Array<Line<F>>, out: &mut Array<Line<F>>) {
+    out[ABSOLUTE_POS] = Line::<F>::clamp(
+        input[0],
+        Line::new(F::from_int(0)),
+        Line::new(F::from_int(2)),
+    );
+}
+
+#[test]
+pub fn test_lined_clamp() {
+    let arg4 = ArrayCompilationArg {
+        inplace: None,
+        vectorisation: NonZero::new(4),
+    };
+
+    let kernel = lined_clamp_kernel::LinedClampKernel::<f32, CudaRuntime>::new(
+        settings(),
+        arg4.clone(),
+        arg4.clone(),
+    );
+
+    let expected = include_str!("lined_clamp_f32.cu").replace("\r\n", "\n");
+    assert_eq!(compile(kernel), expected);
+
+    let kernel = lined_clamp_kernel::LinedClampKernel::<f16, CudaRuntime>::new(
+        settings(),
+        arg4.clone(),
+        arg4.clone(),
+    );
+
+    // TODO: Regenerate when correct
+    // std::fs::write("tests/lined_clamp_f16.cu", compile(kernel));
+    let expected = include_str!("lined_clamp_f16.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
