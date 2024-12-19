@@ -3,14 +3,19 @@ use crate::ir::{DebugInfo, Variable};
 use super::CubeContext;
 
 /// Calls a function and inserts debug symbols if debug is enabled.
+#[track_caller]
 pub fn debug_call_expand<C>(
     context: &mut CubeContext,
     name: &'static str,
+    line: u32,
+    col: u32,
     call: impl FnOnce(&mut CubeContext) -> C,
 ) -> C {
     if context.debug_enabled {
         context.register(DebugInfo::BeginCall {
             name: name.to_string(),
+            line,
+            col,
         });
 
         let ret = call(context);
@@ -20,6 +25,37 @@ pub fn debug_call_expand<C>(
         ret
     } else {
         call(context)
+    }
+}
+
+/// Calls an intrinsic op and inserts debug symbols if debug is enabled.
+#[track_caller]
+pub fn spanned_expand<C>(
+    context: &mut CubeContext,
+    line: u32,
+    col: u32,
+    call: impl FnOnce(&mut CubeContext) -> C,
+) -> C {
+    if context.debug_enabled {
+        context.register(DebugInfo::Line { line, col });
+        call(context)
+    } else {
+        call(context)
+    }
+}
+
+/// Adds source instruction if debug is enabled
+#[track_caller]
+pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, line: u32, col: u32) {
+    if context.debug_enabled {
+        // Normalize to linux separators
+        let file = file.replace("\\", "/");
+        context.register(DebugInfo::Source {
+            name: name.into(),
+            file_name: format!("./{file}"),
+            line,
+            col,
+        });
     }
 }
 

@@ -329,7 +329,7 @@ impl Optimizer {
     }
 
     /// A set of node indices for all blocks in the program
-    fn node_ids(&self) -> Vec<NodeIndex> {
+    pub fn node_ids(&self) -> Vec<NodeIndex> {
         self.program.node_indices().collect()
     }
 
