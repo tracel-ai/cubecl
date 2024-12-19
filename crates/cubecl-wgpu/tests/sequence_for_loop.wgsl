@@ -15,30 +15,30 @@ const WORKGROUP_SIZE_Z = 1u;
 fn sequence_for_loop_kernel(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
-let _0 = local_idx != 0u;
-if _0 {
+let b_0_0 = local_idx != 0u;
+if b_0_0 {
 return;
 }
-var l_0_0: u32;
-l_0_0 = info[0u];
-let _1 = select(f32(0), output_0_global[0u], 0u < l_0_0);
-let _2 = _1 + 1f;
-var l_0_1: u32;
-var l_0_2: bool;
-l_0_1 = info[0u];
-l_0_2 = 0u < l_0_1;
-if l_0_2 {
-output_0_global[0u] = _2;
+var l_0_5: u32;
+l_0_5 = info[0u];
+let b_0_1 = select(f32(0), output_0_global[0u], 0u < l_0_5);
+let b_0_2 = b_0_1 + 1f;
+var l_0_6: u32;
+var l_0_7: bool;
+l_0_6 = info[0u];
+l_0_7 = 0u < l_0_6;
+if l_0_7 {
+output_0_global[0u] = b_0_2;
 }
-var l_0_3: u32;
-l_0_3 = info[0u];
-let _3 = select(f32(0), output_0_global[0u], 0u < l_0_3);
-let _4 = _3 + 4f;
-var l_0_4: u32;
-var l_0_5: bool;
-l_0_4 = info[0u];
-l_0_5 = 0u < l_0_4;
-if l_0_5 {
-output_0_global[0u] = _4;
+var l_0_8: u32;
+l_0_8 = info[0u];
+let b_0_3 = select(f32(0), output_0_global[0u], 0u < l_0_8);
+let b_0_4 = b_0_3 + 4f;
+var l_0_9: u32;
+var l_0_10: bool;
+l_0_9 = info[0u];
+l_0_10 = 0u < l_0_9;
+if l_0_10 {
+output_0_global[0u] = b_0_4;
 }
 }

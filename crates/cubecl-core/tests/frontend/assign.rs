@@ -65,7 +65,7 @@ mod tests {
     fn cube_mut_assign_input_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_variable(Item::new(u32::as_elem()));
 
         mut_assign_input::expand(&mut context, y.into());
         let scope = context.into_scope();
@@ -77,7 +77,7 @@ mod tests {
     fn cube_assign_mut_input_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_variable(Item::new(u32::as_elem()));
 
         assign_mut_input::expand(&mut context, y.into());
         let scope = context.into_scope();
@@ -89,7 +89,7 @@ mod tests {
     fn cube_assign_deref_test() {
         let mut context = CubeContext::default();
 
-        let y = context.create_local_binding(Item::new(u32::as_elem()));
+        let y = context.create_variable(Item::new(u32::as_elem()));
         assign_deref::expand(&mut context, y.into());
 
         let scope = context.into_scope();
@@ -115,7 +115,7 @@ mod tests {
     fn inline_macro_ref_mut_assign_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::new(u32::as_elem());
-        let y = context.create_local_binding(item);
+        let y = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let y: Variable = y.into();
@@ -134,7 +134,7 @@ mod tests {
     fn inline_macro_ref_assign_mut_input() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::new(u32::as_elem());
-        let y = context.create_local_variable(item);
+        let y = context.create_variable_mut(item);
         println!("{:?}", y.index());
 
         let mut scope = context.into_scope();
@@ -154,7 +154,7 @@ mod tests {
     fn inline_macro_ref_assign_vectorized() -> Vec<Instruction> {
         let mut context = CubeContext::default();
         let item = Item::vectorized(u32::as_elem(), NonZero::new(4));
-        let y = context.create_local_binding(item);
+        let y = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let y: Variable = y.into();

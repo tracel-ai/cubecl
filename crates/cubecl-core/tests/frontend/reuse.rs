@@ -32,7 +32,7 @@ mod tests {
     fn cube_reuse_assign_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
 
         reuse::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
@@ -47,7 +47,7 @@ mod tests {
     fn cube_reuse_incr_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
 
         reuse_incr::expand::<ElemType>(&mut context, x.into());
         let scope = context.into_scope();
@@ -58,7 +58,7 @@ mod tests {
     fn inline_macro_ref_assign() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local_binding(item);
+        let x = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -85,7 +85,7 @@ mod tests {
     fn inline_macro_ref_incr() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local_binding(item);
+        let x = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));

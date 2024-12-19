@@ -368,21 +368,33 @@ impl Variable {
     pub fn vectorization_factor(&self) -> u8 {
         self.item.vectorization.map(NonZero::get).unwrap_or(1u8)
     }
-    pub fn index(&self) -> Option<u16> {
+
+    pub fn index(&self) -> Option<Id> {
         match self.kind {
-            VariableKind::GlobalInputArray(id) => Some(id),
-            VariableKind::GlobalScalar(id) => Some(id),
-            VariableKind::Local { id, .. } => Some(id),
-            VariableKind::Versioned { id, .. } => Some(id),
-            VariableKind::LocalBinding { id, .. } => Some(id),
-            VariableKind::Slice { id, .. } => Some(id),
-            VariableKind::GlobalOutputArray(id) => Some(id),
-            VariableKind::ConstantScalar(_) => None,
-            VariableKind::ConstantArray { id, .. } => Some(id),
-            VariableKind::SharedMemory { id, .. } => Some(id),
-            VariableKind::LocalArray { id, .. } => Some(id),
-            VariableKind::Matrix { id, .. } => Some(id),
-            VariableKind::Builtin(_) => None,
+            VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalScalar(id)
+            | VariableKind::Local { id, .. }
+            | VariableKind::Versioned { id, .. }
+            | VariableKind::LocalBinding { id, .. }
+            | VariableKind::Slice { id, .. }
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::ConstantArray { id, .. }
+            | VariableKind::SharedMemory { id, .. }
+            | VariableKind::LocalArray { id, .. }
+            | VariableKind::Matrix { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn depth(&self) -> Option<u8> {
+        match self.kind {
+            VariableKind::Local { depth, .. }
+            | VariableKind::Versioned { depth, .. }
+            | VariableKind::LocalBinding { depth, .. }
+            | VariableKind::LocalArray { depth, .. }
+            | VariableKind::Matrix { depth, .. }
+            | VariableKind::Slice { depth, .. } => Some(depth),
+            _ => None,
         }
     }
 

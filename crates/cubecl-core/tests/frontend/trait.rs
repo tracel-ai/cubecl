@@ -86,8 +86,8 @@ mod tests {
     fn cube_strategy_trait_add_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
-        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
+        let y = context.create_variable(Item::new(ElemType::as_elem()));
 
         with_strategy_trait::expand::<AddStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
@@ -102,8 +102,8 @@ mod tests {
     fn cube_strategy_trait_sub_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
-        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
+        let y = context.create_variable(Item::new(ElemType::as_elem()));
 
         with_strategy_trait::expand::<SubStrategy, ElemType>(&mut context, x.into(), y.into());
         let scope = context.into_scope();
@@ -118,8 +118,8 @@ mod tests {
     fn cube_two_strategy_traits_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
-        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
+        let y = context.create_variable(Item::new(ElemType::as_elem()));
 
         two_strategy_traits::expand::<SubStrategy, AddStrategy, ElemType>(
             &mut context,
@@ -135,8 +135,8 @@ mod tests {
     fn cube_trait_generic_method_test() {
         let mut context = CubeContext::default();
 
-        let x = context.create_local_binding(Item::new(ElemType::as_elem()));
-        let y = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let x = context.create_variable(Item::new(ElemType::as_elem()));
+        let y = context.create_variable(Item::new(ElemType::as_elem()));
 
         with_trait_generic_method::expand::<AddStrategy, ElemType>(
             &mut context,
@@ -154,8 +154,8 @@ mod tests {
     fn inline_macro_ref_one(is_add_strategy: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local_binding(item);
-        let y = context.create_local_binding(item);
+        let x = context.create_variable(item);
+        let y = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();
@@ -172,8 +172,8 @@ mod tests {
     fn inline_macro_ref_two() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let x = context.create_local_binding(item);
-        let y = context.create_local_binding(item);
+        let x = context.create_variable(item);
+        let y = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let x: Variable = x.into();

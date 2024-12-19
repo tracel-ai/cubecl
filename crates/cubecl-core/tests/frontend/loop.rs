@@ -42,7 +42,7 @@ mod tests {
     fn cube_while_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         while_not::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -54,7 +54,7 @@ mod tests {
     fn cube_loop_break_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         manual_loop_break::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -69,7 +69,7 @@ mod tests {
     fn cube_loop_with_return_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         loop_with_return::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -83,7 +83,7 @@ mod tests {
     fn inline_macro_ref_while() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -109,7 +109,7 @@ mod tests {
     fn inline_macro_ref_loop(is_return: bool) -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));

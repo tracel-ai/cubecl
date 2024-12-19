@@ -1,8 +1,7 @@
 use std::num::NonZeroU8;
 
 use crate::ir::{
-    BinaryOperator, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable,
-    Vectorization,
+    BinaryOperator, Comment, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable, Vectorization
 };
 use crate::prelude::{CubeType, ExpandElementTyped};
 use crate::{
@@ -29,7 +28,7 @@ where
 
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
-    let output = context.create_local_binding(item);
+    let output = context.create_variable(item);
     let out = *output;
 
     let op = func(BinaryOperator { lhs, rhs });
@@ -52,7 +51,7 @@ where
     let lhs_var = lhs.consume();
     let rhs_var = rhs.consume();
 
-    let out = context.create_local_binding(out_item);
+    let out = context.create_variable(out_item);
 
     let out_var = *out;
 
@@ -82,7 +81,7 @@ where
 
     let item = Item::new(item_lhs.elem);
 
-    let output = context.create_local_binding(item);
+    let output = context.create_variable(item);
     let out = *output;
 
     let op = func(BinaryOperator { lhs, rhs });
@@ -112,7 +111,7 @@ where
         vectorization: item.vectorization,
     };
 
-    let out = context.create_local_binding(out_item);
+    let out = context.create_variable(out_item);
     let out_var = *out;
 
     let op = func(BinaryOperator { lhs, rhs });
@@ -150,7 +149,7 @@ where
     let input = input.consume();
     let item = input.item;
 
-    let out = context.create_local_binding(item);
+    let out = context.create_variable(item);
     let out_var = *out;
 
     let op = func(UnaryOperator { input });
@@ -170,7 +169,7 @@ where
     F: Fn(UnaryOperator) -> Operator,
 {
     let input = input.consume();
-    let output = context.create_local_binding(out_item);
+    let output = context.create_variable_mut(out_item);
     let out = *output;
 
     let op = func(UnaryOperator { input });
@@ -191,7 +190,7 @@ where
     let input_var: Variable = *input;
     let item = input.item;
 
-    let out = context.create_local_variable(item);
+    let out = context.create_variable_mut(item);
     let out_var = *out;
 
     let op = func(input_var);
@@ -239,7 +238,7 @@ pub fn array_assign_binary_op_expand<
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
 
-    let array_value = context.create_local_binding(array.item);
+    let array_value = context.create_variable(array.item);
 
     let read = Instruction::new(
         Operator::Index(BinaryOperator {
@@ -249,7 +248,7 @@ pub fn array_assign_binary_op_expand<
         *array_value,
     );
     let array_value = array_value.consume();
-    let op_out = context.create_local_binding(array.item);
+    let op_out = context.create_variable(array.item);
     let calculate = Instruction::new(
         func(BinaryOperator {
             lhs: array_value,
@@ -262,8 +261,13 @@ pub fn array_assign_binary_op_expand<
         lhs: *index,
         rhs: op_out.consume(),
     });
-
+    context.register(Comment { content: "--------------".into()});
+    context.register(Comment { content: "--------------".into()});
+    context.register(Comment { content: "Before read".into()});
     context.register(read);
+    context.register(Comment { content: "After read".into()});
     context.register(calculate);
+    context.register(Comment { content: "After calculate".into()});
     context.register(Instruction::new(write, *array));
+    context.register(Comment { content: "End\n\n".into()});
 }

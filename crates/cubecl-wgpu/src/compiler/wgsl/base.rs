@@ -15,6 +15,7 @@ pub enum Variable {
     LocalBinding {
         id: u16,
         item: Item,
+        depth: u8,
     },
     Named {
         name: String,
@@ -284,7 +285,7 @@ impl Display for Variable {
                 depth: scope_depth,
                 ..
             } => write!(f, "l_{scope_depth}_{index}"),
-            Variable::LocalBinding { id: index, .. } => write!(f, "_{index}"),
+            Variable::LocalBinding { id, depth, .. } => write!(f, "b_{depth}_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice {
                 id: index,
@@ -365,8 +366,8 @@ impl Display for IndexedVariable {
 impl Variable {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalBinding { id, .. } => {
-                format!("let _{id}")
+            Variable::LocalBinding { id, depth, .. } => {
+                format!("let b_{depth}_{id}")
             }
             var => format!("{}", var),
         }

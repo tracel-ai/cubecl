@@ -178,13 +178,13 @@ mod vectorization {
             let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
 
             let new_var = if factor == 1 {
-                let new_var = context.create_local_binding(item);
+                let new_var = context.create_variable(item);
                 let element =
                     index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
                 assign::expand(context, element, new_var.clone().into());
                 new_var
             } else {
-                let new_var = context.create_local_variable(item);
+                let new_var = context.create_variable_mut(item);
                 for i in 0..factor {
                     let expand: Self = self.expand.clone().into();
                     let element = index::expand(context, expand, ExpandElementTyped::from_lit(i));
@@ -224,7 +224,7 @@ mod metadata {
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
         // Expand method of [len](Array::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            let out = context.create_variable(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::Length {
                     var: self.expand.into(),
@@ -239,7 +239,7 @@ mod metadata {
             self,
             context: &mut CubeContext,
         ) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            let out = context.create_variable(Item::new(u32::as_elem()));
             context.register(Instruction::new(
                 Metadata::BufferLength {
                     var: self.expand.into(),
@@ -292,7 +292,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item);
+            let out = context.create_variable(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,

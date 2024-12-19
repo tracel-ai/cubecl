@@ -480,7 +480,7 @@ pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 mod test {
     use cubecl_core::{
         self as cubecl,
-        ir::{HybridAllocator, Item, Variable, VariableKind},
+        ir::{CubeAllocator, Item, Variable, VariableKind},
         prelude::{Array, CubeContext, CubePrimitive, ExpandElement},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
@@ -503,7 +503,7 @@ mod test {
     #[test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = CubeContext::root(HybridAllocator::default());
+        let mut ctx = CubeContext::root(CubeAllocator::new());
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Item::new(u32::as_elem()),

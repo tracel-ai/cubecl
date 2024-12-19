@@ -43,7 +43,7 @@ mod tests {
         let unroll = true;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
-        let rhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let rhs = context.create_variable(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);
@@ -58,7 +58,7 @@ mod tests {
         let unroll = false;
 
         let lhs = context.create_local_array(Item::new(ElemType::as_elem()), 4u32);
-        let rhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let rhs = context.create_variable(Item::new(ElemType::as_elem()));
         let end: ExpandElement = 4u32.into();
 
         for_loop::expand::<ElemType>(&mut context, lhs.into(), rhs.into(), end.into(), unroll);

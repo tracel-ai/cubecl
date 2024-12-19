@@ -1,5 +1,5 @@
-use crate::ir::{self, Elem, Instruction, Item, ReusingAllocator, Scope, Variable, VariableKind};
-use crate::{frontend::ExpandElement, ir::LocalAllocator};
+use crate::frontend::ExpandElement;
+use crate::ir::{self, CubeAllocator, Elem, Instruction, Item, Scope, Variable, VariableKind};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use cubecl_runtime::debug::DebugLogger;
@@ -7,13 +7,13 @@ use cubecl_runtime::debug::DebugLogger;
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,
-    pub local_allocator: Rc<dyn LocalAllocator>,
+    pub allocator: CubeAllocator,
     pub debug_enabled: bool,
 }
 
 impl Default for CubeContext {
     fn default() -> Self {
-        Self::root(ReusingAllocator::default())
+        Self::root(CubeAllocator::new())
     }
 }
 
@@ -22,12 +22,12 @@ impl CubeContext {
     /// A root scope is at the root of a compute shader
     /// Therefore there is one cube context per shader
     /// The allocator will define the strategy for creating local intermediates and mutable variables
-    pub fn root(allocator: impl LocalAllocator + 'static) -> CubeContext {
+    pub fn root(allocator: CubeAllocator) -> CubeContext {
         let root = Rc::new(RefCell::new(Scope::root()));
         let scope = root.clone();
 
         Self {
-            local_allocator: Rc::new(allocator),
+            allocator,
             scope,
             root,
             debug_enabled: DebugLogger::default().is_activated(),
@@ -44,7 +44,7 @@ impl CubeContext {
         Self {
             scope: Rc::new(RefCell::new(scope)),
             root: self.root.clone(),
-            local_allocator: self.local_allocator.clone(),
+            allocator: self.allocator.clone(),
             debug_enabled: self.debug_enabled,
         }
     }
@@ -57,23 +57,24 @@ impl CubeContext {
             .into_inner()
     }
 
+    // TODO(maxime): update documentation to match allocator doc
     /// Create a new mutable local variable
-    pub fn create_local_variable(&mut self, item: Item) -> ExpandElement {
-        self.local_allocator
-            .create_local_variable(self.root.clone(), self.scope.clone(), item)
+    pub fn create_variable_mut(&mut self, item: Item) -> ExpandElement {
+        self.allocator
+            .create_variable_mut(&mut self.root.borrow_mut(), item)
     }
 
     /// Create a new immutable local binding
-    pub fn create_local_binding(&mut self, item: Item) -> ExpandElement {
-        self.local_allocator
-            .create_local_binding(self.root.clone(), self.scope.clone(), item)
+    pub fn create_variable(&mut self, item: Item) -> ExpandElement {
+        self.allocator
+            .create_variable(&mut self.scope.borrow_mut(), item)
     }
 
     /// Create a new immutable local binding that must never be a reused variable, regardless of
     /// allocator
-    pub fn create_local_undeclared(&mut self, item: Item) -> ExpandElement {
-        self.local_allocator
-            .create_local_undeclared(self.root.clone(), self.scope.clone(), item)
+    pub fn create_variable_restricted(&mut self, item: Item) -> ExpandElement {
+        self.allocator
+            .create_variable_restricted(&mut self.scope.borrow_mut(), item)
     }
 
     /// Create a new matrix element.

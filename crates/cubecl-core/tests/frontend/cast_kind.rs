@@ -45,7 +45,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(f64::as_elem());
 
-        let input = context.create_local_binding(item);
+        let input = context.create_variable(item);
 
         cast_float_kind::expand::<f64, f32>(&mut context, input.into());
         let scope = context.into_scope();
@@ -58,7 +58,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_local_binding(item);
+        let input = context.create_variable(item);
 
         cast_int_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -71,7 +71,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_local_binding(item);
+        let input = context.create_variable(item);
 
         cast_numeric_to_kind::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -84,7 +84,7 @@ mod tests {
         let mut context = CubeContext::default();
         let item = Item::new(i32::as_elem());
 
-        let input = context.create_local_binding(item);
+        let input = context.create_variable(item);
 
         cast_int_to_numeric::expand::<i32, i64>(&mut context, input.into());
         let scope = context.into_scope();
@@ -96,7 +96,7 @@ mod tests {
         let mut context = CubeContext::default();
         let float_64 = Item::new(f64::as_elem());
         let float_32 = Item::new(f32::as_elem());
-        let input = context.create_local_binding(float_64);
+        let input = context.create_variable(float_64);
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();
@@ -113,7 +113,7 @@ mod tests {
         let mut context = CubeContext::default();
         let int_32 = Item::new(i32::as_elem());
         let int_64 = Item::new(i64::as_elem());
-        let input = context.create_local_binding(int_32);
+        let input = context.create_variable(int_32);
 
         let mut scope = context.into_scope();
         let input: Variable = input.into();

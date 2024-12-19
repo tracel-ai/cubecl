@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::CheckedIndexAssign;
+use cubecl_core::ir::{CheckedIndexAssign, CubeAllocator};
 use cubecl_core::{
     ir::{self as gpu},
     prelude::CubePrimitive,
@@ -95,8 +95,8 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         49152
     }
 
-    fn local_allocator() -> impl gpu::LocalAllocator {
-        gpu::ReusingAllocator::default()
+    fn local_allocator() -> CubeAllocator {
+        CubeAllocator::new()
     }
 }
 

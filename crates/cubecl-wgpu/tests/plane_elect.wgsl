@@ -15,13 +15,13 @@ const WORKGROUP_SIZE_Z = 1u;
 fn kernel_elect(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
-let _0 = subgroupElect();
-let _1 = u32(_0);
-var l_0_0: u32;
-var l_0_1: bool;
-l_0_0 = info[0u];
-l_0_1 = local_idx < l_0_0;
-if l_0_1 {
-output_0_global[local_idx] = _1;
+let b_0_0 = subgroupElect();
+let b_0_1 = u32(b_0_0);
+var l_0_2: u32;
+var l_0_3: bool;
+l_0_2 = info[0u];
+l_0_3 = local_idx < l_0_2;
+if l_0_3 {
+output_0_global[local_idx] = b_0_1;
 }
 }

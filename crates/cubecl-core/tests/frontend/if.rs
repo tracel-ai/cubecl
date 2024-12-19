@@ -63,7 +63,7 @@ mod tests {
     fn cube_if_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         if_greater::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -75,7 +75,7 @@ mod tests {
     fn cube_if_else_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         if_then_else::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -90,7 +90,7 @@ mod tests {
     fn cube_elsif_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         elsif::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -102,7 +102,7 @@ mod tests {
     fn cube_elsif_assign_test() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::new(ElemType::as_elem()));
+        let lhs = context.create_variable(Item::new(ElemType::as_elem()));
 
         elsif_assign::expand::<ElemType>(&mut context, lhs.into());
         let scope = context.into_scope();
@@ -116,7 +116,7 @@ mod tests {
     fn inline_macro_ref_if() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -133,7 +133,7 @@ mod tests {
     fn inline_macro_ref_if_else() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond = scope.create_local(Item::new(Elem::Bool));
@@ -153,7 +153,7 @@ mod tests {
     fn inline_macro_ref_elsif() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let cond1 = scope.create_local(Item::new(Elem::Bool));
@@ -179,7 +179,7 @@ mod tests {
     fn inline_macro_ref_elsif_assign() -> String {
         let mut context = CubeContext::default();
         let item = Item::new(ElemType::as_elem());
-        let lhs = context.create_local_binding(item);
+        let lhs = context.create_variable(item);
 
         let mut scope = context.into_scope();
         let lhs: Variable = lhs.into();

@@ -10,7 +10,7 @@ use crate::{
 
 use cubecl_core::ir::CheckedIndexAssign;
 use cubecl_core::{
-    ir::{self as cube, HybridAllocator, UIntKind},
+    ir::{self as cube, CubeAllocator, UIntKind},
     prelude::CompiledKernel,
     prelude::CubePrimitive,
     server::ComputeServer,
@@ -82,8 +82,8 @@ impl cubecl_core::Compiler for WgslCompiler {
         32768
     }
 
-    fn local_allocator() -> impl cube::LocalAllocator {
-        HybridAllocator::default()
+    fn local_allocator() -> CubeAllocator {
+        CubeAllocator::new()
     }
 }
 
@@ -364,9 +364,10 @@ impl WgslCompiler {
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::VariableKind::LocalBinding { id, .. } => wgsl::Variable::LocalBinding {
+            cube::VariableKind::LocalBinding { id, depth } => wgsl::Variable::LocalBinding {
                 id,
                 item: Self::compile_item(item),
+                depth,
             },
             cube::VariableKind::Slice { id, depth } => wgsl::Variable::Slice {
                 id,

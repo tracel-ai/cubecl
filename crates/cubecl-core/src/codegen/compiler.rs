@@ -1,4 +1,4 @@
-use crate::ir::{Elem, KernelDefinition, LocalAllocator};
+use crate::ir::{Elem, KernelDefinition, CubeAllocator};
 use cubecl_runtime::ExecutionMode;
 use std::fmt::Display;
 
@@ -22,7 +22,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + Default + core::fmt::Debug {
     ) -> Self::Representation;
     /// The size of the given element in bytes.
     fn elem_size(elem: Elem) -> usize;
-    fn local_allocator() -> impl LocalAllocator;
+    fn local_allocator() -> CubeAllocator;
     /// The maximal size of a shared memory, in bytes
     fn max_shared_memory_size() -> usize;
 }

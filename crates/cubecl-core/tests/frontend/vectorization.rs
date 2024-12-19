@@ -24,7 +24,7 @@ mod tests {
         let mut context = CubeContext::default();
 
         let lhs =
-            context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(2)));
+            context.create_variable(Item::vectorized(ElemType::as_elem(), NonZero::new(2)));
 
         vectorization_binary::expand::<ElemType>(&mut context, lhs.into());
     }
@@ -35,7 +35,7 @@ mod tests {
         let mut context = CubeContext::default();
 
         let lhs =
-            context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(4)));
+            context.create_variable(Item::vectorized(ElemType::as_elem(), NonZero::new(4)));
 
         vectorization_binary::expand::<ElemType>(&mut context, lhs.into());
     }
@@ -45,7 +45,7 @@ mod tests {
         let mut context = CubeContext::default();
 
         let lhs =
-            context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(2)));
+            context.create_variable(Item::vectorized(ElemType::as_elem(), NonZero::new(2)));
 
         vectorization_cmp::expand::<ElemType>(&mut context, lhs.into());
     }
@@ -56,7 +56,7 @@ mod tests {
         let mut context = CubeContext::default();
 
         let lhs =
-            context.create_local_binding(Item::vectorized(ElemType::as_elem(), NonZero::new(4)));
+            context.create_variable(Item::vectorized(ElemType::as_elem(), NonZero::new(4)));
 
         vectorization_cmp::expand::<ElemType>(&mut context, lhs.into());
     }
@@ -65,7 +65,7 @@ mod tests {
     fn cube_vectorization_can_be_broadcasted() {
         let mut context = CubeContext::default();
 
-        let lhs = context.create_local_binding(Item::vectorized(ElemType::as_elem(), None));
+        let lhs = context.create_variable(Item::vectorized(ElemType::as_elem(), None));
 
         vectorization_cmp::expand::<ElemType>(&mut context, lhs.into());
     }

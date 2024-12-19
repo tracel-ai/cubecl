@@ -386,8 +386,12 @@ impl<D: Dialect> IndexVector<D> {
             Variable::ConstantScalar(value, _elem) => value.as_usize(),
             _ => {
                 let elem = out.elem();
+                let maybe_const = if out.is_const() { " const" } else { "" };
                 let out = out.fmt_left();
-                return writeln!(f, "{out} = reinterpret_cast<{elem}*>(&{lhs})[{rhs}];");
+                return writeln!(
+                    f,
+                    "{out} = reinterpret_cast<{elem}{maybe_const}*>(&{lhs})[{rhs}];"
+                );
             }
         };
 

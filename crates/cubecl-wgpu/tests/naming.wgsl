@@ -17,9 +17,9 @@ fn naming_kernel_f32_u8_bf16_i64(
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
 let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y * WORKGROUP_SIZE_Y) + (global_id.y * num_workgroups.x * WORKGROUP_SIZE_X) + global_id.x;
-let _0 = info[1u];
-let _1 = id < _0;
-if _1 {
+let b_0_0 = info[1u];
+let b_0_1 = id < b_0_0;
+if b_0_1 {
 var l_1_0: u32;
 var l_1_1: bool;
 l_1_0 = info[0u];
