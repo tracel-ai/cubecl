@@ -8,7 +8,7 @@ use crate::{
     WgpuServer,
 };
 
-use cubecl_core::ir::CheckedIndexAssign;
+use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
 use cubecl_core::{
     ir::{self as cube, CubeAllocator, UIntKind},
     prelude::CompiledKernel,
@@ -892,32 +892,18 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-                    let array_len = scope.create_local(cube::Item::new(u32::as_elem()));
-
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match lhs.has_buffer_length() {
-                        true => cube::Metadata::BufferLength { var: lhs },
-                        false => cube::Metadata::Length { var: lhs },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(wgsl::Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(out),
-                    });
-                } else {
-                    instructions.push(wgsl::Instruction::Index {
-                        lhs: self.compile_variable(op.lhs),
-                        rhs: self.compile_variable(op.rhs),
-                        out: self.compile_variable(out),
-                    });
-                }
+                if let ExecutionMode::Checked = self.strategy {
+                    if op.lhs.has_length() {
+                        expand_checked_index(scope, op.lhs, op.rhs, out);
+                        instructions.extend(self.compile_scope(scope));
+                        return;
+                    }
+                };
+                instructions.push(wgsl::Instruction::Index {
+                    lhs: self.compile_variable(op.lhs),
+                    rhs: self.compile_variable(op.rhs),
+                    out: self.compile_variable(out),
+                });
             }
             cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
                 lhs: self.compile_variable(op.lhs),
@@ -927,12 +913,7 @@ impl WgslCompiler {
             cube::Operator::IndexAssign(op) => {
                 if let ExecutionMode::Checked = self.strategy {
                     if out.has_length() {
-                        CheckedIndexAssign {
-                            lhs: op.lhs,
-                            rhs: op.rhs,
-                            out,
-                        }
-                        .expand(scope);
+                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
                     }

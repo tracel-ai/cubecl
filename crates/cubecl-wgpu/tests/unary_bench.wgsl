@@ -28,7 +28,6 @@ let id = (global_id.z * num_workgroups.x * WORKGROUP_SIZE_X * num_workgroups.y *
 let b_0_0 = info[5u];
 let b_0_1 = id < b_0_0;
 if b_0_1 {
-
 for (var l_2_0: u32 = 0u; l_2_0 < 256u; l_2_0++) {
 let b_2_1 = l_2_0 % 2u;
 let b_2_2 = b_2_1 == 0u;
