@@ -1,7 +1,8 @@
 use std::num::NonZeroU8;
 
 use crate::ir::{
-    BinaryOperator, Comment, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable, Vectorization
+    BinaryOperator, Comment, Elem, Instruction, Item, Operation, Operator, UnaryOperator, Variable,
+    VariableKind, Vectorization,
 };
 use crate::prelude::{CubeType, ExpandElementTyped};
 use crate::{
@@ -238,7 +239,12 @@ pub fn array_assign_binary_op_expand<
     let index: ExpandElement = index.into();
     let value: ExpandElement = value.into();
 
-    let array_value = context.create_variable(array.item);
+    let array_item = match array.kind {
+        // In that case, the array is a line.
+        VariableKind::Local { .. } => array.item.vectorize(None),
+        _ => array.item,
+    };
+    let array_value = context.create_variable(array_item);
 
     let read = Instruction::new(
         Operator::Index(BinaryOperator {
@@ -261,13 +267,7 @@ pub fn array_assign_binary_op_expand<
         lhs: *index,
         rhs: op_out.consume(),
     });
-    context.register(Comment { content: "--------------".into()});
-    context.register(Comment { content: "--------------".into()});
-    context.register(Comment { content: "Before read".into()});
     context.register(read);
-    context.register(Comment { content: "After read".into()});
     context.register(calculate);
-    context.register(Comment { content: "After calculate".into()});
     context.register(Instruction::new(write, *array));
-    context.register(Comment { content: "End\n\n".into()});
 }
