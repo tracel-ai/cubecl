@@ -4,7 +4,6 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_core::ir::CheckedIndexAssign;
 use cubecl_core::{
     ir::{self as gpu},
-    prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};

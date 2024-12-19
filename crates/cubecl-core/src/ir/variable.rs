@@ -1,8 +1,6 @@
 use std::fmt::Display;
 use std::num::NonZero;
 
-use crate::prelude::CubePrimitive;
-
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use serde::{Deserialize, Serialize};
 

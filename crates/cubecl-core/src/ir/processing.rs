@@ -1,4 +1,4 @@
-use crate::prelude::{AtomicOp, CubePrimitive};
+use crate::prelude::AtomicOp;
 
 use super::{
     Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable,

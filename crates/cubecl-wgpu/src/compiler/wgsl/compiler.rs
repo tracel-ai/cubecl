@@ -12,7 +12,6 @@ use cubecl_core::ir::CheckedIndexAssign;
 use cubecl_core::{
     ir::{self as cube, HybridAllocator, UIntKind},
     prelude::CompiledKernel,
-    prelude::CubePrimitive,
     server::ComputeServer,
     Feature, Metadata,
 };
@@ -894,7 +893,8 @@ impl WgslCompiler {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
                     let lhs = op.lhs;
                     let rhs = op.rhs;
-                    let array_len = scope.create_local(cube::Item::new(u32::as_elem()));
+                    let array_len =
+                        scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
 
                     instructions.extend(self.compile_scope(scope));
 
@@ -996,7 +996,8 @@ impl WgslCompiler {
             cube::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(cube::Item::new(u32::as_elem()));
+                    let input_len =
+                        scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
 
                     instructions.extend(self.compile_scope(scope));
 

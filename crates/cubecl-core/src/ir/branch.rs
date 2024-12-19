@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use crate::prelude::CubePrimitive;
-
 use super::{Elem, Item, Scope, UIntKind, Variable};
 use serde::{Deserialize, Serialize};
 

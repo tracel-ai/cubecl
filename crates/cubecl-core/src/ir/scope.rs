@@ -1,4 +1,4 @@
-use crate::{ir::ConstantScalarValue, prelude::CubePrimitive};
+use crate::ir::ConstantScalarValue;
 
 use super::{
     cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, UIntKind,
