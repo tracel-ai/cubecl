@@ -14,9 +14,6 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 
         // out of bounds read should be read as 0.
         output[1] = output[2];
-
-        // output[0] = F::cast_from(output.buffer_len());
-        // output[1] = F::cast_from(output.buffer_len());
     }
 }
 
@@ -37,7 +34,6 @@ pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(
     let actual = client.read_one(handle.binding());
     let actual = F::from_bytes(&actual);
 
-    println!("actual = {actual:?}");
     assert_eq!(actual[0], F::new(5.0));
     assert_eq!(actual[1], F::new(0.0));
     assert_eq!(actual[2], F::new(123.0));
