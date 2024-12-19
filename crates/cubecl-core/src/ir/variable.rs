@@ -19,7 +19,10 @@ impl Variable {
     }
 
     pub fn builtin(builtin: Builtin) -> Self {
-        Self::new(VariableKind::Builtin(builtin), Item::new(u32::as_elem()))
+        Self::new(
+            VariableKind::Builtin(builtin),
+            Item::new(Elem::UInt(UIntKind::U32)),
+        )
     }
 
     pub fn constant(scalar: ConstantScalarValue) -> Self {

@@ -32,7 +32,11 @@ impl CmmaSelector {
         let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
             Some((
                 client.properties(),
-                (MS::ES::as_elem(), MS::ES::as_elem(), MS::EA::as_elem()),
+                (
+                    MS::ES::as_elem_native().unwrap(),
+                    MS::ES::as_elem_native().unwrap(),
+                    MS::EA::as_elem_native().unwrap(),
+                ),
             )),
             problem.m,
             problem.n,

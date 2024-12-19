@@ -190,12 +190,13 @@ impl<C: CubePrimitive> Matrix<C> {
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) -> MatrixExpand<C> {
+        let elem = C::as_elem(context);
         let elem = context.create_matrix(ir::Matrix {
             ident,
             m: m.constant().unwrap().as_u32() as u8,
             n: n.constant().unwrap().as_u32() as u8,
             k: k.constant().unwrap().as_u32() as u8,
-            elem: C::as_elem(),
+            elem,
             layout,
         });
         MatrixExpand {
@@ -436,12 +437,13 @@ pub mod cast {
             _ => unreachable!(),
         };
 
+        let elem = O::as_elem(context);
         let elem = context.create_matrix(ir::Matrix {
             ident,
             m: input_mat.m,
             n: input_mat.n,
             k: input_mat.k,
-            elem: O::as_elem(),
+            elem,
             layout: MatrixLayout::Undefined,
         });
 

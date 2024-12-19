@@ -1,7 +1,8 @@
 use crate::prelude::{AtomicOp, CubePrimitive};
 
 use super::{
-    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, Variable, VariableKind,
+    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
+    VariableKind,
 };
 
 /// Information necessary when compiling a scope.
@@ -133,23 +134,23 @@ impl ScopeProcessing {
                     }
                     Operator::Slice(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.start, u32::as_elem());
-                        sanitize_constant_scalar_ref_elem(&mut op.end, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
                     }
                     Operator::Index(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
                     }
                     Operator::UncheckedIndex(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
                     }
                     Operator::IndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Operator::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
                     Operator::And(op) => {
@@ -214,13 +215,25 @@ impl ScopeProcessing {
                     }
                     Operator::CopyMemory(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.in_index, u32::as_elem());
-                        sanitize_constant_scalar_ref_elem(&mut op.out_index, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.in_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.out_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
                     }
                     Operator::CopyMemoryBulk(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.in_index, u32::as_elem());
-                        sanitize_constant_scalar_ref_elem(&mut op.out_index, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.in_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.out_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
                     }
                     Operator::Select(op) => {
                         sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
@@ -263,10 +276,10 @@ impl ScopeProcessing {
                 },
                 Operation::Metadata(op) => match op {
                     Metadata::Stride { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt(UIntKind::U32));
                     }
                     Metadata::Shape { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt(UIntKind::U32));
                     }
                     Metadata::Length { .. }
                     | Metadata::BufferLength { .. }
@@ -285,7 +298,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
                         sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
                         if let Some(step) = &mut op.step {
-                            sanitize_constant_scalar_ref_elem(step, u32::as_elem());
+                            sanitize_constant_scalar_ref_elem(step, Elem::UInt(UIntKind::U32));
                         }
                     }
                     _ => {
@@ -304,13 +317,13 @@ impl ScopeProcessing {
                     }
                     CoopMma::Load { value, stride, .. } => {
                         sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(stride, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt(UIntKind::U32));
                     }
                     CoopMma::Execute { .. } => {
                         // Nothing to do.
                     }
                     CoopMma::Store { stride, .. } => {
-                        sanitize_constant_scalar_ref_elem(stride, u32::as_elem());
+                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt(UIntKind::U32));
                     }
                     CoopMma::Cast { .. } => {
                         // Nothing to do.

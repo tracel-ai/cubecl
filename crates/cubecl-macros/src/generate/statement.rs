@@ -17,7 +17,9 @@ impl Statement {
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
                     {
                         let expand = frontend_type("ExpandElementTyped");
-                        Some(quote_spanned![as_const.span()=> #expand::from_lit(#as_const)])
+                        Some(
+                            quote_spanned![as_const.span()=> #expand::from_lit(context, #as_const)],
+                        )
                     } else if let Some(as_const) = init.as_ref().and_then(|it| it.as_const(context))
                     {
                         Some(quote_spanned![as_const.span()=> #as_const.clone()])

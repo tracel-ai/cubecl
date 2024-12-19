@@ -543,7 +543,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let input_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
 
                     instructions.extend(self.compile_scope(scope));
 
@@ -573,7 +574,8 @@ impl<D: Dialect> CppCompiler<D> {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
                     let lhs = op.lhs;
                     let rhs = op.rhs;
-                    let array_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let array_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
 
                     instructions.extend(self.compile_scope(scope));
 

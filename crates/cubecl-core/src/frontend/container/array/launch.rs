@@ -33,7 +33,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Array<C>> {
         builder
-            .input_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+            .input_array(Item::vectorized(
+                C::as_elem(&builder.context),
+                arg.vectorisation,
+            ))
             .into()
     }
     fn expand_output(
@@ -43,7 +46,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
-                .output_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .output_array(Item::vectorized(
+                    C::as_elem(&builder.context),
+                    arg.vectorisation,
+                ))
                 .into(),
         }
     }
@@ -82,7 +88,11 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         vectorization_factor: u8,
     ) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(handle, length, E::as_elem().size()),
+            handle: ArrayHandleRef::from_raw_parts(
+                handle,
+                length,
+                E::size().expect("Element should have a size"),
+            ),
             vectorization_factor,
         }
     }

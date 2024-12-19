@@ -221,33 +221,32 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
     k: u32,
     client: &ComputeClient<R::Server, R::Channel>,
 ) -> Result<(), MatmulAvailabilityError> {
+    let i_elem = I::as_elem_native().expect("to be a native type");
+    let o_elem = I::as_elem_native().expect("to be a native type");
+
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: I::as_elem(),
-        b: I::as_elem(),
-        c: O::as_elem(),
+        a: i_elem,
+        b: i_elem,
+        c: o_elem,
         m: m as u8,
         k: k as u8,
         n: n as u8,
     }) {
         return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
-            input: I::as_elem(),
-            output: O::as_elem(),
+            input: i_elem,
+            output: o_elem,
             m,
             n,
             k,
         });
     }
 
-    if !(client
-        .properties()
-        .feature_enabled(Feature::Type(I::as_elem()))
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(O::as_elem())))
+    if !(client.properties().feature_enabled(Feature::Type(i_elem))
+        && client.properties().feature_enabled(Feature::Type(o_elem)))
     {
         return Err(MatmulAvailabilityError::TypesUnavailable {
-            input: I::as_elem(),
-            output: O::as_elem(),
+            input: i_elem,
+            output: o_elem,
         });
     }
 

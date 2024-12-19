@@ -110,25 +110,26 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
     disable_cmma: bool,
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
+    let eg_elem = EG::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
     let lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&eg_elem),
         lhs.shape,
         lhs.strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&eg_elem),
         rhs.shape,
         rhs.strides,
         rank - 1,
     );
     let out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem()),
+        R::line_size_elem(&eg_elem),
         out.shape,
         out.strides,
         rank - 1,

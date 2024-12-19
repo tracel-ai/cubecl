@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::prelude::CubePrimitive;
 
-use super::{Item, Scope, Variable};
+use super::{Elem, Item, Scope, UIntKind, Variable};
 use serde::{Deserialize, Serialize};
 
 /// All branching types.
@@ -151,7 +151,7 @@ impl RangeLoop {
         func: F,
     ) {
         let mut scope = parent_scope.child();
-        let index_ty = Item::new(u32::as_elem());
+        let index_ty = Item::new(Elem::UInt(UIntKind::U32));
         let i = scope.create_local_undeclared(index_ty);
 
         func(i, &mut scope);

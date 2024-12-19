@@ -163,8 +163,8 @@ impl CubeType for flex32 {
 
 impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
-    fn as_elem() -> Elem {
-        Elem::Float(FloatKind::Flex32)
+    fn as_elem_native() -> Option<Elem> {
+        Some(Elem::Float(FloatKind::Flex32))
     }
 }
 
@@ -222,7 +222,7 @@ impl LaunchArgExpand for flex32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(flex32::as_elem()).into()
+        builder.scalar(flex32::as_elem(&builder.context)).into()
     }
 }
 

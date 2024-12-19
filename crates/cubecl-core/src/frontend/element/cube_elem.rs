@@ -2,6 +2,7 @@ use half::{bf16, f16};
 
 use crate::frontend::{CubeType, ExpandElement};
 use crate::ir::{Elem, Variable};
+use crate::prelude::CubeContext;
 
 use super::{flex32, tf32, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 
@@ -19,7 +20,17 @@ pub trait CubePrimitive:
     + Copy
 {
     /// Return the element type to use on GPU
-    fn as_elem() -> Elem;
+    fn as_elem(_context: &CubeContext) -> Elem {
+        Self::as_elem_native().expect("To be overriden if not native")
+    }
+
+    fn as_elem_native() -> Option<Elem> {
+        None
+    }
+
+    fn size() -> Option<usize> {
+        Self::as_elem_native().map(|t| t.size())
+    }
 
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)

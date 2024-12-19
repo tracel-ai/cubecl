@@ -51,8 +51,8 @@ macro_rules! impl_int {
         }
 
         impl CubePrimitive for $type {
-            fn as_elem() -> Elem {
-                Elem::Int(IntKind::$kind)
+            fn as_elem_native() -> Option<Elem> {
+                Some(Elem::Int(IntKind::$kind))
             }
         }
 
@@ -92,7 +92,7 @@ macro_rules! impl_int {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($type::as_elem()).into()
+                builder.scalar($type::as_elem(&builder.context)).into()
             }
         }
     };

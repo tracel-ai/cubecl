@@ -363,20 +363,19 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> MatmulKer
     fn check_availability<R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<(), MatmulAvailabilityError> {
+        let i_elem = I::as_elem_native().expect("to be a native type");
+        let o_elem = I::as_elem_native().expect("to be a native type");
+
         if !client.properties().feature_enabled(Feature::Plane) {
             return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
         }
 
-        if !(client
-            .properties()
-            .feature_enabled(Feature::Type(I::as_elem()))
-            && client
-                .properties()
-                .feature_enabled(Feature::Type(O::as_elem())))
+        if !(client.properties().feature_enabled(Feature::Type(i_elem))
+            && client.properties().feature_enabled(Feature::Type(o_elem)))
         {
             return Err(MatmulAvailabilityError::TypesUnavailable {
-                input: I::as_elem(),
-                output: O::as_elem(),
+                input: i_elem,
+                output: o_elem,
             });
         }
 

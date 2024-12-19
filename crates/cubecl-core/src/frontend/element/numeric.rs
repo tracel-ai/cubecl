@@ -68,10 +68,10 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(
-        _context: &mut CubeContext,
+        context: &mut CubeContext,
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem();
+        let elem = Self::as_elem(&context);
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
@@ -82,10 +82,10 @@ pub trait Numeric:
         vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
         let new_var = context.create_local_binding(Item::vectorized(
-            Self::as_elem(),
+            Self::as_elem(context),
             NonZero::new(vec.len() as u8),
         ));
-        let elem = Self::as_elem();
+        let elem = Self::as_elem(context);
 
         for (i, element) in vec.iter().enumerate() {
             let var: Variable = elem.constant_from_i64(*element as i64);
@@ -94,7 +94,7 @@ pub trait Numeric:
             index_assign::expand::<u32>(
                 context,
                 new_var.clone().into(),
-                ExpandElementTyped::from_lit(i),
+                ExpandElementTyped::from_lit(context, i),
                 expand.into(),
             );
         }

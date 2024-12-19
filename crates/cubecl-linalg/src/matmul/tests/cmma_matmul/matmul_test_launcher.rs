@@ -102,9 +102,9 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
     if !(client.properties().feature_enabled(Feature::Plane)
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(EG::as_elem())))
+        && client.properties().feature_enabled(Feature::Type(
+            EG::as_elem_native().expect("To be a native type"),
+        )))
     {
         // Can't execute the test.
         return;
@@ -181,7 +181,10 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Out => {
-            let handle = client.empty(tensor_size(problem, Ident::Out) * EG::as_elem().size());
+            let handle = client.empty(
+                tensor_size(problem, Ident::Out)
+                    * EG::as_elem_native().expect("To be a native type").size(),
+            );
             let shape = shape(problem, Ident::Out);
             let strides = strides(problem, Ident::Out);
 
@@ -223,9 +226,9 @@ fn assert_result<
         Some(epsilon) => epsilon,
         None => {
             let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-                a: ES::as_elem(),
-                b: ES::as_elem(),
-                c: EG::as_elem(),
+                a: ES::as_elem_native().expect("To be a native type"),
+                b: ES::as_elem_native().expect("To be a native type"),
+                c: EG::as_elem_native().expect("To be a native type"),
                 m: 16,
                 k: 16,
                 n: 16,

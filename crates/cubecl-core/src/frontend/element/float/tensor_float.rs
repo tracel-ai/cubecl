@@ -174,8 +174,8 @@ impl CubeType for tf32 {
 
 impl CubePrimitive for tf32 {
     /// Return the element type to use on GPU
-    fn as_elem() -> Elem {
-        Elem::Float(FloatKind::TF32)
+    fn as_elem_native() -> Option<Elem> {
+        Some(Elem::Float(FloatKind::TF32))
     }
 }
 
@@ -240,6 +240,6 @@ impl LaunchArgExpand for tf32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_elem()).into()
+        builder.scalar(tf32::as_elem(&builder.context)).into()
     }
 }

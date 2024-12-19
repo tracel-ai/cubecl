@@ -67,7 +67,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
-            .input_tensor(Item::vectorized(C::as_elem(), arg.vectorisation))
+            .input_tensor(Item::vectorized(
+                C::as_elem(&builder.context),
+                arg.vectorisation,
+            ))
             .into()
     }
     fn expand_output(
@@ -77,7 +80,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
-                .output_tensor(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .output_tensor(Item::vectorized(
+                    C::as_elem(&builder.context),
+                    arg.vectorisation,
+                ))
                 .into(),
         }
     }
@@ -122,7 +128,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
                     handle,
                     strides,
                     shape,
-                    E::as_elem().size(),
+                    E::size().expect("Element should have a size"),
                 ),
                 vectorization_factor: factor,
             }

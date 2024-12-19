@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 use crate::{
-    ir::{BinaryOperator, ConstantScalarValue, Instruction, Item, Operator},
+    ir::{BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Operator},
     prelude::{binary_expand_fixed_output, CubeContext, Dot, ExpandElement, Numeric},
     unexpanded,
 };
@@ -79,7 +79,8 @@ mod fill {
             value: ExpandElementTyped<P>,
         ) -> Self {
             let length = self.expand.item.vectorization;
-            let output = context.create_local_binding(Item::vectorized(P::as_elem(), length));
+            let output =
+                context.create_local_binding(Item::vectorized(P::as_elem(context), length));
 
             cast::expand::<P>(context, value, output.clone().into());
 
@@ -120,7 +121,7 @@ mod empty {
                 None => None,
             };
             context
-                .create_local_variable(Item::vectorized(Self::as_elem(), length))
+                .create_local_variable(Item::vectorized(Self::as_elem(context), length))
                 .into()
         }
     }
@@ -208,7 +209,7 @@ macro_rules! impl_line_comparison {
                         let lhs = self.expand.into();
                         let rhs = rhs.expand.into();
 
-                        let output = context.create_local_binding(Item::vectorized(bool::as_elem(), size));
+                        let output = context.create_local_binding(Item::vectorized(bool::as_elem(context), size));
 
                         context.register(Instruction::new(
                             Operator::$operator(BinaryOperator { lhs, rhs }),
@@ -251,8 +252,16 @@ impl<P: CubePrimitive> IntoRuntime for Line<P> {
 }
 
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
-    fn as_elem() -> crate::ir::Elem {
-        P::as_elem()
+    fn as_elem(context: &CubeContext) -> Elem {
+        P::as_elem(context)
+    }
+
+    fn as_elem_native() -> Option<Elem> {
+        P::as_elem_native()
+    }
+
+    fn size() -> Option<usize> {
+        P::size()
     }
 }
 
