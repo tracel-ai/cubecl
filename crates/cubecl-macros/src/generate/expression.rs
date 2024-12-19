@@ -38,17 +38,18 @@ impl Expression {
                     .map(|as_const| quote![#elem::from_lit(#as_const)])
                     .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
-                with_span(
+                let expand = with_span(
                     *span,
-                    quote! {
-                        {
-                            let _array = #array;
-                            let _index = #index;
-                            let _value = #right;
-                            #frontend_path::#op::expand(context, _array, _index, _value)
-                        }
-                    },
-                )
+                    quote![#frontend_path::#op::expand(context, _array, _index, _value)],
+                );
+                quote! {
+                    {
+                        let _array = #array;
+                        let _index = #index;
+                        let _value = #right;
+                        #expand
+                    }
+                }
             }
             Expression::Binary {
                 left,
@@ -61,16 +62,17 @@ impl Expression {
                 let op = format_ident!("{}", operator.op_name());
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                with_span(
+                let expand = with_span(
                     *span,
-                    quote! {
-                        {
-                            let _lhs = #left;
-                            let _rhs = #right;
-                            #frontend_path::#op::expand(context, _lhs, _rhs)
-                        }
-                    },
-                )
+                    quote![#frontend_path::#op::expand(context, _lhs, _rhs)],
+                );
+                quote! {
+                    {
+                        let _lhs = #left;
+                        let _rhs = #right;
+                        #expand
+                    }
+                }
             }
             Expression::Unary {
                 input,
@@ -86,15 +88,13 @@ impl Expression {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
-                with_span(
-                    *span,
-                    quote! {
-                        {
-                            let _inner = #input;
-                            #frontend_path::#op::expand(context, _inner)
-                        }
-                    },
-                )
+                let expand = with_span(*span, quote![#frontend_path::#op::expand(context, _inner)]);
+                quote! {
+                    {
+                        let _inner = #input;
+                        #expand
+                    }
+                }
             }
             Expression::Keyword { name } => {
                 quote![#name::expand(context)]
@@ -157,16 +157,14 @@ impl Expression {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
-                with_span(
-                    *span,
-                    quote! {
-                        {
-                            let _array = #expr;
-                            let _index = #index;
-                            #index_fn::expand(context, _array, _index)
-                        }
-                    },
-                )
+                let expand = with_span(*span, quote![#index_fn::expand(context, _array, _index)]);
+                quote! {
+                    {
+                        let _array = #expr;
+                        let _index = #index;
+                        #expand
+                    }
+                }
             }
             Expression::FunctionCall {
                 func,
