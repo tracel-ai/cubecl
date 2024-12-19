@@ -16,8 +16,12 @@ fn kernel_sum(
     @builtin(local_invocation_index) local_idx: u32,
 ) {
 var l_0_0: u32;
+var l_0_1: bool;
+var l_0_2: f32;
 l_0_0 = info[0u];
-let _0 = select(f32(0), output_0_global[local_idx], local_idx < l_0_0);
+l_0_1 = local_idx < l_0_0;
+l_0_2 = output_0_global[local_idx];
+let _0 = select(0f, l_0_2, l_0_1);
 let _1 = subgroupAdd(_0);
 let _2 = local_idx == 0u;
 if _2 {

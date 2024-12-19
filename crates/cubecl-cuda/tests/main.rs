@@ -113,6 +113,7 @@ pub fn constant_array() {
 
     let kernel = ConstantArrayKernel::<f32, CudaRuntime>::new(settings(), tensor(), data);
     let expected = include_str!("constant_array.cu").replace("\r\n", "\n");
+    let expected = expected.trim();
     assert_eq!(compile(kernel), expected);
 }
 
@@ -130,5 +131,6 @@ fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array
 pub fn naming() {
     let kernel = NamingKernel::<f32, u8, bf16, i64, CudaRuntime>::new(settings(), array());
     let expected = include_str!("naming.cu").replace("\r\n", "\n");
+    let expected = expected.trim();
     assert_eq!(compile(kernel), expected);
 }

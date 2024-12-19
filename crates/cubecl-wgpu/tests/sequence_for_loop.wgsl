@@ -20,25 +20,33 @@ if _0 {
 return;
 }
 var l_0_0: u32;
+var l_0_1: bool;
+var l_0_2: f32;
 l_0_0 = info[0u];
-let _1 = select(f32(0), output_0_global[0u], 0u < l_0_0);
+l_0_1 = 0u < l_0_0;
+l_0_2 = output_0_global[0u];
+let _1 = select(0f, l_0_2, l_0_1);
 let _2 = _1 + 1f;
-var l_0_1: u32;
-var l_0_2: bool;
-l_0_1 = info[0u];
-l_0_2 = 0u < l_0_1;
-if l_0_2 {
+var l_0_3: u32;
+var l_0_4: bool;
+l_0_3 = info[0u];
+l_0_4 = 0u < l_0_3;
+if l_0_4 {
 output_0_global[0u] = _2;
 }
-var l_0_3: u32;
-l_0_3 = info[0u];
-let _3 = select(f32(0), output_0_global[0u], 0u < l_0_3);
+var l_0_5: u32;
+var l_0_6: bool;
+var l_0_7: f32;
+l_0_5 = info[0u];
+l_0_6 = 0u < l_0_5;
+l_0_7 = output_0_global[0u];
+let _3 = select(0f, l_0_7, l_0_6);
 let _4 = _3 + 4f;
-var l_0_4: u32;
-var l_0_5: bool;
-l_0_4 = info[0u];
-l_0_5 = 0u < l_0_4;
-if l_0_5 {
+var l_0_8: u32;
+var l_0_9: bool;
+l_0_8 = info[0u];
+l_0_9 = 0u < l_0_8;
+if l_0_9 {
 output_0_global[0u] = _4;
 }
 }

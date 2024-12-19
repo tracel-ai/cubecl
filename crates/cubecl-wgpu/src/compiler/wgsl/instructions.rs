@@ -62,13 +62,6 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
-    // Index handles casting to correct local variable.
-    CheckedIndex {
-        len: Variable,
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
     // Index assign handles casting to correct output variable.
     IndexAssign {
         lhs: Variable,
@@ -700,22 +693,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                 f.write_str("}\n")
             }
-            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
-                Variable::Slice { item, .. } => {
-                    let offset = Variable::Named {
-                        name: format!("{lhs}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let lhs = Variable::Named {
-                        name: format!("(*{lhs}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-                    index(f, &lhs, rhs, out, Some(offset), Some(len))
-                }
-                _ => index(f, lhs, rhs, out, None, Some(len)),
-            },
             Instruction::If { cond, instructions } => {
                 writeln!(f, "if {cond} {{")?;
                 for i in instructions {
