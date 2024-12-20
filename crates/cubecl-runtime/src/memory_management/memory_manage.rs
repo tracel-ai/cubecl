@@ -278,20 +278,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        // Find first pool where size <= p.max_alloc with a binary search.
-        let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
-
-        // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
-        // requested allocation
-        if pool_ind >= self.pools.len() {
-            panic!("Unable to find valid pool partition point: No memory pool big enough to reserve {size} bytes.");
-        }
-
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
-            panic!("No memory pool big enough to reserve {size} bytes.");
-        }
-        pool.reserve(&mut self.storage, size, exclude)
+        self.pools
+            .find_suitable_memory_pool(size)
+            .reserve(&mut self.storage, size, exclude)
     }
 
     /// Bypass the memory allocation algorithm to allocate data directly.
@@ -300,13 +289,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// Can be useful for servers that want specific control over memory.
     pub fn alloc(&mut self, size: u64) -> SliceHandle {
-        // Find first pool where size <= p.max_alloc with a binary search.
-        let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
-            panic!("No memory pool big enough to alloc {size} bytes.");
-        }
-        pool.alloc(&mut self.storage, size)
+        self.pools
+            .find_suitable_memory_pool(size)
+            .alloc(&mut self.storage, size)
     }
 
     /// Bypass the memory allocation algorithm to deallocate data directly.
@@ -349,6 +334,45 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
+    }
+}
+
+/// Trait necessary to implement `find_suitable_memory_pool` on a foreign type
+trait PoolFind<'a> {
+    fn find_suitable_memory_pool(self, size: u64) -> &'a mut DynamicPool;
+}
+
+impl<'a> PoolFind<'a> for &'a mut [DynamicPool] {
+    /// Finds and returns a memory pool big enough for the requested size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no pool big enough can be found.
+    fn find_suitable_memory_pool(self, size: u64) -> &'a mut DynamicPool {
+        let pool_ind = self
+            // This finds a (not necessarily first) pool that matches the size exactly
+            // or returns error with index where a matching element could be inserted while maintaining sorted order
+            .binary_search_by_key(&size, |p| p.max_alloc_size())
+            // If Err is returned, this checks if it is within bounds
+            // Effectively: check if we found a big enough pool
+            .or_else(|found_index| {
+                if found_index < self.len() {
+                    Ok(found_index)
+                } else {
+                    Err(found_index)
+                }
+            })
+            // Unwrap with panic allows for a more comprehensive error message
+            .unwrap_or_else(|_| {
+                panic!("Unable to find a valid pool: No memory pool big enough to reserve {size} bytes")
+            });
+
+        let pool = self
+            // get_mut instead of indexing allows for providing panic message
+            .get_mut(pool_ind)
+            .expect("Failed to find memory pool, please report this bug");
+
+        pool
     }
 }
 
@@ -413,6 +437,30 @@ mod tests {
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
         assert_eq!(usage.bytes_reserved, page_size);
+    }
+
+    #[should_panic(
+        expected = "Unable to find a valid pool: No memory pool big enough to reserve 512000000000000000 bytes"
+    )]
+    #[test]
+    fn invalid_memory_alloc() {
+        let page_size = 2048;
+
+        let mut memory_management = MemoryManagement::new(
+            BytesStorage::default(),
+            vec![MemoryPoolOptions {
+                page_size,
+                chunk_num_prealloc: 0,
+                pool_type: PoolType::SlicedPages {
+                    max_slice_size: page_size,
+                },
+                dealloc_period: None,
+            }],
+            32,
+        );
+
+        let alloc_size = 512_000_000_000_000_000;
+        let _handle = memory_management.reserve(alloc_size, None);
     }
 
     #[test]
