@@ -59,6 +59,7 @@ pub trait Init: Sized {
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArgExpand: CubeType {
     /// Compilation argument.
+    // TODO: dynamic cast when compiling.
     type CompilationArg: Clone
         + PartialEq
         + Eq

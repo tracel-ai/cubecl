@@ -122,10 +122,9 @@ macro_rules! testgen_launch {
         #[test]
         fn test_launch_with_comptime_tag() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::launch::test_kernel_with_comptime_tag::<
-                TestRuntime,
-                FloatType,
-            >(client);
+            cubecl_core::runtime_tests::launch::test_kernel_with_comptime_tag::<TestRuntime>(
+                client,
+            );
         }
     };
 }
