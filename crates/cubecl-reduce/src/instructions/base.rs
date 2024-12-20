@@ -1,6 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+pub trait ReduceInstructionFamily: Send + Sync + 'static {
+    type Instruction<In: Numeric>: ReduceInstruction<In>;
+}
+
 /// An instruction for a reduce algorithm that works with [`Line`].
 ///
 /// See a provided implementation, such as [`Sum`] or [`ArgMax`] for an example how to implement

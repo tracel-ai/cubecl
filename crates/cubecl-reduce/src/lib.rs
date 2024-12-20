@@ -21,6 +21,7 @@ mod strategy;
 pub use config::*;
 pub use error::*;
 pub use instructions::ReduceInstruction;
+use instructions::ReduceInstructionFamily;
 pub use strategy::*;
 
 use launch::*;
@@ -83,7 +84,7 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstruction<In>>(
+pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceInstructionFamily>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
