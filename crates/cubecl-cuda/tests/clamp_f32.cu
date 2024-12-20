@@ -16,14 +16,18 @@ extern "C" __global__ void clamp_kernel_f32(float input_0[], float output_0[],
       (absoluteIdx.y * gridDim.x * blockDim.x) + absoluteIdx.x;
   float l_0_0;
   uint l_0_1;
+  bool l_0_2;
+  float l_0_3;
   l_0_1 = info[uint(0)];
-  l_0_0 = (uint(0) < l_0_1) ? input_0[uint(0)] : float(0);
+  l_0_2 = uint(0) < l_0_1;
+  l_0_3 = input_0[uint(0)];
+  l_0_0 = (l_0_2) ? l_0_3 : float(0.0);
   l_0_0 = max(float(0.0), min(float(2.0), l_0_0));
-  uint l_0_2;
-  bool l_0_3;
-  l_0_2 = info[uint(1)];
-  l_0_3 = idxGlobal < l_0_2;
-  if (l_0_3) {
+  uint l_0_4;
+  bool l_0_5;
+  l_0_4 = info[uint(1)];
+  l_0_5 = idxGlobal < l_0_4;
+  if (l_0_5) {
     output_0[idxGlobal] = l_0_0;
   }
 }

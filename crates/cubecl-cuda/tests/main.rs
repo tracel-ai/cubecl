@@ -184,9 +184,9 @@ pub fn test_lined_clamp() {
         arg4.clone(),
         arg4.clone(),
     );
-
     // TODO: Regenerate when correct
     // std::fs::write("tests/lined_clamp_f16.cu", compile(kernel));
+
     let expected = include_str!("lined_clamp_f16.cu").replace("\r\n", "\n");
     assert_eq!(compile(kernel), expected);
 }
