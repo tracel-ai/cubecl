@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
-use crate::shared::{Component, Elem};
+use crate::shared::{Component, Elem, FmtLeft};
 
-use super::{Dialect, IndexedVariable, Variable};
+use super::{Dialect, Variable};
 
 #[derive(Clone, Debug)]
 pub enum WarpInstruction<D: Dialect> {
@@ -58,23 +58,27 @@ unsigned int leader = __ffs(mask) - 1;
             WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::warp_all),
             WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::warp_any),
             WarpInstruction::Broadcast { input, id, out } => {
-                let input_optimized = input.optimized();
-                let out_optimized = out.optimized();
-                for k in 0..out_optimized.item().vectorization {
-                    let __shfl = D::warp_shuffle(&input_optimized.index(k), id);
-                    let indexed = out_optimized.index(k);
-                    write!(
-                        f,
-                        "
-                        {{
-                            for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                                {indexed} = {__shfl};
-                            }}
-                        }}
-                        "
-                    )?;
+                writeln!(f, "auto plane_broadcast_{out} = [&](){{")?;
+                writeln!(f, "    {} acc = {};", out.item(), input)?;
+                writeln!(
+                    f,
+                    "    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{"
+                )?;
+                let in_optimized = input.optimized();
+                let vectorization = in_optimized.item().vectorization;
+                for k in 0..vectorization {
+                    let acc = if vectorization == 1 {
+                        "acc"
+                    } else {
+                        &format!("acc.i_{k}")
+                    };
+                    let shfl = D::warp_shuffle(acc, &format!("{id}"));
+                    writeln!(f, "        {acc} = {shfl};")?;
                 }
-                Ok(())
+                writeln!(f, "    }};")?;
+                writeln!(f, "    return acc;")?;
+                writeln!(f, "}};")?;
+                writeln!(f, "{} = plane_broadcast_{}();", out.fmt_left(), out)
             }
         }
     }
@@ -86,30 +90,27 @@ fn reduce_operator<D: Dialect>(
     out: &Variable<D>,
     op: &str,
 ) -> core::fmt::Result {
-    write!(
+    writeln!(f, "auto plane_op_{out} = [&](){{")?;
+    writeln!(f, "    {} acc = {};", out.item(), input)?;
+    writeln!(
         f,
-        "
-        {out} = {input};
-        "
+        "    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{"
     )?;
-
-    let optimized = out.optimized();
-
-    for k in 0..optimized.item().vectorization {
-        let indexed = optimized.index(k);
-        let __shfl_xor = D::warp_shuffle_xor(&indexed);
-        write!(
-            f,
-            "
-            {{
-                for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                   {indexed} {op} {__shfl_xor};
-                }}
-            }}
-            "
-        )?;
+    let in_optimized = input.optimized();
+    let vectorization = in_optimized.item().vectorization;
+    for k in 0..vectorization {
+        let acc = if vectorization == 1 {
+            "acc"
+        } else {
+            &format!("acc.i_{k}")
+        };
+        let shfl_xor = D::warp_shuffle_xor(acc, "offset");
+        writeln!(f, "        {acc} {op} {shfl_xor};")?;
     }
-    Ok(())
+    writeln!(f, "    }};")?;
+    writeln!(f, "    return acc;")?;
+    writeln!(f, "}};")?;
+    writeln!(f, "{} = plane_op_{}();", out.fmt_left(), out)
 }
 
 fn reduce_comparison<D: Dialect>(
@@ -118,64 +119,45 @@ fn reduce_comparison<D: Dialect>(
     out: &Variable<D>,
     cmp: &str,
 ) -> core::fmt::Result {
-    write!(
+    writeln!(f, "auto plane_cmp_{out} = [&](){{")?;
+    writeln!(f, "    {} acc = {};", out.item(), input)?;
+    writeln!(
         f,
-        "
-        {out} = {input};
-        "
+        "    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{"
     )?;
-
-    let optimized = out.optimized();
-
-    let instruction = match optimized.elem() {
+    let in_optimized = input.optimized();
+    let instruction = match in_optimized.elem() {
         Elem::F16 | Elem::BF16 => format!("__h{cmp}"),
         Elem::F162 | Elem::BF162 => format!("__h{cmp}2"),
         _ => cmp.to_string(),
     };
-
-    for k in 0..optimized.item().vectorization {
-        let indexed = optimized.index(k);
-        let __shfl_xor = D::warp_shuffle_xor(&indexed);
-        write!(
-            f,
-            "
-            {{
-                for (int offset = warpSizeChecked / 2; offset > 0; offset /= 2) {{
-                    {indexed} = {instruction}({indexed}, {__shfl_xor});
-                }}
-            }}
-            "
-        )?;
+    let vectorization = in_optimized.item().vectorization;
+    for k in 0..vectorization {
+        let acc = if vectorization == 1 {
+            "acc"
+        } else {
+            &format!("acc.i_{k}")
+        };
+        let shfl_xor = D::warp_shuffle_xor(acc, "offset");
+        writeln!(f, "        {acc} = {instruction}({acc}, {shfl_xor});")?;
     }
-    Ok(())
+    writeln!(f, "    }};")?;
+    writeln!(f, "    return acc;")?;
+    writeln!(f, "}};")?;
+    writeln!(f, "{} = plane_cmp_{}();", out.fmt_left(), out)
 }
 
-fn reduce_quantifier<D: Dialect, Q: Fn(&IndexedVariable<D>) -> String>(
+fn reduce_quantifier<D: Dialect, Q: Fn(&str) -> String>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
     quantifier: Q,
 ) -> core::fmt::Result {
-    write!(
-        f,
-        "
-            {out} = {input};
-        "
-    )?;
-    let optimized = out.optimized();
-    for k in 0..optimized.item().vectorization {
-        let indexed = optimized.index(k);
-        let __all = quantifier(&indexed);
-        write!(
-            f,
-            "
-            {{
-                for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{
-                    {indexed} = {__all};
-                }}
-            }}
-            "
-        )?;
-    }
-    Ok(())
+    let in_optimized = input.optimized();
+    let rhs = (0..in_optimized.item().vectorization)
+        .map(|k| quantifier(&format!("{}", in_optimized.index(k))))
+        .collect::<Vec<_>>()
+        .join(",");
+    let out_fmt = out.fmt_left();
+    writeln!(f, "{out_fmt} = {{ {rhs} }};")
 }
