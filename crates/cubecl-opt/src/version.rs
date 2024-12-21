@@ -175,7 +175,7 @@ impl Optimizer {
 
     fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
         self.visit_out(&mut op.out, |_, var| match var.kind {
-            VariableKind::Local { id, depth } | VariableKind::Versioned { id, depth, .. } => {
+            VariableKind::LocalMut { id, depth } | VariableKind::Versioned { id, depth, .. } => {
                 if let Some(version) = state.versions.get_mut(&(id, depth)) {
                     let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
                     *max_version += 1;
@@ -196,7 +196,7 @@ impl Optimizer {
 
     fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
         match var.kind {
-            VariableKind::Local { id, depth } | VariableKind::Versioned { id, depth, .. } => {
+            VariableKind::LocalMut { id, depth } | VariableKind::Versioned { id, depth, .. } => {
                 if self.program.variables.contains_key(&(id, depth)) {
                     if let Some(version) = state.versions.get(&(id, depth)) {
                         *var = Variable::new(

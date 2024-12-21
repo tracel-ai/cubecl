@@ -67,7 +67,7 @@ impl Scope {
 
     /// Create a variable initialized at zero.
     pub fn zero<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let local = self.create_local(item);
+        let local = self.create_local_mut(item);
         let zero: Variable = 0u32.into();
         cpa!(self, local = zero);
         local
@@ -88,7 +88,7 @@ impl Scope {
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
-        let local = self.create_local(item);
+        let local = self.create_local_mut(item);
         let value = Variable::constant(value);
         cpa!(self, local = value);
         local
@@ -123,12 +123,12 @@ impl Scope {
         variable
     }
 
-    /// Create a local variable of the given [item type](Item).
-    pub fn create_local<I: Into<Item>>(&mut self, item: I) -> Variable {
+    /// Create a mutable variable of the given [item type](Item).
+    pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
         let local = Variable::new(
-            VariableKind::Local {
+            VariableKind::LocalMut {
                 id: index,
                 depth: self.depth,
             },
@@ -138,12 +138,11 @@ impl Scope {
         local
     }
 
-    /// Create a new undeclared local, but doesn't perform the declaration.
-    ///
+    /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_undeclared(&mut self, item: Item) -> Variable {
+    pub fn create_local_restricted(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = VariableKind::Local {
+        let local = VariableKind::LocalMut {
             id: index,
             depth: self.depth,
         };
@@ -151,12 +150,10 @@ impl Scope {
         Variable::new(local, item)
     }
 
-    /// Create a new undeclared local binding, but doesn't perform the declaration.
-    ///
-    /// Useful for temporaries and other algorithms that require the control over initialization.
-    pub fn create_local_binding(&mut self, item: Item) -> Variable {
+    /// Create a new immutable variable.
+    pub fn create_local(&mut self, item: Item) -> Variable {
         let index = self.new_local_index();
-        let local = VariableKind::LocalBinding {
+        let local = VariableKind::LocalConst {
             id: index,
             depth: self.depth,
         };
@@ -181,7 +178,7 @@ impl Scope {
     /// The index refers to the scalar position for the same [element](Elem) type.
     pub fn read_scalar(&mut self, index: u16, elem: Elem) -> Variable {
         let local = Variable::new(
-            VariableKind::LocalBinding {
+            VariableKind::LocalConst {
                 id: self.new_local_index(),
                 depth: self.depth,
             },
@@ -344,7 +341,7 @@ impl Scope {
         let input = Variable::new(VariableKind::GlobalInputArray(index), item_global);
         let index = self.new_local_index();
         let local = Variable::new(
-            VariableKind::Local {
+            VariableKind::LocalMut {
                 id: index,
                 depth: self.depth,
             },

@@ -152,7 +152,7 @@ impl RangeLoop {
     ) {
         let mut scope = parent_scope.child();
         let index_ty = Item::new(u32::as_elem());
-        let i = scope.create_local_undeclared(index_ty);
+        let i = scope.create_local_restricted(index_ty);
 
         func(i, &mut scope);
 

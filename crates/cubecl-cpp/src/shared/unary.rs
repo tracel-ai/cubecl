@@ -62,10 +62,11 @@ pub trait Unary<D: Dialect> {
                 let out_tmp = Variable::tmp(item_out_optimized);
 
                 write_op(index, elem, &input, &out_tmp)?;
-
+                let maybe_const = if out.is_const() { " const" } else { "" };
+                let out_fmt = out.fmt_left();
                 writeln!(
                     f,
-                    "{out} = reinterpret_cast<{item_out_original}&>({out_tmp});\n"
+                    "{out_fmt} = reinterpret_cast<{item_out_original}{maybe_const}&>({out_tmp});\n"
                 )
             } else {
                 write_op(index, elem, &input, &out_optimized)

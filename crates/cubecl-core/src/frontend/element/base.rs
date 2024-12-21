@@ -306,7 +306,7 @@ impl ExpandElement {
     pub fn can_mut(&self) -> bool {
         match self {
             ExpandElement::Managed(var) => {
-                if let VariableKind::Local { .. } = var.as_ref().kind {
+                if let VariableKind::LocalMut { .. } = var.as_ref().kind {
                     Rc::strong_count(var) <= 2
                 } else {
                     false
@@ -358,9 +358,9 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
     match elem.kind {
         VariableKind::GlobalScalar { .. } => init(elem),
         VariableKind::ConstantScalar { .. } => init(elem),
-        VariableKind::Local { .. } => init(elem),
+        VariableKind::LocalMut { .. } => init(elem),
         VariableKind::Versioned { .. } => init(elem),
-        VariableKind::LocalBinding { .. } => init(elem),
+        VariableKind::LocalConst { .. } => init(elem),
         // Constant should be initialized since the new variable can be mutated afterward.
         // And it is assumed those values are cloned.
         VariableKind::Builtin(_) => init(elem),

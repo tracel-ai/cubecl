@@ -11,6 +11,7 @@ use naming_kernel::NamingKernel;
 use pretty_assertions::assert_eq;
 use sequence_for_loop_kernel::SequenceForLoopKernel;
 use slice_assign_kernel::SliceAssignKernel;
+// use std::io::Write;
 
 mod common;
 
@@ -23,10 +24,12 @@ pub fn slice_assign_kernel(input: &Tensor<f32>, output: &mut Tensor<f32>) {
 }
 
 #[test]
-pub fn slice_assign() {
+pub fn reference_kernel_slice_assign() {
     let kernel = SliceAssignKernel::<WgpuRuntime>::new(settings(1, 1), tensor(), tensor());
     let expected = load_kernel_string!("slice_assign.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/slice_assign.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -41,10 +44,12 @@ pub fn kernel_sum(output: &mut Tensor<f32>) {
 }
 
 #[test]
-pub fn plane_sum() {
+pub fn reference_kernel_plane_sum() {
     let kernel = KernelSum::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_sum.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/plane_sum.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -55,10 +60,12 @@ pub fn kernel_elect(output: &mut Tensor<u32>) {
 }
 
 #[test]
-pub fn plane_elect() {
+pub fn reference_kernel_plane_elect() {
     let kernel = KernelElect::<WgpuRuntime>::new(settings(4, 1), tensor());
     let expected = load_kernel_string!("plane_elect.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/plane_elect.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -78,10 +85,12 @@ pub fn sequence_for_loop_kernel(output: &mut Array<f32>) {
 }
 
 #[test]
-pub fn sequence_for_loop() {
+pub fn reference_kernel_sequence_for_loop() {
     let kernel = SequenceForLoopKernel::<WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("sequence_for_loop.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/sequence_for_loop.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -99,7 +108,7 @@ fn execute_unary_kernel<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Te
 }
 
 #[test]
-pub fn unary_bench() {
+pub fn reference_kernel_unary_bench() {
     let kernel = ExecuteUnaryKernel::<f32, WgpuRuntime>::new(
         settings(16, 16),
         tensor_vec(4),
@@ -108,6 +117,8 @@ pub fn unary_bench() {
     );
     let expected = load_kernel_string!("unary_bench.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/unary_bench.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -121,12 +132,14 @@ fn constant_array_kernel<F: Float>(out: &mut Tensor<F>, #[comptime] data: Vec<u3
 }
 
 #[test]
-pub fn constant_array() {
+pub fn reference_kernel_constant_array() {
     let data: Vec<u32> = vec![3, 5, 1];
 
     let kernel = ConstantArrayKernel::<f32, WgpuRuntime>::new(settings(16, 16), tensor(), data);
     let expected = load_kernel_string!("constant_array.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/constant_array.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }
 
@@ -141,9 +154,11 @@ fn naming_kernel<F1: Float, N1: Numeric, F2: Float, N2: Numeric>(out: &mut Array
 }
 
 #[test]
-pub fn naming() {
+pub fn reference_kernel_naming() {
     let kernel = NamingKernel::<f32, u8, bf16, i64, WgpuRuntime>::new(settings(16, 16), array());
     let expected = load_kernel_string!("naming.wgsl");
     let compiled = compile(kernel);
+    // let mut file = std::fs::File::create("tests/naming.wgsl").unwrap();
+    // write!(file, "{compiled}").unwrap();
     assert_eq!(compiled, expected);
 }

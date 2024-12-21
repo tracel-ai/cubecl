@@ -19,19 +19,16 @@ extern "C" __global__ void constant_array_kernel_f32(float output_0[],
       float(5),
       float(1),
   };
-  uint l_0_0;
-  bool l_0_1;
-  float l_0_2;
-  l_0_0 = info[uint(1)];
-  l_0_1 = idxGlobal < l_0_0;
+  const uint l_0_0 = info[uint(1)];
+  const bool l_0_1 = idxGlobal < l_0_0;
   if (l_0_1) {
-    l_0_2 = arrays_0[idxGlobal];
-    uint l_1_0;
-    bool l_1_1;
-    l_1_0 = info[uint(0)];
-    l_1_1 = idxGlobal < l_1_0;
-    if (l_1_1) {
-      output_0[idxGlobal] = l_0_2;
+    const float l_1_0 = arrays_0[idxGlobal];
+    uint l_mut_1_1;
+    bool l_mut_1_2;
+    l_mut_1_1 = info[uint(0)];
+    l_mut_1_2 = idxGlobal < l_mut_1_1;
+    if (l_mut_1_2) {
+      output_0[idxGlobal] = l_1_0;
     }
   }
 }

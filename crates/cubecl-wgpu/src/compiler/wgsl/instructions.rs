@@ -1043,8 +1043,8 @@ fn index(
     len: Option<&Variable>,
 ) -> core::fmt::Result {
     let is_scalar = match lhs {
-        Variable::Local { item, .. } => item.vectorization_factor() == 1,
-        Variable::LocalBinding { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
         _ => false,
     };
 

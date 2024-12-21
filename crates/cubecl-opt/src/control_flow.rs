@@ -253,7 +253,7 @@ impl Optimizer {
         let step = range_loop.step.unwrap_or(1.into());
 
         let i_id = match range_loop.i.kind {
-            VariableKind::Local { id, depth, .. } => (id, depth),
+            VariableKind::LocalMut { id, depth, .. } => (id, depth),
             _ => unreachable!(),
         };
         let i = range_loop.i;

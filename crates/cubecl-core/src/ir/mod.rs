@@ -1,9 +1,9 @@
+mod allocator;
 mod branch;
 mod cmma;
 mod comment;
 mod debug;
 mod kernel;
-mod local_allocator;
 mod macros;
 mod operation;
 mod plane;
@@ -13,12 +13,12 @@ mod synchronization;
 mod variable;
 
 pub use super::frontend::AtomicOp;
+pub use allocator::*;
 pub use branch::*;
 pub use cmma::*;
 pub use comment::*;
 pub use debug::*;
 pub use kernel::*;
-pub use local_allocator::*;
 pub use operation::*;
 pub use plane::*;
 pub use scope::*;
