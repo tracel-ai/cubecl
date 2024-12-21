@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-pub trait ReduceInstructionFamily: Send + Sync + 'static {
+pub trait Reduce: Send + Sync + 'static {
     type Instruction<In: Numeric>: ReduceInstruction<In>;
 }
 

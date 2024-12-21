@@ -1,9 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{
-    lowest_coordinate_matching, ArgAccumulator, ReduceInstruction, ReduceInstructionFamily,
-};
+use super::{lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceInstruction};
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
 pub struct ArgMax;
@@ -30,7 +28,7 @@ impl ArgMax {
     }
 }
 
-impl ReduceInstructionFamily for ArgMax {
+impl Reduce for ArgMax {
     type Instruction<In: Numeric> = Self;
 }
 

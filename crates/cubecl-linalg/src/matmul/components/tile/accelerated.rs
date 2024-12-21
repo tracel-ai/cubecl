@@ -1,28 +1,29 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::tile::base::Matmul as _;
-use crate::matmul::components::tile::Config as TileConfig;
+use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    as_cmma_layout, tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout,
+    as_cmma_layout, Ident, MatmulAvailabilityCheck, MatmulConfigFactory, MatmulProblem, MatmulSpec,
+    MatrixLayout,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
-use std::marker::PhantomData;
 
 macro_rules! instruction {
     ($name:ident, $m:expr, $n:expr, $k:expr) => {
-        pub struct $name<I: Numeric, O: Numeric> {
-            _input: PhantomData<I>,
-            _output: PhantomData<O>,
-        }
+        pub struct $name;
 
-        #[cube]
-        impl<I: Numeric, O: Numeric> tile::Matmul<I, O> for $name<I, O> {
+        impl TileMatmulFamily for $name {
             const M: u32 = $m;
             const N: u32 = $n;
             const K: u32 = $k;
 
+            type Matmul<I: Numeric, O: Numeric> = $name;
+        }
+
+        #[cube]
+        impl<I: Numeric, O: Numeric> TileMatmul<I, O> for $name {
+            type Config = Config;
             type Lhs = cmma::Matrix<I>;
             type Rhs = cmma::Matrix<I>;
             type Accumulator = cmma::Matrix<O>;
@@ -37,19 +38,19 @@ macro_rules! instruction {
             }
 
             fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
-                init_lhs(config.layout(Ident::Lhs), Self::M, Self::N, Self::K)
+                init_lhs(config.layout(Ident::Lhs), $m, $n, $k)
             }
 
             fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
-                init_rhs(config.layout(Ident::Rhs), Self::M, Self::N, Self::K)
+                init_rhs(config.layout(Ident::Rhs), $m, $n, $k)
             }
 
             fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-                fill_lhs(slice, lhs, config, Self::M, Self::K);
+                fill_lhs(slice, lhs, config, $m, $k);
             }
 
             fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-                fill_rhs(slice, rhs, config, Self::N, Self::K);
+                fill_rhs(slice, rhs, config, $n, $k);
             }
 
             fn fill_accumulator(
@@ -66,11 +67,11 @@ macro_rules! instruction {
                 slice: &mut SliceMut<Line<C>>,
                 #[comptime] _config: Config,
             ) {
-                read_accumulator::<O, C>(out, slice, Self::N);
+                read_accumulator::<O, C>(out, slice, $n);
             }
 
             fn init_accumulator(#[comptime] _config: Self::Config) -> Self::Accumulator {
-                init_output(Self::M, Self::N, Self::K)
+                init_output($m, $n, $k)
             }
 
             fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
@@ -78,17 +79,19 @@ macro_rules! instruction {
             }
         }
 
-        impl<I: Numeric, O: Numeric> MatmulKernel for $name<I, O> {
+        impl MatmulAvailabilityCheck for $name {
+            fn check_availability<R: Runtime, MS: MatmulSpec>(
+                client: &ComputeClient<R::Server, R::Channel>,
+            ) -> Result<(), MatmulAvailabilityError> {
+                check_availability::<MS::EG, MS::EG, R>($m, $n, $k, client)
+            }
+        }
+
+        impl MatmulConfigFactory for $name {
             type Config = Config;
 
             fn check_config(config: Self::Config) {
                 comptime!(check_plane_dim(config.plane_dim()));
-            }
-
-            fn check_availability<R: Runtime>(
-                client: &ComputeClient<R::Server, R::Channel>,
-            ) -> Result<(), MatmulAvailabilityError> {
-                check_availability::<I, O, R>(Self::M, Self::N, Self::K, client)
             }
 
             fn make_config(
@@ -103,10 +106,10 @@ macro_rules! instruction {
     };
 }
 
-instruction!(Accelerated16x16x8, 16, 16, 8);
-instruction!(Accelerated16x16x16, 16, 16, 16);
-instruction!(Accelerated32x8x16, 32, 8, 16);
-instruction!(Accelerated8x32x16, 8, 32, 16);
+instruction!(Accelerated16x16x8, 16u32, 16u32, 8u32);
+instruction!(Accelerated16x16x16, 16u32, 16u32, 16u32);
+instruction!(Accelerated32x8x16, 32u32, 8u32, 16u32);
+instruction!(Accelerated8x32x16, 8u32, 32u32, 16u32);
 
 #[cube]
 fn execute<I: Numeric, O: Numeric>(
@@ -296,7 +299,7 @@ pub struct Config {
     out_line_size: u32,
 }
 
-impl tile::Config for Config {
+impl TileConfig for Config {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }

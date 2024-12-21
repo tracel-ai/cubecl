@@ -2,39 +2,30 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self};
 use crate::matmul::components::{batch, global, tile, MatmulSpec};
-use crate::matmul::components::{MatmulKernel, MatmulProblem};
+use crate::matmul::components::{MatmulConfigFactory, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 
-type LhsStageReader<MS, GMM> = <<GMM as global::Matmul<MS>>::LhsLoader as global::Loader<
+type LhsStageReader<MS, GMM> = <<GMM as global::GlobalMatmul<MS>>::LhsLoader as global::Loader<
     EG<MS>,
     ES<MS>,
-    <GMM as MatmulKernel>::Config,
+    <GMM as MatmulConfigFactory>::Config,
 >>::StageReader;
-type RhsStageReader<MS, GMM> = <<GMM as global::Matmul<MS>>::RhsLoader as global::Loader<
+type RhsStageReader<MS, GMM> = <<GMM as global::GlobalMatmul<MS>>::RhsLoader as global::Loader<
     EG<MS>,
     ES<MS>,
-    <GMM as MatmulKernel>::Config,
+    <GMM as MatmulConfigFactory>::Config,
 >>::StageReader;
 
 type EG<MS> = <MS as MatmulSpec>::EG;
 type ES<MS> = <MS as MatmulSpec>::ES;
 
 /// Specifications for a matmul algorithm
-pub trait Algorithm<MS: MatmulSpec> {
-    type TileMatmul: tile::Matmul<MS::ES, MS::EA> + MatmulKernel;
-
-    type StageMatmul: stage::Matmul<
-            MS::ES,
-            MS::EG,
-            MS::EA,
-            LhsReader = LhsStageReader<MS, Self::GlobalMatmul>,
-            RhsReader = RhsStageReader<MS, Self::GlobalMatmul>,
-        > + MatmulKernel;
-
-    type GlobalMatmul: global::Matmul<MS>;
-
-    type BatchMatmul: batch::Matmul<MS> + MatmulKernel;
+pub trait Algorithm {
+    type TileMatmul: tile::TileMatmulFamily;
+    type StageMatmul: stage::MatmulFamily;
+    type GlobalMatmul: global::GlobalMatmulFamily;
+    type BatchMatmul: batch::BatchMatmulFamily;
 
     fn cube_dim() -> CubeDim;
     fn cube_count(problem: &MatmulProblem) -> CubeCount;
@@ -44,7 +35,7 @@ pub trait Algorithm<MS: MatmulSpec> {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-    ) -> Result<<Self::BatchMatmul as MatmulKernel>::Config, MatmulInvalidProblem> {
+    ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulInvalidProblem> {
         let config = Self::BatchMatmul::make_config(problem, cube_dim, cube_count, advanced_config);
         problem.check_config(&config)?;
         Ok(config)

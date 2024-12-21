@@ -1,6 +1,8 @@
 use crate::matmul::components::stage::multi_buffer;
+use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
-use crate::matmul::components::{tile, Ident};
+use crate::matmul::components::tile::TileConfig;
+use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -16,9 +18,20 @@ pub struct RhsReader<ES: Numeric> {
     pub stage: Stage<ES>,
 }
 
+pub struct LhsReaderFamily;
+pub struct RhsReaderFamily;
+
+impl ReaderFamily for LhsReaderFamily {
+    type Reader<I: Numeric> = LhsReader<I>;
+}
+
+impl ReaderFamily for RhsReaderFamily {
+    type Reader<I: Numeric> = RhsReader<I>;
+}
+
 #[cube]
 impl<ES: Numeric> LhsReader<ES> {
-    pub fn read_tile<T: tile::Config>(
+    pub fn read_tile<T: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
@@ -35,7 +48,7 @@ impl<ES: Numeric> LhsReader<ES> {
 
 #[cube]
 impl<ES: Numeric> RhsReader<ES> {
-    pub fn read_tile<T: tile::Config>(
+    pub fn read_tile<T: TileConfig>(
         this: &Self,
         buffer_offset: u32,
         accumulator_offset: u32,

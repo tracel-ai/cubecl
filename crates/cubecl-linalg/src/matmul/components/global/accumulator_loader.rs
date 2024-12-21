@@ -13,7 +13,7 @@ pub struct ZeroAccumulatorLoader;
 impl<O: Numeric, Acc: Numeric, G: Config> AccumulatorLoader<O, Acc, G> for ZeroAccumulatorLoader {
     fn fill_stage(_this: &mut Self, #[comptime] _config: G) {}
 
-    fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
+    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
         _this: &mut Self,
         acc: &mut Tile::Accumulator,
         _n_tile: u32,

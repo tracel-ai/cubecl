@@ -5,8 +5,12 @@ use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulKernel, MatmulSpec};
+use crate::matmul::components::{MatmulConfigFactory, MatmulSpec};
 use crate::tensor::{ReadWrite, VirtualTensor};
+
+pub trait GlobalMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
+    type Matmul<MS: MatmulSpec>: GlobalMatmul<MS, Config = Self::Config>;
+}
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -27,7 +31,8 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
-pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: Config> {
+pub trait GlobalMatmul<MS: MatmulSpec>: 'static + Send + Sync {
+    type Config: Config;
     type LhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
     type RhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
     type AccumulatorLoader: CubeType;
@@ -109,7 +114,7 @@ pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
 
     /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
+    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
         tile_n: u32,

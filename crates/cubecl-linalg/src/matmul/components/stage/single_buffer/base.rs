@@ -4,8 +4,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::stage::base::Matmul as _;
-use crate::matmul::components::stage::{StageSize, TilingOrderConfig};
+use crate::matmul::components::stage::{MatmulFamily, StageSize, TilingOrderConfig};
+use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{LhsStageDim, OutStageDim, RhsStageDim};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
@@ -13,12 +13,70 @@ use crate::matmul::{
         config::MatmulConfig,
         global::{self, AccumulatorLoader},
         stage::{self, Config as _, StageWriter},
-        tile, Ident, MatmulKernel, MatmulProblem, MatrixLayout, StageDim,
+        Ident, MatmulConfigFactory, MatmulProblem, MatrixLayout, StageDim,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
 
-use super::{LhsBufferReader, RhsBufferReader};
+use super::{LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily};
+
+pub struct SingleBufferMatmulFamily<TMM: TileMatmulFamily, SS: StageSize> {
+    _instruction: PhantomData<TMM>,
+    _block_size: PhantomData<SS>,
+}
+
+impl<TMM: TileMatmulFamily, SS: StageSize> MatmulFamily for SingleBufferMatmulFamily<TMM, SS> {
+    const M: u32 = SS::NUM_M * TMM::M;
+    const N: u32 = SS::NUM_N * TMM::N;
+    const K: u32 = SS::NUM_K * TMM::K;
+
+    type LhsReader = LhsBufferReaderFamily;
+    type RhsReader = RhsBufferReaderFamily;
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric> =
+        SingleBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, SS>;
+}
+
+impl<TMM, SS> MatmulConfigFactory for SingleBufferMatmulFamily<TMM, SS>
+where
+    TMM: TileMatmulFamily,
+    SS: StageSize,
+{
+    type Config = Config<TMM::Config>;
+
+    fn check_config(config: Self::Config) {
+        TMM::check_config(config.to_tmm_config());
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), MatmulAvailabilityError> {
+        TMM::check_availability::<R>(client)
+    }
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let tmm_config = TMM::make_config(problem, cube_dim, cube_count, advanced_config);
+
+        let (stage_m, stage_n, stage_k) = (Self::M, Self::N, Self::K);
+        let (tile_m, tile_n, tile_k) = (TMM::M, TMM::N, TMM::K);
+        let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
+            create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
+
+        Config::new(
+            tmm_config,
+            lhs_stage_dim,
+            rhs_stage_dim,
+            out_stage_dim,
+            lhs_stage_dim.num_tiles_x_dim(),
+            advanced_config.lhs_tiling_order,
+            advanced_config.rhs_tiling_order,
+        )
+    }
+}
 
 /// Performs matrix multiplication at the stage level, where each plane is responsible for a row of tiles:
 /// - One plane per tile in m dimension,
@@ -28,7 +86,13 @@ use super::{LhsBufferReader, RhsBufferReader};
 ///
 /// # Assumptions
 /// - There are at least as many planes as the stage size in m
-pub struct Matmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Matmul<I, EA>, SS: StageSize> {
+pub struct SingleBufferMatmul<
+    I: Numeric,
+    O: Numeric,
+    EA: Numeric,
+    TMM: TileMatmul<I, EA>,
+    SS: StageSize,
+> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<EA>,
@@ -37,17 +101,16 @@ pub struct Matmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Matmul<I, EA>,
 }
 
 #[cube]
-impl<I, O, EA, TMM, SS> stage::Matmul<I, O, EA> for Matmul<I, O, EA, TMM, SS>
+impl<I, O, EA, TMM, SS> stage::Matmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM, SS>
 where
     I: Numeric,
     O: Numeric,
     EA: Numeric,
-    TMM: tile::Matmul<I, EA>,
+    TMM: TileMatmul<I, EA>,
     SS: StageSize,
 {
-    const M: u32 = SS::NUM_M * TMM::M;
-    const N: u32 = SS::NUM_N * TMM::N;
-    const K: u32 = SS::NUM_K * TMM::K;
+    type Config = Config<TMM::Config>;
+
     type LhsReader = LhsBufferReader<I>;
     type RhsReader = RhsBufferReader<I>;
     type Accumulator = Sequence<TMM::Accumulator>;
@@ -145,54 +208,9 @@ where
     }
 }
 
-impl<I, O, Acc, TMM, SS> MatmulKernel for Matmul<I, O, Acc, TMM, SS>
-where
-    I: Numeric,
-    O: Numeric,
-    Acc: Numeric,
-    TMM: tile::Matmul<I, Acc>,
-    SS: StageSize,
-{
-    type Config = Config<TMM::Config>;
-
-    fn check_config(config: Self::Config) {
-        TMM::check_config(config.to_tmm_config());
-    }
-
-    fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        TMM::check_availability::<R>(client)
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let tmm_config = TMM::make_config(problem, cube_dim, cube_count, advanced_config);
-
-        let (stage_m, stage_n, stage_k) = (Self::M, Self::N, Self::K);
-        let (tile_m, tile_n, tile_k) = (TMM::M, TMM::N, TMM::K);
-        let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) =
-            create_stage_dim(stage_m, stage_n, stage_k, tile_m, tile_n, tile_k);
-
-        Config::new(
-            tmm_config,
-            lhs_stage_dim,
-            rhs_stage_dim,
-            out_stage_dim,
-            lhs_stage_dim.num_tiles_x_dim(),
-            advanced_config.lhs_tiling_order,
-            advanced_config.rhs_tiling_order,
-        )
-    }
-}
-
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
-pub struct Config<T: tile::Config> {
+pub struct Config<T: TileConfig> {
     tmm_config: T,
     lhs_stage_dim: LhsStageDim,
     rhs_stage_dim: RhsStageDim,
@@ -202,7 +220,7 @@ pub struct Config<T: tile::Config> {
     rhs_tiling_order: TilingOrderConfig,
 }
 
-impl<T: tile::Config> stage::Config for Config<T> {
+impl<T: TileConfig> stage::Config for Config<T> {
     type TmmConfig = T;
 
     fn to_tmm_config(self) -> Self::TmmConfig {
@@ -241,9 +259,9 @@ impl<T: tile::Config> stage::Config for Config<T> {
     }
 }
 
-impl<T: tile::Config> MatmulConfig for Config<T> {}
+impl<T: TileConfig> MatmulConfig for Config<T> {}
 
-impl<T: tile::Config> Config<T> {
+impl<T: TileConfig> Config<T> {
     pub fn new(
         tmm_config: T,
         lhs_stage_dim: LhsStageDim,

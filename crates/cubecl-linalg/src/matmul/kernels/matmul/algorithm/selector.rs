@@ -23,7 +23,7 @@ const NUM_TENSOR_CORES_APPROX: usize = 8;
 pub struct CmmaSelector;
 
 impl CmmaSelector {
-    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+    pub fn select_kernel<'a, const PLANE_DIM: u32, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
@@ -57,22 +57,22 @@ impl CmmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, Accelerated16x16x8>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, Accelerated16x16x8>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, Accelerated16x16x8>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, Accelerated16x16x8<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, Accelerated16x16x8>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -80,22 +80,22 @@ impl CmmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, Accelerated16x16x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, Accelerated16x16x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, Accelerated16x16x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, Accelerated16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, Accelerated16x16x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -103,22 +103,22 @@ impl CmmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, Accelerated32x8x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, Accelerated32x8x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, Accelerated32x8x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, Accelerated32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, Accelerated32x8x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -126,22 +126,22 @@ impl CmmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, Accelerated8x32x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, Accelerated8x32x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, Accelerated8x32x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, Accelerated8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, Accelerated8x32x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -230,7 +230,7 @@ fn find_stage_size_m_n(
 pub struct PlaneMmaSelector;
 
 impl PlaneMmaSelector {
-    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+    pub fn select_kernel<'a, const PLANE_DIM: u32, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
@@ -254,22 +254,22 @@ impl PlaneMmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, PlaneMma16x16x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, PlaneMma16x16x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, PlaneMma16x16x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, PlaneMma16x16x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, PlaneMma16x16x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -277,22 +277,22 @@ impl PlaneMmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, PlaneMma32x8x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, PlaneMma32x8x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, PlaneMma32x8x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, PlaneMma32x8x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, PlaneMma32x8x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },
@@ -300,22 +300,22 @@ impl PlaneMmaSelector {
                 1 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S1x1x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S1x1x2, PlaneMma8x32x16>,
                 >(client, input, output, problem),
                 2 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S2x2x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S2x2x2, PlaneMma8x32x16>,
                 >(client, input, output, problem),
                 4 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S4x4x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S4x4x2, PlaneMma8x32x16>,
                 >(client, input, output, problem),
                 8 => matmul_cube_preparation::<
                     MS,
                     R,
-                    StandardAlgorithm<MS, S8x8x2, PlaneMma8x32x16<MS::ES, MS::EA>>,
+                    StandardAlgorithm<PLANE_DIM, S8x8x2, PlaneMma8x32x16>,
                 >(client, input, output, problem),
                 _ => panic!("No configuration found for this stage size. "),
             },

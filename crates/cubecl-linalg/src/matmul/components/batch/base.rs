@@ -5,6 +5,10 @@ use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, Ten
 use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
 
+pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: Config> {
+    type Matmul<MS: MatmulSpec>: BatchMatmul<MS, Config = Self::Config>;
+}
+
 #[cube]
 /// Provides matrix multiplication operations at the batch level.
 ///
@@ -23,7 +27,9 @@ use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunc
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
-pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulLaunch<MS, Config: Config> {
+pub trait BatchMatmul<MS: MatmulSpec>: 'static + Send + Sync {
+    type Config: Config;
+
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
         lhs: TensorInput<MS::EG, MS::Args>,
@@ -55,7 +61,7 @@ pub trait Config: MatmulConfig {
 }
 
 #[cube(launch_unchecked)]
-pub(crate) fn batch_matmul<MS: MatmulSpec, BMM: batch::Matmul<MS>>(
+pub(crate) fn batch_matmul<MS: MatmulSpec, BMM: batch::BatchMatmul<MS>>(
     inputs: &InputArg<MS>,
     output: &mut OutputArg<MS>,
     #[comptime] config: BMM::Config,

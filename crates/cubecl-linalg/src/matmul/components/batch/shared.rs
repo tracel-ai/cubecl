@@ -8,7 +8,7 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
     lhs: TensorInput<MS::EG, MS::Args>,
     rhs: TensorInput<MS::EG, MS::Args>,
     mut out: TensorOutput<MS::EG, MS::Args>,

@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{ReduceInstruction, ReduceInstructionFamily, Sum};
+use super::{Reduce, ReduceInstruction, Sum};
 
 pub struct Mean;
 
-impl ReduceInstructionFamily for Mean {
+impl Reduce for Mean {
     type Instruction<In: Numeric> = Self;
 }
 

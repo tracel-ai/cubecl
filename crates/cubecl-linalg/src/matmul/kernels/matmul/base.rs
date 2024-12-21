@@ -199,7 +199,11 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
     problem: MatmulProblem,
 ) -> Result<(), MatmulLaunchError> {
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, EG, f32>, R>(
+        PlaneMmaSelector::select_kernel::<
+            { PLANE_DIM },
+            SingleMatmulSpec<{ PLANE_DIM }, EG, EG, f32>,
+            R,
+        >(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -211,7 +215,11 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
     } else if TypeId::of::<EG>() == TypeId::of::<half::f16>()
         || TypeId::of::<EG>() == TypeId::of::<flex32>()
     {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, half::f16, f32>, R>(
+        CmmaSelector::select_kernel::<
+            { PLANE_DIM },
+            SingleMatmulSpec<{ PLANE_DIM }, EG, half::f16, f32>,
+            R,
+        >(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -221,7 +229,11 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             problem,
         )
     } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, half::bf16, f32>, R>(
+        CmmaSelector::select_kernel::<
+            { PLANE_DIM },
+            SingleMatmulSpec<{ PLANE_DIM }, EG, half::bf16, f32>,
+            R,
+        >(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -231,7 +243,11 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             problem,
         )
     } else {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<{ PLANE_DIM }, EG, tf32, f32>, R>(
+        CmmaSelector::select_kernel::<
+            { PLANE_DIM },
+            SingleMatmulSpec<{ PLANE_DIM }, EG, tf32, f32>,
+            R,
+        >(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -243,7 +259,7 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
     }
 }
 
-pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorithm<MS>>(
+pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
@@ -267,7 +283,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorit
 }
 
 #[allow(clippy::too_many_arguments)]
-fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm<MS>>(
+fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
@@ -279,7 +295,9 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm<MS>>(
     let config = D::make_config(&problem, &cube_dim, &cube_count, &advanced_config)?;
 
     unsafe {
-        D::BatchMatmul::launch_unchecked::<R>(client, cube_dim, cube_count, input, output, config);
+        D::BatchMatmul::launch_unchecked::<MS, R>(
+            client, cube_dim, cube_count, input, output, config,
+        );
     };
 
     Ok(())

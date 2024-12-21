@@ -1,8 +1,10 @@
 use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::global::{Config as _, GlobalMatmulFamily, Loader};
+use crate::matmul::components::stage::single_buffer::{
+    LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
+};
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
@@ -18,16 +20,70 @@ use std::marker::PhantomData;
 
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
+pub struct PipelinedMatmulFamily<SMM: stage::MatmulFamily> {
+    _stage_matmul: PhantomData<SMM>,
+}
+
+impl<SMM> GlobalMatmulFamily for PipelinedMatmulFamily<SMM>
+where
+    SMM: stage::MatmulFamily<LhsReader = LhsBufferReaderFamily, RhsReader = RhsBufferReaderFamily>,
+{
+    type Matmul<MS: MatmulSpec> = PipelinedMatmul<MS, SMM::Matmul<MS::ES, MS::EG, MS::EA>>;
+}
+
+impl<SMM> MatmulConfigFactory for PipelinedMatmulFamily<SMM>
+where
+    SMM: stage::MatmulFamily,
+{
+    type Config = Config<SMM::Config>;
+
+    fn check_config(config: Self::Config) {
+        assert!(
+            config.stage_dim(Ident::Lhs).num_tiles_y_dim() == 2,
+            "Pipelined matmul needs exactly 2 buffers."
+        );
+        SMM::check_config(config.to_smm_config());
+    }
+
+    fn check_availability<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), MatmulAvailabilityError> {
+        SMM::check_availability::<R>(client)
+    }
+
+    fn make_config(
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
+
+        Config::new(
+            smm_config,
+            problem.m as u32 % SMM::M != 0,
+            problem.n as u32 % SMM::N != 0,
+            problem.k as u32 % SMM::K != 0,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+            cube_dim.y,
+        )
+    }
+}
+
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct Matmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
+pub struct PipelinedMatmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
     _ms: PhantomData<MS>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM> global::Matmul<MS> for Matmul<MS, SMM>
+impl<MS: MatmulSpec, SMM> global::GlobalMatmul<MS> for PipelinedMatmul<MS, SMM>
 where
     SMM: stage::Matmul<
         MS::ES,
@@ -37,6 +93,7 @@ where
         RhsReader = RhsBufferReader<MS::ES>,
     >,
 {
+    type Config = Config<SMM::Config>;
     type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
     type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
@@ -169,49 +226,6 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
-    }
-}
-
-impl<MS: MatmulSpec, SMM> MatmulKernel for Matmul<MS, SMM>
-where
-    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
-{
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: Self::Config) {
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() == 2,
-            "Pipelined matmul needs exactly 2 buffers."
-        );
-        SMM::check_config(config.to_smm_config());
-    }
-
-    fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R>(client)
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
-
-        Config::new(
-            smm_config,
-            problem.m as u32 % SMM::M != 0,
-            problem.n as u32 % SMM::N != 0,
-            problem.k as u32 % SMM::K != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
-            cube_dim.y,
-        )
     }
 }
 

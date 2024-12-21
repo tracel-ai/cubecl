@@ -6,7 +6,7 @@ use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 use super::{config::MatmulConfig, MatmulProblem};
 
 /// Provides configuration for a matmul kernel at any level
-pub trait MatmulKernel {
+pub trait MatmulConfigFactory: Send + Sync + 'static {
     /// Configuration tailored to the matmul implementation
     type Config: MatmulConfig;
 
@@ -15,8 +15,10 @@ pub trait MatmulKernel {
 
     /// Checks if the client can handle the features used in this computation
     fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError>;
+        _client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), MatmulAvailabilityError> {
+        Ok(())
+    }
 
     /// Create config for this matmul, given launch information
     fn make_config(
@@ -27,19 +29,28 @@ pub trait MatmulKernel {
     ) -> Self::Config;
 }
 
+pub trait MatmulAvailabilityCheck {
+    /// Checks if the client can handle the features used in this computation
+    fn check_availability<R: Runtime, MS: MatmulSpec>(
+        _client: &ComputeClient<R::Server, R::Channel>,
+    ) -> Result<(), MatmulAvailabilityError> {
+        Ok(())
+    }
+}
+
 /// Provides launch entry point to solve a matmul
-pub trait MatmulLaunch<MS: MatmulSpec>: MatmulKernel {
+pub trait MatmulLaunch: MatmulConfigFactory {
     /// Entry point
     ///
     /// # Safety
     ///
     /// Out-of-bounds can happen
-    unsafe fn launch_unchecked<'a, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
-        config: <Self as MatmulKernel>::Config,
+        config: <Self as MatmulConfigFactory>::Config,
     );
 }

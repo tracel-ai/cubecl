@@ -1,12 +1,38 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
-use crate::matmul::components::{global, tile, MatmulKernel};
+use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
 
 use super::tiling_order::TilingOrderConfig;
+
+pub trait ReaderFamily {
+    type Reader<I: Numeric>: CubeType;
+}
+
+pub trait MatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
+    /// Number of rows of LHS
+    const M: u32;
+    /// Number of columns of RHS
+    const N: u32;
+    /// Common dimension of LHS and RHS
+    const K: u32;
+
+    type LhsReader: ReaderFamily;
+    type RhsReader: ReaderFamily;
+
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: Matmul<
+        I,
+        O,
+        Acc,
+        Config = Self::Config,
+        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I>,
+        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I>,
+    >;
+}
 
 #[cube]
 /// Provides matrix multiplication operations at the stage level.
@@ -23,15 +49,14 @@ use super::tiling_order::TilingOrderConfig;
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>:
-    'static + Send + Sync + MatmulKernel<Config: Config>
-{
-    /// Number of rows of LHS
-    const M: u32;
-    /// Number of columns of RHS
-    const N: u32;
-    /// Common dimension of LHS and RHS
-    const K: u32;
+pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
+    type Config: Config;
+    // /// Number of rows of LHS
+    // const M: u32;
+    // /// Number of columns of RHS
+    // const N: u32;
+    // /// Common dimension of LHS and RHS
+    // const K: u32;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
     /// The same Accumulator will be added to across multiple executions of the stage matmul.
@@ -110,7 +135,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
 /// Configuration for the Stage matmul (SMM) level
 pub trait Config: MatmulConfig {
     /// Underlying Tile matmul config
-    type TmmConfig: tile::Config;
+    type TmmConfig: TileConfig;
 
     /// Convert itself to the underlying tile matmul config
     fn to_tmm_config(self) -> Self::TmmConfig;

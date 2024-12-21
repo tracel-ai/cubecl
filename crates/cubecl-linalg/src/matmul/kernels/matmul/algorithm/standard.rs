@@ -5,32 +5,31 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::batch::CubeCountDispatch;
 use crate::matmul::components::global::full_load::CyclicLoading;
 use crate::matmul::components::stage::{self, StageSize};
+use crate::matmul::components::tile;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
-use crate::matmul::components::{tile, MatmulSpec};
 
 use super::base;
 
 type Dispatch = batch::SwizzleTransposedDispatch<2>;
 
-pub struct StandardAlgorithm<MS: MatmulSpec, Stage: StageSize, TMM> {
-    pub _ms: PhantomData<MS>,
+pub struct StandardAlgorithm<const PLANE_DIM: u32, Stage: StageSize, TMM> {
     pub _stage: PhantomData<Stage>,
     pub _tmm: PhantomData<TMM>,
 }
 
-impl<MS: MatmulSpec, Stage: StageSize, TMM: tile::Matmul<MS::ES, MS::EA>> base::Algorithm<MS>
-    for StandardAlgorithm<MS, Stage, TMM>
+impl<const PLANE_DIM: u32, Stage: StageSize, TMM: tile::TileMatmulFamily> base::Algorithm
+    for StandardAlgorithm<{ PLANE_DIM }, Stage, TMM>
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::Matmul<MS::ES, MS::EG, MS::EA, Self::TileMatmul, Stage>;
+    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul, Stage>;
     type GlobalMatmul =
-        global::full_load::Matmul<MS, Self::StageMatmul, CyclicLoading, CyclicLoading>;
+        global::full_load::FullLoadMatmulFamily<Self::StageMatmul, CyclicLoading, CyclicLoading>;
 
-    type BatchMatmul = batch::one_to_one::Matmul<MS, Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim() -> CubeDim {
-        CubeDim::new(MS::PLANE_DIM, Stage::NUM_M, 1)
+        CubeDim::new(PLANE_DIM, Stage::NUM_M, 1)
     }
 
     fn cube_count(problem: &MatmulProblem) -> CubeCount {

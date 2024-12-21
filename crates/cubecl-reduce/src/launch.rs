@@ -8,12 +8,7 @@ use crate::{LineMode, ReduceConfig, ReduceStrategy};
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<
-    Run: Runtime,
-    In: Numeric,
-    Out: Numeric,
-    Rd: ReduceInstructionFamily,
->(
+pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
@@ -57,7 +52,7 @@ struct ReduceParams {
 }
 
 #[cube(launch_unchecked)]
-fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceInstructionFamily>(
+fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,

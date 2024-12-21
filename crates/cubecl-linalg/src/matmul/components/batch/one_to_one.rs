@@ -2,61 +2,31 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::batch::shared::gmm_execute;
 use crate::matmul::components::global::args::{TensorInput, TensorOutput};
+use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
+    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageDim,
 };
 use crate::matmul::components::{InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{Config as _, CubeDispatch};
 
-/// Executes matrix multiplication at the batch level,
-/// assigning each cube to a single global matmul.
-///
-/// Note: This algorithm requires one cube per global matmul;
-/// insufficient cubes will result in incomplete computations.
-pub struct Matmul<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> {
-    _ms: PhantomData<MS>,
+pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
-#[cube]
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> batch::Matmul<MS>
-    for Matmul<MS, GMM, C>
-{
-    fn execute(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
-        #[comptime] config: Self::Config,
-    ) {
-        let (x_index, y_index) = C::x_y_indices();
-        let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
-        let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
-        let nth_batch = C::batch_index();
-        let rank = lhs.rank();
-        let k_range = (0, lhs.shape(rank - 1));
-
-        let gmm_config = config.to_gmm_config();
-        gmm_execute::<MS, GMM>(
-            lhs,
-            rhs,
-            out,
-            x_offset,
-            y_offset,
-            nth_batch,
-            &mut GMM::init_accumulator(gmm_config),
-            k_range,
-            gmm_config,
-        );
-    }
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
+    type Matmul<MS: MatmulSpec> = OneToOneMatmul<MS, GMM::Matmul<MS>, C>;
 }
 
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulKernel for Matmul<MS, GMM, C> {
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
+    for OneToOneMatmulFamily<GMM, C>
+{
     type Config = Config<GMM::Config, C>;
 
     fn check_config(config: Self::Config) {
@@ -86,10 +56,8 @@ impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulKernel for 
     }
 }
 
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulLaunch<MS>
-    for Matmul<MS, GMM, C>
-{
-    unsafe fn launch_unchecked<'a, R: Runtime>(
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFamily<GMM, C> {
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
@@ -98,8 +66,53 @@ impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulLaunch<MS>
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::batch_matmul::launch_unchecked::<MS, Self, R>(
+        super::batch_matmul::launch_unchecked::<MS, <Self as BatchMatmulFamily>::Matmul<MS>, R>(
             client, cube_count, cube_dim, input, output, config,
+        );
+    }
+}
+
+/// Executes matrix multiplication at the batch level,
+/// assigning each cube to a single global matmul.
+///
+/// Note: This algorithm requires one cube per global matmul;
+/// insufficient cubes will result in incomplete computations.
+pub struct OneToOneMatmul<MS: MatmulSpec, GMM: GlobalMatmul<MS>, C: CubeDispatch> {
+    _ms: PhantomData<MS>,
+    _gmm: PhantomData<GMM>,
+    _c: PhantomData<C>,
+}
+
+#[cube]
+impl<MS: MatmulSpec, GMM: GlobalMatmul<MS>, C: CubeDispatch> BatchMatmul<MS>
+    for OneToOneMatmul<MS, GMM, C>
+{
+    type Config = Config<GMM::Config, C>;
+
+    fn execute(
+        lhs: TensorInput<MS::EG, MS::Args>,
+        rhs: TensorInput<MS::EG, MS::Args>,
+        out: TensorOutput<MS::EG, MS::Args>,
+        #[comptime] config: Self::Config,
+    ) {
+        let (x_index, y_index) = C::x_y_indices();
+        let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
+        let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
+        let nth_batch = C::batch_index();
+        let rank = lhs.rank();
+        let k_range = (0, lhs.shape(rank - 1));
+
+        let gmm_config = config.to_gmm_config();
+        gmm_execute::<MS, GMM>(
+            lhs,
+            rhs,
+            out,
+            x_offset,
+            y_offset,
+            nth_batch,
+            &mut GMM::init_accumulator(gmm_config),
+            k_range,
+            gmm_config,
         );
     }
 }

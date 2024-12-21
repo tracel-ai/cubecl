@@ -32,7 +32,7 @@ pub struct SpanDim {
 #[cube]
 /// Iterates on several global matmul across a span
 pub trait SpanMatmul: 'static + Send + Sync {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    fn execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
         lhs: TensorInput<MS::EG, MS::Args>,
         rhs: TensorInput<MS::EG, MS::Args>,
         out: TensorOutput<MS::EG, MS::Args>,
@@ -89,7 +89,7 @@ impl SpanDim {
 
 #[cube]
 impl SpanMatmul for RowMajorSpanMatmul {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    fn execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
         lhs: TensorInput<MS::EG, MS::Args>,
         rhs: TensorInput<MS::EG, MS::Args>,
         out: TensorOutput<MS::EG, MS::Args>,
@@ -113,7 +113,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
 
 #[cube]
 impl SpanMatmul for ColMajorSpanMatmul {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    fn execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
         lhs: TensorInput<MS::EG, MS::Args>,
         rhs: TensorInput<MS::EG, MS::Args>,
         out: TensorOutput<MS::EG, MS::Args>,
@@ -137,7 +137,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
 
 #[cube]
 impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
+    fn execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
         lhs: TensorInput<MS::EG, MS::Args>,
         rhs: TensorInput<MS::EG, MS::Args>,
         out: TensorOutput<MS::EG, MS::Args>,

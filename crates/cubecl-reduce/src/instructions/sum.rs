@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{ReduceInstruction, ReduceInstructionFamily};
+use super::{Reduce, ReduceInstruction};
 
 pub struct Sum;
 
-impl ReduceInstructionFamily for Sum {
+impl Reduce for Sum {
     type Instruction<In: Numeric> = Self;
 }
 

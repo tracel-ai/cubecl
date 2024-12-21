@@ -346,7 +346,7 @@ impl TestCase {
         I: Numeric + CubeElement + std::fmt::Display,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: ReduceInstructionFamily,
+        K: Reduce,
     {
         let client = R::client(device);
 
