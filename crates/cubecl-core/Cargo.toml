@@ -38,6 +38,7 @@ half = { workspace = true, features = ["bytemuck"] }
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 log = { workspace = true }
 

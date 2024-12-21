@@ -1,21 +1,26 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Item, Vectorization},
     prelude::{
-        ArgSettings, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand, TensorHandleRef,
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+        TensorHandleRef,
     },
     Runtime,
 };
 
 use super::Array;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ArrayCompilationArg {
     pub inplace: Option<u16>,
     pub vectorisation: Vectorization,
 }
+
+impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandleRef<'a, R: Runtime> {

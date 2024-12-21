@@ -50,6 +50,26 @@ pub trait Init: Sized {
     fn init(self, context: &mut CubeContext) -> Self;
 }
 
+pub trait CompilationArg:
+    serde::Serialize
+    + serde::de::DeserializeOwned
+    + Clone
+    + PartialEq
+    + Eq
+    + core::hash::Hash
+    + core::fmt::Debug
+    + Send
+    + Sync
+    + 'static
+{
+    fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
+        let val = serde_json::to_string(self).expect("TODO");
+        serde_json::from_str(&val).expect("TODO")
+    }
+}
+
+impl CompilationArg for () {}
+
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
 /// Normally this type should be implemented two times for an argument.
@@ -59,15 +79,7 @@ pub trait Init: Sized {
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArgExpand: CubeType {
     /// Compilation argument.
-    // TODO: dynamic cast when compiling.
-    type CompilationArg: Clone
-        + PartialEq
-        + Eq
-        + core::hash::Hash
-        + core::fmt::Debug
-        + Send
-        + Sync
-        + 'static;
+    type CompilationArg: CompilationArg;
 
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(

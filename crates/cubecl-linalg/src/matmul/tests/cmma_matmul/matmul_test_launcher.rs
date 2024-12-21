@@ -33,7 +33,7 @@ type Spec<EG, ES> = SingleMatmulSpec<32, EG, ES, f32>;
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, EG, ES, R>(problem: MatmulProblem, device: &R::Device)
 where
-    A: Algorithm<Spec<EG, ES>>,
+    A: Algorithm,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
@@ -55,7 +55,7 @@ where
     let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config()).unwrap();
 
     unsafe {
-        A::BatchMatmul::launch_unchecked(
+        A::BatchMatmul::launch_unchecked::<Spec<EG, ES>, R>(
             &client,
             cube_dim,
             cube_count,

@@ -1,9 +1,13 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Item, Vectorization},
-    prelude::{ArgSettings, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand},
+    prelude::{
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+    },
     Runtime,
 };
 
@@ -53,11 +57,13 @@ impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
 }
 
 /// Compilation argument for a [tensor](Tensor).
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorCompilationArg {
     pub inplace: Option<u16>,
     pub vectorisation: Vectorization,
 }
+
+impl CompilationArg for TensorCompilationArg {}
 
 impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
     type CompilationArg = TensorCompilationArg;

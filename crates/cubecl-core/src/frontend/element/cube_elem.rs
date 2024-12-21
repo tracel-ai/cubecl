@@ -10,7 +10,6 @@ use super::{flex32, tf32, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime
 /// Numeric, UInt, Bool
 pub trait CubePrimitive:
     CubeType<ExpandType = ExpandElementTyped<Self>>
-    // + TypeMap
     + ExpandElementBaseInit
     + IntoRuntime
     + core::cmp::PartialEq
