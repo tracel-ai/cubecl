@@ -66,7 +66,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         config: Self::Config,
     ) {
         Self::check_config(config);
-        super::batch_matmul::launch_unchecked::<MS, <Self as BatchMatmulFamily>::Matmul<MS>, R>(
+        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
             client, cube_count, cube_dim, input, output, config,
         );
     }

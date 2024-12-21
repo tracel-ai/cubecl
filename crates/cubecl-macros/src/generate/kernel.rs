@@ -169,7 +169,7 @@ impl Launch {
             let ty = self.analysis.process_ty(&ty);
 
             quote! {
-                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident, &mut builder);
+                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for input in self.runtime_inputs() {

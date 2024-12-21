@@ -112,6 +112,8 @@ impl GenericAnalysis {
                             },
                         ),
                     };
+                    // let toks = segment.to_token_stream();
+                    // panic!("Here else {segment:?}, {toks}");
                     returned.segments.push_value(segment);
                 } else {
                     returned.segments.push_value(segment.clone());

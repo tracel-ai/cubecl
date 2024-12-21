@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
-use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg};
+use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg, SingleMatmulSpec};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
 
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: Config> {
@@ -60,17 +60,29 @@ pub trait Config: MatmulConfig {
     fn max_batches(&self) -> u32;
 }
 
+type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
+type Output<Args, EG> = <Args as MatmulArgs>::Output<EG>;
+
+type BMatmul<EG, ES, EA, Args, BMM> =
+    <BMM as BatchMatmulFamily>::Matmul<SingleMatmulSpec<32, EG, ES, EA, Args>>;
+
 #[cube(launch_unchecked)]
-pub(crate) fn batch_matmul<MS: MatmulSpec, BMM: batch::BatchMatmul<MS>>(
-    inputs: &InputArg<MS>,
-    output: &mut OutputArg<MS>,
+pub(crate) fn matmul<
+    EG: Numeric,
+    ES: Numeric,
+    EA: Numeric,
+    Args: MatmulArgs,
+    BMM: BatchMatmulFamily,
+>(
+    inputs: &Input<Args, EG>,
+    output: &mut Output<Args, EG>,
     #[comptime] config: BMM::Config,
 ) {
-    let mut state = MS::Args::init_state(inputs, output);
+    let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<MS::EG, MS::Args>::new(&state, args::TensorInputIdent::Rhs);
-    let out = TensorOutput::<MS::EG, MS::Args>::new(&mut state);
+    let lhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Rhs);
+    let out = TensorOutput::<EG, Args>::new(&mut state);
 
-    BMM::execute(lhs, rhs, out, config);
+    BMatmul::<EG, ES, EA, Args, BMM>::execute(lhs, rhs, out, config);
 }
