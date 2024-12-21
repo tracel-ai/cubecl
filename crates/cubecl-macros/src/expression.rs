@@ -18,11 +18,13 @@ pub enum Expression {
         operator: Operator,
         right: Box<Expression>,
         ty: Option<Type>,
+        span: Span,
     },
     Unary {
         input: Box<Expression>,
         operator: Operator,
         ty: Option<Type>,
+        span: Span,
     },
     Variable(ManagedVar),
     FieldAccess {
@@ -46,6 +48,7 @@ pub enum Expression {
         func: Box<Expression>,
         args: Vec<Expression>,
         associated_type: Option<(Path, PathSegment)>,
+        span: Span,
     },
     CompilerIntrinsic {
         func: Path,
@@ -56,6 +59,7 @@ pub enum Expression {
         method: Ident,
         generics: Option<AngleBracketedGenericArguments>,
         args: Vec<Expression>,
+        span: Span,
     },
     Closure {
         params: Vec<Pat>,
@@ -118,6 +122,7 @@ pub enum Expression {
     Index {
         expr: Box<Expression>,
         index: Box<Expression>,
+        span: Span,
     },
     Slice {
         expr: Box<Expression>,

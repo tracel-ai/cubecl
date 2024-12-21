@@ -1,4 +1,4 @@
-use quote::format_ident;
+use quote::{format_ident, quote};
 use syn::{
     visit_mut::VisitMut, Attribute, Generics, Ident, ImplItem, ItemImpl, ItemTrait, Path, Token,
     TraitItem, Type, Visibility,
@@ -61,10 +61,13 @@ impl CubeTraitItem {
 }
 
 impl CubeTraitImplItem {
-    pub fn from_impl_item(item: ImplItem) -> syn::Result<Self> {
+    pub fn from_impl_item(struct_ty: &Type, item: ImplItem) -> syn::Result<Self> {
         let res = match item {
             ImplItem::Fn(func) => {
-                let mut func = KernelFn::from_sig_and_block(func.vis, func.sig, func.block)?;
+                let name = func.sig.ident.clone();
+                let full_name = quote!(#struct_ty::#name).to_string();
+                let mut func =
+                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name)?;
                 func.sig.name = format_ident!("__expand_{}", func.sig.name);
                 CubeTraitImplItem::Fn(func)
             }
@@ -123,7 +126,7 @@ impl CubeTraitImpl {
             .items
             .iter()
             .cloned()
-            .map(CubeTraitImplItem::from_impl_item)
+            .map(|item| CubeTraitImplItem::from_impl_item(&item_impl.self_ty, item))
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
