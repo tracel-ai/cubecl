@@ -121,6 +121,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::ConstantArray(_, e, _) => *e,
             Variable::LocalMut { item, .. } => *item,
             Variable::LocalConst { item, .. } => *item,
+            Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::ConstantScalar(_, e) => Item::scalar(*e),
             Variable::GlobalScalar(_, e, _) => Item::scalar(*e),
@@ -180,6 +181,10 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
         depth: u8,
     },
+    Named {
+        name: &'static str,
+        item: Item<D>,
+    },
     Slice {
         id: u16,
         item: Item<D>,
@@ -224,6 +229,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
             Variable::LocalMut { id, depth, .. } => f.write_fmt(format_args!("l_mut_{depth}_{id}")),
             Variable::LocalConst { id, depth, .. } => f.write_fmt(format_args!("l_{depth}_{id}")),
+            Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
             Variable::Slice { id, item: _, depth } => {
                 write!(f, "slice_{depth}_{id}")
             }
@@ -412,6 +418,7 @@ impl<D: Dialect> Variable<D> {
             Variable::ConstantArray(_, _, _) => false,
             Variable::LocalMut { .. } => false,
             Variable::LocalConst { .. } => false,
+            Variable::Named { .. } => false,
             Variable::Slice { .. } => false,
             Variable::BlockIdxX => true,
             Variable::BlockIdxY => true,
