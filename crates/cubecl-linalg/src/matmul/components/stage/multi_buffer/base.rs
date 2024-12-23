@@ -9,7 +9,7 @@ use crate::matmul::components::stage::shared::{
 };
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{MatmulConfigFactory, MatmulSize, MatmulSpec};
+use crate::matmul::components::{MatmulConfigFactory, MatmulPrecision, MatmulSize};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
@@ -55,11 +55,11 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         TMM::check_config(config.to_tmm_config());
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        TMM::check_availability::<R, MS>(client, &config.tmm_config)
+        TMM::check_availability::<R, MP>(client, &config.tmm_config)
     }
 
     fn make_config(

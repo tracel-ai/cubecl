@@ -75,5 +75,5 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 [profile.dev]
-opt-level = 2
+opt-level = 0
 debug = 0 # Speed up compilation time and not necessary.

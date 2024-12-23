@@ -1,8 +1,9 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::{tile, Ident, MatmulConfigFactory, MatmulSpec, MatrixLayout};
+use crate::matmul::components::{tile, Ident, MatmulConfigFactory, MatmulPrecision, MatrixLayout};
 use crate::matmul::components::{MatmulProblem, MatmulSize};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use tile::{TileConfig, TileMatmul, TileMatmulFamily};
@@ -379,12 +380,12 @@ impl MatmulConfigFactory for PlaneMma {
         )
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MS::EG::as_elem_native_unchecked();
-        let o_elem = MS::EG::as_elem_native_unchecked();
+        let i_elem = MP::EG::as_elem_native_unchecked();
+        let o_elem = MP::EG::as_elem_native_unchecked();
 
         if !client.properties().feature_enabled(Feature::Plane) {
             return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);

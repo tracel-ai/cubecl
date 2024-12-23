@@ -1,14 +1,16 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::shared::gmm_execute;
-use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageDim,
 };
-use crate::matmul::components::{InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg};
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
+};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::tensor::{ReadWrite, VirtualTensor};
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,7 +23,7 @@ pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
 }
 
 impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
-    type Matmul<MS: MatmulSpec> = OneToOneMatmul<MS, GMM::Matmul<MS>, C>;
+    type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
 }
 
 impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
@@ -34,11 +36,11 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
         GMM::check_config(config.to_gmm_config())
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R, MS>(client, &config.gmm_config)
+        GMM::check_availability::<R, MP>(client, &config.gmm_config)
     }
 
     fn make_config(
@@ -80,22 +82,22 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
 ///
 /// Note: This algorithm requires one cube per global matmul;
 /// insufficient cubes will result in incomplete computations.
-pub struct OneToOneMatmul<MS: MatmulSpec, GMM: GlobalMatmul<MS>, C: CubeDispatch> {
-    _ms: PhantomData<MS>,
+pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> {
+    _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, GMM: GlobalMatmul<MS>, C: CubeDispatch> BatchMatmul<MS>
-    for OneToOneMatmul<MS, GMM, C>
+impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP>
+    for OneToOneMatmul<MP, GMM, C>
 {
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
@@ -106,7 +108,7 @@ impl<MS: MatmulSpec, GMM: GlobalMatmul<MS>, C: CubeDispatch> BatchMatmul<MS>
         let k_range = (0, lhs.shape(rank - 1));
 
         let gmm_config = config.to_gmm_config();
-        gmm_execute::<MS, GMM>(
+        gmm_execute::<MP, GMM>(
             lhs,
             rhs,
             out,

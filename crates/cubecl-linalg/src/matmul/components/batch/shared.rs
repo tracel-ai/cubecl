@@ -1,17 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::args::{TensorInput, TensorOutput};
-use crate::matmul::components::{global, MatmulSpec};
+use crate::matmul::components::{global, MatmulPrecision};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
-    lhs: TensorInput<MS::EG, MS::Args>,
-    rhs: TensorInput<MS::EG, MS::Args>,
-    mut out: TensorOutput<MS::EG, MS::Args>,
+pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+    lhs: VirtualTensor<MP::EG>,
+    rhs: VirtualTensor<MP::EG>,
+    out: VirtualTensor<MP::EG, ReadWrite>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
@@ -28,10 +27,6 @@ pub(crate) fn gmm_execute<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>>(
         batch_lhs += tmp % lhs.shape(b) * lhs.stride(b);
         batch_rhs += tmp % rhs.shape(b) * rhs.stride(b);
     }
-
-    let lhs = VirtualTensor::<MS::EG>::new::<TensorInput<MS::EG, MS::Args>>(&lhs);
-    let rhs = VirtualTensor::<MS::EG>::new::<TensorInput<MS::EG, MS::Args>>(&rhs);
-    let out = VirtualTensor::<MS::EG, ReadWrite>::new::<TensorOutput<MS::EG, MS::Args>>(&mut out);
 
     GMM::execute(
         GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),

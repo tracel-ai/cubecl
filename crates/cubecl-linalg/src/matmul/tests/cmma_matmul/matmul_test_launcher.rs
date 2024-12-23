@@ -28,7 +28,7 @@ struct TensorRawParts<F: Float + CubeElement> {
     original_data: Option<Vec<F>>,
 }
 
-type Spec<EG, ES> = SingleMatmulSpec<32, EG, ES, f32>;
+type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
@@ -60,7 +60,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     )
     .unwrap();
 
-    if A::check_availability::<R, Spec<EG, ES>>(&client, &config).is_err() {
+    if A::check_availability::<R, (EG, ES, f32)>(&client, &config).is_err() {
         // Can't execute the test.
         println!("Skipped - not supported!");
         return;

@@ -8,7 +8,7 @@ use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
-use crate::matmul::components::{stage, MatmulSpec};
+use crate::matmul::components::{stage, MatmulPrecision};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -31,7 +31,7 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MS: MatmulSpec> = SpecializedMatmul<MS, SMM::Matmul<MS::ES, MS::EG, MS::EA>>;
+    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
 }
 
 impl<SMM> MatmulConfigFactory for SpecializedMatmulFamily<SMM>
@@ -50,11 +50,11 @@ where
         SMM::check_config(config.to_smm_config());
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MS>(client, &config.smm_config)
+        SMM::check_availability::<R, MP>(client, &config.smm_config)
     }
 
     fn make_config(
@@ -87,27 +87,27 @@ where
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct SpecializedMatmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
-    _ms: PhantomData<MS>,
+pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP::EG, MP::EA>> {
+    _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM> global::GlobalMatmul<MS> for SpecializedMatmul<MS, SMM>
+impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM>
 where
     SMM: stage::Matmul<
-        MS::ES,
-        MS::EG,
-        MS::EA,
-        LhsReader = LhsBufferReader<MS::ES>,
-        RhsReader = RhsBufferReader<MS::ES>,
+        MP::ES,
+        MP::EG,
+        MP::EA,
+        LhsReader = LhsBufferReader<MP::ES>,
+        RhsReader = RhsBufferReader<MP::ES>,
     >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MS::EG>;
+    type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -167,7 +167,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -184,7 +184,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -201,7 +201,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -220,17 +220,17 @@ where
 
 #[cube]
 impl<
-        MS: MatmulSpec,
+        MP: MatmulPrecision,
         SMM: stage::Matmul<
-            MS::ES,
-            MS::EG,
-            MS::EA,
-            LhsReader = LhsBufferReader<MS::ES>,
-            RhsReader = RhsBufferReader<MS::ES>,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES>,
+            RhsReader = RhsBufferReader<MP::ES>,
         >,
-    > SpecializedMatmul<MS, SMM>
+    > SpecializedMatmul<MP, SMM>
 {
-    fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MS>>::Config) -> bool {
+    fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {
         UNIT_POS_Y < config.num_consumers()
     }
 }

@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self};
-use crate::matmul::components::{batch, global, tile, MatmulSpec};
+use crate::matmul::components::{batch, global, tile, MatmulPrecision};
 use crate::matmul::components::{MatmulConfigFactory, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
@@ -30,11 +30,11 @@ pub trait Algorithm {
         Ok(config)
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::BatchMatmul as MatmulConfigFactory>::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        Self::BatchMatmul::check_availability::<R, MS>(client, config)
+        Self::BatchMatmul::check_availability::<R, MP>(client, config)
     }
 
     fn advanced_config() -> AdvancedConfig {

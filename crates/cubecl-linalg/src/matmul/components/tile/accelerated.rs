@@ -1,7 +1,8 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    as_cmma_layout, Ident, MatmulConfigFactory, MatmulProblem, MatmulSize, MatmulSpec, MatrixLayout,
+    as_cmma_layout, Ident, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
+    MatrixLayout,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -94,11 +95,11 @@ impl MatmulConfigFactory for Accelerated {
         comptime!(check_plane_dim(config.plane_dim()));
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        check_availability::<MS::ES, MS::EG, R>(config.size.m, config.size.n, config.size.k, client)
+        check_availability::<MP::ES, MP::EG, R>(config.size.m, config.size.n, config.size.k, client)
     }
 
     fn make_config(

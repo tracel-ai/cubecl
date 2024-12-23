@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{InputRuntimeArg, MatmulSpec, OutputRuntimeArg};
+use super::{InputRuntimeArg, MatmulPrecision, MatmulSpec, OutputRuntimeArg};
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 
 use super::{config::MatmulConfig, MatmulProblem};
@@ -16,7 +16,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     fn check_config(config: Self::Config);
 
     /// Checks if the client can handle the features used in this computation
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         _client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError>;
@@ -41,6 +41,7 @@ pub struct MatmulSize {
 pub struct MatmulSelection {
     pub tile: MatmulSize,
     pub num_stagess: MatmulSize,
+    pub plane_dim: u32,
 }
 
 /// Provides launch entry point to solve a matmul

@@ -8,7 +8,7 @@ use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
-use crate::matmul::components::{stage, MatmulSpec};
+use crate::matmul::components::{stage, MatmulPrecision};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -31,7 +31,7 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MS: MatmulSpec> = PipelinedMatmul<MS, SMM::Matmul<MS::ES, MS::EG, MS::EA>>;
+    type Matmul<MP: MatmulPrecision> = PipelinedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
 }
 
 impl<SMM> MatmulConfigFactory for PipelinedMatmulFamily<SMM>
@@ -49,11 +49,11 @@ where
         SMM::check_config(config.to_smm_config());
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MS>(client, &config.smm_config)
+        SMM::check_availability::<R, MP>(client, &config.smm_config)
     }
 
     fn make_config(
@@ -84,27 +84,27 @@ where
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct PipelinedMatmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
-    _ms: PhantomData<MS>,
+pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP::EG, MP::EA>> {
+    _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM> global::GlobalMatmul<MS> for PipelinedMatmul<MS, SMM>
+impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for PipelinedMatmul<MP, SMM>
 where
     SMM: stage::Matmul<
-        MS::ES,
-        MS::EG,
-        MS::EA,
-        LhsReader = LhsBufferReader<MS::ES>,
-        RhsReader = RhsBufferReader<MS::ES>,
+        MP::ES,
+        MP::EG,
+        MP::EA,
+        LhsReader = LhsBufferReader<MP::ES>,
+        RhsReader = RhsBufferReader<MP::ES>,
     >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MS::EG>;
+    type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -199,7 +199,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -209,7 +209,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -219,7 +219,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

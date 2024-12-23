@@ -1,14 +1,16 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
-use crate::matmul::components::global::args::{TensorInput, TensorOutput};
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageDim,
 };
-use crate::matmul::components::{InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg};
+use crate::matmul::components::{
+    InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
+};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::tensor::{ReadWrite, VirtualTensor};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -23,7 +25,7 @@ pub struct OneToManyMatmulFamily<GMM: GlobalMatmulFamily, S: SpanMatmul, C: Cube
 impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> BatchMatmulFamily
     for OneToManyMatmulFamily<GMM, S, C>
 {
-    type Matmul<MS: MatmulSpec> = OneToManyMatmul<MS, GMM::Matmul<MS>, S, C>;
+    type Matmul<MP: MatmulPrecision> = OneToManyMatmul<MP, GMM::Matmul<MP>, S, C>;
 }
 
 impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactory
@@ -36,11 +38,11 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
         GMM::check_config(config.to_gmm_config())
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R, MS>(client, &config.gmm_config)
+        GMM::check_availability::<R, MP>(client, &config.gmm_config)
     }
 
     fn make_config(
@@ -85,26 +87,27 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
 /// The algorithm supports any number of cubes,
 /// looping as needed to process all data.
 pub struct OneToManyMatmul<
-    MS: MatmulSpec,
-    GMM: global::GlobalMatmul<MS>,
+    MP: MatmulPrecision,
+    GMM: global::GlobalMatmul<MP>,
     S: SpanMatmul,
     C: CubeDispatch,
 > {
-    _ms: PhantomData<MS>,
+    _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _s: PhantomData<S>,
     _c: PhantomData<C>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>, S: SpanMatmul, C: CubeDispatch>
-    batch::BatchMatmul<MS> for OneToManyMatmul<MS, GMM, S, C>
+impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeDispatch>
+    batch::BatchMatmul<MP> for OneToManyMatmul<MP, GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
+
     fn execute(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();
@@ -137,7 +140,7 @@ impl<MS: MatmulSpec, GMM: global::GlobalMatmul<MS>, S: SpanMatmul, C: CubeDispat
 
         let gmm_config = config.to_gmm_config();
         let acc = GMM::init_accumulator(gmm_config);
-        S::execute::<MS, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
+        S::execute::<MP, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
     }
 }
 

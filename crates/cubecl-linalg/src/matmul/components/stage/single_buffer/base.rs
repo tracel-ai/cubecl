@@ -8,7 +8,7 @@ use crate::matmul::components::stage::shared::{
 };
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
-use crate::matmul::components::{MatmulSize, MatmulSpec};
+use crate::matmul::components::{MatmulPrecision, MatmulSize};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
@@ -52,11 +52,11 @@ where
         TMM::check_config(config.to_tmm_config());
     }
 
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        TMM::check_availability::<R, MS>(client, &config.tmm_config)
+        TMM::check_availability::<R, MP>(client, &config.tmm_config)
     }
 
     fn make_config(

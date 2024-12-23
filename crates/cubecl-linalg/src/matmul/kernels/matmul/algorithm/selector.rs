@@ -18,11 +18,12 @@ const NUM_TENSOR_CORES_APPROX: usize = 8;
 pub struct CmmaSelector;
 
 impl CmmaSelector {
-    pub fn select_kernel<'a, const PLANE_DIM: u32, MS: MatmulSpec, R: Runtime>(
+    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
+        plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
             Some((
@@ -58,13 +59,14 @@ impl CmmaSelector {
                 n: stage_size_m_n as u32,
                 k: 2,
             },
+            plane_dim,
         };
         let config_input = CommonStageInput {
             tile: selection.tile.clone(),
             num_stages: selection.num_stagess.clone(),
         };
 
-        matmul_cube_preparation::<MS, R, StandardAlgorithm<PLANE_DIM, Accelerated>>(
+        matmul_cube_preparation::<MS, R, StandardAlgorithm<Accelerated>>(
             client,
             input,
             output,
@@ -155,11 +157,12 @@ fn find_stage_size_m_n(
 pub struct PlaneMmaSelector;
 
 impl PlaneMmaSelector {
-    pub fn select_kernel<'a, const PLANE_DIM: u32, MS: MatmulSpec, R: Runtime>(
+    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
+        plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let (instruction_m, instruction_n, instruction_k) =
             find_instruction_shape(None, problem.m, problem.n);
@@ -185,13 +188,14 @@ impl PlaneMmaSelector {
                 n: stage_size_m_n as u32,
                 k: 2,
             },
+            plane_dim,
         };
         let config_input = CommonStageInput {
             tile: selection.tile.clone(),
             num_stages: selection.num_stagess.clone(),
         };
 
-        matmul_cube_preparation::<MS, R, StandardAlgorithm<PLANE_DIM, PlaneMma>>(
+        matmul_cube_preparation::<MS, R, StandardAlgorithm<PlaneMma>>(
             client,
             input,
             output,

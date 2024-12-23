@@ -162,35 +162,33 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         .hardware_properties()
         .defined_plane_size();
 
-    match plane_size {
-        Some(32) => matmul_launch_kernel::<32, R, EG>(
-            client,
-            lhs,
-            rhs,
-            out,
-            disable_cmma,
-            (lhs_line_size, rhs_line_size, out_line_size),
-            problem,
-        ),
-        Some(64) => matmul_launch_kernel::<64, R, EG>(
-            client,
-            lhs,
-            rhs,
-            out,
-            disable_cmma,
-            (lhs_line_size, rhs_line_size, out_line_size),
-            problem,
-        ),
-        Some(plane_dim) => Err(MatmulLaunchError::Unavailable(
-            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-        )),
-        None => Err(MatmulLaunchError::Unavailable(
-            MatmulAvailabilityError::PlaneDimUnknown,
-        )),
-    }
+    let plane_dim = match plane_size {
+        Some(32) | Some(64) => plane_size.expect("32 or 64"),
+        Some(plane_dim) => {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
+            ))
+        }
+        None => {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::PlaneDimUnknown,
+            ))
+        }
+    };
+
+    matmul_launch_kernel::<R, EG>(
+        client,
+        lhs,
+        rhs,
+        out,
+        disable_cmma,
+        (lhs_line_size, rhs_line_size, out_line_size),
+        problem,
+        plane_dim,
+    )
 }
 
-fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
+fn matmul_launch_kernel<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -198,13 +196,10 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
     disable_cmma: bool,
     (lhs_line_size, rhs_line_size, out_line_size): (u8, u8, u8),
     problem: MatmulProblem,
+    plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if disable_cmma {
-        PlaneMmaSelector::select_kernel::<
-            { PLANE_DIM },
-            SingleMatmulSpec<{ PLANE_DIM }, EG, EG, f32>,
-            R,
-        >(
+        PlaneMmaSelector::select_kernel::<SingleMatmulSpec<EG, EG, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -212,15 +207,12 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             ),
             out.as_tensor_arg(out_line_size),
             problem,
+            plane_dim,
         )
     } else if TypeId::of::<EG>() == TypeId::of::<half::f16>()
         || TypeId::of::<EG>() == TypeId::of::<flex32>()
     {
-        CmmaSelector::select_kernel::<
-            { PLANE_DIM },
-            SingleMatmulSpec<{ PLANE_DIM }, EG, half::f16, f32>,
-            R,
-        >(
+        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -228,13 +220,10 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             ),
             out.as_tensor_arg(out_line_size),
             problem,
+            plane_dim,
         )
     } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
-        CmmaSelector::select_kernel::<
-            { PLANE_DIM },
-            SingleMatmulSpec<{ PLANE_DIM }, EG, half::bf16, f32>,
-            R,
-        >(
+        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, half::bf16, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -242,13 +231,10 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             ),
             out.as_tensor_arg(out_line_size),
             problem,
+            plane_dim,
         )
     } else {
-        CmmaSelector::select_kernel::<
-            { PLANE_DIM },
-            SingleMatmulSpec<{ PLANE_DIM }, EG, tf32, f32>,
-            R,
-        >(
+        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -256,6 +242,7 @@ fn matmul_launch_kernel<const PLANE_DIM: u32, R: Runtime, EG: Numeric>(
             ),
             out.as_tensor_arg(out_line_size),
             problem,
+            plane_dim,
         )
     }
 }
@@ -302,7 +289,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
         &cube_count,
         &advanced_config,
     )?;
-    D::check_availability::<R, MS>(client, &config)?;
+    D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(

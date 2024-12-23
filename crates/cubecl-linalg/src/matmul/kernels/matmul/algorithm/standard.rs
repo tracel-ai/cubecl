@@ -13,13 +13,11 @@ use super::base;
 
 type Dispatch = batch::SwizzleTransposedDispatch<2>;
 
-pub struct StandardAlgorithm<const PLANE_DIM: u32, TMM> {
+pub struct StandardAlgorithm<TMM> {
     pub _tmm: PhantomData<TMM>,
 }
 
-impl<const PLANE_DIM: u32, TMM: tile::TileMatmulFamily> base::Algorithm
-    for StandardAlgorithm<{ PLANE_DIM }, TMM>
-{
+impl<TMM: tile::TileMatmulFamily> base::Algorithm for StandardAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul =
@@ -29,7 +27,7 @@ impl<const PLANE_DIM: u32, TMM: tile::TileMatmulFamily> base::Algorithm
     type Selection = MatmulSelection;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(PLANE_DIM, selection.num_stagess.m, 1)
+        CubeDim::new(selection.plane_dim, selection.num_stagess.m, 1)
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {

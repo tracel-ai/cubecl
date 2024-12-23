@@ -7,9 +7,6 @@ use super::global::args::{MatmulArgs, TensorArgs};
 /// Matrix multiplication spec definiting each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait MatmulSpec: Send + Sync + Clone + 'static {
-    /// The plane size used by this kernel.
-    const PLANE_DIM: u32;
-
     /// Element type of each input and output tensor of the kernel.
     type EG: Numeric;
     /// Element type of the intermediate representation of the inputs.
@@ -18,6 +15,22 @@ pub trait MatmulSpec: Send + Sync + Clone + 'static {
     type EA: Numeric;
     /// How the input and output tensors are passed as arguments.
     type Args: MatmulArgs;
+}
+
+/// Matrix multiplication precisions.
+pub trait MatmulPrecision: Send + Sync + Clone + 'static {
+    /// Element type of each input and output tensor of the kernel.
+    type EG: Numeric;
+    /// Element type of the intermediate representation of the inputs.
+    type ES: Numeric;
+    /// Element type of the intermediate representation of the output accumulator.
+    type EA: Numeric;
+}
+
+impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
+    type EG = EG;
+    type ES = ES;
+    type EA = EA;
 }
 
 /// Input argument
@@ -37,29 +50,26 @@ type Args<MS> = <MS as MatmulSpec>::Args;
 
 /// Specification for a simple standard matmul using global tensor as inputs.
 #[derive(Clone)]
-pub struct SingleMatmulSpec<const PLANE_DIM: u32, EG, ES, EA, Args = TensorArgs> {
+pub struct SingleMatmulSpec<EG, ES, EA, Args = TensorArgs> {
     _eg: PhantomData<EG>,
     _es: PhantomData<ES>,
     _ea: PhantomData<EA>,
     _args: PhantomData<Args>,
 }
 
-impl<Args: MatmulArgs, EG: Numeric, ES: Numeric, EA: Numeric, const PLANE_DIM: u32> MatmulSpec
-    for SingleMatmulSpec<PLANE_DIM, EG, ES, EA, Args>
+impl<Args: MatmulArgs, EG: Numeric, ES: Numeric, EA: Numeric> MatmulSpec
+    for SingleMatmulSpec<EG, ES, EA, Args>
 {
-    const PLANE_DIM: u32 = PLANE_DIM;
-
     type EG = EG;
     type ES = ES;
     type EA = EA;
     type Args = Args;
 }
 
-impl<const POS: u8, const PLANE_DIM: u32, EG: Numeric, ES: Numeric, EA: Numeric> TypeMap<POS>
-    for SingleMatmulSpec<PLANE_DIM, EG, ES, EA>
+impl<const POS: u8, EG: Numeric, ES: Numeric, EA: Numeric> TypeMap<POS>
+    for SingleMatmulSpec<EG, ES, EA>
 {
-    type ExpandGeneric =
-        SingleMatmulSpec<PLANE_DIM, FloatExpand<0>, FloatExpand<1>, FloatExpand<2>>;
+    type ExpandGeneric = SingleMatmulSpec<FloatExpand<0>, FloatExpand<1>, FloatExpand<2>>;
 
     fn register(context: &mut cubecl_core::prelude::CubeContext) {
         let eg = EG::as_elem(&context);
