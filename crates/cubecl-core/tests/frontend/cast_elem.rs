@@ -18,9 +18,27 @@ pub fn float_to_int(x: f32) {
 }
 
 #[cube]
+pub fn float_to_u8(x: f32) {
+    let y = x + f32::from_int(2);
+    let _ = u8::cast_from(y) + u8::from_int(34);
+}
+
+#[cube]
+pub fn float_to_u16(x: f32) {
+    let y = x + f32::from_int(2);
+    let _ = u16::cast_from(y) + u16::from_int(34);
+}
+
+#[cube]
 pub fn float_to_u32(x: f32) {
     let y = x + f32::from_int(2);
     let _ = u32::cast_from(y) + u32::from_int(34);
+}
+
+#[cube]
+pub fn float_to_u64(x: f32) {
+    let y = x + f32::from_int(2);
+    let _ = u64::cast_from(y) + u64::from_int(34);
 }
 
 #[cube]
@@ -57,7 +75,34 @@ pub fn int_to_bool(x: i32) {
     let _ = bool::cast_from(y) || true;
 }
 
-// // From u32
+// From u16
+#[cube]
+pub fn u16_to_float(x: u16) {
+    let y = x + u16::from_int(2);
+    let _ = f32::cast_from(y) + f32::from_int(34);
+}
+
+#[cube]
+pub fn u16_to_int(x: u16) {
+    let y = x + u16::from_int(2);
+    let _ = i32::cast_from(y) + i32::from_int(34);
+}
+
+#[cube]
+#[allow(clippy::useless_conversion)]
+pub fn u16_to_u32(x: u16) {
+    let y = x + u16::from_int(2);
+    let _ = u32::cast_from(y) + u32::from_int(34);
+}
+
+#[cube]
+#[allow(clippy::overly_complex_bool_expr)]
+pub fn u16_to_bool(x: u16) {
+    let y = x + u16::from_int(2);
+    let _ = bool::cast_from(y) || true;
+}
+
+// From u32
 #[cube]
 pub fn u32_to_float(x: u32) {
     let y = x + u32::from_int(2);
@@ -108,6 +153,13 @@ pub fn bool_to_u32(x: bool) {
 
 #[cube]
 #[allow(clippy::overly_complex_bool_expr)]
+pub fn bool_to_u64(x: bool) {
+    let y = x && false;
+    let _ = u64::cast_from(y) + u64::from_int(34);
+}
+
+#[cube]
+#[allow(clippy::overly_complex_bool_expr)]
 #[allow(clippy::useless_conversion)]
 pub fn bool_to_bool(x: bool) {
     let y = x && false;
@@ -119,7 +171,7 @@ mod tests {
     use cubecl_core::{
         cpa,
         frontend::{CubeContext, CubePrimitive},
-        ir::{Elem, Item, Variable},
+        ir::{Elem, Item, UIntKind, Variable},
     };
 
     macro_rules! cast_test {
@@ -149,10 +201,31 @@ mod tests {
     );
 
     cast_test!(
+        cube_float_to_u8_test,
+        float_to_u8::expand,
+        Item::new(f32::as_elem()),
+        Item::new(u8::as_elem())
+    );
+
+    cast_test!(
+        cube_float_to_u16_test,
+        float_to_u16::expand,
+        Item::new(f32::as_elem()),
+        Item::new(u16::as_elem())
+    );
+
+    cast_test!(
         cube_float_to_u32_test,
         float_to_u32::expand,
         Item::new(f32::as_elem()),
         Item::new(u32::as_elem())
+    );
+
+    cast_test!(
+        cube_float_to_u64_test,
+        float_to_u64::expand,
+        Item::new(f32::as_elem()),
+        Item::new(u64::as_elem())
     );
 
     cast_test!(
@@ -181,6 +254,34 @@ mod tests {
         int_to_bool::expand,
         Item::new(i32::as_elem()),
         Item::new(Elem::Bool)
+    );
+
+    cast_test!(
+        cube_u16_to_float_test,
+        u16_to_float::expand,
+        Item::new(u16::as_elem()),
+        Item::new(f32::as_elem())
+    );
+
+    cast_test!(
+        cube_u16_to_int_test,
+        u16_to_int::expand,
+        Item::new(u16::as_elem()),
+        Item::new(i32::as_elem())
+    );
+
+    cast_test!(
+        cube_u16_to_u32_test,
+        u16_to_u32::expand,
+        Item::new(u16::as_elem()),
+        Item::new(u32::as_elem())
+    );
+
+    cast_test!(
+        cube_u16_to_bool_test,
+        u16_to_bool::expand,
+        Item::new(u16::as_elem()),
+        Item::new(bool::as_elem())
     );
 
     cast_test!(
@@ -237,7 +338,12 @@ mod tests {
             Elem::Float(_) => cpa!(scope, x = x + 2f32),
             Elem::Int(_) => cpa!(scope, x = x + 2i32),
             Elem::AtomicInt(_) => cpa!(scope, x = x + 2i32),
-            Elem::UInt(_) => cpa!(scope, x = x + 2u32),
+            Elem::UInt(u) => match u {
+                UIntKind::U8 => cpa!(scope, x = x + 2u8),
+                UIntKind::U16 => cpa!(scope, x = x + 2u16),
+                UIntKind::U32 => cpa!(scope, x = x + 2u32),
+                UIntKind::U64 => cpa!(scope, x = x + 2u64),
+            },
             Elem::AtomicUInt(_) => cpa!(scope, x = x + 2u32),
             Elem::Bool => cpa!(scope, x = x && false),
         }
@@ -248,7 +354,12 @@ mod tests {
             Elem::Float(_) => cpa!(scope, y = y + 34f32),
             Elem::Int(_) => cpa!(scope, y = y + 34i32),
             Elem::AtomicInt(_) => cpa!(scope, y = y + 34i32),
-            Elem::UInt(_) => cpa!(scope, y = y + 34u32),
+            Elem::UInt(u) => match u {
+                UIntKind::U8 => cpa!(scope, y = y + 34u8),
+                UIntKind::U16 => cpa!(scope, y = y + 34u16),
+                UIntKind::U32 => cpa!(scope, y = y + 34u32),
+                UIntKind::U64 => cpa!(scope, y = y + 34u64),
+            },
             Elem::AtomicUInt(_) => cpa!(scope, y = y + 34u32),
             Elem::Bool => cpa!(scope, y = y || true),
         }
