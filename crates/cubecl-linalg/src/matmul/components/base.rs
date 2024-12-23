@@ -1,3 +1,4 @@
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{InputRuntimeArg, MatmulSpec, OutputRuntimeArg};
@@ -9,19 +10,20 @@ use super::{config::MatmulConfig, MatmulProblem};
 pub trait MatmulConfigFactory: Send + Sync + 'static {
     /// Configuration tailored to the matmul implementation
     type Config: MatmulConfig;
+    type Input;
 
     /// Asserts that the configuration for this matmul will lead to a valid computation
     fn check_config(config: Self::Config);
 
     /// Checks if the client can handle the features used in this computation
-    fn check_availability<R: Runtime>(
+    fn check_availability<R: Runtime, MS: MatmulSpec>(
         _client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        Ok(())
-    }
+        _config: &Self::Config,
+    ) -> Result<(), MatmulAvailabilityError>;
 
     /// Create config for this matmul, given launch information
     fn make_config(
+        input: Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
@@ -29,13 +31,16 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     ) -> Self::Config;
 }
 
-pub trait MatmulAvailabilityCheck {
-    /// Checks if the client can handle the features used in this computation
-    fn check_availability<R: Runtime, MS: MatmulSpec>(
-        _client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        Ok(())
-    }
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct MatmulSize {
+    pub m: u32,
+    pub n: u32,
+    pub k: u32,
+}
+
+pub struct MatmulSelection {
+    pub tile: MatmulSize,
+    pub num_stagess: MatmulSize,
 }
 
 /// Provides launch entry point to solve a matmul

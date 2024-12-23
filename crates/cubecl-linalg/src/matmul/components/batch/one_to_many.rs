@@ -30,24 +30,27 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
     for OneToManyMatmulFamily<GMM, S, C>
 {
     type Config = Config<GMM::Config, C>;
+    type Input = GMM::Input;
 
     fn check_config(config: Self::Config) {
         GMM::check_config(config.to_gmm_config())
     }
 
-    fn check_availability<R: Runtime>(
+    fn check_availability<R: Runtime, MS: MatmulSpec>(
         client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R>(client)
+        GMM::check_availability::<R, MS>(client, &config.gmm_config)
     }
 
     fn make_config(
+        input: Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
-        let gmm_config = GMM::make_config(problem, cube_dim, cube_count, advanced_config);
+        let gmm_config = GMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {

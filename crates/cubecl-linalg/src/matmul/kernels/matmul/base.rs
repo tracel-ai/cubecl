@@ -8,7 +8,8 @@ use cubecl_core::{
 use crate::matmul;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulLaunch, MatmulProblem, MatmulSpec, OutputRuntimeArg, SingleMatmulSpec,
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSpec,
+    OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
@@ -264,11 +265,11 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorit
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
+    config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
+    selection: D::Selection,
 ) -> Result<(), MatmulLaunchError> {
-    D::check_availability::<R>(client)?;
-
-    let cube_dim = D::cube_dim();
-    let cube_count = D::cube_count(&problem);
+    let cube_dim = D::cube_dim(&selection);
+    let cube_count = D::cube_count(&selection, &problem);
     let advanced_config = D::advanced_config();
 
     launch_matmul::<MS, R, D>(
@@ -279,6 +280,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorit
         cube_dim,
         cube_count,
         advanced_config,
+        config_input,
     )
 }
 
@@ -291,8 +293,16 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     cube_dim: CubeDim,
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
+    config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
 ) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(&problem, &cube_dim, &cube_count, &advanced_config)?;
+    let config = D::make_config(
+        config_input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+        &advanced_config,
+    )?;
+    D::check_availability::<R, MS>(client, &config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(

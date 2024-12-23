@@ -1,4 +1,4 @@
-use crate::matmul::components::stage::multi_buffer;
+use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::tile::TileConfig;
@@ -35,9 +35,9 @@ impl<ES: Numeric> LhsReader<ES> {
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
-        #[comptime] config: multi_buffer::Config<T>,
+        #[comptime] config: CommonStageConfig<T>,
     ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<multi_buffer::Config<T>>(
+        this.stage.get_tile::<CommonStageConfig<T>>(
             compute_plane_offset,
             buffer_offset,
             Ident::Lhs,
@@ -52,9 +52,9 @@ impl<ES: Numeric> RhsReader<ES> {
         this: &Self,
         buffer_offset: u32,
         accumulator_offset: u32,
-        #[comptime] config: multi_buffer::Config<T>,
+        #[comptime] config: CommonStageConfig<T>,
     ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<multi_buffer::Config<T>>(
+        this.stage.get_tile::<CommonStageConfig<T>>(
             buffer_offset,
             accumulator_offset,
             Ident::Rhs,

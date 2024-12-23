@@ -7,6 +7,7 @@ use cubecl_core::Feature;
 
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
@@ -31,8 +32,12 @@ type Spec<EG, ES> = SingleMatmulSpec<32, EG, ES, f32>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_algorithm<A, EG, ES, R>(problem: MatmulProblem, device: &R::Device)
-where
+pub fn test_matmul_algorithm<A, EG, ES, R>(
+    problem: MatmulProblem,
+    device: &R::Device,
+    input: <A::BatchMatmul as MatmulConfigFactory>::Input,
+    selection: A::Selection,
+) where
     A: Algorithm,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
@@ -40,19 +45,26 @@ where
 {
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
-    if A::check_availability::<R>(&client).is_err() {
-        // Can't execute the test.
-        println!("Skipped - not supported!");
-        return;
-    }
-
     let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
 
-    let cube_dim = A::cube_dim();
-    let cube_count = A::cube_count(&problem);
-    let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config()).unwrap();
+    let cube_dim = A::cube_dim(&selection);
+    let cube_count = A::cube_count(&selection, &problem);
+    let config = A::make_config(
+        input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+        &A::advanced_config(),
+    )
+    .unwrap();
+
+    if A::check_availability::<R, Spec<EG, ES>>(&client, &config).is_err() {
+        // Can't execute the test.
+        println!("Skipped - not supported!");
+        return;
+    }
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<Spec<EG, ES>, R>(

@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    stage::{single_buffer, ReaderFamily},
+    stage::{shared::CommonStageConfig, ReaderFamily},
     tile::TileConfig,
 };
 use cubecl_core as cubecl;
@@ -35,9 +35,9 @@ impl<ES: Numeric> LhsBufferReader<ES> {
     pub fn read_tile<T: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
-        #[comptime] config: single_buffer::Config<T>,
+        #[comptime] config: CommonStageConfig<T>,
     ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<single_buffer::Config<T>>(
+        this.stage.get_tile::<CommonStageConfig<T>>(
             compute_plane_offset,
             this.buffer,
             Ident::Lhs,
@@ -51,9 +51,9 @@ impl<ES: Numeric> RhsBufferReader<ES> {
     pub fn read_tile<T: TileConfig>(
         this: &Self,
         accumulator_offset: u32,
-        #[comptime] config: single_buffer::Config<T>,
+        #[comptime] config: CommonStageConfig<T>,
     ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<single_buffer::Config<T>>(
+        this.stage.get_tile::<CommonStageConfig<T>>(
             this.buffer,
             accumulator_offset,
             Ident::Rhs,

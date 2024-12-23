@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
-use crate::matmul::components::{batch, InputArg, MatmulSpec, OutputArg, SingleMatmulSpec};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
+use crate::matmul::components::{MatmulSpec, SingleMatmulSpec};
 
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: Config> {
     type Matmul<MS: MatmulSpec>: BatchMatmul<MS, Config = Self::Config>;

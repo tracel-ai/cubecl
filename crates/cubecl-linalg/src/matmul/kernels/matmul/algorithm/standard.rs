@@ -4,37 +4,37 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::batch::CubeCountDispatch;
 use crate::matmul::components::global::full_load::CyclicLoading;
-use crate::matmul::components::stage::{self, StageSize};
-use crate::matmul::components::tile;
+use crate::matmul::components::stage::{self};
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
+use crate::matmul::components::{tile, MatmulSelection};
 
 use super::base;
 
 type Dispatch = batch::SwizzleTransposedDispatch<2>;
 
-pub struct StandardAlgorithm<const PLANE_DIM: u32, Stage: StageSize, TMM> {
-    pub _stage: PhantomData<Stage>,
+pub struct StandardAlgorithm<const PLANE_DIM: u32, TMM> {
     pub _tmm: PhantomData<TMM>,
 }
 
-impl<const PLANE_DIM: u32, Stage: StageSize, TMM: tile::TileMatmulFamily> base::Algorithm
-    for StandardAlgorithm<{ PLANE_DIM }, Stage, TMM>
+impl<const PLANE_DIM: u32, TMM: tile::TileMatmulFamily> base::Algorithm
+    for StandardAlgorithm<{ PLANE_DIM }, TMM>
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul, Stage>;
+    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul =
         global::full_load::FullLoadMatmulFamily<Self::StageMatmul, CyclicLoading, CyclicLoading>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type Selection = MatmulSelection;
 
-    fn cube_dim() -> CubeDim {
-        CubeDim::new(PLANE_DIM, Stage::NUM_M, 1)
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+        CubeDim::new(PLANE_DIM, selection.num_stagess.m, 1)
     }
 
-    fn cube_count(problem: &MatmulProblem) -> CubeCount {
-        let m_stage = Stage::NUM_M * Self::TileMatmul::M;
-        let n_stage = Stage::NUM_N * Self::TileMatmul::N;
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
+        let m_stage = selection.num_stagess.m * selection.tile.m;
+        let n_stage = selection.num_stagess.n * selection.tile.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 

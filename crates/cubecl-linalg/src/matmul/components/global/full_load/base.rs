@@ -20,8 +20,11 @@ use std::marker::PhantomData;
 
 use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
 
-pub struct FullLoadMatmulFamily<SMM: stage::MatmulFamily, LL: LoadingStrategy, RL: LoadingStrategy>
-{
+pub struct FullLoadMatmulFamily<
+    SMM: stage::StageMatmulFamily,
+    LL: LoadingStrategy,
+    RL: LoadingStrategy,
+> {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
@@ -29,7 +32,7 @@ pub struct FullLoadMatmulFamily<SMM: stage::MatmulFamily, LL: LoadingStrategy, R
 
 impl<SMM, LL, RL> GlobalMatmulFamily for FullLoadMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::MatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
@@ -38,41 +41,45 @@ where
 
 impl<SMM, LL, RL> MatmulConfigFactory for FullLoadMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::MatmulFamily,
+    SMM: stage::StageMatmulFamily,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
+    type Input = SMM::Input;
     type Config = Config<SMM::Config>;
 
     fn check_config(config: Self::Config) {
         SMM::check_config(config.to_smm_config());
     }
 
-    fn check_availability<R: Runtime>(
+    fn check_availability<R: Runtime, MS: MatmulSpec>(
         client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R>(client)
+        SMM::check_availability::<R, MS>(client, &config.smm_config)
     }
 
     fn make_config(
+        input: Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
+        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
+        let size = SMM::size(&smm_config);
 
         Config::new(
             smm_config,
-            problem.m as u32 % SMM::M != 0,
-            problem.n as u32 % SMM::N != 0,
-            problem.k as u32 % SMM::K != 0,
+            problem.m as u32 % size.m != 0,
+            problem.n as u32 % size.n != 0,
+            problem.k as u32 % size.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
-            SMM::K,
+            size.k,
         )
     }
 }

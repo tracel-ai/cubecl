@@ -1,18 +1,11 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::{tile, Ident, MatmulConfigFactory, MatmulSpec, MatrixLayout};
-use crate::matmul::components::{MatmulAvailabilityCheck, MatmulProblem};
+use crate::matmul::components::{MatmulProblem, MatmulSize};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use tile::{TileConfig, TileMatmul, TileMatmulFamily};
-
-pub type PlaneMma16x16x16 = PlaneMma<16, 16, 16>;
-pub type PlaneMma16x16x8 = PlaneMma<16, 16, 8>;
-pub type PlaneMma16x16x32 = PlaneMma<16, 16, 32>;
-pub type PlaneMma32x8x16 = PlaneMma<32, 8, 16>;
-pub type PlaneMma8x32x16 = PlaneMma<8, 32, 16>;
-pub type PlaneMma32x32x32 = PlaneMma<32, 32, 32>;
 
 /// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
 ///
@@ -23,20 +16,18 @@ pub type PlaneMma32x32x32 = PlaneMma<32, 32, 32>;
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
 ///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
 ///  - If not vec4, there are patches in read_output that may harm performance
-pub struct PlaneMma<const M: u32, const N: u32, const K: u32>;
+pub struct PlaneMma;
 
-impl<const M: u32, const N: u32, const K: u32> TileMatmulFamily for PlaneMma<M, N, K> {
-    const M: u32 = M;
-    const N: u32 = N;
-    const K: u32 = K;
+impl TileMatmulFamily for PlaneMma {
+    fn size(config: &Self::Config) -> MatmulSize {
+        config.size.clone()
+    }
 
     type Matmul<I: Numeric, O: Numeric> = Self;
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmul<I, O>
-    for PlaneMma<M, N, K>
-{
+impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
     type Config = Config;
     type Lhs = Array<I>;
     type Rhs = Array<I>;
@@ -48,11 +39,11 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
         out: &mut Self::Accumulator,
         #[comptime] config: Config,
     ) {
-        let k_jump = config.plane_dim() / N;
-        let row_division = config.plane_dim() / M;
+        let k_jump = config.plane_dim() / config.size.n;
+        let row_division = config.plane_dim() / config.size.m;
 
-        let num_jumps = K / k_jump;
-        let compute_width = N / row_division;
+        let num_jumps = config.size.k / k_jump;
+        let compute_width = config.size.n / row_division;
 
         let unit_offset = UNIT_POS_X % row_division * compute_width;
 
@@ -66,7 +57,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
 
                 #[unroll]
                 for n_iter in 0..compute_width {
-                    let unit_to_read = k_inner * N + n_iter + unit_offset;
+                    let unit_to_read = k_inner * config.size.n + n_iter + unit_offset;
                     let b_kn = plane_broadcast::<I>(b_kp, unit_to_read);
                     out[n_iter] += O::cast_from(a_pk * b_kn);
                 }
@@ -74,12 +65,12 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
         }
     }
 
-    fn init_lhs(#[comptime] _config: Config) -> Self::Lhs {
-        Array::new(K)
+    fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
+        Array::new(config.size.k)
     }
 
     fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
-        Array::new(K * N / config.plane_dim())
+        Array::new(config.size.k * config.size.n / config.plane_dim())
     }
 
     fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
@@ -88,8 +79,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
                 slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
-                M,
-                K,
+                config.size.m,
+                config.size.k,
                 config.line_size(Ident::Lhs),
                 config.plane_dim(),
             ),
@@ -97,8 +88,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
                 slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
-                M,
-                K,
+                config.size.m,
+                config.size.k,
                 config.line_size(Ident::Lhs),
                 config.plane_dim(),
             ),
@@ -111,8 +102,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
                 slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
-                N,
-                K,
+                config.size.n,
+                config.size.k,
                 config.line_size(Ident::Rhs),
                 config.plane_dim(),
             ),
@@ -120,8 +111,8 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
                 slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
-                N,
-                K,
+                config.size.n,
+                config.size.k,
                 config.line_size(Ident::Rhs),
                 config.plane_dim(),
             ),
@@ -135,7 +126,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
         #[comptime] config: Config,
     ) {
         let unit = UNIT_POS_X;
-        let n = N;
+        let n = config.size.n;
         let line_size = config.line_size(Ident::Out);
         let plane_dim = config.plane_dim();
 
@@ -149,7 +140,7 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
         let row_jump = plane_dim / n;
 
         #[unroll]
-        for m_iter in 0..M / row_jump {
+        for m_iter in 0..config.size.m / row_jump {
             let m_row = row_jump * m_iter + m_row_alt;
             let offset = m_row * num_lines + col_idx;
             let line = slice[offset];
@@ -170,14 +161,14 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
         let line_size = config.line_size(Ident::Out);
         let plane_dim = config.plane_dim();
 
-        let row_division = plane_dim / M;
-        let compute_width = N / row_division;
+        let row_division = plane_dim / config.size.m;
+        let compute_width = config.size.n / row_division;
         let num_lines = compute_width / line_size;
 
         let unit = UNIT_POS_X;
 
         let row = unit / row_division;
-        let row_offset = row * N / line_size;
+        let row_offset = row * config.size.n / line_size;
 
         let offset = row_offset + unit % row_division * num_lines;
 
@@ -219,12 +210,12 @@ impl<I: Numeric, O: Numeric, const M: u32, const N: u32, const K: u32> TileMatmu
     }
 
     fn init_accumulator(#[comptime] config: Config) -> Self::Accumulator {
-        let len = M * N / (config.plane_dim());
+        let len = config.size.m * config.size.n / (config.plane_dim());
         Array::new(len)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        let len = M * N / (config.plane_dim());
+        let len = config.size.m * config.size.n / (config.plane_dim());
 
         #[unroll]
         for i in 0..len {
@@ -350,9 +341,47 @@ fn fill_parallel_rhs<E: Numeric>(
     }
 }
 
-impl<const M: u32, const N: u32, const K: u32> MatmulAvailabilityCheck for PlaneMma<M, N, K> {
+impl MatmulConfigFactory for PlaneMma {
+    type Config = Config;
+    type Input = MatmulSize;
+
+    fn check_config(config: Self::Config) {
+        let plane_dim = config.plane_dim();
+        assert!(config.size.m * config.size.n % plane_dim == 0);
+        assert!(config.size.k * config.size.n % plane_dim == 0);
+    }
+
+    fn make_config(
+        input: Self::Input,
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        _cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+            Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+            _ => (problem.lhs_layout, problem.lhs_line_size),
+        };
+
+        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+            Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+            _ => (problem.rhs_layout, problem.rhs_line_size),
+        };
+
+        Config::new(
+            input,
+            cube_dim.x,
+            lhs_tile_layout,
+            rhs_tile_layout,
+            lhs_tile_line_size as u32,
+            rhs_tile_line_size as u32,
+            problem.out_line_size as u32,
+        )
+    }
+
     fn check_availability<R: Runtime, MS: MatmulSpec>(
         client: &ComputeClient<R::Server, R::Channel>,
+        _config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
         let i_elem = MS::EG::as_elem_native_unchecked();
         let o_elem = MS::EG::as_elem_native_unchecked();
@@ -374,45 +403,10 @@ impl<const M: u32, const N: u32, const K: u32> MatmulAvailabilityCheck for Plane
     }
 }
 
-impl<const M: u32, const N: u32, const K: u32> MatmulConfigFactory for PlaneMma<M, N, K> {
-    type Config = Config;
-
-    fn check_config(config: Self::Config) {
-        let plane_dim = config.plane_dim();
-        assert!(M * N % plane_dim == 0);
-        assert!(K * N % plane_dim == 0);
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        _cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
-            Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
-            _ => (problem.lhs_layout, problem.lhs_line_size),
-        };
-
-        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
-            Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
-            _ => (problem.rhs_layout, problem.rhs_line_size),
-        };
-
-        Config::new(
-            cube_dim.x,
-            lhs_tile_layout,
-            rhs_tile_layout,
-            lhs_tile_line_size as u32,
-            rhs_tile_line_size as u32,
-            problem.out_line_size as u32,
-        )
-    }
-}
-
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for PlaneMma instruction
 pub struct Config {
+    size: MatmulSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -447,6 +441,7 @@ impl MatmulConfig for Config {}
 
 impl Config {
     pub fn new(
+        size: MatmulSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
@@ -455,6 +450,7 @@ impl Config {
         out_line_size: u32,
     ) -> Self {
         Self {
+            size,
             plane_dim,
             lhs_layout,
             rhs_layout,

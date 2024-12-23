@@ -1,15 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{config::MatmulConfig, Ident, MatmulConfigFactory, MatrixLayout};
+use crate::matmul::components::{
+    config::MatmulConfig, Ident, MatmulConfigFactory, MatmulSize, MatrixLayout,
+};
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Config: TileConfig> {
-    /// Number of rows of LHS
-    const M: u32;
-    /// Number of columns of RHS
-    const N: u32;
-    /// Common dimension of LHS and RHS
-    const K: u32;
+    fn size(config: &Self::Config) -> MatmulSize;
 
     type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;
 }

@@ -2,10 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::tile::TileConfig;
-use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{MatmulSize, StageDim};
 
 use super::tiling_order::TilingOrderConfig;
 
@@ -13,16 +13,13 @@ pub trait ReaderFamily {
     type Reader<I: Numeric>: CubeType;
 }
 
-pub trait MatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
-    /// Number of rows of LHS
-    const M: u32;
-    /// Number of columns of RHS
-    const N: u32;
-    /// Common dimension of LHS and RHS
-    const K: u32;
-
+pub trait StageMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
+
+    fn size(config: &Self::Config) -> MatmulSize;
+    /// Return the number of matmuls computed by the stage.
+    fn num(config: &Self::Config) -> MatmulSize;
 
     type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: Matmul<
         I,
@@ -158,44 +155,3 @@ pub trait Config: MatmulConfig {
     /// Returns the order in which tiles should be loaded to the stage
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 }
-
-pub trait StageSize: 'static + Send + Sync {
-    const NUM_M: u32;
-    const NUM_N: u32;
-    const NUM_K: u32;
-}
-
-macro_rules! create_cmma_stage {
-    ($name:ident, $m:expr, $n:expr, $k:expr) => {
-        pub struct $name;
-
-        impl StageSize for $name {
-            const NUM_M: u32 = $m;
-            const NUM_N: u32 = $n;
-            const NUM_K: u32 = $k;
-        }
-    };
-}
-
-// This list is not exhaustive. Add what you need.
-create_cmma_stage!(S1x1x1, 1, 1, 1);
-create_cmma_stage!(S1x1x2, 1, 1, 2);
-create_cmma_stage!(S1x1x3, 1, 1, 3);
-create_cmma_stage!(S1x2x1, 1, 2, 1);
-create_cmma_stage!(S1x2x2, 1, 2, 2);
-create_cmma_stage!(S2x1x1, 2, 1, 1);
-create_cmma_stage!(S2x1x2, 2, 1, 2);
-create_cmma_stage!(S2x2x1, 2, 2, 1);
-create_cmma_stage!(S2x2x2, 2, 2, 2);
-create_cmma_stage!(S4x4x1, 4, 4, 1);
-create_cmma_stage!(S4x4x2, 4, 4, 2);
-create_cmma_stage!(S4x4x4, 4, 4, 4);
-create_cmma_stage!(S4x2x4, 4, 2, 4);
-create_cmma_stage!(S8x1x1, 8, 1, 1);
-create_cmma_stage!(S8x2x2, 8, 2, 2);
-create_cmma_stage!(S8x4x1, 8, 4, 1);
-create_cmma_stage!(S8x4x2, 8, 4, 2);
-create_cmma_stage!(S2x2x8, 2, 2, 8);
-create_cmma_stage!(S16x4x4, 16, 4, 4);
-create_cmma_stage!(S8x8x1, 8, 8, 1);
-create_cmma_stage!(S8x8x2, 8, 8, 2);
