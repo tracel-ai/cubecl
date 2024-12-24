@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
+use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
 
@@ -36,8 +37,8 @@ type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, EG, ES, R>(
-    problem: MatmulProblem,
-    device: &R::Device,
+    client: ComputeClient<R::Server, R::Channel>,
+    mut problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: A::Selection,
 ) where
@@ -46,11 +47,28 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
 {
-    let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
-
     let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
+
+    problem.lhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &lhs.shape,
+        &lhs.strides,
+        lhs.strides.len() - 1,
+    );
+    problem.rhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &rhs.shape,
+        &rhs.strides,
+        rhs.strides.len() - 1,
+    );
+    problem.out_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &out.shape,
+        &out.strides,
+        out.strides.len() - 1,
+    );
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);

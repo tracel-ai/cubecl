@@ -1,3 +1,3 @@
-mod cmma;
+pub mod cmma;
 mod simple;
 mod tiling2d;

@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::{self};
+use crate::matmul::components::stage::{self, CommonStageInput};
 use crate::matmul::components::{batch, global, tile, MatmulPrecision};
 use crate::matmul::components::{MatmulConfigFactory, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
@@ -9,9 +9,9 @@ use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
-    type StageMatmul: stage::StageMatmulFamily;
+    type StageMatmul: stage::StageMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
     type GlobalMatmul: global::GlobalMatmulFamily;
-    type BatchMatmul: batch::BatchMatmulFamily;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
     type Selection;
 
     fn cube_dim(selection: &Self::Selection) -> CubeDim;
