@@ -6,12 +6,12 @@ use crate::matmul::components::stage::single_buffer::{
     LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
 };
 use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{stage, MatmulPrecision};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::tensor::{ReadWrite, VirtualTensor};
@@ -42,13 +42,15 @@ where
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
 
-    fn check_config(config: Self::Config) {
-        assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
-            "Producer-consumer needs at least 2 buffers."
-        );
-        SMM::check_config(config.to_smm_config());
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        if config.num_producers() <= 0 {
+            return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
+        }
+        if config.stage_dim(Ident::Lhs).num_tiles_y_dim() <= 1 {
+            return Err(Box::new("Producer-consumer needs at least 2 buffers."));
+        }
+
+        SMM::check_config(&config.to_smm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

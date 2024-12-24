@@ -6,7 +6,8 @@ use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageDim,
 };
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg,
+    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
+    OutputRuntimeArg,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -34,8 +35,8 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
     type Config = Config<GMM::Config, C>;
     type Input = GMM::Input;
 
-    fn check_config(config: Self::Config) {
-        GMM::check_config(config.to_gmm_config())
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        GMM::check_config(&config.to_gmm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -74,7 +75,6 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     ) {
-        Self::check_config(config);
         super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
             client, cube_count, cube_dim, input, output, config,
         );

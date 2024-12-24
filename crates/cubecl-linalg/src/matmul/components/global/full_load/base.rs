@@ -1,6 +1,5 @@
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{GlobalConfig as _, GlobalMatmulFamily, InputLoader};
-use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
@@ -8,6 +7,7 @@ use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
+use crate::matmul::components::{stage, InvalidConfigError};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulConfigFactory, MatmulPrecision};
 use crate::matmul::kernels::matmul::AdvancedConfig;
@@ -49,8 +49,8 @@ where
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
 
-    fn check_config(config: Self::Config) {
-        SMM::check_config(config.to_smm_config());
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        SMM::check_config(&config.to_smm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

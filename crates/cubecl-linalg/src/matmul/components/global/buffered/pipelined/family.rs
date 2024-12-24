@@ -2,10 +2,10 @@ use crate::matmul::components::global::{CommonGlobalConfig, GlobalConfig, Global
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{stage, MatmulPrecision};
+use crate::matmul::components::{Ident, InvalidConfigError};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
@@ -34,12 +34,12 @@ where
     type Input = SMM::Input;
     type Config = CommonGlobalConfig<SMM::Config>;
 
-    fn check_config(config: Self::Config) {
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() == 2,
-            "Pipelined matmul needs exactly 2 buffers."
-        );
-        SMM::check_config(config.to_smm_config());
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        if config.stage_dim(Ident::Lhs).num_tiles_y_dim() != 2 {
+            return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
+        }
+
+        SMM::check_config(&config.to_smm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

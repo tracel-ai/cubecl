@@ -87,6 +87,11 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
         return;
     }
 
+    if let Err(err) = A::BatchMatmul::check_config(&config) {
+        println!("Invalid config: skip {}", err);
+        return;
+    }
+
     unsafe {
         A::BatchMatmul::launch_unchecked::<Spec<EG, ES>, R>(
             &client,

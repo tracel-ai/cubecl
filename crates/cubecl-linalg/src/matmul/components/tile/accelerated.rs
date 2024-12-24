@@ -1,8 +1,8 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    as_cmma_layout, Ident, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
-    MatrixLayout,
+    as_cmma_layout, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
+    MatmulSize, MatrixLayout,
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -100,8 +100,11 @@ impl MatmulConfigFactory for Accelerated {
     type Input = MatmulSize;
     type Config = Config;
 
-    fn check_config(config: Self::Config) {
-        comptime!(check_plane_dim(config.plane_dim()));
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        if config.plane_dim != 32 {
+            return Err(Box::new("Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly."));
+        }
+        Ok(())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -275,12 +278,6 @@ fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
     }
 
     Ok(())
-}
-
-fn check_plane_dim(actual_plane_dim: u32) {
-    assert_eq!(32, actual_plane_dim, "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
-        actual_plane_dim
-    );
 }
 
 fn make_config(

@@ -1,35 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{InputRuntimeArg, MatmulPrecision, MatmulSpec, OutputRuntimeArg};
-use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
-
-use super::{config::MatmulConfig, MatmulProblem};
-
-/// Provides configuration for a matmul kernel at any level
-pub trait MatmulConfigFactory: Send + Sync + 'static {
-    /// Configuration tailored to the matmul implementation
-    type Config: MatmulConfig;
-    type Input;
-
-    /// Asserts that the configuration for this matmul will lead to a valid computation
-    fn check_config(config: Self::Config);
-
-    /// Checks if the client can handle the features used in this computation
-    fn check_availability<R: Runtime, MP: MatmulPrecision>(
-        _client: &ComputeClient<R::Server, R::Channel>,
-        _config: &Self::Config,
-    ) -> Result<(), MatmulAvailabilityError>;
-
-    /// Create config for this matmul, given launch information
-    fn make_config(
-        input: Self::Input,
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config;
-}
+use super::{InputRuntimeArg, MatmulConfigFactory, MatmulSpec, OutputRuntimeArg};
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MatmulSize {

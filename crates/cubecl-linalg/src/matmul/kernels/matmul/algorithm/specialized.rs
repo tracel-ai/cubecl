@@ -24,9 +24,10 @@ impl<TMM: tile::TileMatmulFamily> base::Algorithm for SpecializedAlgorithm<TMM> 
     type Selection = MatmulSelection;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+        println!("{:?}", selection.num_stagess);
         CubeDim::new(
             selection.plane_dim,
-            selection.num_stagess.m + selection.num_stagess.m / 2,
+            selection.num_stagess.m + core::cmp::max(1u32, selection.num_stagess.m / 2),
             1,
         )
     }

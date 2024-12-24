@@ -8,7 +8,7 @@ use crate::matmul::components::stage::shared::{
 };
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
-use crate::matmul::components::{MatmulPrecision, MatmulSize};
+use crate::matmul::components::{InvalidConfigError, MatmulPrecision, MatmulSize};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
@@ -48,8 +48,8 @@ where
     type Input = CommonStageInput<TMM>;
     type Config = CommonStageConfig<TMM::Config>;
 
-    fn check_config(config: Self::Config) {
-        TMM::check_config(config.to_tmm_config());
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        TMM::check_config(&config.to_tmm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(

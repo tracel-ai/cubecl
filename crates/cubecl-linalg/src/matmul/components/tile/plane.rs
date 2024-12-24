@@ -1,5 +1,7 @@
 use crate::matmul::components::config::MatmulConfig;
-use crate::matmul::components::{tile, Ident, MatmulConfigFactory, MatmulPrecision, MatrixLayout};
+use crate::matmul::components::{
+    tile, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+};
 use crate::matmul::components::{MatmulProblem, MatmulSize};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -354,10 +356,16 @@ impl MatmulConfigFactory for PlaneMma {
     type Config = Config;
     type Input = MatmulSize;
 
-    fn check_config(config: Self::Config) {
-        let plane_dim = config.plane_dim();
-        assert!(config.size.m * config.size.n % plane_dim == 0);
-        assert!(config.size.k * config.size.n % plane_dim == 0);
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        if config.size.m * config.size.n % config.plane_dim != 0 {
+            return Err(Box::new("Todo"));
+        }
+
+        if config.size.k * config.size.n % config.plane_dim != 0 {
+            return Err(Box::new("Todo"));
+        }
+
+        Ok(())
     }
 
     fn make_config(

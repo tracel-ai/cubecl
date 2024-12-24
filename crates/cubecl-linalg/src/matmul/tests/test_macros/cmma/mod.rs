@@ -1,8 +1,5 @@
 #![allow(missing_docs)]
 
-pub mod matmul_algorithm;
-pub mod matmul_launch;
-
 pub mod suite;
 
 #[macro_export]

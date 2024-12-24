@@ -9,7 +9,9 @@ use crate::matmul::components::stage::shared::{
 };
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{MatmulConfigFactory, MatmulPrecision, MatmulSize};
+use crate::matmul::components::{
+    InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
@@ -47,12 +49,12 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
     type Input = CommonStageInput<TMM>;
     type Config = CommonStageConfig<TMM::Config>;
 
-    fn check_config(config: Self::Config) {
-        comptime!(check_num_planes(
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        check_num_planes(
             config.stage_dim(Ident::Lhs).num_tiles_x_dim(),
-            config.num_planes()
-        ));
-        TMM::check_config(config.to_tmm_config());
+            config.num_planes(),
+        )?;
+        TMM::check_config(&config.to_tmm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -225,10 +227,14 @@ where
     }
 }
 
-fn check_num_planes(expected_num_planes: u32, actual_num_planes: u32) {
-    assert_eq!(
-        expected_num_planes, actual_num_planes,
-        "Error: Expected {expected_num_planes} planes, but found {actual_num_planes}. 
-        The number of planes is equal to cube dimension y which should be set to {expected_num_planes}.",
-    );
+fn check_num_planes(
+    expected_num_planes: u32,
+    actual_num_planes: u32,
+) -> Result<(), InvalidConfigError> {
+    if expected_num_planes != actual_num_planes {
+        return Err(Box::new("Error: Expected {expected_num_planes} planes, but found {actual_num_planes}. 
+        The number of planes is equal to cube dimension y which should be set to {expected_num_planes}."));
+    }
+
+    Ok(())
 }
