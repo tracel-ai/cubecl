@@ -65,6 +65,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
         (1, 6144, 6144, 6144),
         (1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
+        (16, 6144, 2048, 513),
         (32, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, E> {
@@ -146,13 +147,13 @@ fn main() {
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
-        // run::<cubecl::cuda::CudaRuntime, f32>(
-        //     Default::default(),
-        //     matmul::Strategy::Tiling2D(Default::default()),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, half::f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Tiling2D(Default::default()),
-        // );
+        run::<cubecl::cuda::CudaRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::cuda::CudaRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
     }
 }
