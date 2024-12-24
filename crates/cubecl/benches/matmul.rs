@@ -135,34 +135,22 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Accelerated);
-        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Accelerated);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::Specialized,
-        );
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::Pipelined,
-        );
+        use half::f16;
+
+        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Standard);
+        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
+        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Pipelined);
+        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Standard);
+        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
+        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Pipelined);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
         // run::<cubecl::cuda::CudaRuntime, f32>(
         //     Default::default(),
         //     matmul::Strategy::Tiling2D(Default::default()),
         // );
         // run::<cubecl::cuda::CudaRuntime, half::f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Tiling2D(Default::default()),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, half::bf16>(
-        //     Default::default(),
-        //     matmul::Strategy::Tiling2D(Default::default()),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, flex32>(
-        //     Default::default(),
-        //     matmul::Strategy::Tiling2D(Default::default()),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f64>(
         //     Default::default(),
         //     matmul::Strategy::Tiling2D(Default::default()),
         // );

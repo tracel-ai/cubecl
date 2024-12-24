@@ -24,7 +24,7 @@ impl TileMatmulFamily for Accelerated {
     }
 
     fn requires_tensor_cores() -> bool {
-        false
+        true
     }
 }
 

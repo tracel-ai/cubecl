@@ -9,7 +9,7 @@ use crate::tensor::TensorHandle;
 use super::{
     components::tile::accelerated::Accelerated,
     kernels::{
-        matmul::{self, PipelinedSelector, StandardSelector},
+        matmul::{self, PipelinedSelector, SpecializedSelector, StandardSelector},
         simple,
         tiling2d::{self, Tiling2dConfig},
         MatmulLaunchError,
@@ -61,7 +61,7 @@ pub fn launch_ref<R: Runtime, EG: Float>(
             matmul::launch_ref::<R, EG, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::Specialized => {
-            matmul::launch_ref::<R, EG, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, SpecializedSelector<Accelerated>>(client, lhs, rhs, out)
         }
         #[cfg(any(test, feature = "export_tests"))]
         Strategy::PlaneMma => {
