@@ -6,6 +6,8 @@ use cubecl_core::CubeElement;
 use cubecl_core::Feature;
 
 use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::tile::accelerated::Accelerated;
+use crate::matmul::components::tile::plane::PlaneMma;
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
@@ -14,6 +16,7 @@ use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::SingleMatmulSpec;
 use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::Algorithm;
+use crate::matmul::kernels::matmul::StandardSelector;
 use crate::matmul::tests::test_utils::CastInto;
 use crate::tensor::TensorHandle;
 
@@ -130,15 +133,17 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let rhs_handle = TensorHandle::new(rhs.shape, rhs.strides, rhs.handle);
     let out_handle = TensorHandle::new(out.shape, out.strides, out.handle);
 
-    let out = matmul::launch::<R, EG>(
+    let out = matmul::launch::<R, EG, StandardSelector<Accelerated>>(
         &client,
         lhs_handle.clone(),
         rhs_handle.clone(),
         out_handle.clone(),
-        false,
     )
     .unwrap_or_else(|_| {
-        matmul::launch::<R, EG>(&client, lhs_handle, rhs_handle, out_handle, true).unwrap()
+        matmul::launch::<R, EG, StandardSelector<PlaneMma>>(
+            &client, lhs_handle, rhs_handle, out_handle,
+        )
+        .unwrap()
     });
 
     assert_result::<EG, EG, R>(

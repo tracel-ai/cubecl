@@ -7,6 +7,8 @@ use crate::matmul::components::{
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Config: TileConfig> {
     fn size(config: &Self::Config) -> MatmulSize;
+    fn input(tile_size: MatmulSize) -> Self::Input;
+    fn requires_tensor_cores() -> bool;
 
     type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;
 }

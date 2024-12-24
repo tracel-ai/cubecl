@@ -13,10 +13,19 @@ use cubecl_core::{cmma, prelude::*};
 pub struct Accelerated;
 
 impl TileMatmulFamily for Accelerated {
+    type Matmul<I: Numeric, O: Numeric> = Accelerated;
+
     fn size(config: &Self::Config) -> MatmulSize {
         config.size.clone()
     }
-    type Matmul<I: Numeric, O: Numeric> = Accelerated;
+
+    fn input(tile_size: MatmulSize) -> Self::Input {
+        tile_size
+    }
+
+    fn requires_tensor_cores() -> bool {
+        false
+    }
 }
 
 #[cube]

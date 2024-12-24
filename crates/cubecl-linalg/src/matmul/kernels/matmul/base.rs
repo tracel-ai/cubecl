@@ -14,7 +14,7 @@ use crate::matmul::components::{
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
-use super::algorithm::{CmmaSelector, PlaneMmaSelector};
+use super::algorithm::MatmulSelector;
 use super::config::AdvancedConfig;
 use super::Algorithm;
 
@@ -22,20 +22,13 @@ use super::Algorithm;
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
-pub fn launch<R: Runtime, EG: Numeric>(
+pub fn launch<R: Runtime, EG: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG>,
     rhs: TensorHandle<R, EG>,
     out: TensorHandle<R, EG>,
-    disable_cmma: bool,
 ) -> Result<TensorHandle<R, EG>, MatmulLaunchError> {
-    let result = launch_ref::<R, EG>(
-        client,
-        &lhs.as_ref(),
-        &rhs.as_ref(),
-        &out.as_ref(),
-        disable_cmma,
-    );
+    let result = launch_ref::<R, EG, S>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
 
     match result {
         Ok(_) => Ok(out),
@@ -47,12 +40,11 @@ pub fn launch<R: Runtime, EG: Numeric>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
-pub fn launch_ref<R: Runtime, EG: Numeric>(
+pub fn launch_ref<R: Runtime, EG: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-    disable_cmma: bool,
 ) -> Result<(), MatmulLaunchError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),
@@ -67,48 +59,43 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref_no_check::<R, EG>(
+        (false, false) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
             lhs,
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
-            disable_cmma,
         ),
-        (false, true) => matmul_cmma_ref_no_check::<R, EG>(
+        (false, true) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
             lhs,
             &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
-            disable_cmma,
         ),
-        (true, false) => matmul_cmma_ref_no_check::<R, EG>(
+        (true, false) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
             &into_contiguous::<R, EG>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
-            disable_cmma,
         ),
-        (true, true) => matmul_cmma_ref_no_check::<R, EG>(
+        (true, true) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
             &into_contiguous::<R, EG>(client, lhs).as_ref(),
             &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
-            disable_cmma,
         ),
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
-    disable_cmma: bool,
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
     let eg_elem = EG::as_elem_native().expect("To be a native type");
@@ -176,43 +163,30 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric>(
         }
     };
 
-    matmul_launch_kernel::<R, EG>(
+    matmul_launch_kernel::<R, EG, S>(
         client,
         lhs,
         rhs,
         out,
-        disable_cmma,
         (lhs_line_size, rhs_line_size, out_line_size),
         problem,
         plane_dim,
     )
 }
 
-fn matmul_launch_kernel<R: Runtime, EG: Numeric>(
+fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-    disable_cmma: bool,
     (lhs_line_size, rhs_line_size, out_line_size): (u8, u8, u8),
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    if disable_cmma {
-        PlaneMmaSelector::select_kernel::<SingleMatmulSpec<EG, EG, f32>, R>(
-            client,
-            TensorInputsLaunch::new(
-                lhs.as_tensor_arg(lhs_line_size),
-                rhs.as_tensor_arg(rhs_line_size),
-            ),
-            out.as_tensor_arg(out_line_size),
-            problem,
-            plane_dim,
-        )
-    } else if TypeId::of::<EG>() == TypeId::of::<half::f16>()
+    if TypeId::of::<EG>() == TypeId::of::<half::f16>()
         || TypeId::of::<EG>() == TypeId::of::<flex32>()
     {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -223,7 +197,18 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric>(
             plane_dim,
         )
     } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, half::bf16, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<EG, half::bf16, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            plane_dim,
+        )
+    } else if S::stage_tf32_supported() {
+        S::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -234,7 +219,7 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric>(
             plane_dim,
         )
     } else {
-        CmmaSelector::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<EG, EG, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),

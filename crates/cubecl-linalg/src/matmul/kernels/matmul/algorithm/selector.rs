@@ -1,72 +1,61 @@
+use std::marker::PhantomData;
+
 use cubecl_core::{client::ComputeClient, ir::Elem, prelude::CubePrimitive, Feature, Runtime};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        stage::*,
-        tile::{accelerated::Accelerated, plane::PlaneMma},
-        InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
+        stage::*, tile::TileMatmulFamily, InputRuntimeArg, MatmulProblem, MatmulSelection,
+        MatmulSize, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
 };
 
-use super::standard::StandardAlgorithm;
+use super::{
+    pipelined::PipelinedAlgorithm, specialized::SpecializedAlgorithm, standard::StandardAlgorithm,
+};
 
 const NUM_SM_APPROX: usize = 50;
 const NUM_TENSOR_CORES_APPROX: usize = 8;
 
-pub struct CmmaSelector;
+pub trait MatmulSelector {
+    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        problem: MatmulProblem,
+        plane_dim: u32,
+    ) -> Result<(), MatmulLaunchError>;
+    fn stage_tf32_supported() -> bool;
+}
 
-impl CmmaSelector {
-    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+pub struct StandardSelector<TMM: TileMatmulFamily> {
+    _tmm: PhantomData<TMM>,
+}
+
+pub struct PipelinedSelector<TMM: TileMatmulFamily> {
+    _tmm: PhantomData<TMM>,
+}
+
+pub struct SpecializedSelector<TMM: TileMatmulFamily> {
+    _tmm: PhantomData<TMM>,
+}
+
+impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
+    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
-        let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
-            Some((
-                client.properties(),
-                (
-                    MS::ES::as_elem_native().unwrap(),
-                    MS::ES::as_elem_native().unwrap(),
-                    MS::EA::as_elem_native().unwrap(),
-                ),
-            )),
-            problem.m,
-            problem.n,
-        );
-
-        let stage_size_m_n = find_stage_size_m_n(
-            problem.m,
-            problem.n,
-            problem.num_batches(),
-            NUM_SM_APPROX,
-            NUM_TENSOR_CORES_APPROX,
-            instruction_m,
-            instruction_n,
-        );
-
-        let selection = MatmulSelection {
-            tile: MatmulSize {
-                m: instruction_m as u32,
-                n: instruction_n as u32,
-                k: instruction_k as u32,
-            },
-            num_stagess: MatmulSize {
-                m: stage_size_m_n as u32,
-                n: stage_size_m_n as u32,
-                k: 2,
-            },
-            plane_dim,
-        };
+        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
-            tile: selection.tile.clone(),
+            tile: TMM::input(selection.tile.clone()),
             num_stages: selection.num_stagess.clone(),
         };
 
-        matmul_cube_preparation::<MS, R, StandardAlgorithm<Accelerated>>(
+        matmul_cube_preparation::<MS, R, StandardAlgorithm<TMM>>(
             client,
             input,
             output,
@@ -74,6 +63,68 @@ impl CmmaSelector {
             config_input,
             selection,
         )
+    }
+
+    fn stage_tf32_supported() -> bool {
+        TMM::requires_tensor_cores()
+    }
+}
+
+impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
+    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        problem: MatmulProblem,
+        plane_dim: u32,
+    ) -> Result<(), MatmulLaunchError> {
+        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
+        let config_input = CommonStageInput {
+            tile: TMM::input(selection.tile.clone()),
+            num_stages: selection.num_stagess.clone(),
+        };
+
+        matmul_cube_preparation::<MS, R, PipelinedAlgorithm<TMM>>(
+            client,
+            input,
+            output,
+            problem,
+            config_input,
+            selection,
+        )
+    }
+
+    fn stage_tf32_supported() -> bool {
+        TMM::requires_tensor_cores()
+    }
+}
+
+impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
+    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        problem: MatmulProblem,
+        plane_dim: u32,
+    ) -> Result<(), MatmulLaunchError> {
+        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
+        let config_input = CommonStageInput {
+            tile: TMM::input(selection.tile.clone()),
+            num_stages: selection.num_stagess.clone(),
+        };
+
+        matmul_cube_preparation::<MS, R, SpecializedAlgorithm<TMM>>(
+            client,
+            input,
+            output,
+            problem,
+            config_input,
+            selection,
+        )
+    }
+
+    fn stage_tf32_supported() -> bool {
+        TMM::requires_tensor_cores()
     }
 }
 
@@ -154,54 +205,49 @@ fn find_stage_size_m_n(
     }
 }
 
-pub struct PlaneMmaSelector;
+fn matmul_selection<'a, TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    problem: &MatmulProblem,
+    plane_dim: u32,
+) -> MatmulSelection {
+    let (instruction_m, instruction_n, instruction_k) = find_instruction_shape(
+        if TMM::requires_tensor_cores() {
+            Some((
+                client.properties(),
+                (
+                    MS::ES::as_elem_native_unchecked(),
+                    MS::ES::as_elem_native_unchecked(),
+                    MS::EA::as_elem_native_unchecked(),
+                ),
+            ))
+        } else {
+            None
+        },
+        problem.m,
+        problem.n,
+    );
 
-impl PlaneMmaSelector {
-    pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-    ) -> Result<(), MatmulLaunchError> {
-        let (instruction_m, instruction_n, instruction_k) =
-            find_instruction_shape(None, problem.m, problem.n);
+    let stage_size_m_n = find_stage_size_m_n(
+        problem.m,
+        problem.n,
+        problem.num_batches(),
+        NUM_SM_APPROX,
+        NUM_TENSOR_CORES_APPROX,
+        instruction_m,
+        instruction_n,
+    );
 
-        let stage_size_m_n = find_stage_size_m_n(
-            problem.m,
-            problem.n,
-            problem.num_batches(),
-            NUM_SM_APPROX,
-            NUM_TENSOR_CORES_APPROX,
-            instruction_m,
-            instruction_n,
-        );
-
-        let selection = MatmulSelection {
-            tile: MatmulSize {
-                m: instruction_m as u32,
-                n: instruction_n as u32,
-                k: instruction_k as u32,
-            },
-            num_stagess: MatmulSize {
-                m: stage_size_m_n as u32,
-                n: stage_size_m_n as u32,
-                k: 2,
-            },
-            plane_dim,
-        };
-        let config_input = CommonStageInput {
-            tile: selection.tile.clone(),
-            num_stages: selection.num_stagess.clone(),
-        };
-
-        matmul_cube_preparation::<MS, R, StandardAlgorithm<PlaneMma>>(
-            client,
-            input,
-            output,
-            problem,
-            config_input,
-            selection,
-        )
+    MatmulSelection {
+        tile: MatmulSize {
+            m: instruction_m as u32,
+            n: instruction_n as u32,
+            k: instruction_k as u32,
+        },
+        num_stagess: MatmulSize {
+            m: stage_size_m_n as u32,
+            n: stage_size_m_n as u32,
+            k: 2,
+        },
+        plane_dim,
     }
 }

@@ -20,11 +20,19 @@ use tile::{TileConfig, TileMatmul, TileMatmulFamily};
 pub struct PlaneMma;
 
 impl TileMatmulFamily for PlaneMma {
+    type Matmul<I: Numeric, O: Numeric> = Self;
+
     fn size(config: &Self::Config) -> MatmulSize {
         config.size.clone()
     }
 
-    type Matmul<I: Numeric, O: Numeric> = Self;
+    fn input(tile_size: MatmulSize) -> Self::Input {
+        tile_size
+    }
+
+    fn requires_tensor_cores() -> bool {
+        false
+    }
 }
 
 #[cube]

@@ -16,10 +16,10 @@ use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
 pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,

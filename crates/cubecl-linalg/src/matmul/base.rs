@@ -6,15 +6,23 @@ use cubecl_core::{
 
 use crate::tensor::TensorHandle;
 
-use super::kernels::{
-    matmul, simple,
-    tiling2d::{self, Tiling2dConfig},
-    MatmulLaunchError,
+use super::{
+    components::tile::accelerated::Accelerated,
+    kernels::{
+        matmul::{self, PipelinedSelector, StandardSelector},
+        simple,
+        tiling2d::{self, Tiling2dConfig},
+        MatmulLaunchError,
+    },
 };
 
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
-    Accelerated,
+    Standard,
+    Pipelined,
+    Specialized,
+    #[cfg(any(test, feature = "export_tests"))]
+    // Very slow, only use for testing.
     PlaneMma,
     Simple,
     Tiling2D(Tiling2dConfig),
@@ -46,8 +54,21 @@ pub fn launch_ref<R: Runtime, EG: Float>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulLaunchError> {
     match strategy {
-        Strategy::Accelerated => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false),
-        Strategy::PlaneMma => matmul::launch_ref::<R, EG>(client, lhs, rhs, out, true),
+        Strategy::Standard => {
+            matmul::launch_ref::<R, EG, StandardSelector<Accelerated>>(client, lhs, rhs, out)
+        }
+        Strategy::Pipelined => {
+            matmul::launch_ref::<R, EG, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
+        }
+        Strategy::Specialized => {
+            matmul::launch_ref::<R, EG, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
+        }
+        #[cfg(any(test, feature = "export_tests"))]
+        Strategy::PlaneMma => {
+            matmul::launch_ref::<R, EG, StandardSelector<super::components::tile::plane::PlaneMma>>(
+                client, lhs, rhs, out,
+            )
+        }
         Strategy::Tiling2D(config) => {
             tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
             Ok(())
@@ -57,7 +78,9 @@ pub fn launch_ref<R: Runtime, EG: Float>(
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = matmul::launch_ref::<R, EG>(client, lhs, rhs, out, false) {
+            if let Err(err) =
+                matmul::launch_ref::<R, EG, StandardSelector<Accelerated>>(client, lhs, rhs, out)
+            {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
                         tiling2d::launch_ref::<R, EG>(
