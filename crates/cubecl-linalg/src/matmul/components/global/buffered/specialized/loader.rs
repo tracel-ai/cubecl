@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::global::base::Config as _;
+use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
 use crate::matmul::components::global::buffered::specialized;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::InputLoader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
@@ -35,7 +35,7 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, specialized::Config<S>>
     for LhsBufferLoader<EG, ES, S>
 {
     type StageReader = LhsBufferReader<ES>;
@@ -90,7 +90,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, specialized::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, specialized::Config<S>>
     for RhsBufferLoader<EG, ES, S>
 {
     type StageReader = RhsBufferReader<ES>;
@@ -173,7 +173,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     );
 }
 
-fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
+fn check_buffers_contiguous<G: global::GlobalConfig>(ident: Ident, config: G) {
     match ident.as_input() {
         InputIdent::Lhs => {
             if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {

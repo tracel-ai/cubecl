@@ -14,7 +14,7 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{BatchMatmulFamily, Config as _, CubeDispatch};
+use super::{BatchConfig as _, BatchMatmulFamily, CubeDispatch};
 
 pub struct OneToManyMatmulFamily<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> {
     _gmm: PhantomData<GMM>,
@@ -146,13 +146,13 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::Config, C: CubeDispatch> {
+pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
     cube_count: (u32, u32, u32),
     _c: PhantomData<C>,
 }
 
-impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
+impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, C> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
@@ -176,9 +176,9 @@ impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
     }
 }
 
-impl<G: global::Config, C: CubeDispatch> MatmulConfig for Config<G, C> {}
+impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
-impl<G: global::Config, C: CubeDispatch> Config<G, C> {
+impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
     pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
         Self {
             gmm_config,

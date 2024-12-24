@@ -8,7 +8,10 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulPrecision, StageDim};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-pub trait GlobalMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
+/// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
+pub trait GlobalMatmulFamily:
+    MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
+{
     type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
 }
 
@@ -32,11 +35,11 @@ pub trait GlobalMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync 
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
-    type Config: Config;
-    type LhsLoader: Loader<MP::EG, MP::ES, Self::Config>;
-    type RhsLoader: Loader<MP::EG, MP::ES, Self::Config>;
+    type Config: GlobalConfig;
+    type LhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
+    type RhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
     type AccumulatorLoader: CubeType;
-    type Out: Unloader<MP::EG>;
+    type Out: OutputLoader<MP::EG>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -90,7 +93,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
+pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
+    CubeType + 'static + Send + Sync
+{
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
@@ -129,14 +134,14 @@ pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
 ///
 /// It is only a wrapper over the stage writer because there is no K for the output.
 /// Could be deleted in favor of having only the StageWriter
-pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
+pub trait OutputLoader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
-    fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
+    fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
 }
 
-/// Configuration for the Global matmul (GMM) level
-pub trait Config: MatmulConfig {
+/// Configuration for the [global matmul](GlobalMatmul) level.
+pub trait GlobalConfig: MatmulConfig {
     /// Underlying Stage matmul config
     type SmmConfig: stage::Config;
 

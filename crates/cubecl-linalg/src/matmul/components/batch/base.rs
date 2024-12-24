@@ -6,7 +6,8 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch, StageDim};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: Config> {
+/// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
+pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
     type Matmul<MP: MatmulPrecision>: BatchMatmul<MP, Config = Self::Config>;
 }
 
@@ -29,7 +30,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: Config
 /// It is therefore important to use an underlying global matmul that performs check bounds,
 /// and to not launch more Cubes than necessary.
 pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
-    type Config: Config;
+    type Config: BatchConfig;
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
@@ -40,10 +41,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 }
 
-/// Configuration for the Batch matmul (BMM) level
-pub trait Config: MatmulConfig {
+/// Configuration for the [batch matmul](BatchMatmul) level.
+pub trait BatchConfig: MatmulConfig {
     /// Underlying Global matmul config
-    type GmmConfig: global::Config;
+    type GmmConfig: global::GlobalConfig;
 
     /// Convert itself to the underlying global matmul config
     fn to_gmm_config(&self) -> Self::GmmConfig;

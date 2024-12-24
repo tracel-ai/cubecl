@@ -184,7 +184,7 @@ where
         }
     }
 
-    fn read_accumulator<SW: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<SW: StageWriter<O>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
         #[comptime] stage_config: Self::Config,

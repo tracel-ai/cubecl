@@ -1,5 +1,7 @@
-use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, GlobalMatmul, GlobalMatmulFamily, Loader};
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::{
+    GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
+};
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
 };
@@ -17,7 +19,6 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
-
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
 
 pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
@@ -250,7 +251,7 @@ pub struct Config<S: stage::Config> {
     num_planes: u32,
 }
 
-impl<S: stage::Config> global::Config for Config<S> {
+impl<S: stage::Config> global::GlobalConfig for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {

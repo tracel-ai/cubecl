@@ -12,7 +12,7 @@ pub struct BufferLoading {}
 
 #[cube]
 impl BufferLoading {
-    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
+    pub fn load_to_slice<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         buffer_slice: &mut SliceMut<Line<ES>>,
         #[comptime] num_producer_planes: u32,

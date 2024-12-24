@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Config;
+use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -16,7 +16,7 @@ pub struct CyclicLoading {}
 
 #[cube]
 impl LoadingStrategy for CyclicLoading {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

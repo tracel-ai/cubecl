@@ -1,11 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::global::base::Config as _;
+use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
-use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
@@ -33,12 +32,12 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for LhsBufferLoader<EG, ES, S>
 {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -68,7 +67,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: pipelined::Config<S>,
+        #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -84,12 +83,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for RhsBufferLoader<EG, ES, S>
 {
     type StageReader = RhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -119,7 +118,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: pipelined::Config<S>,
+        #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -140,7 +139,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     tensor_view: &TensorReader<EG>,
     stage: &mut Stage<ES>,
     #[comptime] ident: Ident,
-    #[comptime] config: pipelined::Config<S>,
+    #[comptime] config: CommonGlobalConfig<S>,
 ) {
     let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
     let line_size = config.stage_line_size(ident);
@@ -153,7 +152,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, pipelined::Config<S>>(
+    BufferLoading::load_to_slice::<EG, ES, CommonGlobalConfig<S>>(
         tensor_view,
         buffer_slice,
         config.num_planes(),
@@ -163,7 +162,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     );
 }
 
-fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
+fn check_buffers_contiguous<G: global::GlobalConfig>(ident: Ident, config: G) {
     match ident.as_input() {
         InputIdent::Lhs => {
             if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {

@@ -1,5 +1,5 @@
-use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, GlobalMatmulFamily, Loader};
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::{GlobalConfig as _, GlobalMatmulFamily, InputLoader};
 use crate::matmul::components::stage;
 use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
@@ -221,7 +221,7 @@ pub struct Config<S: stage::Config> {
     k_step: u32,
 }
 
-impl<S: stage::Config> global::Config for Config<S> {
+impl<S: stage::Config> global::GlobalConfig for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {

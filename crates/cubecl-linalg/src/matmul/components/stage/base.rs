@@ -78,7 +78,7 @@ pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn read_accumulator<Out: StageWriter<O>, G: global::Config>(
+    fn read_accumulator<Out: StageWriter<O>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
         #[comptime] stage_config: Self::Config,
@@ -120,7 +120,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
 pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
-    fn write<ES: Numeric, G: global::Config>(
+    fn write<ES: Numeric, G: global::GlobalConfig>(
         this: &mut Self,
         slice: Slice<Line<ES>>,
         compute_plane_offset: u32,
