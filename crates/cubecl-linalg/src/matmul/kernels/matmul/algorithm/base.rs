@@ -4,7 +4,7 @@ use crate::matmul::components::stage::{self, CommonStageInput};
 use crate::matmul::components::{batch, global, tile, MatmulPrecision};
 use crate::matmul::components::{MatmulConfigFactory, MatmulProblem};
 use crate::matmul::kernels::matmul::AdvancedConfig;
-use crate::matmul::kernels::{MatmulAvailabilityError, MatmulInvalidProblem};
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
@@ -16,6 +16,7 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &Self::Selection) -> CubeDim;
     fn cube_count(selection: &Self::Selection, problem: &MatmulProblem) -> CubeCount;
+
     #[allow(clippy::type_complexity)]
     fn make_config(
         input: <Self::BatchMatmul as MatmulConfigFactory>::Input,
@@ -23,10 +24,11 @@ pub trait Algorithm {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-    ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulInvalidProblem> {
+    ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
         let config =
             Self::BatchMatmul::make_config(input, problem, cube_dim, cube_count, advanced_config);
         problem.check_config(&config)?;
+        Self::BatchMatmul::check_config(&config)?;
         Ok(config)
     }
 

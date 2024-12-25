@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::InputLoader;
-use crate::matmul::components::global::{full_load, GlobalConfig};
+use crate::matmul::components::global::{InputLoader, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage};
-use crate::matmul::components::{global, Ident, InvalidConfigError};
+use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -114,10 +114,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> RhsLoader<E
             _loading: PhantomData::<L>.runtime(),
         }
     }
-}
-
-pub trait LoadingValidation {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
 #[cube]

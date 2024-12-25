@@ -275,7 +275,6 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
         &advanced_config,
     )?;
     D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
-    D::BatchMatmul::check_config(&config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(

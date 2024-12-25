@@ -3,7 +3,7 @@
 pub mod suite;
 
 #[macro_export]
-macro_rules! testgen_matmul_standard {
+macro_rules! testgen_matmul_accelerated {
     ($float:ident) => {
         type EG = $float;
         type ES = half::f16;
@@ -13,28 +13,39 @@ macro_rules! testgen_matmul_standard {
 
     ([$($float:ident),*]) => {
         #[allow(non_snake_case)]
-        mod matmul_standard {
+        mod matmul_accelerated {
             use super::*;
+            type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+
             ::paste::paste! {
-                mod accelerated {
+                $(mod [<$float _ty>] {
                     use super::*;
-                    type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+                    $crate::testgen_matmul_accelerated!($float);
+                })*
+            }
+        }
+    };
+}
+#[macro_export]
+macro_rules! testgen_matmul_plane {
+    ($float:ident) => {
+        type EG = $float;
+        type ES = $float;
 
-                    $(mod [<$float _ty>] {
-                        use super::*;
-                        $crate::testgen_matmul_standard!($float);
-                    })*
-                }
-                mod plane {
+        $crate::matmul_standard_tests!();
+    };
+
+    ([$($float:ident),*]) => {
+        #[allow(non_snake_case)]
+        mod matmul_accelerated {
+            use super::*;
+            type TMM = $crate::matmul::components::tile::plane::PlaneMma;
+
+            ::paste::paste! {
+                $(mod [<$float _ty>] {
                     use super::*;
-                    type TMM = $crate::matmul::components::tile::plane::PlaneMma;
-
-                    $(mod [<$float _ty>] {
-                        use super::*;
-                        $crate::testgen_matmul_standard!($float);
-                    })*
-                }
-
+                    $crate::testgen_matmul_accelerated!($float);
+                })*
             }
         }
     };

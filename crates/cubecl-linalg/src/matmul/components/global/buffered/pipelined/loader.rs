@@ -8,7 +8,7 @@ use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -145,9 +145,6 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 
-    #[allow(clippy::all)]
-    let _ = comptime!(check_buffers_contiguous(ident, config));
-
     let start = buffer_iter * buffer_num_lines;
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
@@ -162,17 +159,26 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     );
 }
 
-fn check_buffers_contiguous<G: global::GlobalConfig>(ident: Ident, config: G) {
+pub fn check_buffers_contiguous<G: global::GlobalConfig>(
+    ident: Ident,
+    config: &G,
+) -> Result<(), InvalidConfigError> {
     match ident.as_input() {
         InputIdent::Lhs => {
             if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
-                panic!("Lhs must have ColMajor tiling order in pipelined setting")
+                return Err(Box::new(
+                    "Lhs must have ColMajor tiling order in pipelined setting",
+                ));
             }
         }
         InputIdent::Rhs => {
             if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
-                panic!("Rhs must have RowMajor tiling order in pipelined setting")
+                return Err(Box::new(
+                    "Rhs must have RowMajor tiling order in pipelined setting",
+                ));
             }
         }
     }
+
+    Ok(())
 }

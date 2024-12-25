@@ -72,23 +72,23 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
 
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
-    let config = A::make_config(
+    let config = match A::make_config(
         input,
         &problem,
         &cube_dim,
         &cube_count,
         &A::advanced_config(),
-    )
-    .unwrap();
+    ) {
+        Ok(config) => config,
+        Err(err) => {
+            println!("Can't launch the test, skipping : {:?}", err);
+            return;
+        }
+    };
 
     if A::check_availability::<R, (EG, ES, f32)>(&client, &config).is_err() {
         // Can't execute the test.
         println!("Skipped - not supported!");
-        return;
-    }
-
-    if let Err(err) = A::BatchMatmul::check_config(&config) {
-        println!("Invalid config: skip {}", err);
         return;
     }
 

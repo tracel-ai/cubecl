@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
-use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, StageDim};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
@@ -138,6 +138,10 @@ pub trait OutputLoader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
     fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
+}
+
+pub trait LoadingValidation {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.

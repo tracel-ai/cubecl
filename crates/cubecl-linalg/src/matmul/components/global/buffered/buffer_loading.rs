@@ -1,7 +1,7 @@
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::global;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::Ident;
+use crate::matmul::components::global::{self, GlobalConfig, LoadingValidation};
+use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -9,6 +9,32 @@ use cubecl_core::prelude::*;
 /// Loads the content of tiles from one buffer in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct BufferLoading {}
+
+impl LoadingValidation for BufferLoading {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_stage_elements = stage_dim.total_elements();
+        let total_units = config.num_planes() * config.plane_dim();
+        let jump_length = total_units * line_size;
+
+        if num_stage_elements % jump_length != 0 {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out of bounds. 
+        Try setting line size and number of planes so that jump_length divides num_stage_elements.",
+            ));
+        }
+
+        if config.transpose_load(ident) {
+            return Err(Box::new(
+                "Transpose load not yet supported in buffered setup",
+            ));
+        }
+
+        Ok(())
+    }
+}
 
 #[cube]
 impl BufferLoading {
@@ -28,9 +54,6 @@ impl BufferLoading {
         let total_units = comptime!(num_producer_planes * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_buffer_elements / jump_length;
-
-        #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_buffer_elements, jump_length));
 
         let plane_id = if comptime!(producer_plane_offset > 0) {
             UNIT_POS_Y - producer_plane_offset
@@ -53,15 +76,7 @@ impl BufferLoading {
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
-            match config.transpose_load(ident) {
-                false => {
-                    buffer_slice[unit_position / line_size] = Line::cast_from(line_read);
-                }
-                true => {
-                    #[allow(clippy::all)]
-                    let _ = comptime!(unsupported_transpose_load());
-                }
-            }
+            buffer_slice[unit_position / line_size] = Line::cast_from(line_read);
         }
     }
 }
@@ -78,16 +93,4 @@ fn get_tiles_x_y(nth_buffer_tile: u32, #[comptime] ident: Ident) -> (u32, u32) {
             (0, nth_buffer_tile)
         }
     }
-}
-
-fn unsupported_transpose_load() {
-    panic!("Transpose load not yet supported in buffered setup")
-}
-
-fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {
-    assert!(
-        num_stage_elements % jump_length == 0,
-        "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that jump_length divides num_stage_elements."
-    );
 }

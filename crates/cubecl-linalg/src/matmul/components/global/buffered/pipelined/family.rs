@@ -1,4 +1,7 @@
-use crate::matmul::components::global::{CommonGlobalConfig, GlobalConfig, GlobalMatmulFamily};
+use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
+use crate::matmul::components::global::{
+    CommonGlobalConfig, GlobalConfig, GlobalMatmulFamily, LoadingValidation,
+};
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
@@ -11,6 +14,7 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
+use super::loader::check_buffers_contiguous;
 use super::PipelinedMatmul;
 
 pub struct PipelinedMatmulFamily<SMM: stage::StageMatmulFamily> {
@@ -35,6 +39,12 @@ where
     type Config = CommonGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        check_buffers_contiguous::<Self::Config>(Ident::Lhs, &config)?;
+        check_buffers_contiguous::<Self::Config>(Ident::Rhs, &config)?;
+
+        BufferLoading::check::<Self::Config>(&config, Ident::Lhs)?;
+        BufferLoading::check::<Self::Config>(&config, Ident::Rhs)?;
+
         if config.stage_dim(Ident::Lhs).num_tiles_y_dim() != 2 {
             return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
         }
