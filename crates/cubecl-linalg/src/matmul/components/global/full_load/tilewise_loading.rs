@@ -3,16 +3,50 @@ use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
-use crate::matmul::components::Ident;
+use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::loader::LoadingStrategy;
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
 pub struct TilewiseLoading {}
+
+impl LoadingValidation for TilewiseLoading {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_planes = config.num_planes();
+        let num_tiles = stage_dim.num_tiles();
+
+        if num_planes != num_tiles {
+            return Err(FormattedConfigError::new(move || {
+                format!(
+                    "Number of planes {:?} must equal number of tiles {:?} for tilewise loading.",
+                    num_planes, num_tiles,
+                )
+            }));
+        }
+
+        if line_size != config.stage_line_size(ident) {
+            return Err(Box::new(
+                "Global and stage line sizes must match for tilewise loading.",
+            ));
+        }
+
+        if config.transpose_load(ident) {
+            return Err(Box::new(
+                "Transpose load not yet supported in tilewise loading setup",
+            ));
+        }
+
+        Ok(())
+    }
+}
 
 #[cube]
 impl LoadingStrategy for TilewiseLoading {
@@ -24,12 +58,6 @@ impl LoadingStrategy for TilewiseLoading {
     ) {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
-
-        #[allow(clippy::all)]
-        let _ = comptime! {
-            check_num_planes(config.num_planes(), stage_dim.num_tiles());
-            check_line_sizes(line_size, config.stage_line_size(ident))
-        };
 
         let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
 
@@ -63,34 +91,7 @@ impl LoadingStrategy for TilewiseLoading {
             );
 
             let offset = offset_base + pos_within_tile;
-
-            match config.transpose_load(ident) {
-                false => slice[offset] = Line::cast_from(line_read),
-                true => {
-                    #[allow(clippy::all)]
-                    let _ = comptime!(unsupported_transpose_load());
-                }
-            }
+            slice[offset] = Line::cast_from(line_read);
         }
     }
-}
-
-fn check_num_planes(num_planes: u32, num_tiles: u32) {
-    assert!(
-        num_planes == num_tiles,
-        "Number of planes {:?} must equal number of tiles {:?} for tilewise loading.",
-        num_planes,
-        num_tiles
-    );
-}
-
-fn check_line_sizes(global_line_size: u32, stage_line_size: u32) {
-    assert!(
-        global_line_size == stage_line_size,
-        "Global and stage line sizes must match for tilewise loading."
-    );
-}
-
-fn unsupported_transpose_load() {
-    panic!("Transpose load not yet supported in tilewise loading setup")
 }

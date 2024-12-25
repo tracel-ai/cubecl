@@ -50,6 +50,8 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        LL::check(config, Ident::Lhs)?;
+        RL::check(config, Ident::Rhs)?;
         SMM::check_config(&config.to_smm_config())
     }
 
