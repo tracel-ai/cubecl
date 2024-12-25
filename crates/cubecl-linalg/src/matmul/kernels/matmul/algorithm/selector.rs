@@ -5,8 +5,8 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        stage::*, tile::TileMatmulFamily, InputRuntimeArg, MatmulProblem, MatmulSelection,
-        MatmulSize, MatmulSpec, OutputRuntimeArg,
+        batch::TransposedDispatch, stage::*, tile::TileMatmulFamily, InputRuntimeArg,
+        MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
 };
@@ -29,8 +29,9 @@ pub trait MatmulSelector {
     fn stage_tf32_supported() -> bool;
 }
 
-pub struct StandardSelector<TMM: TileMatmulFamily> {
+pub struct StandardSelector<TMM: TileMatmulFamily, D = TransposedDispatch> {
     _tmm: PhantomData<TMM>,
+    _dispatch: PhantomData<D>,
 }
 
 pub struct PipelinedSelector<TMM: TileMatmulFamily> {

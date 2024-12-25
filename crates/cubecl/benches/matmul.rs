@@ -147,13 +147,5 @@ fn main() {
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
-        run::<cubecl::cuda::CudaRuntime, half::f16>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
     }
 }
