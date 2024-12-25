@@ -47,6 +47,16 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
 {
+    let env = std::env::var("MATMUL_TEST_MODE");
+
+    let panic_on_launch_err = match env {
+        Ok(val) => match val.as_str() {
+            "panic" => true,
+            "skip" => false,
+            _ => false,
+        },
+        Err(_) => false,
+    };
     let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
     let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
@@ -81,8 +91,13 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     ) {
         Ok(config) => config,
         Err(err) => {
-            println!("Can't launch the test, skipping : {:?}", err);
-            return;
+            let msg = format!("Can't launch the test: {:?}", err);
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
+            }
         }
     };
 
