@@ -37,7 +37,7 @@ macro_rules! testgen_matmul_plane {
 
     ([$($float:ident),*]) => {
         #[allow(non_snake_case)]
-        mod matmul_accelerated {
+        mod matmul_plane {
             use super::*;
             type TMM = $crate::matmul::components::tile::plane::PlaneMma;
 

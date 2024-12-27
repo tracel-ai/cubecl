@@ -5,7 +5,7 @@ use crate::matmul::components::global::{
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
 };
-use crate::matmul::components::stage::TilingOrderConfig;
+use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
@@ -90,7 +90,7 @@ where
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP::EG, MP::EA>> {
+pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -98,7 +98,7 @@ pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP:
 #[cube]
 impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM>
 where
-    SMM: stage::Matmul<
+    SMM: StageMatmul<
         MP::ES,
         MP::EG,
         MP::EA,
@@ -224,7 +224,7 @@ where
 #[cube]
 impl<
         MP: MatmulPrecision,
-        SMM: stage::Matmul<
+        SMM: StageMatmul<
             MP::ES,
             MP::EG,
             MP::EA,

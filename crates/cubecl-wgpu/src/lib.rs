@@ -25,7 +25,8 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_matmul_plane_mma!([flex32, f32], f32);
+    cubecl_linalg::testgen_matmul_plane!([f32]);
+    cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_reduce::testgen_reduce!();

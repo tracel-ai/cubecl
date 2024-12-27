@@ -3,7 +3,7 @@ use crate::matmul::components::global::{GlobalConfig as _, GlobalMatmulFamily, I
 use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
-use crate::matmul::components::stage::TilingOrderConfig;
+use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
@@ -92,7 +92,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct FullLoadMatmul<
     MP: MatmulPrecision,
-    SMM: stage::Matmul<MP::ES, MP::EG, MP::EA>,
+    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 > {
@@ -105,7 +105,7 @@ pub struct FullLoadMatmul<
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP> for FullLoadMatmul<MP, SMM, LL, RL>
 where
-    SMM: stage::Matmul<
+    SMM: StageMatmul<
         MP::ES,
         MP::EG,
         MP::EA,

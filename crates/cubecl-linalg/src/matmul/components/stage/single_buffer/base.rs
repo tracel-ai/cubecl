@@ -111,7 +111,7 @@ pub struct SingleBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: TileMatm
 }
 
 #[cube]
-impl<I, O, EA, TMM> stage::Matmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM>
+impl<I, O, EA, TMM> stage::StageMatmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM>
 where
     I: Numeric,
     O: Numeric,

@@ -15,7 +15,7 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP::EG, MP::EA>> {
+pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -23,7 +23,7 @@ pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::Matmul<MP::ES, MP::E
 #[cube]
 impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for PipelinedMatmul<MP, SMM>
 where
-    SMM: stage::Matmul<
+    SMM: stage::StageMatmul<
         MP::ES,
         MP::EG,
         MP::EA,

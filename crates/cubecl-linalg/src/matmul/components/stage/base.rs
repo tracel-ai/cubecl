@@ -21,7 +21,7 @@ pub trait StageMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync +
     /// Return the number of matmuls computed by the stage.
     fn num(config: &Self::Config) -> MatmulSize;
 
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: Matmul<
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: StageMatmul<
         I,
         O,
         Acc,
@@ -46,7 +46,7 @@ pub trait StageMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync +
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
+pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
     type Config: Config;
     // /// Number of rows of LHS
     // const M: u32;

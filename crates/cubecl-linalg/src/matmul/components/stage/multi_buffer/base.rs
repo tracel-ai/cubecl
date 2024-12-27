@@ -7,7 +7,7 @@ use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::stage::shared::{
     stage_matmul_size, CommonStageConfig, CommonStageInput,
 };
-use crate::matmul::components::stage::StageMatmulFamily;
+use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
@@ -16,7 +16,7 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         global,
-        stage::{self, Config as _, StageWriter},
+        stage::{Config as _, StageWriter},
         tile, Ident, MatmulProblem,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
@@ -113,7 +113,7 @@ pub struct MultiBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Til
 }
 
 #[cube]
-impl<I, O, EA, TMM> stage::Matmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM>
+impl<I, O, EA, TMM> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM>
 where
     I: Numeric,
     O: Numeric,
