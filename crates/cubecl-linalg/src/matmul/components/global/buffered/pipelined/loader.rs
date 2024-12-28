@@ -14,7 +14,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
+pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
@@ -23,7 +23,7 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[derive(CubeType)]
-pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
+pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
@@ -32,7 +32,7 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGlobalConfig<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for LhsBufferLoader<EG, ES, S>
 {
     type StageReader = LhsBufferReader<ES>;
@@ -61,7 +61,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGloba
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> LhsBufferLoader<EG, ES, S> {
     pub fn new(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
@@ -83,7 +83,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGlobalConfig<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for RhsBufferLoader<EG, ES, S>
 {
     type StageReader = RhsBufferReader<ES>;
@@ -112,7 +112,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> InputLoader<EG, ES, CommonGloba
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> RhsBufferLoader<EG, ES, S> {
     pub fn new(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
@@ -134,7 +134,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
+fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     buffer_iter: u32,
     tensor_view: &TensorReader<EG>,
     stage: &mut Stage<ES>,

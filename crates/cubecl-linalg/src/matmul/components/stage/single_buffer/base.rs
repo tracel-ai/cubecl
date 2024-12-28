@@ -13,7 +13,7 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         global::{self, AccumulatorLoader},
-        stage::{self, Config as _, StageWriter},
+        stage::{self, StageConfig as _, StageWriter},
         Ident, MatmulConfigFactory, MatmulProblem, StageDim,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},

@@ -7,7 +7,7 @@ use crate::matmul::components::{
     RhsStageDim, StageDim,
 };
 
-use super::{Config, TilingOrderConfig};
+use super::{StageConfig, TilingOrderConfig};
 
 pub struct CommonStageInput<TMM: TileMatmulFamily> {
     pub tile: TMM::Input,
@@ -40,7 +40,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub rhs_tiling_order: TilingOrderConfig,
 }
 
-impl<T: TileConfig> Config for CommonStageConfig<T> {
+impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     type TmmConfig = T;
 
     fn to_tmm_config(self) -> Self::TmmConfig {

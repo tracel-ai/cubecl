@@ -16,7 +16,7 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         global,
-        stage::{Config as _, StageWriter},
+        stage::{StageConfig as _, StageWriter},
         tile, Ident, MatmulProblem,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},

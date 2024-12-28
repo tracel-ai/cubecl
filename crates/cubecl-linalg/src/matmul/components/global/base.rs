@@ -112,7 +112,7 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
+pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
     CubeType + 'static + Send + Sync
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G);
@@ -147,7 +147,7 @@ pub trait LoadingValidation {
 /// Configuration for the [global matmul](GlobalMatmul) level.
 pub trait GlobalConfig: MatmulConfig {
     /// Underlying Stage matmul config
-    type SmmConfig: stage::Config;
+    type SmmConfig: stage::StageConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn to_smm_config(&self) -> Self::SmmConfig;

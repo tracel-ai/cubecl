@@ -13,7 +13,9 @@ pub trait ReaderFamily {
     type Reader<I: Numeric>: CubeType;
 }
 
-pub trait StageMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync + 'static {
+pub trait StageMatmulFamily:
+    MatmulConfigFactory<Config: StageConfig> + Send + Sync + 'static
+{
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
 
@@ -47,7 +49,7 @@ pub trait StageMatmulFamily: MatmulConfigFactory<Config: Config> + Send + Sync +
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
 pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
-    type Config: Config;
+    type Config: StageConfig;
     // /// Number of rows of LHS
     // const M: u32;
     // /// Number of columns of RHS
@@ -105,7 +107,7 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
 pub trait StageReader<ES: Numeric>: CubeType {
     /// Hands a portion of data from the stage, whose location is function of the
     /// plane, buffer and accumulator indexes.
-    fn read_tile<S: Config>(
+    fn read_tile<S: StageConfig>(
         this: &Self,
         compute_plane_offset: u32,
         buffer_offset: u32,
@@ -130,7 +132,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
 }
 
 /// Configuration for the Stage matmul (SMM) level
-pub trait Config: MatmulConfig {
+pub trait StageConfig: MatmulConfig {
     /// Underlying Tile matmul config
     type TmmConfig: TileConfig;
 

@@ -240,7 +240,7 @@ impl<
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the producer consumer global matmul
-pub struct Config<S: stage::Config> {
+pub struct Config<S: stage::StageConfig> {
     smm_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
@@ -253,7 +253,7 @@ pub struct Config<S: stage::Config> {
     num_planes: u32,
 }
 
-impl<S: stage::Config> global::GlobalConfig for Config<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -313,9 +313,9 @@ impl<S: stage::Config> global::GlobalConfig for Config<S> {
     }
 }
 
-impl<S: stage::Config> MatmulConfig for Config<S> {}
+impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
 
-impl<S: stage::Config> Config<S> {
+impl<S: stage::StageConfig> Config<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,

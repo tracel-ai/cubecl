@@ -8,7 +8,7 @@ use crate::matmul::components::{
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
-pub struct CommonGlobalConfig<S: stage::Config> {
+pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
@@ -21,7 +21,7 @@ pub struct CommonGlobalConfig<S: stage::Config> {
     pub num_planes: u32,
 }
 
-impl<S: stage::Config> super::GlobalConfig for CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -81,9 +81,9 @@ impl<S: stage::Config> super::GlobalConfig for CommonGlobalConfig<S> {
     }
 }
 
-impl<S: stage::Config> MatmulConfig for CommonGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
 
-impl<S: stage::Config> CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> CommonGlobalConfig<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,
