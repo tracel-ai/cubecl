@@ -204,7 +204,7 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
         <Self as num_traits::Float>::min_value()
     }
     fn max_value() -> Self {
-        <Self as num_traits::Float>::min_value()
+        <Self as num_traits::Float>::max_value()
     }
 }
 

@@ -99,7 +99,7 @@ macro_rules! impl_float {
                 <Self as num_traits::Float>::min_value()
             }
             fn max_value() -> Self {
-                <Self as num_traits::Float>::min_value()
+                <Self as num_traits::Float>::max_value()
             }
         }
 

@@ -88,7 +88,8 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
         let line_size = accumulator.0.size();
         if comptime!(line_size > 1) {
             let mut min = In::max_value();
-            let mut coordinate = 0;
+            let mut coordinate = u32::MAX.runtime();
+
             #[unroll]
             for k in 0..line_size {
                 let acc_element = accumulator.0[k];
