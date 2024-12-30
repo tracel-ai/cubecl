@@ -136,15 +136,6 @@ mod empty {
     }
 }
 
-// impl<E: CubePrimitive> TypeMap for Line<E> {
-//     type ExpandGeneric<const POS: u8> = Line<E::ExpandGeneric<POS>>;
-//
-//     fn register<const POS: u8>(context: &mut CubeContext) {
-//         let elem = Self::as_elem(context);
-//         context.register_type::<Self::ExpandGeneric<POS>>(elem);
-//     }
-// }
-
 /// Module that contains the implementation details of the size function.
 mod size {
     use super::*;

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::prelude::{FloatExpand, LaunchArg, Numeric, TypeMap};
+use cubecl_core::prelude::{LaunchArg, Numeric};
 
 use super::global::args::{MatmulArgs, TensorArgs};
 
@@ -64,20 +64,4 @@ impl<Args: MatmulArgs, EG: Numeric, ES: Numeric, EA: Numeric> MatmulSpec
     type ES = ES;
     type EA = EA;
     type Args = Args;
-}
-
-impl<const POS: u8, EG: Numeric, ES: Numeric, EA: Numeric> TypeMap<POS>
-    for SingleMatmulSpec<EG, ES, EA>
-{
-    type ExpandGeneric = SingleMatmulSpec<FloatExpand<0>, FloatExpand<1>, FloatExpand<2>>;
-
-    fn register(context: &mut cubecl_core::prelude::CubeContext) {
-        let eg = EG::as_elem(&context);
-        let es = EG::as_elem(&context);
-        let ea = EG::as_elem(&context);
-
-        context.register_type::<FloatExpand<0>>(eg);
-        context.register_type::<FloatExpand<1>>(es);
-        context.register_type::<FloatExpand<2>>(ea);
-    }
 }

@@ -18,8 +18,8 @@ use crate::{
 
 use super::{
     init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElement,
-    ExpandElementBaseInit, ExpandElementTyped, Float, FloatExpand, Init, IntoRuntime,
-    KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings, TypeMap,
+    ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder,
+    KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 /// A floating point type with relaxed precision, minimum [`f16`], max [`f32`].
@@ -183,15 +183,6 @@ impl Numeric for flex32 {
 impl ExpandElementBaseInit for flex32 {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
-    }
-}
-
-impl<const POS: u8> TypeMap<POS> for flex32 {
-    type ExpandGeneric = FloatExpand<POS>;
-
-    fn register(context: &mut CubeContext) {
-        let elem = Self::as_elem(context);
-        context.register_type::<Self::ExpandGeneric>(elem);
     }
 }
 

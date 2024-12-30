@@ -21,7 +21,7 @@ use super::{
     CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElement, ExpandElementBaseInit,
     ExpandElementTyped, Float, Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher,
     LaunchArgExpand, Log, Log1p, Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round,
-    Runtime, ScalarArgSettings, Sin, Sqrt, Tanh, TypeMap,
+    Runtime, ScalarArgSettings, Sin, Sqrt, Tanh,
 };
 
 #[allow(non_camel_case_types)]
@@ -236,15 +236,6 @@ impl<T: Index, const POS: u8> CubeIndex<T> for FloatExpand<POS> {
     type Output = Self;
 }
 impl<T: Index, const POS: u8> CubeIndexMut<T> for FloatExpand<POS> {}
-
-impl<const POS: u8, const POS1: u8> TypeMap<POS> for FloatExpand<POS1> {
-    type ExpandGeneric = FloatExpand<POS>;
-
-    fn register(context: &mut CubeContext) {
-        let elem = Self::as_elem(context);
-        context.register_type::<Self::ExpandGeneric>(elem);
-    }
-}
 
 impl<const POS: u8> Float for FloatExpand<POS> {
     const DIGITS: u32 = 32;

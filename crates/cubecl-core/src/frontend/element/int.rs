@@ -4,12 +4,10 @@ use crate::frontend::{
     Numeric,
 };
 use crate::ir::{Elem, IntKind};
-use crate::prelude::TypeMap;
 use crate::Runtime;
 
 use super::{
-    init_expand_element, Init, IntExpand, IntoRuntime, LaunchArgExpand, ScalarArgSettings,
-    __expand_new,
+    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
 };
 
 /// Signed or unsigned integer. Used as input in int kernels
@@ -50,15 +48,6 @@ macro_rules! impl_int {
     ($type:ident, $kind:ident) => {
         impl CubeType for $type {
             type ExpandType = ExpandElementTyped<Self>;
-        }
-
-        impl<const POS: u8> TypeMap<POS> for $type {
-            type ExpandGeneric = IntExpand<POS>;
-
-            fn register(context: &mut CubeContext) {
-                let elem = Self::as_elem(context);
-                context.register_type::<Self::ExpandGeneric>(elem);
-            }
         }
 
         impl CubePrimitive for $type {

@@ -77,15 +77,6 @@ macro_rules! impl_float {
             type ExpandType = ExpandElementTyped<$primitive>;
         }
 
-        impl<const POS: u8> TypeMap<POS> for $primitive {
-            type ExpandGeneric = FloatExpand<POS>;
-
-            fn register(context: &mut CubeContext) {
-                let elem = Self::as_elem(context);
-                context.register_type::<Self::ExpandGeneric>(elem);
-            }
-        }
-
         impl CubePrimitive for $primitive {
             /// Return the element type to use on GPU
             fn as_elem_native() -> Option<Elem> {

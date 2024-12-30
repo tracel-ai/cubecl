@@ -1,5 +1,5 @@
 use crate::ir::Elem;
-use crate::prelude::{KernelBuilder, KernelLauncher, TypeMap};
+use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
@@ -7,8 +7,8 @@ use crate::{
 };
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntExpand,
-    IntoRuntime, LaunchArgExpand, ScalarArgSettings,
+    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings,
 };
 
 macro_rules! declare_uint {
@@ -26,15 +26,6 @@ macro_rules! declare_uint {
         impl CubePrimitive for $primitive {
             fn as_elem_native() -> Option<Elem> {
                 Some(Elem::UInt(UIntKind::$kind))
-            }
-        }
-
-        impl<const POS: u8> TypeMap<POS> for $primitive {
-            type ExpandGeneric = IntExpand<POS>;
-
-            fn register(context: &mut CubeContext) {
-                let elem = Self::as_elem(context);
-                context.register_type::<Self::ExpandGeneric>(elem);
             }
         }
 

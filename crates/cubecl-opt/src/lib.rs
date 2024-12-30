@@ -478,6 +478,7 @@ pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 
 #[cfg(test)]
 mod test {
+    use cubecl::prelude::*;
     use cubecl_core::{
         self as cubecl,
         ir::{Elem, HybridAllocator, Item, UIntKind, Variable, VariableKind},

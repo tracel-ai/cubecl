@@ -13,7 +13,6 @@ mod indexation;
 mod operation;
 mod plane;
 mod topology;
-mod typemap;
 
 pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
 pub use comment::*;
@@ -26,4 +25,3 @@ pub use indexation::*;
 pub use operation::*;
 pub use plane::*;
 pub use topology::*;
-pub use typemap::*;
