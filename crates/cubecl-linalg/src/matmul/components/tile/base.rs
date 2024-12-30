@@ -102,4 +102,7 @@ pub trait TileConfig: MatmulConfig {
 
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
+
+    /// Returns the line size for the given ident
+    fn size(&self) -> &MatmulSize;
 }

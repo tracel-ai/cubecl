@@ -87,37 +87,43 @@ impl GenericAnalysis {
             segments: syn::punctuated::Punctuated::new(),
         };
 
-        for segment in path.segments.iter() {
+        for pair in path.segments.pairs() {
+            let segment = pair.value();
+            let punc = pair.punct();
+
             if let Some(segment) = self.map.get(&segment.ident) {
                 returned.segments.push_value(segment.clone());
             } else {
-                if let syn::PathArguments::AngleBracketed(arg) = &segment.arguments {
-                    let mut args = syn::punctuated::Punctuated::new();
-                    arg.args.iter().for_each(|arg| match arg {
-                        syn::GenericArgument::Type(ty) => {
-                            let ty = self.process_ty(ty);
-                            args.push(syn::GenericArgument::Type(ty));
-                        }
-                        _ => args.push_value(arg.clone()),
-                    });
+                match &segment.arguments {
+                    syn::PathArguments::AngleBracketed(arg) => {
+                        let mut args = syn::punctuated::Punctuated::new();
+                        arg.args.iter().for_each(|arg| match arg {
+                            syn::GenericArgument::Type(ty) => {
+                                let ty = self.process_ty(ty);
+                                args.push(syn::GenericArgument::Type(ty));
+                            }
+                            _ => args.push_value(arg.clone()),
+                        });
 
-                    let segment = syn::PathSegment {
-                        ident: segment.ident.clone(),
-                        arguments: syn::PathArguments::AngleBracketed(
-                            syn::AngleBracketedGenericArguments {
-                                colon2_token: arg.colon2_token.clone(),
-                                lt_token: arg.lt_token.clone(),
-                                args,
-                                gt_token: arg.gt_token.clone(),
-                            },
-                        ),
-                    };
-                    // let toks = segment.to_token_stream();
-                    // panic!("Here else {segment:?}, {toks}");
-                    returned.segments.push_value(segment);
-                } else {
-                    returned.segments.push_value(segment.clone());
+                        let segment = syn::PathSegment {
+                            ident: segment.ident.clone(),
+                            arguments: syn::PathArguments::AngleBracketed(
+                                syn::AngleBracketedGenericArguments {
+                                    colon2_token: arg.colon2_token.clone(),
+                                    lt_token: arg.lt_token.clone(),
+                                    args,
+                                    gt_token: arg.gt_token.clone(),
+                                },
+                            ),
+                        };
+                        returned.segments.push_value(segment);
+                    }
+                    _ => returned.segments.push_value((*segment).clone()),
                 }
+            }
+
+            if let Some(punc) = punc {
+                returned.segments.push_punct(**punc)
             }
         }
 

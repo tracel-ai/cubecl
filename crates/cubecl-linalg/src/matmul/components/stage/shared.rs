@@ -77,6 +77,10 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
             InputIdent::Rhs => self.rhs_tiling_order,
         }
     }
+
+    fn num_stages(&self) -> &MatmulSize {
+        &self.num_stage
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}

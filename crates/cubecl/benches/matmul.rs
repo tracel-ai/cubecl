@@ -97,12 +97,17 @@ fn main() {
     #[cfg(feature = "wgpu-spirv")]
     {
         type R = cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>;
+        use half::f16;
 
-        run::<R, half::f16>(
-            Default::default(),
-            matmul::Strategy::Tiling2D(Default::default()),
-        );
-        run::<R, half::f16>(Default::default(), matmul::Strategy::Standard);
+        run::<R, f16>(Default::default(), matmul::Strategy::Standard);
+        run::<R, f16>(Default::default(), matmul::Strategy::Specialized);
+        run::<R, f16>(Default::default(), matmul::Strategy::Pipelined);
+        run::<R, flex32>(Default::default(), matmul::Strategy::Standard);
+        run::<R, flex32>(Default::default(), matmul::Strategy::Specialized);
+        run::<R, flex32>(Default::default(), matmul::Strategy::Pipelined);
+        run::<R, f32>(Default::default(), matmul::Strategy::Standard);
+        run::<R, f32>(Default::default(), matmul::Strategy::Specialized);
+        run::<R, f32>(Default::default(), matmul::Strategy::Pipelined);
     }
 
     #[cfg(all(feature = "hip", target_os = "linux"))]

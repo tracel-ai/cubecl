@@ -452,6 +452,10 @@ impl TileConfig for Config {
             Ident::Out => self.out_line_size,
         }
     }
+
+    fn size(&self) -> &MatmulSize {
+        &self.size
+    }
 }
 
 impl MatmulConfig for Config {}

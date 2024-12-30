@@ -1,5 +1,7 @@
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{GlobalConfig as _, GlobalMatmulFamily, InputLoader};
+use crate::matmul::components::global::{
+    GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
+};
 use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
@@ -103,7 +105,7 @@ pub struct FullLoadMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP> for FullLoadMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for FullLoadMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
         MP::ES,
@@ -220,7 +222,7 @@ pub struct Config<S: stage::StageConfig> {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
-    k_step: u32,
+    pub k_step: u32,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {

@@ -156,4 +156,6 @@ pub trait StageConfig: MatmulConfig {
 
     /// Returns the order in which tiles should be loaded to the stage
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
+
+    fn num_stages(&self) -> &MatmulSize;
 }
