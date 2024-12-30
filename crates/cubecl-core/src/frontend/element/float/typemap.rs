@@ -167,7 +167,7 @@ impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     /// Return the element type to use on GPU
     fn as_elem(context: &CubeContext) -> Elem {
         context
-            .resolve_type::<Self>()
+            .resolve_elem::<Self>()
             .expect("Type to be registered")
     }
 }
@@ -200,8 +200,12 @@ impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
 }
 
 impl<const POS: u8> Numeric for FloatExpand<POS> {
-    const MAX: Self = FloatExpand::from_f32(f32::MAX);
-    const MIN: Self = FloatExpand::from_f32(f32::MIN);
+    fn min_value() -> Self {
+        <Self as num_traits::Float>::min_value()
+    }
+    fn max_value() -> Self {
+        <Self as num_traits::Float>::min_value()
+    }
 }
 
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
@@ -303,7 +307,7 @@ impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
     }
 
     fn min_value() -> Self {
-        FloatExpand(f32::min_value())
+        FloatExpand(<f32 as num_traits::Float>::min_value())
     }
 
     fn min_positive_value() -> Self {
@@ -311,7 +315,7 @@ impl<const POS: u8> num_traits::Float for FloatExpand<POS> {
     }
 
     fn max_value() -> Self {
-        FloatExpand(f32::max_value())
+        FloatExpand(<f32 as num_traits::Float>::max_value())
     }
 
     fn is_nan(self) -> bool {

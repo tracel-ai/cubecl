@@ -67,8 +67,12 @@ macro_rules! impl_int {
         }
 
         impl Numeric for $type {
-            const MAX: Self = $type::MAX;
-            const MIN: Self = $type::MIN;
+            fn min_value() -> Self {
+                $type::MIN
+            }
+            fn max_value() -> Self {
+                $type::MAX
+            }
         }
 
         impl ExpandElementBaseInit for $type {

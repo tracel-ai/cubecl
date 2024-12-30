@@ -51,8 +51,12 @@ macro_rules! declare_uint {
         }
 
         impl Numeric for $primitive {
-            const MAX: Self = $primitive::MAX;
-            const MIN: Self = $primitive::MIN;
+            fn min_value() -> Self {
+                $primitive::MIN
+            }
+            fn max_value() -> Self {
+                $primitive::MAX
+            }
         }
 
         impl Int for $primitive {

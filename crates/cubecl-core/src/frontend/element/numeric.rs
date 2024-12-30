@@ -48,8 +48,22 @@ pub trait Numeric:
     + std::cmp::PartialOrd
     + std::cmp::PartialEq
 {
-    const MAX: Self;
-    const MIN: Self;
+    fn min_value() -> Self;
+    fn max_value() -> Self;
+
+    fn __expand_min_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
+        let elem = Self::as_elem(&context);
+        let var = elem.min_variable();
+        let expand = ExpandElement::Plain(var);
+        expand.into()
+    }
+
+    fn __expand_max_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
+        let elem = Self::as_elem(&context);
+        let var = elem.max_variable();
+        let expand = ExpandElement::Plain(var);
+        expand.into()
+    }
 
     /// Create a new constant numeric.
     ///

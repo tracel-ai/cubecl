@@ -245,7 +245,7 @@ impl TestCase {
     }
 
     fn cpu_argmax<F: Float>(&self, values: &[F]) -> Vec<u32> {
-        let mut expected = vec![(F::MIN, 0_u32); self.num_output_values()];
+        let mut expected = vec![(F::min_value(), 0_u32); self.num_output_values()];
         for (input_index, &value) in values.iter().enumerate() {
             let output_index = self.to_output_index(input_index);
             let (best, _) = expected[output_index];
@@ -268,7 +268,7 @@ impl TestCase {
     }
 
     fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
-        let mut expected = vec![(F::MAX, 0_u32); self.num_output_values()];
+        let mut expected = vec![(F::max_value(), 0_u32); self.num_output_values()];
         for (input_index, &value) in values.iter().enumerate() {
             let output_index = self.to_output_index(input_index);
             let (best, _) = expected[output_index];

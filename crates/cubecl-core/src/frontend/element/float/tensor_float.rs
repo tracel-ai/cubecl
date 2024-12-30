@@ -187,8 +187,12 @@ impl IntoRuntime for tf32 {
 }
 
 impl Numeric for tf32 {
-    const MAX: Self = tf32::from_f32(f32::MAX);
-    const MIN: Self = tf32::from_f32(f32::MIN);
+    fn min_value() -> Self {
+        Self(f32::MIN)
+    }
+    fn max_value() -> Self {
+        Self(f32::MAX)
+    }
 }
 
 impl ExpandElementBaseInit for tf32 {

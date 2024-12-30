@@ -38,7 +38,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     type SharedAccumulator = ArgAccumulator<In>;
 
     fn null_input(#[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::MAX)
+        Line::empty(line_size).fill(In::max_value())
     }
 
     fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
@@ -87,7 +87,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     ) -> Out {
         let line_size = accumulator.0.size();
         if comptime!(line_size > 1) {
-            let mut min = In::MAX.runtime();
+            let mut min = In::max_value();
             let mut coordinate = 0;
             #[unroll]
             for k in 0..line_size {

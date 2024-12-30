@@ -198,7 +198,7 @@ impl Launch {
         let runtime = prelude_type("Runtime");
         let compiler = core_type("Compiler");
         let io_map = self.io_mappings();
-        let register_type = self.analysis.register_type();
+        let register_type = self.analysis.register_elems();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);

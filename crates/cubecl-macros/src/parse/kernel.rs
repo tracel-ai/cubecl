@@ -61,14 +61,14 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_type(&self) -> TokenStream {
+    pub fn register_elems(&self) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
             output.extend(quote! {
                 builder
                     .context
-                    .register_type::<#ty>(#name::as_elem_native_unchecked());
+                    .register_elem::<#ty>(#name::as_elem_native_unchecked());
             });
         }
 

@@ -95,8 +95,12 @@ macro_rules! impl_float {
         }
 
         impl Numeric for $primitive {
-            const MAX: Self = $primitive::MAX;
-            const MIN: Self = $primitive::MIN;
+            fn min_value() -> Self {
+                <Self as num_traits::Float>::min_value()
+            }
+            fn max_value() -> Self {
+                <Self as num_traits::Float>::min_value()
+            }
         }
 
         impl ExpandElementBaseInit for $primitive {
