@@ -218,19 +218,19 @@ test_unary_impl_fixed_ty!(test_reverse_bits, u32, u32::reverse_bits, [
         input_vectorization: 1,
         out_vectorization: 1,
         input: &[0b1110_0010, 0b1000_0000, 0b1111_1111],
-        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111]
+        expected: &[0b0100_0111 << 24, 0b0000_0001 << 24, 0b1111_1111 << 24]
     },
     {
         input_vectorization: 2,
         out_vectorization: 2,
         input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
-        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111, 0b1000_0011]
+        expected: &[0b0100_0111 << 24, 0b0000_0001 << 24, 0b1111_1111 << 24, 0b1000_0011 << 24]
     },
     {
         input_vectorization: 4,
         out_vectorization: 4,
         input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
-        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111, 0b1000_0011]
+        expected: &[0b0100_0111 << 24, 0b0000_0001 << 24, 0b1111_1111 << 24, 0b1000_0011 << 24]
     }
 ]);
 
