@@ -186,7 +186,11 @@ impl<D: Dialect> Unary<D> for ReverseBits {
         match elem {
             Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
-            _ => panic!("reverse_bits only supports 32 and 64 bit integers on CUDA"),
+            _ => write!(
+                f,
+                "{elem}(__brev(int({input})) >> {})",
+                (size_of::<u32>() - elem.size()) * 8
+            ),
         }
     }
 }
