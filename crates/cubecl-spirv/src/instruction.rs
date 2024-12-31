@@ -435,30 +435,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Operator::CountOnes(op) => {
                 // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
-                let input = self.compile_variable(op.input);
-                let out = self.compile_variable(out);
-                let out_ty = out.item();
-
-                let unsigned_item = match input.item() {
-                    Item::Scalar(Elem::Int(width, true)) => Item::Scalar(Elem::Int(width, false)),
-                    Item::Vector(Elem::Int(width, true), factor) => {
-                        Item::Vector(Elem::Int(width, false), factor)
-                    }
-                    other => other,
-                };
-
-                let input_id = if let Some(as_const) = input.as_const() {
-                    self.static_cast(as_const, &input.elem(), &out_ty)
-                } else {
-                    let id = self.read(&input);
-                    unsigned_item.cast_to(self, None, id, &out_ty)
-                };
-
-                let out_id = self.write_id(&out);
-
-                let ty = out_ty.id(self);
-                self.bit_count(ty, Some(out_id), input_id).unwrap();
-                self.write(&out, out_id);
+                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                    b.bit_count(ty, Some(out), input).unwrap();
+                });
             }
             Operator::ReverseBits(op) => {
                 self.capabilities.insert(Capability::BitInstructions);

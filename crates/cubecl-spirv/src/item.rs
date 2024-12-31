@@ -172,10 +172,11 @@ impl Item {
                            obj: Word,
                            out_id: Option<Word>,
                            (width_self, signed_self),
-                           width_other| {
+                           (width_other, signed_other)| {
             let width_differs = width_self != width_other;
+            let sign_extend = signed_self && signed_other;
             match width_differs {
-                true => convert_i_width(b, obj, out_id, signed_self),
+                true => convert_i_width(b, obj, out_id, sign_extend),
                 false => b.copy_object(ty, out_id, obj).unwrap(),
             }
         };
@@ -196,8 +197,14 @@ impl Item {
                     let zero = self.const_u32(b, 0);
                     b.i_not_equal(ty, out_id, obj, zero).unwrap()
                 }
-                (Elem::Int(width_self, signed_self), Elem::Int(width_other, _)) => {
-                    convert_int(b, obj, out_id, (width_self, signed_self), width_other)
+                (Elem::Int(width_self, signed_self), Elem::Int(width_other, signed_other)) => {
+                    convert_int(
+                        b,
+                        obj,
+                        out_id,
+                        (width_self, signed_self),
+                        (width_other, signed_other),
+                    )
                 }
                 (Elem::Int(_, false), Elem::Float(_)) | (Elem::Int(_, false), Elem::Relaxed) => {
                     b.convert_u_to_f(ty, out_id, obj).unwrap()
