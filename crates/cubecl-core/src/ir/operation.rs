@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use super::{
-    Branch, Comment, CoopMma, DebugInfo, Item, Plane, Scope, Select, Synchronization, Variable,
-};
+use super::{Branch, CoopMma, Item, NonSemantic, Plane, Scope, Select, Synchronization, Variable};
 use crate::{
     cpa,
     ir::{Elem, UIntKind},
@@ -28,9 +26,8 @@ pub enum Operation {
     Synchronization(Synchronization),
     Plane(Plane),
     CoopMma(CoopMma),
-    Comment(Comment),
-    /// Debug instructions, currently only for SPIR-V
-    Debug(DebugInfo),
+    /// Non-semantic instructions (i.e. comments, debug info)
+    NonSemantic(NonSemantic),
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
@@ -111,10 +108,21 @@ impl Display for Operation {
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
-            Operation::Comment(comment) => write!(f, "{comment}"),
-            // Debug info has no semantic meaning
-            Operation::Debug(_) => Ok(()),
+            Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
         }
+    }
+}
+
+pub fn fmt_vararg(args: &[impl Display]) -> String {
+    if args.is_empty() {
+        "".to_string()
+    } else {
+        let str = args
+            .iter()
+            .map(|it| it.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(", {str}")
     }
 }
 
@@ -426,35 +434,20 @@ impl From<Synchronization> for Instruction {
     }
 }
 
-impl From<Comment> for Operation {
-    fn from(value: Comment) -> Self {
-        Self::Comment(value)
-    }
-}
-
-impl From<Comment> for Instruction {
-    fn from(value: Comment) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
-    }
-}
-
 impl From<Metadata> for Operation {
     fn from(val: Metadata) -> Self {
         Operation::Metadata(val)
     }
 }
 
-impl From<DebugInfo> for Operation {
-    fn from(val: DebugInfo) -> Self {
-        Operation::Debug(val)
+impl From<NonSemantic> for Operation {
+    fn from(val: NonSemantic) -> Self {
+        Operation::NonSemantic(val)
     }
 }
 
-impl From<DebugInfo> for Instruction {
-    fn from(value: DebugInfo) -> Self {
+impl From<NonSemantic> for Instruction {
+    fn from(value: NonSemantic) -> Self {
         Instruction {
             out: None,
             operation: value.into(),

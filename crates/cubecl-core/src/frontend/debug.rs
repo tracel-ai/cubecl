@@ -1,4 +1,4 @@
-use crate::ir::{DebugInfo, Variable};
+use crate::ir::{NonSemantic, Variable};
 
 use super::CubeContext;
 
@@ -12,7 +12,7 @@ pub fn debug_call_expand<C>(
     call: impl FnOnce(&mut CubeContext) -> C,
 ) -> C {
     if context.debug_enabled {
-        context.register(DebugInfo::BeginCall {
+        context.register(NonSemantic::BeginCall {
             name: name.to_string(),
             line,
             col,
@@ -20,7 +20,7 @@ pub fn debug_call_expand<C>(
 
         let ret = call(context);
 
-        context.register(DebugInfo::EndCall);
+        context.register(NonSemantic::EndCall);
 
         ret
     } else {
@@ -37,7 +37,7 @@ pub fn spanned_expand<C>(
     call: impl FnOnce(&mut CubeContext) -> C,
 ) -> C {
     if context.debug_enabled {
-        context.register(DebugInfo::Line { line, col });
+        context.register(NonSemantic::Line { line, col });
         call(context)
     } else {
         call(context)
@@ -50,7 +50,7 @@ pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, li
     if context.debug_enabled {
         // Normalize to linux separators
         let file = file.replace("\\", "/");
-        context.register(DebugInfo::Source {
+        context.register(NonSemantic::Source {
             name: name.into(),
             file_name: format!("./{file}"),
             line,
@@ -65,7 +65,7 @@ pub fn printf_expand(
     format_string: impl Into<String>,
     args: Vec<Variable>,
 ) {
-    context.register(DebugInfo::Print {
+    context.register(NonSemantic::Print {
         format_string: format_string.into(),
         args,
     });
