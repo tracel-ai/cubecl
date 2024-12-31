@@ -292,11 +292,10 @@ impl_unary_func_fixed_out_type!(
     u64,
     i64
 );
-impl_unary_func_fixed_out_type!(
+impl_unary_func!(
     ReverseBits,
     reverse_bits,
     __expand_reverse_bits,
-    u32,
     Operator::ReverseBits,
     u8,
     i8,
