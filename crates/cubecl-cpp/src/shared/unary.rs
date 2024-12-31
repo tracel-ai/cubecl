@@ -170,7 +170,7 @@ impl<D: Dialect> Unary<D> for CountBits {
         match elem {
             Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
-            _ => panic!("count_bits only supports 32 and 64 bit integers on CUDA"),
+            _ => write!(f, "__popc(int({input}))"),
         }
     }
 }
