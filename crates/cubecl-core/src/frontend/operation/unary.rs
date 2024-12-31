@@ -71,6 +71,23 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
     }
 }
 
+macro_rules! impl_unary_func_fixed_out_type {
+    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $out_ty:ty, $operator:expr, $($type:ty),*) => {
+        pub trait $trait_name: CubePrimitive + Sized {
+            #[allow(unused_variables)]
+            fn $method_name(x: Self) -> $out_ty {
+                unexpanded!()
+            }
+
+            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+                unary_expand(context, x.into(), $operator).into()
+            }
+        }
+
+        $(impl $trait_name for $type {})*
+    }
+}
+
 impl_unary_func!(
     Abs,
     abs,
@@ -259,4 +276,34 @@ impl_unary_func!(
     tf32,
     f32,
     f64
+);
+impl_unary_func_fixed_out_type!(
+    CountOnes,
+    count_ones,
+    __expand_count_ones,
+    u32,
+    Operator::CountOnes,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);
+impl_unary_func_fixed_out_type!(
+    ReverseBits,
+    reverse_bits,
+    __expand_reverse_bits,
+    u32,
+    Operator::ReverseBits,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
 );

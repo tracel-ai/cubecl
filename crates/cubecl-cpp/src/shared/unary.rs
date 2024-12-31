@@ -159,6 +159,38 @@ function!(Tanh, "tanh", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
 
+pub struct CountBits;
+
+impl<D: Dialect> Unary<D> for CountBits {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
+            _ => panic!("count_bits only supports 32 and 64 bit integers on CUDA"),
+        }
+    }
+}
+
+pub struct ReverseBits;
+
+impl<D: Dialect> Unary<D> for ReverseBits {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
+            _ => panic!("reverse_bits only supports 32 and 64 bit integers on CUDA"),
+        }
+    }
+}
+
 pub struct Not;
 
 impl<D: Dialect> Unary<D> for Not {

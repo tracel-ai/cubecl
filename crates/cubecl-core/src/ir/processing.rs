@@ -186,6 +186,15 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
+                    Operator::CountOnes(_) => {
+                        sanitize_constant_scalar_ref_elem(
+                            inst.out.as_mut().unwrap(),
+                            u32::as_elem(),
+                        );
+                    }
+                    Operator::ReverseBits(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Operator::ShiftLeft(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());

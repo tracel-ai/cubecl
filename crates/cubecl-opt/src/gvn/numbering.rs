@@ -211,7 +211,9 @@ impl ValueTable {
             | Operator::Not(op)
             | Operator::Neg(op)
             | Operator::Magnitude(op)
-            | Operator::Normalize(op) => {
+            | Operator::Normalize(op)
+            | Operator::CountOnes(op)
+            | Operator::ReverseBits(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
                 let item = out.item;
                 let out = value_of_var(&out);

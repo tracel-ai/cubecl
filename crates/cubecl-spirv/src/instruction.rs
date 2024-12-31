@@ -433,6 +433,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
                 })
             }
+            Operator::CountOnes(op) => {
+                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                    b.bit_count(ty, Some(out), input).unwrap();
+                });
+            }
+            Operator::ReverseBits(op) => {
+                self.capabilities.insert(Capability::BitInstructions);
+                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                    b.bit_reverse(ty, Some(out), input).unwrap();
+                });
+            }
             Operator::ShiftLeft(op) => {
                 self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
                     b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();

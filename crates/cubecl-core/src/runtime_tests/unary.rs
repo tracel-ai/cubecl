@@ -77,6 +77,51 @@ macro_rules! test_unary_impl {
     };
 }
 
+macro_rules! test_unary_impl_fixed_ty {
+    (
+        $test_name:ident,
+        $type:ident,
+        $unary_func:expr,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            input: $input:expr,
+            expected: $expected:expr
+        }),*]) => {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+            #[cube(launch_unchecked)]
+            fn test_function(input: &Array<$type>, output: &mut Array<$type>) {
+                if ABSOLUTE_POS < input.len() {
+                    output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
+                }
+            }
+
+            $(
+            {
+                let input = $input;
+                let output_handle = client.empty(input.len() * core::mem::size_of::<$type>());
+                let input_handle = client.create($type::as_bytes(input));
+
+                unsafe {
+                    test_function::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new((input.len() / $input_vectorization as usize) as u32, 1, 1),
+                        ArrayArg::from_raw_parts::<$type>(&input_handle, input.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$type>(&output_handle, $expected.len(), $out_vectorization),
+                    )
+                };
+
+                let actual = client.read_one(output_handle.binding());
+                let actual = $type::from_bytes(&actual);
+
+                assert_eq!(actual, $expected);
+            }
+            )*
+        }
+    };
+}
+
 test_unary_impl!(
     test_magnitude,
     F,
@@ -147,6 +192,48 @@ test_unary_impl!(
     ]
 );
 
+test_unary_impl_fixed_ty!(test_count_ones, u32, u32::count_ones, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111],
+        expected: &[4, 1, 8]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
+        expected: &[4, 1, 8, 3]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
+        expected: &[4, 1, 8, 3]
+    }
+]);
+
+test_unary_impl_fixed_ty!(test_reverse_bits, u32, u32::reverse_bits, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111],
+        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
+        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111, 0b1000_0011]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: &[0b1110_0010, 0b1000_0000, 0b1111_1111, 0b1100_0001],
+        expected: &[0b0100_0111, 0b0000_0001, 0b1111_1111, 0b1000_0011]
+    }
+]);
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary {
@@ -166,8 +253,20 @@ macro_rules! testgen_unary {
                 };
             }
 
+            macro_rules! add_test_fixed {
+                ($test_name:ident) => {
+                    #[test]
+                    fn $test_name() {
+                        let client = TestRuntime::client(&Default::default());
+                        cubecl_core::runtime_tests::unary::$test_name::<TestRuntime>(client);
+                    }
+                };
+            }
+
             add_test!(test_normalize);
             add_test!(test_magnitude);
+            add_test_fixed!(test_count_ones);
+            add_test_fixed!(test_reverse_bits);
         }
     };
 }
