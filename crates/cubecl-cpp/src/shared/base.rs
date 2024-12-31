@@ -230,9 +230,6 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
-            gpu::Operation::Comment(val) => instructions.push(Instruction::Comment {
-                content: val.content,
-            }),
             gpu::Operation::Plane(op) => {
                 self.warp_size_checked = true;
                 let out = self.compile_variable(out.unwrap());
@@ -286,13 +283,13 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
-            gpu::Operation::Debug(debug) => match debug {
+            gpu::Operation::NonSemantic(debug) => match debug {
                 // No good way to attach debug info
-                gpu::DebugInfo::BeginCall { .. }
-                | gpu::DebugInfo::EndCall
-                | gpu::DebugInfo::Source { .. }
-                | gpu::DebugInfo::Line { .. } => {}
-                gpu::DebugInfo::Print {
+                gpu::NonSemantic::BeginCall { .. }
+                | gpu::NonSemantic::EndCall
+                | gpu::NonSemantic::Source { .. }
+                | gpu::NonSemantic::Line { .. } => {}
+                gpu::NonSemantic::Print {
                     format_string,
                     args,
                 } => {
@@ -304,6 +301,9 @@ impl<D: Dialect> CppCompiler<D> {
                             .map(|arg| self.compile_variable(arg))
                             .collect(),
                     })
+                }
+                gpu::NonSemantic::Comment { content } => {
+                    instructions.push(Instruction::Comment { content })
                 }
             },
         }
