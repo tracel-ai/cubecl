@@ -180,7 +180,7 @@ impl<D: Dialect> Unary<D> for CountBits {
         match elem {
             Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
-            _ => write!(f, "__popc({})", zero_extend(input, elem)),
+            _ => write!(f, "{}(__popc({}))", elem, zero_extend(input, elem)),
         }
     }
 }
