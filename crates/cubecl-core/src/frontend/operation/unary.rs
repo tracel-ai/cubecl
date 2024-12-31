@@ -71,6 +71,26 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
     }
 }
 
+macro_rules! impl_unary_func_fixed_out_ty {
+    ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $out_ty: ty, $operator:expr, $($type:ty),*) => {
+        pub trait $trait_name: CubePrimitive + Sized {
+            #[allow(unused_variables)]
+            fn $method_name(x: Self) -> $out_ty {
+                unexpanded!()
+            }
+
+            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+                let expand_element: ExpandElement = x.into();
+                let mut item = expand_element.item;
+                item.elem = <$out_ty as CubePrimitive>::as_elem();
+                unary_expand_fixed_output(context, expand_element, item, $operator).into()
+            }
+        }
+
+        $(impl $trait_name for $type {})*
+    }
+}
+
 impl_unary_func!(
     Abs,
     abs,
@@ -260,10 +280,11 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(
+impl_unary_func_fixed_out_ty!(
     CountOnes,
     count_ones,
     __expand_count_ones,
+    u32,
     Operator::CountOnes,
     u8,
     i8,
