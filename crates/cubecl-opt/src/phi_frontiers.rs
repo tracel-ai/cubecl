@@ -2,34 +2,19 @@ use cubecl_core::ir::{Item, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    analyses::{dominators::Dominators, liveness::Liveness},
+    analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness},
     Optimizer,
 };
 
 use super::version::{PhiEntry, PhiInstruction};
 
 impl Optimizer {
-    /// Find dominance frontiers for each block
-    pub fn fill_dom_frontiers(&mut self) {
-        let doms = self.analysis::<Dominators>();
-        for node in self.node_ids() {
-            let predecessors = self.predecessors(node);
-            if predecessors.len() >= 2 {
-                for predecessor in predecessors {
-                    let mut runner = predecessor;
-                    while runner != doms.immediate_dominator(node).unwrap() {
-                        self.program[runner].dom_frontiers.insert(node);
-                        runner = doms.immediate_dominator(runner).unwrap();
-                    }
-                }
-            }
-        }
-    }
-
     /// Places a phi node for each live variable at each frontier
     pub fn place_phi_nodes(&mut self) {
         let keys: Vec<_> = self.program.variables.keys().cloned().collect();
         let liveness = self.analysis::<Liveness>();
+        let dom_frontiers = self.analysis::<DomFrontiers>();
+
         for var in keys {
             let mut workset: Vec<_> = self
                 .node_ids()
@@ -41,7 +26,7 @@ impl Optimizer {
             let mut already_inserted = Vec::new();
 
             while let Some(node) = workset.pop() {
-                for frontier in self.program[node].dom_frontiers.clone() {
+                for frontier in dom_frontiers[&node].clone() {
                     if already_inserted.contains(&frontier) || liveness.is_dead(frontier, var) {
                         continue;
                     }

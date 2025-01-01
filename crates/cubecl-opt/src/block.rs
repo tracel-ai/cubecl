@@ -1,7 +1,6 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use cubecl_core::ir::{Instruction, Variable};
-use petgraph::graph::NodeIndex;
 use stable_vec::StableVec;
 
 use crate::{version::PhiInstruction, ControlFlow, Optimizer};
@@ -21,8 +20,6 @@ pub struct BasicBlock {
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
     /// The variables written to by this block. Only set during the SSA transformation.
     pub(crate) writes: HashSet<(u16, u8)>,
-    /// The dominance frontiers of this block (where phi nodes must be inserted).
-    pub(crate) dom_frontiers: HashSet<NodeIndex>,
     /// A stable list of operations performed in this block.
     pub ops: Rc<RefCell<StableVec<Instruction>>>,
     /// The control flow that terminates this block.

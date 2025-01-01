@@ -31,7 +31,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{liveness::Liveness, Analyses};
+use analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, Analyses};
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -317,13 +317,12 @@ impl Optimizer {
     }
 
     fn ssa_transform(&mut self) {
-        self.fill_dom_frontiers();
         self.place_phi_nodes();
         self.version_program();
         self.program.variables.clear();
         for block in self.node_ids() {
             self.program[block].writes.clear();
-            self.program[block].dom_frontiers.clear();
+            self.invalidate_analysis::<DomFrontiers>();
         }
     }
 
