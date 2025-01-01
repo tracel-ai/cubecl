@@ -2,7 +2,7 @@ use cubecl_core::ir::{Item, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, writes::Writes},
+    analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes},
     Optimizer,
 };
 

@@ -30,7 +30,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, writes::Writes, Analyses};
+use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, Analyses};
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -144,6 +144,8 @@ struct Range {
 pub struct Optimizer {
     /// The overall program state
     program: Program,
+    /// Analyses with persistent state
+    analyses: Rc<Analyses>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -156,8 +158,6 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
-
-    analyses: Rc<Analyses>,
 }
 
 impl Default for Optimizer {

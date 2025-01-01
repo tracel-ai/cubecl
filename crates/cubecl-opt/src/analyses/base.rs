@@ -5,7 +5,7 @@ use type_map::TypeMap;
 use crate::Optimizer;
 
 use super::{
-    dominators::{Dominators, PostDominators},
+    dominance::{Dominators, PostDominators},
     liveness::Liveness,
     post_order::PostOrder,
 };

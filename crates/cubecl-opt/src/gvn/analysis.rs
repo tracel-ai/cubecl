@@ -7,7 +7,7 @@ use crate::{analyses::Analysis, NodeIndex};
 use smallvec::SmallVec;
 
 use crate::{
-    analyses::dominators::{Dominators, PostDominators},
+    analyses::dominance::{Dominators, PostDominators},
     Optimizer,
 };
 

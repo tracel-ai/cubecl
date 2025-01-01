@@ -1,11 +1,49 @@
-use crate::{NodeIndex, Optimizer};
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
 };
 
-use super::{dominators::Dominators, Analysis};
+use crate::{NodeIndex, Optimizer};
+use petgraph::algo::dominators;
 
+use super::Analysis;
+
+/// Dominator tree for the program graph
+pub struct Dominators(dominators::Dominators<NodeIndex>);
+/// Post dominator tree for the program graph
+pub struct PostDominators(dominators::Dominators<NodeIndex>);
+
+impl Deref for Dominators {
+    type Target = dominators::Dominators<NodeIndex>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for PostDominators {
+    type Target = dominators::Dominators<NodeIndex>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Analysis for Dominators {
+    fn init(opt: &mut crate::Optimizer) -> Self {
+        Dominators(dominators::simple_fast(&opt.program.graph, opt.entry()))
+    }
+}
+
+impl Analysis for PostDominators {
+    fn init(opt: &mut crate::Optimizer) -> Self {
+        let mut reversed = opt.program.graph.clone();
+        reversed.reverse();
+        PostDominators(dominators::simple_fast(&reversed, opt.ret))
+    }
+}
+
+/// Dominance frontiers for each block
 pub struct DomFrontiers {
     /// The dominance frontiers of each block (where phi nodes must be inserted).
     dom_frontiers: HashMap<NodeIndex, HashSet<NodeIndex>>,

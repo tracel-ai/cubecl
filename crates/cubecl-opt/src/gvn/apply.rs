@@ -4,7 +4,7 @@ use cubecl_core::ir::{self, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    analyses::dominators::Dominators,
+    analyses::dominance::Dominators,
     gvn::{convert::value_of_var, phi_translate},
     version::PhiEntry,
     AtomicCounter, Optimizer, PhiInstruction,
