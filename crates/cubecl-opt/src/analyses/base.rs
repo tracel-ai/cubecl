@@ -4,6 +4,8 @@ use type_map::TypeMap;
 
 use crate::Optimizer;
 
+use super::post_order::PostOrder;
+
 pub trait Analysis {
     fn init(opt: &mut Optimizer) -> Self;
 }
@@ -42,5 +44,9 @@ impl Optimizer {
 
     pub fn invalidate_analysis<A: Analysis + Any>(&self) {
         self.analyses.invalidate::<A>();
+    }
+
+    pub fn invalidate_structure(&self) {
+        self.invalidate_analysis::<PostOrder>();
     }
 }

@@ -349,6 +349,7 @@ impl Optimizer {
                     let new_block = self.program.add_node(BasicBlock::default());
                     self.program.add_edge(block, new_block, ());
                     self.program.add_edge(new_block, *successor, ());
+                    self.invalidate_structure();
                     update_phi(self, *successor, block, new_block);
                     update_control_flow(self, block, *successor, new_block);
                 }

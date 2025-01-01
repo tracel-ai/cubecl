@@ -241,6 +241,7 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
+        self.invalidate_structure();
     }
 
     fn apply_pre_ssa_passes(&mut self) {
@@ -444,6 +445,7 @@ impl Optimizer {
             let new_ret = self.program.add_node(BasicBlock::default());
             self.program.add_edge(new_ret, self.ret, ());
             self.ret = new_ret;
+            self.invalidate_structure();
             new_ret
         } else {
             self.ret

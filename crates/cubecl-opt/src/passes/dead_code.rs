@@ -96,6 +96,7 @@ impl OptimizerPass for EliminateConstBranches {
                     }
 
                     *control_flow.borrow_mut() = ControlFlow::None;
+                    opt.invalidate_structure();
                     changes.inc();
                 }
                 ControlFlow::Switch {
@@ -119,6 +120,7 @@ impl OptimizerPass for EliminateConstBranches {
                         opt.program.remove_edge(edge);
                     }
                     *control_flow.borrow_mut() = ControlFlow::None;
+                    opt.invalidate_structure();
                     changes.inc();
                 }
                 _ => {}
@@ -226,7 +228,7 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             }
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
             opt.program.remove_node(successors[0]);
-            opt.invalidate_analysis::<PostOrder>();
+            opt.invalidate_structure();
             opt.invalidate_analysis::<Liveness>();
             update_references(opt, successors[0], block_idx);
             return true;
