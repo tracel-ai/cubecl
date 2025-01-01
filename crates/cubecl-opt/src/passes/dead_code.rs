@@ -132,26 +132,14 @@ pub struct EliminateDeadBlocks;
 
 impl OptimizerPass for EliminateDeadBlocks {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        while search_dead_blocks(opt) {
-            changes.inc();
-        }
-    }
-}
-
-fn search_dead_blocks(opt: &mut Optimizer) -> bool {
-    for block in opt.node_ids() {
-        if block != opt.entry() && opt.predecessors(block).is_empty() {
-            let edges: Vec<_> = opt.program.edges(block).map(|it| it.id()).collect();
-            for edge in edges {
-                opt.program.remove_edge(edge);
+        let post_order = opt.analysis::<PostOrder>().forward();
+        for node in opt.node_ids() {
+            if !post_order.contains(&node) {
+                opt.program.remove_node(node);
+                changes.inc();
             }
-            opt.program.remove_node(block);
-            opt.invalidate_analysis::<PostOrder>();
-            return true;
         }
     }
-
-    false
 }
 
 /// Eliminates invalid phi nodes left over from other optimizations like branch elimination.
