@@ -8,8 +8,8 @@ use cubecl_core::ir::{ConstantScalarValue, Instruction, Operation, VariableKind}
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
-    analyses::post_order::PostOrder, visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow,
-    Optimizer,
+    analyses::{liveness::Liveness, post_order::PostOrder},
+    visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
 };
 
 use super::OptimizerPass;
@@ -205,8 +205,6 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             let b_ops = block.ops.borrow().values().cloned().collect::<Vec<_>>();
             let s_ops = successor.ops.borrow().values().cloned().collect::<Vec<_>>();
 
-            new_block.live_vars.extend(block.live_vars.clone());
-            new_block.live_vars.extend(successor.live_vars.clone());
             new_block.phi_nodes.borrow_mut().extend(b_phi);
             new_block.phi_nodes.borrow_mut().extend(s_phi);
             new_block.ops.borrow_mut().extend(b_ops);
@@ -229,6 +227,7 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
             opt.program.remove_node(successors[0]);
             opt.invalidate_analysis::<PostOrder>();
+            opt.invalidate_analysis::<Liveness>();
             update_references(opt, successors[0], block_idx);
             return true;
         }

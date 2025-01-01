@@ -1,9 +1,10 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
+    analyses::liveness::Liveness,
     gvn::{BlockSets, Constant, Expression, Instruction, Local, OpId, Value, ValueTable},
     passes::var_id,
     ControlFlow,
@@ -31,6 +32,10 @@ impl Display for Optimizer {
         f.write_str("\n\n")?;
 
         let global_nums = self.gvn.borrow();
+        let liveness = self
+            .analyses
+            .try_get::<Liveness>()
+            .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
@@ -53,7 +58,7 @@ impl Display for Optimizer {
             if !bb.block_use.is_empty() {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
-            let live_vars = bb.live_vars.iter();
+            let live_vars = liveness.at_block(node).iter();
             let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;

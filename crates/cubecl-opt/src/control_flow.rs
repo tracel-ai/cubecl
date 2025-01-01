@@ -302,7 +302,7 @@ impl Optimizer {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.program.insert_phi(header, i_id, range_loop.start.item);
+        self.insert_phi(header, i_id, range_loop.start.item);
         {
             let op = match range_loop.inclusive {
                 true => Operator::LowerEqual,

@@ -31,7 +31,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::Analyses;
+use analyses::{liveness::Liveness, Analyses};
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -197,7 +197,6 @@ impl Optimizer {
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
         self.split_critical_edges();
-        self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
         self.ssa_transform();
@@ -209,7 +208,7 @@ impl Optimizer {
         let arrays_prop = AtomicCounter::new(0);
         CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
-            self.analyze_liveness();
+            self.invalidate_analysis::<Liveness>();
             self.ssa_transform();
             self.apply_post_ssa_passes();
         }
@@ -317,8 +316,8 @@ impl Optimizer {
     }
 
     fn ssa_transform(&mut self) {
-        self.program.fill_dom_frontiers();
-        self.program.place_phi_nodes();
+        self.fill_dom_frontiers();
+        self.place_phi_nodes();
         self.version_program();
         self.program.variables.clear();
         for block in self.node_ids() {

@@ -25,6 +25,10 @@ impl Analyses {
         }
     }
 
+    pub fn try_get<A: Any>(&self) -> Option<Rc<A>> {
+        self.cache.borrow().get().cloned()
+    }
+
     pub fn invalidate<A: Analysis + Any>(&self) {
         self.cache.borrow_mut().remove::<Rc<A>>();
     }
