@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use petgraph::graph::NodeIndex;
 
-use crate::Optimizer;
+use crate::{analyses::post_order::PostOrder, Optimizer};
 
 #[derive(Clone)]
 struct BlockSets {
@@ -19,7 +19,7 @@ impl Optimizer {
     /// Do a conservative block level liveness analysis
     pub fn analyze_liveness(&mut self) {
         let mut state = State {
-            worklist: VecDeque::from(self.post_order()),
+            worklist: VecDeque::from(self.analysis::<PostOrder>().forward()),
             block_sets: HashMap::new(),
         };
         while let Some(block) = state.worklist.pop_front() {

@@ -25,12 +25,13 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use analyses::Analyses;
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -49,6 +50,7 @@ use passes::{
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
+mod analyses;
 mod block;
 mod control_flow;
 mod debug;
@@ -143,8 +145,6 @@ struct Range {
 pub struct Optimizer {
     /// The overall program state
     program: Program,
-    /// The post order of the graph for traversal
-    post_order: Vec<NodeIndex>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -158,6 +158,8 @@ pub struct Optimizer {
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
     pub(crate) gvn: Rc<RefCell<GvnPass>>,
+
+    analyses: Rc<Analyses>,
 }
 
 impl Default for Optimizer {
@@ -170,8 +172,8 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
-            post_order: Default::default(),
             gvn: Default::default(),
+            analyses: Default::default(),
         }
     }
 }
@@ -195,7 +197,6 @@ impl Optimizer {
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
         self.split_critical_edges();
-        self.determine_postorder(self.entry(), &mut HashSet::new());
         self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
@@ -241,24 +242,6 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
-    }
-
-    fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
-        for successor in self.successors(block) {
-            if !visited.contains(&successor) {
-                visited.insert(successor);
-                self.determine_postorder(successor, visited);
-            }
-        }
-        self.post_order.push(block);
-    }
-
-    pub fn post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.clone()
-    }
-
-    pub fn reverse_post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.iter().rev().copied().collect()
     }
 
     fn apply_pre_ssa_passes(&mut self) {
