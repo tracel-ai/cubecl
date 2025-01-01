@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cubecl_core::{
     ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item, UIntKind},
@@ -8,6 +8,7 @@ use float_ord::FloatOrd;
 use petgraph::{
     algo::dominators::{self, Dominators},
     graph::NodeIndex,
+    visit::{DfsPostOrder, Walker as _},
 };
 use smallvec::SmallVec;
 
@@ -44,7 +45,16 @@ impl GvnPass {
         self.eliminate(opt, changes);
     }
 
-    fn build_dominators(&mut self, opt: &Optimizer) {
+    fn build_dominators(&mut self, opt: &mut Optimizer) {
+        let post_order = DfsPostOrder::new(&opt.program.graph, opt.entry())
+            .iter(&opt.program.graph)
+            .collect::<Vec<_>>();
+        for node in opt.node_ids() {
+            if !post_order.contains(&node) {
+                opt.program.remove_node(node);
+            }
+        }
+
         self.dominators = dominators::simple_fast(&opt.program.graph, opt.entry());
         let mut rev_graph = opt.program.graph.clone();
         rev_graph.reverse();
