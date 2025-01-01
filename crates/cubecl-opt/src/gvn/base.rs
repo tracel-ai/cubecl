@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use cubecl_core::{
     ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item, UIntKind},
