@@ -4,6 +4,7 @@ use cubecl_core::ir::{self, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
+    analyses::dominators::Dominators,
     gvn::{convert::value_of_var, phi_translate},
     version::PhiEntry,
     AtomicCounter, Optimizer, PhiInstruction,
@@ -21,7 +22,7 @@ impl GvnPass {
 
         let mut new_expr = HashMap::new();
 
-        while self.insert_block(opt, self.dominators.root(), &mut new_expr, changes) {
+        while self.insert_block(opt, opt.entry(), &mut new_expr, changes) {
             loops += 1;
         }
         let inserted = changes.get() - changes_pre;
@@ -37,6 +38,7 @@ impl GvnPass {
         changes: &AtomicCounter,
     ) -> bool {
         let mut changed = false;
+        let dominators = opt.analysis::<Dominators>();
 
         let predecessors = opt.predecessors(current);
         if predecessors.len() > 1 {
@@ -120,8 +122,7 @@ impl GvnPass {
             opt.program[current].phi_nodes.borrow_mut().extend(new_phis);
         }
 
-        let children = self
-            .dominators
+        let children = dominators
             .immediately_dominated_by(current)
             .collect::<Vec<_>>();
         for child in children {

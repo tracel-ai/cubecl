@@ -1,14 +1,17 @@
 use cubecl_core::ir::{Item, Variable, VariableKind};
-use petgraph::{algo::dominators::simple_fast, graph::NodeIndex};
+use petgraph::graph::NodeIndex;
 
-use crate::{analyses::liveness::Liveness, Optimizer};
+use crate::{
+    analyses::{dominators::Dominators, liveness::Liveness},
+    Optimizer,
+};
 
 use super::version::{PhiEntry, PhiInstruction};
 
 impl Optimizer {
     /// Find dominance frontiers for each block
     pub fn fill_dom_frontiers(&mut self) {
-        let doms = simple_fast(&self.program.graph, self.program.root);
+        let doms = self.analysis::<Dominators>();
         for node in self.node_ids() {
             let predecessors = self.predecessors(node);
             if predecessors.len() >= 2 {

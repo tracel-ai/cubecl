@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet, LinkedList};
 
-use petgraph::{
-    algo::dominators::{self},
-    graph::NodeIndex,
-    Graph,
-};
+use crate::NodeIndex;
 use smallvec::SmallVec;
 
-use crate::{BasicBlock, Optimizer};
+use crate::{
+    analyses::dominators::{Dominators, PostDominators},
+    Optimizer,
+};
 
 use super::{convert::value_of_var, Expression, GvnPass, Value, ValueTable};
 
@@ -36,13 +35,9 @@ pub struct BlockSets {
 /// (which is required for the `Compiler` implementation)
 impl Default for GvnPass {
     fn default() -> Self {
-        let mut dummy = Graph::<BasicBlock, ()>::new();
-        let root = dummy.add_node(BasicBlock::default());
         Self {
             values: Default::default(),
             block_sets: Default::default(),
-            dominators: dominators::simple_fast(&dummy, root),
-            post_doms: dominators::simple_fast(&dummy, root),
         }
     }
 }
@@ -52,12 +47,10 @@ impl GvnPass {
     /// 1. Forward DFA that generates the available expressions, values and leaders for each block
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
     ///     block
-    pub fn build_sets(&mut self, opt: &Optimizer) {
-        self.build_block_sets_fwd(opt, self.dominators.root(), HashMap::new());
+    pub fn build_sets(&mut self, opt: &mut Optimizer) {
+        self.build_block_sets_fwd(opt, opt.entry(), HashMap::new());
         let mut build_passes = 0;
-        while self.build_block_sets_bckwd(opt, self.post_doms.root())
-            && build_passes < MAX_SET_PASSES
-        {
+        while self.build_block_sets_bckwd(opt, opt.ret) && build_passes < MAX_SET_PASSES {
             build_passes += 1;
         }
 
@@ -86,7 +79,7 @@ impl GvnPass {
     /// variables that represent them are also available there.
     fn build_block_sets_fwd(
         &mut self,
-        opt: &Optimizer,
+        opt: &mut Optimizer,
         block: NodeIndex,
         mut leaders: HashMap<u32, Value>,
     ) {
@@ -99,6 +92,8 @@ impl GvnPass {
         let mut tmp_gen = HashSet::new();
         // Values already added in this block. Used to deduplicate locally.
         let mut added_exprs = HashSet::new();
+
+        let dominators = opt.analysis::<Dominators>();
 
         // Number phi outputs and add the out var as a leader for that value
         for phi in opt.program[block].phi_nodes.borrow().iter() {
@@ -135,7 +130,7 @@ impl GvnPass {
             antic_in: Default::default(),
         };
         self.block_sets.insert(block, sets);
-        let successors: Vec<_> = self.dominators.immediately_dominated_by(block).collect();
+        let successors: Vec<_> = dominators.immediately_dominated_by(block).collect();
         for successor in successors {
             // Work around dominator bug
             if successor != block {
@@ -147,8 +142,9 @@ impl GvnPass {
     /// Do a fixed point data backward flow analysis to find expected expressions at any given
     /// program point. Iterates through the post-dominator tree because it's the fastest way to
     /// converge.
-    fn build_block_sets_bckwd(&mut self, opt: &Optimizer, current: NodeIndex) -> bool {
+    fn build_block_sets_bckwd(&mut self, opt: &mut Optimizer, current: NodeIndex) -> bool {
         let mut changed = false;
+        let post_doms = opt.analysis::<PostDominators>();
 
         let successors = opt.successors(current);
         // Since we have no critical edges, if successors > 1 then they must have only one entry,
@@ -224,7 +220,7 @@ impl GvnPass {
         }
         self.block_sets.get_mut(&current).unwrap().antic_in = result;
 
-        let predecessors: Vec<_> = self.post_doms.immediately_dominated_by(current).collect();
+        let predecessors: Vec<_> = post_doms.immediately_dominated_by(current).collect();
         for predecessor in predecessors {
             // Work around dominator bug
             if predecessor != current {

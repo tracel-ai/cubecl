@@ -5,10 +5,7 @@ use cubecl_core::{
     prelude::CubePrimitive,
 };
 use float_ord::FloatOrd;
-use petgraph::{
-    algo::dominators::{self, Dominators},
-    graph::NodeIndex,
-};
+use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
 use crate::{passes::OptimizerPass, AtomicCounter, Optimizer, PhiInstruction};
@@ -25,8 +22,6 @@ impl OptimizerPass for GvnPass {
 pub struct GvnPass {
     pub values: ValueTable,
     pub block_sets: HashMap<NodeIndex, BlockSets>,
-    pub dominators: Dominators<NodeIndex>,
-    pub post_doms: Dominators<NodeIndex>,
 }
 
 impl GvnPass {
@@ -38,17 +33,9 @@ impl GvnPass {
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
     ///     expression to `out`
     pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
-        self.build_dominators(opt);
         self.build_sets(opt);
         self.insert(opt, changes);
         self.eliminate(opt, changes);
-    }
-
-    fn build_dominators(&mut self, opt: &Optimizer) {
-        self.dominators = dominators::simple_fast(&opt.program.graph, opt.entry());
-        let mut rev_graph = opt.program.graph.clone();
-        rev_graph.reverse();
-        self.post_doms = dominators::simple_fast(&rev_graph, opt.ret);
     }
 }
 

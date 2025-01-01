@@ -4,7 +4,11 @@ use type_map::TypeMap;
 
 use crate::Optimizer;
 
-use super::post_order::PostOrder;
+use super::{
+    dominators::{Dominators, PostDominators},
+    liveness::Liveness,
+    post_order::PostOrder,
+};
 
 pub trait Analysis {
     fn init(opt: &mut Optimizer) -> Self;
@@ -48,5 +52,8 @@ impl Optimizer {
 
     pub fn invalidate_structure(&self) {
         self.invalidate_analysis::<PostOrder>();
+        self.invalidate_analysis::<Dominators>();
+        self.invalidate_analysis::<PostDominators>();
+        self.invalidate_analysis::<Liveness>();
     }
 }
