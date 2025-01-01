@@ -2,7 +2,7 @@ use cubecl_core::ir::{Item, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness},
+    analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, writes::Writes},
     Optimizer,
 };
 
@@ -12,6 +12,7 @@ impl Optimizer {
     /// Places a phi node for each live variable at each frontier
     pub fn place_phi_nodes(&mut self) {
         let keys: Vec<_> = self.program.variables.keys().cloned().collect();
+        let writes = self.analysis::<Writes>();
         let liveness = self.analysis::<Liveness>();
         let dom_frontiers = self.analysis::<DomFrontiers>();
 
@@ -19,7 +20,7 @@ impl Optimizer {
             let mut workset: Vec<_> = self
                 .node_ids()
                 .iter()
-                .filter(|index| self.program[**index].writes.contains(&var))
+                .filter(|index| writes[*index].contains(&var))
                 .copied()
                 .collect();
             let mut considered = workset.clone();

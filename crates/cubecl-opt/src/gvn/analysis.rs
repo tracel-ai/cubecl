@@ -1,6 +1,9 @@
-use std::collections::{HashMap, HashSet, LinkedList};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet, LinkedList},
+};
 
-use crate::NodeIndex;
+use crate::{analyses::Analysis, NodeIndex};
 use smallvec::SmallVec;
 
 use crate::{
@@ -8,9 +11,25 @@ use crate::{
     Optimizer,
 };
 
-use super::{convert::value_of_var, Expression, GvnPass, Value, ValueTable};
+use super::{convert::value_of_var, Expression, Value, ValueTable};
 
 const MAX_SET_PASSES: usize = 10;
+
+pub struct GlobalValues(pub RefCell<GvnState>);
+
+#[derive(Debug, Clone, Default)]
+pub struct GvnState {
+    pub values: ValueTable,
+    pub block_sets: HashMap<NodeIndex, BlockSets>,
+}
+
+impl Analysis for GlobalValues {
+    fn init(opt: &mut Optimizer) -> Self {
+        let mut this = GvnState::default();
+        this.build_sets(opt);
+        GlobalValues(RefCell::new(this))
+    }
+}
 
 /// The set annotations for a given block
 #[derive(Debug, Clone, Default)]
@@ -31,18 +50,7 @@ pub struct BlockSets {
     pub antic_in: LinkedList<(u32, Expression)>,
 }
 
-/// Needed for Optimizer `Default`, which is required for SpirvCompiler to implement `Default`
-/// (which is required for the `Compiler` implementation)
-impl Default for GvnPass {
-    fn default() -> Self {
-        Self {
-            values: Default::default(),
-            block_sets: Default::default(),
-        }
-    }
-}
-
-impl GvnPass {
+impl GvnState {
     /// Build set annotations for each block. Executes two steps:
     /// 1. Forward DFA that generates the available expressions, values and leaders for each block
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each

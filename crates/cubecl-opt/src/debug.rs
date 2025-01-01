@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::{
     analyses::liveness::Liveness,
-    gvn::{BlockSets, Constant, Expression, Instruction, Local, OpId, Value, ValueTable},
+    gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, OpId, Value, ValueTable},
     passes::var_id,
     ControlFlow,
 };
@@ -31,7 +31,7 @@ impl Display for Optimizer {
         }
         f.write_str("\n\n")?;
 
-        let global_nums = self.gvn.borrow();
+        let global_nums = self.analyses.try_get::<GvnState>().unwrap_or_default();
         let liveness = self
             .analyses
             .try_get::<Liveness>()

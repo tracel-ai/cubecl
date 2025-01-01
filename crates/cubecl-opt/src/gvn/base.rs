@@ -10,18 +10,15 @@ use smallvec::SmallVec;
 
 use crate::{passes::OptimizerPass, AtomicCounter, Optimizer, PhiInstruction};
 
-use super::{convert::value_of_var, BlockSets};
+use super::{convert::value_of_var, GlobalValues};
+
+#[derive(Debug, Clone, Default)]
+pub struct GvnPass;
 
 impl OptimizerPass for GvnPass {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         self.run(opt, &changes);
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct GvnPass {
-    pub values: ValueTable,
-    pub block_sets: HashMap<NodeIndex, BlockSets>,
 }
 
 impl GvnPass {
@@ -33,9 +30,10 @@ impl GvnPass {
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
     ///     expression to `out`
     pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
-        self.build_sets(opt);
-        self.insert(opt, changes);
-        self.eliminate(opt, changes);
+        let analysis = opt.analysis::<GlobalValues>();
+
+        analysis.0.borrow_mut().insert(opt, changes);
+        analysis.0.borrow_mut().eliminate(opt, changes);
     }
 }
 

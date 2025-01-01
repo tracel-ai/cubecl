@@ -24,14 +24,13 @@
 //!
 
 use std::{
-    cell::RefCell,
     collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, Analyses};
+use analyses::{dominance_frontiers::DomFrontiers, liveness::Liveness, writes::Writes, Analyses};
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -157,7 +156,6 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
-    pub(crate) gvn: Rc<RefCell<GvnPass>>,
 
     analyses: Rc<Analyses>,
 }
@@ -172,7 +170,6 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
-            gvn: Default::default(),
             analyses: Default::default(),
         }
     }
@@ -214,8 +211,7 @@ impl Optimizer {
         }
 
         let gvn_count = AtomicCounter::new(0);
-        let gvn = self.gvn.clone();
-        gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+        GvnPass.apply_post_ssa(self, gvn_count.clone());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
         CopyTransform.apply_post_ssa(self, gvn_count.clone());
 
@@ -320,10 +316,8 @@ impl Optimizer {
         self.place_phi_nodes();
         self.version_program();
         self.program.variables.clear();
-        for block in self.node_ids() {
-            self.program[block].writes.clear();
-            self.invalidate_analysis::<DomFrontiers>();
-        }
+        self.invalidate_analysis::<Writes>();
+        self.invalidate_analysis::<DomFrontiers>();
     }
 
     /// Mutable reference to the current basic block
@@ -403,11 +397,9 @@ impl Optimizer {
                             const_len,
                         },
                     );
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
                 _ => {
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
             }

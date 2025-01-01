@@ -10,9 +10,9 @@ use crate::{
     AtomicCounter, Optimizer, PhiInstruction,
 };
 
-use super::GvnPass;
+use super::GvnState;
 
-impl GvnPass {
+impl GvnState {
     /// Find places where an expression is partially but not fully available, and hoist the
     /// computation into the blocks that do not currently have the value available to make the
     /// expression fully redundant

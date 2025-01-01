@@ -10,7 +10,10 @@ use super::{
     post_order::PostOrder,
 };
 
+/// An analysis used by optimization passes. Unlike optimization passes, analyses can have state
+/// and persist until they're invalidated.
 pub trait Analysis {
+    /// Perform the analysis for the current optimizer state and return the persistent analysis state
     fn init(opt: &mut Optimizer) -> Self;
 }
 

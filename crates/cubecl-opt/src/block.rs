@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use cubecl_core::ir::{Instruction, Variable};
 use stable_vec::StableVec;
@@ -18,8 +18,6 @@ pub struct BasicBlock {
     pub(crate) block_use: Vec<BlockUse>,
     /// The phi nodes that are required to be generated at the start of this block.
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
-    /// The variables written to by this block. Only set during the SSA transformation.
-    pub(crate) writes: HashSet<(u16, u8)>,
     /// A stable list of operations performed in this block.
     pub ops: Rc<RefCell<StableVec<Instruction>>>,
     /// The control flow that terminates this block.
