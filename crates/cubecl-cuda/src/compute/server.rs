@@ -469,6 +469,10 @@ fn cuda_path() -> Option<PathBuf> {
 
     #[cfg(target_os = "linux")]
     {
+        // If it is installed as part of the distribution
+        if std::fs::metadata("/usr/bin/nvcc").is_ok() {
+            return Some(PathBuf::from("/usr"));
+        }
         return Some(PathBuf::from("/usr/local/cuda"));
     }
 
