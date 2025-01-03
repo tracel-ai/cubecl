@@ -4,9 +4,9 @@ pub mod suite;
 
 #[macro_export]
 macro_rules! testgen_matmul_accelerated {
-    ($float:ident) => {
-        type EG = $float;
-        type ES = half::f16;
+    ($eg:ty, $es:ty) => {
+        type EG = $eg;
+        type ES = $es;
 
         $crate::matmul_standard_tests!();
     };
@@ -20,7 +20,7 @@ macro_rules! testgen_matmul_accelerated {
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
-                    $crate::testgen_matmul_accelerated!($float);
+                    $crate::testgen_matmul_accelerated!($float, half::f16);
                 })*
             }
         }
@@ -44,7 +44,7 @@ macro_rules! testgen_matmul_plane {
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
-                    $crate::testgen_matmul_accelerated!($float);
+                    $crate::testgen_matmul_accelerated!($float, $float);
                 })*
             }
         }
