@@ -83,7 +83,7 @@ impl GenericAnalysis {
         let path = &type_path.path;
 
         let mut returned = syn::Path {
-            leading_colon: path.leading_colon.clone(),
+            leading_colon: path.leading_colon,
             segments: syn::punctuated::Punctuated::new(),
         };
 
@@ -109,10 +109,10 @@ impl GenericAnalysis {
                             ident: segment.ident.clone(),
                             arguments: syn::PathArguments::AngleBracketed(
                                 syn::AngleBracketedGenericArguments {
-                                    colon2_token: arg.colon2_token.clone(),
-                                    lt_token: arg.lt_token.clone(),
+                                    colon2_token: arg.colon2_token,
+                                    lt_token: arg.lt_token,
                                     args,
-                                    gt_token: arg.gt_token.clone(),
+                                    gt_token: arg.gt_token,
                                 },
                             ),
                         };
@@ -138,30 +138,28 @@ impl GenericAnalysis {
 
         for param in generics.params.pairs() {
             if let syn::GenericParam::Type(type_param) = param.value() {
-                type_param.bounds.first().map(|a| {
-                    if let syn::TypeParamBound::Trait(trait_bound) = a {
-                        if let Some(bound) = trait_bound.path.get_ident() {
-                            let name = bound.to_string();
-                            let index = map.len() as u8;
+                if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first() {
+                    if let Some(bound) = trait_bound.path.get_ident() {
+                        let name = bound.to_string();
+                        let index = map.len() as u8;
 
-                            match name.as_str() {
-                                "Float" => {
-                                    map.insert(
-                                        type_param.ident.clone(),
-                                        parse_quote!(FloatExpand<#index>),
-                                    );
-                                }
-                                "Numeric" => {
-                                    map.insert(
-                                        type_param.ident.clone(),
-                                        parse_quote!(NumericExpand<#index>),
-                                    );
-                                }
-                                _ => {}
-                            };
-                        }
+                        match name.as_str() {
+                            "Float" => {
+                                map.insert(
+                                    type_param.ident.clone(),
+                                    parse_quote!(FloatExpand<#index>),
+                                );
+                            }
+                            "Numeric" => {
+                                map.insert(
+                                    type_param.ident.clone(),
+                                    parse_quote!(NumericExpand<#index>),
+                                );
+                            }
+                            _ => {}
+                        };
                     }
-                });
+                }
             };
         }
 

@@ -184,12 +184,12 @@ impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> Into<Variable> for FloatExpand<POS> {
-    fn into(self) -> Variable {
+impl<const POS: u8> From<FloatExpand<POS>> for Variable {
+    fn from(val: FloatExpand<POS>) -> Self {
         // TODO: Fix how we create literal.
         Variable::new(
             crate::ir::VariableKind::ConstantScalar(crate::ir::ConstantScalarValue::Float(
-                self.0 as f64,
+                val.0 as f64,
                 FloatKind::F32,
             )),
             crate::ir::Item::new(Elem::Float(FloatKind::F32)),
@@ -197,9 +197,9 @@ impl<const POS: u8> Into<Variable> for FloatExpand<POS> {
     }
 }
 
-impl<const POS: u8> Into<ExpandElementTyped<Self>> for FloatExpand<POS> {
-    fn into(self) -> ExpandElementTyped<Self> {
-        let var: Variable = self.into();
+impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<POS>> {
+    fn from(value: FloatExpand<POS>) -> Self {
+        let var: Variable = value.into();
         ExpandElementTyped::new(ExpandElement::Plain(var))
     }
 }

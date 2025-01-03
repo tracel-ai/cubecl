@@ -170,7 +170,7 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
 
         self.state
             .clone()
-            .__expand_write_method(context, _arg_0.into(), _arg_1.into())
+            .__expand_write_method(context, _arg_0, _arg_1)
     }
 
     pub fn __expand_write(

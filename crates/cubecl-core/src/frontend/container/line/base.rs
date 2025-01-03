@@ -18,9 +18,7 @@ pub struct Line<P> {
 
 impl<P: CubePrimitive> Clone for Line<P> {
     fn clone(&self) -> Self {
-        Self {
-            val: self.val.clone(),
-        }
+        *self
     }
 }
 impl<P: CubePrimitive> Eq for Line<P> {}

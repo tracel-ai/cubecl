@@ -48,8 +48,8 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         plane_dim,
     };
     let config_input = CommonStageInput {
-        tile: A::TileMatmul::input(selection.tile.clone()),
-        num_stages: selection.num_stagess.clone(),
+        tile: A::TileMatmul::input(selection.tile),
+        num_stages: selection.num_stagess,
     };
 
     test_matmul_algorithm::<A, P::EG, P::ES, R>(client, problem, config_input, selection);

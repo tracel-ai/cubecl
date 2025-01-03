@@ -25,7 +25,7 @@ impl TileMatmulFamily for PlaneMma {
     type Matmul<I: Numeric, O: Numeric> = Self;
 
     fn size(config: &Self::Config) -> MatmulSize {
-        config.size.clone()
+        config.size
     }
 
     fn input(tile_size: MatmulSize) -> Self::Input {

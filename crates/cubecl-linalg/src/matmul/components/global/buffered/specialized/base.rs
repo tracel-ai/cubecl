@@ -43,7 +43,7 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        if config.num_producers() <= 0 {
+        if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }
         if config.stage_dim(Ident::Lhs).num_tiles_y_dim() <= 1 {

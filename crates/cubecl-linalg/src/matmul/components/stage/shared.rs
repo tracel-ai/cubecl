@@ -86,6 +86,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
 
 impl<T: TileConfig> CommonStageConfig<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tmm_config: T,
         num_stage: MatmulSize,

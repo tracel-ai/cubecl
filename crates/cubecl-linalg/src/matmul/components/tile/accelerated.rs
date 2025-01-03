@@ -16,7 +16,7 @@ impl TileMatmulFamily for Accelerated {
     type Matmul<I: Numeric, O: Numeric> = Accelerated;
 
     fn size(config: &Self::Config) -> MatmulSize {
-        config.size.clone()
+        config.size
     }
 
     fn input(tile_size: MatmulSize) -> Self::Input {
@@ -92,7 +92,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        cmma::fill(&acc, O::from_int(0));
+        cmma::fill(acc, O::from_int(0));
     }
 }
 

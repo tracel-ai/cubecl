@@ -14,6 +14,7 @@ pub struct FormattedConfigError {
 }
 
 impl FormattedConfigError {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new<F: Fn() -> String + 'static>(func: F) -> Box<dyn Display> {
         Box::new(Self {
             func: Box::new(func),

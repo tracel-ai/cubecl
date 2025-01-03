@@ -181,7 +181,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = context.create_local_binding(Item::new(u32::as_elem(&context)));
+            let coordinate = context.create_local_binding(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Operator::Modulo(BinaryOperator {
                     lhs: *num_strides,

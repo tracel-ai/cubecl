@@ -52,14 +52,14 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(&context);
+        let elem = Self::as_elem(context);
         let var = elem.min_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
     }
 
     fn __expand_max_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(&context);
+        let elem = Self::as_elem(context);
         let var = elem.max_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
@@ -85,7 +85,7 @@ pub trait Numeric:
         context: &mut CubeContext,
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(&context);
+        let elem = Self::as_elem(context);
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
