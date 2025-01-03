@@ -1,21 +1,20 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
-use crate::matmul::components::global::base::Config as _;
+use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
-use crate::matmul::components::global::buffered::pipelined;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
+pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
@@ -24,7 +23,7 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[derive(CubeType)]
-pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
+pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     buffer_iter: u32,
@@ -33,12 +32,12 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::Config> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for LhsBufferLoader<EG, ES, S>
 {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -62,13 +61,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> LhsBufferLoader<EG, ES, S> {
     pub fn new(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: pipelined::Config<S>,
+        #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -84,12 +83,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> LhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, CommonGlobalConfig<S>>
     for RhsBufferLoader<EG, ES, S>
 {
     type StageReader = RhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: pipelined::Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
         load_buffer::<EG, ES, S>(
             this.buffer_iter,
             &this.tensor_view,
@@ -113,13 +112,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> Loader<EG, ES, pipelined::Confi
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> RhsBufferLoader<EG, ES, S> {
     pub fn new(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: pipelined::Config<S>,
+        #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -135,25 +134,22 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config> RhsBufferLoader<EG, ES, S> {
 }
 
 #[cube]
-fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
+fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     buffer_iter: u32,
     tensor_view: &TensorReader<EG>,
     stage: &mut Stage<ES>,
     #[comptime] ident: Ident,
-    #[comptime] config: pipelined::Config<S>,
+    #[comptime] config: CommonGlobalConfig<S>,
 ) {
     let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 
-    #[allow(clippy::all)]
-    let _ = comptime!(check_buffers_contiguous(ident, config));
-
     let start = buffer_iter * buffer_num_lines;
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, pipelined::Config<S>>(
+    BufferLoading::load_to_slice::<EG, ES, CommonGlobalConfig<S>>(
         tensor_view,
         buffer_slice,
         config.num_planes(),
@@ -163,17 +159,26 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::Config>(
     );
 }
 
-fn check_buffers_contiguous<G: global::Config>(ident: Ident, config: G) {
+pub fn check_buffers_contiguous<G: global::GlobalConfig>(
+    ident: Ident,
+    config: &G,
+) -> Result<(), InvalidConfigError> {
     match ident.as_input() {
         InputIdent::Lhs => {
             if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
-                panic!("Lhs must have ColMajor tiling order in pipelined setting")
+                return Err(Box::new(
+                    "Lhs must have ColMajor tiling order in pipelined setting",
+                ));
             }
         }
         InputIdent::Rhs => {
             if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
-                panic!("Rhs must have RowMajor tiling order in pipelined setting")
+                return Err(Box::new(
+                    "Rhs must have RowMajor tiling order in pipelined setting",
+                ));
             }
         }
     }
+
+    Ok(())
 }

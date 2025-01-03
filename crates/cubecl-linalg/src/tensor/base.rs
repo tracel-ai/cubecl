@@ -92,7 +92,7 @@ where
             handle: &self.handle,
             strides: &self.strides,
             shape: &self.shape,
-            elem_size: E::as_elem().size(),
+            elem_size: E::size().expect("Should be a native type"),
             runtime: PhantomData,
         }
     }
@@ -130,7 +130,7 @@ where
 {
     pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
-        let size = E::as_elem().size();
+        let size = E::size().expect("To be a native type");
 
         let handle = client.empty(size * num_elements);
         let strides = Self::contiguous_strides(&shape);

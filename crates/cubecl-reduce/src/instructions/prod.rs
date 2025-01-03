@@ -1,9 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::ReduceInstruction;
+use super::{Reduce, ReduceInstruction};
 
 pub struct Prod;
+
+impl Reduce for Prod {
+    type Instruction<In: Numeric> = Self;
+}
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Prod {

@@ -1,9 +1,9 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Config;
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
-use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -14,9 +14,35 @@ use super::loader::LoadingStrategy;
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
 
+impl LoadingValidation for CyclicLoading {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let stage_dim = config.stage_dim(ident);
+        let line_size = config.global_line_size(ident);
+
+        let num_stage_elements = stage_dim.total_elements();
+        let total_units = config.num_planes() * config.plane_dim();
+        let jump_length = total_units * line_size;
+
+        if num_stage_elements % jump_length != 0 {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out of bounds. 
+        Try setting line size and number of planes so that jump_length divides num_stage_elements.",
+            ));
+        }
+
+        if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
+            return Err(Box::new(
+                "Line size for stage is not supported when transposing",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 #[cube]
 impl LoadingStrategy for CyclicLoading {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: Config>(
+    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
@@ -29,9 +55,6 @@ impl LoadingStrategy for CyclicLoading {
         let total_units = comptime!(config.num_planes() * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
         let num_loads_per_unit = num_stage_elements / jump_length;
-
-        #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
@@ -64,55 +87,33 @@ impl LoadingStrategy for CyclicLoading {
                     slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    let slice_line_size = config.stage_line_size(ident);
+                    let tile_offset = nth_tile * tile_num_elements;
 
-                    if comptime!(slice_line_size == 1) {
-                        let tile_offset = nth_tile * tile_num_elements;
+                    let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
+                    let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
 
-                        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
-                        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+                    let (height, width) = match config.layout(ident) {
+                        MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
+                        MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
+                    };
 
-                        let (height, width) = match config.layout(ident) {
-                            MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
-                            MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
-                        };
+                    let global_strided_idx = pos_within_tile / width;
+                    let global_contiguous_idx = pos_within_tile % width;
 
-                        let global_strided_idx = pos_within_tile / width;
-                        let global_contiguous_idx = pos_within_tile % width;
+                    let slice_strided_root = global_contiguous_idx;
+                    let slice_contiguous_idx = global_strided_idx;
+                    let slice_stride = height;
 
-                        let slice_strided_root = global_contiguous_idx;
-                        let slice_contiguous_idx = global_strided_idx;
-                        let slice_stride = height;
-
-                        #[unroll]
-                        for iter in 0..config.global_line_size(ident) {
-                            let slice_strided_idx = slice_strided_root + iter;
-                            let elem = line_read[iter];
-                            slice[tile_offset
-                                + slice_strided_idx * slice_stride
-                                + slice_contiguous_idx] = Line::cast_from(elem);
-                        }
-                    } else {
-                        #[allow(clippy::all)]
-                        let _ = comptime!(unsupported_line_size(slice_line_size));
+                    #[unroll]
+                    for iter in 0..config.global_line_size(ident) {
+                        let slice_strided_idx = slice_strided_root + iter;
+                        let elem = line_read[iter];
+                        slice[tile_offset
+                            + slice_strided_idx * slice_stride
+                            + slice_contiguous_idx] = Line::cast_from(elem);
                     }
                 }
             }
         }
     }
-}
-
-fn unsupported_line_size(line_size: u32) {
-    panic!(
-        "Line size for stage is not supported when transposing. Got {:?}.",
-        line_size
-    )
-}
-
-fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {
-    assert!(
-        num_stage_elements % jump_length == 0,
-        "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that jump_length divides num_stage_elements."
-    );
 }

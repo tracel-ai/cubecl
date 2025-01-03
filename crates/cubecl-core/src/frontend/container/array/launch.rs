@@ -1,21 +1,26 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Item, Vectorization},
     prelude::{
-        ArgSettings, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand, TensorHandleRef,
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+        TensorHandleRef,
     },
     Runtime,
 };
 
 use super::Array;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ArrayCompilationArg {
     pub inplace: Option<u16>,
     pub vectorisation: Vectorization,
 }
+
+impl CompilationArg for ArrayCompilationArg {}
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct ArrayHandleRef<'a, R: Runtime> {
@@ -33,7 +38,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Array<C>> {
         builder
-            .input_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+            .input_array(Item::vectorized(
+                C::as_elem(&builder.context),
+                arg.vectorisation,
+            ))
             .into()
     }
     fn expand_output(
@@ -43,7 +51,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
-                .output_array(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .output_array(Item::vectorized(
+                    C::as_elem(&builder.context),
+                    arg.vectorisation,
+                ))
                 .into(),
         }
     }
@@ -82,7 +93,11 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         vectorization_factor: u8,
     ) -> Self {
         ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(handle, length, E::as_elem().size()),
+            handle: ArrayHandleRef::from_raw_parts(
+                handle,
+                length,
+                E::size().expect("Element should have a size"),
+            ),
             vectorization_factor,
         }
     }

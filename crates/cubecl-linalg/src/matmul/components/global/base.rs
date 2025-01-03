@@ -2,11 +2,18 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
-use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulKernel, MatmulSpec};
+use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
+use crate::matmul::components::{MatmulPrecision, StageDim};
 use crate::tensor::{ReadWrite, VirtualTensor};
+
+/// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
+pub trait GlobalMatmulFamily:
+    MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
+{
+    type Matmul<MP: MatmulPrecision>: GlobalMatmul<MP, Config = Self::Config>;
+}
 
 #[cube]
 /// Provides matrix multiplication operations at the global level.
@@ -27,11 +34,12 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Loaders and Unloaders perform checks to avoid out-of-bounds
 /// before loading data.
-pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: Config> {
-    type LhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
-    type RhsLoader: Loader<MS::EG, MS::ES, Self::Config>;
+pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
+    type Config: GlobalConfig;
+    type LhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
+    type RhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
     type AccumulatorLoader: CubeType;
-    type Out: Unloader<MS::EG>;
+    type Out: OutputLoader<MP::EG>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -51,7 +59,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: VirtualTensor<MS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         m_offset: u32,
         k_offset: u32,
         batch_offset: u32,
@@ -60,7 +68,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: VirtualTensor<MS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         k_offset: u32,
         n_offset: u32,
         batch_offset: u32,
@@ -69,7 +77,7 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
-        out: VirtualTensor<MS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
         batch_offset: u32,
@@ -85,7 +93,9 @@ pub trait Matmul<MS: MatmulSpec>: 'static + Send + Sync + MatmulKernel<Config: C
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send + Sync {
+pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
+    CubeType + 'static + Send + Sync
+{
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
@@ -102,14 +112,14 @@ pub trait Loader<EG: Numeric, ES: Numeric, G: Config>: CubeType + 'static + Send
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
+pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
     CubeType + 'static + Send + Sync
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
     /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<I: Numeric, Tile: tile::Matmul<I, Acc>>(
+    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
         tile_n: u32,
@@ -124,16 +134,20 @@ pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::Config>:
 ///
 /// It is only a wrapper over the stage writer because there is no K for the output.
 /// Could be deleted in favor of having only the StageWriter
-pub trait Unloader<EG: Numeric>: CubeType + 'static + Send + Sync {
+pub trait OutputLoader<EG: Numeric>: CubeType + 'static + Send + Sync {
     type StageWriter: StageWriter<EG>;
 
-    fn as_stage_writer<G: Config>(unloader: Self) -> Self::StageWriter;
+    fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
 }
 
-/// Configuration for the Global matmul (GMM) level
-pub trait Config: MatmulConfig {
+pub trait LoadingValidation {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError>;
+}
+
+/// Configuration for the [global matmul](GlobalMatmul) level.
+pub trait GlobalConfig: MatmulConfig {
     /// Underlying Stage matmul config
-    type SmmConfig: stage::Config;
+    type SmmConfig: stage::StageConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn to_smm_config(&self) -> Self::SmmConfig;

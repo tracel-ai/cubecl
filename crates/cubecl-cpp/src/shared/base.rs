@@ -4,7 +4,6 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
 use cubecl_core::{
     ir::{self as gpu},
-    prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
@@ -546,7 +545,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let input_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {

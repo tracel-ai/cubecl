@@ -1,7 +1,6 @@
 use crate::{
     flex32,
     ir::{Elem, FloatKind, IntKind, UIntKind},
-    prelude::Numeric,
 };
 
 /// The base element trait for the jit backend.
@@ -294,9 +293,9 @@ impl CubeElement for flex32 {
         Elem::Float(FloatKind::Flex32)
     }
     fn maximum_value() -> Self {
-        flex32::MAX
+        <flex32 as num_traits::Float>::max_value()
     }
     fn minimum_value() -> Self {
-        flex32::MIN
+        <flex32 as num_traits::Float>::min_value()
     }
 }

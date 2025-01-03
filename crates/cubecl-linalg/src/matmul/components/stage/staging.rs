@@ -1,7 +1,7 @@
 use crate::matmul::components::stage::tiling_order::{
     ColMajorTiling, RowMajorTiling, TilingOrderConfig,
 };
-use crate::matmul::components::stage::{Config, TilingOrder};
+use crate::matmul::components::stage::{StageConfig, TilingOrder};
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -16,7 +16,7 @@ pub struct Stage<ES: Numeric> {
 #[cube]
 impl<ES: Numeric> Stage<ES> {
     /// Instantiate a new stage for the given identifier
-    pub fn new<S: Config>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
+    pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
@@ -28,7 +28,7 @@ impl<ES: Numeric> Stage<ES> {
     }
 
     /// Get the tile at position (x,y) regardless of layout, as a contiguous slice
-    pub fn get_tile<S: Config>(
+    pub fn get_tile<S: StageConfig>(
         &self,
         x: u32,
         y: u32,

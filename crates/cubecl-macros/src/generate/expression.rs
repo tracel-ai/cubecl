@@ -31,11 +31,11 @@ impl Expression {
                 let array = array.to_tokens(context);
                 let index = index
                     .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(#as_const)])
+                    .map(|as_const| quote![#elem::from_lit(context, #as_const)])
                     .unwrap_or_else(|| index.to_tokens(context));
                 let right = right
                     .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(#as_const)])
+                    .map(|as_const| quote![#elem::from_lit(context, #as_const)])
                     .unwrap_or_else(|| right.to_tokens(context));
                 let op = format_ident!("{}", operator.array_op_name());
                 let expand = with_span(
@@ -103,7 +103,7 @@ impl Expression {
                 if var.is_const {
                     let name = &var.name;
                     let expand_elem = frontend_type("ExpandElementTyped");
-                    quote![#expand_elem::from_lit(#name)]
+                    quote![#expand_elem::from_lit(context, #name)]
                 } else {
                     let name = &var.name;
                     if var.try_consume(context) {
@@ -121,7 +121,7 @@ impl Expression {
             }
             Expression::Literal { value, .. } => {
                 let expand_elem = frontend_type("ExpandElementTyped");
-                quote![#expand_elem::from_lit(#value)]
+                quote![#expand_elem::from_lit(context, #value)]
             }
 
             Expression::Assignment { left, right, .. }

@@ -163,8 +163,8 @@ impl CubeType for flex32 {
 
 impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
-    fn as_elem() -> Elem {
-        Elem::Float(FloatKind::Flex32)
+    fn as_elem_native() -> Option<Elem> {
+        Some(Elem::Float(FloatKind::Flex32))
     }
 }
 
@@ -176,8 +176,12 @@ impl IntoRuntime for flex32 {
 }
 
 impl Numeric for flex32 {
-    const MAX: Self = flex32::from_f32(f32::MAX);
-    const MIN: Self = flex32::from_f32(f32::MIN);
+    fn min_value() -> Self {
+        <Self as num_traits::Float>::min_value()
+    }
+    fn max_value() -> Self {
+        <Self as num_traits::Float>::max_value()
+    }
 }
 
 impl ExpandElementBaseInit for flex32 {
@@ -222,7 +226,7 @@ impl LaunchArgExpand for flex32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(flex32::as_elem()).into()
+        builder.scalar(flex32::as_elem(&builder.context)).into()
     }
 }
 
@@ -250,7 +254,7 @@ impl num_traits::Float for flex32 {
     }
 
     fn min_value() -> Self {
-        flex32(f32::min_value())
+        flex32(<f32 as num_traits::Float>::min_value())
     }
 
     fn min_positive_value() -> Self {
@@ -258,7 +262,7 @@ impl num_traits::Float for flex32 {
     }
 
     fn max_value() -> Self {
-        flex32(f32::max_value())
+        flex32(<f32 as num_traits::Float>::max_value())
     }
 
     fn is_nan(self) -> bool {

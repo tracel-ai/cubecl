@@ -1,9 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::ReduceInstruction;
+use super::{Reduce, ReduceInstruction};
 
 pub struct Sum;
+
+impl Reduce for Sum {
+    type Instruction<In: Numeric> = Self;
+}
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Sum {

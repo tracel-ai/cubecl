@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorWriter;
-use crate::matmul::components::global::Config;
+use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -11,7 +11,7 @@ pub struct TilewiseUnloading {}
 
 #[cube]
 impl TilewiseUnloading {
-    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: Config>(
+    pub fn unload_from_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         write_view: &mut TensorWriter<EG>,
         slice: Slice<Line<ES>>,
         tile_x: u32,

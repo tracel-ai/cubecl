@@ -1,8 +1,10 @@
 use std::{cell::RefCell, rc::Rc};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     compute::KernelBuilder,
-    prelude::{ArgSettings, LaunchArg, LaunchArgExpand},
+    prelude::{ArgSettings, CompilationArg, LaunchArg, LaunchArgExpand},
     Runtime,
 };
 
@@ -27,9 +29,12 @@ impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct SequenceCompilationArg<C: LaunchArg> {
     pub values: Vec<C::CompilationArg>,
 }
+
+impl<C: LaunchArg> CompilationArg for SequenceCompilationArg<C> {}
 
 impl<C: LaunchArg> Clone for SequenceCompilationArg<C> {
     fn clone(&self) -> Self {

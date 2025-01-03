@@ -105,7 +105,7 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
-    let handle = client.empty(num_elems * E::as_elem().size());
+    let handle = client.empty(num_elems * E::size().expect("To be a native type"));
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle);
 
     into_contiguous_kernel::launch::<Line<E>, R>(

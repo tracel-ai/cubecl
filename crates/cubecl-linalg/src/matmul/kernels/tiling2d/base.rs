@@ -18,6 +18,7 @@ pub fn tiling2d_cube_kernel<F: Float>(
     let coordinates = calculate_coordinates(CUBE_POS_X, CUBE_POS_Y, UNIT_POS, config);
     let offsets = calculate_batch_offsets::<F>(lhs, rhs, out, CUBE_POS_Z);
     let shared_memories = make_shared_memories::<F>(config);
+
     block_loop::<F>(
         lhs,
         rhs,

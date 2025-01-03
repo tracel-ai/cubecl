@@ -4,46 +4,49 @@ use cubecl_core::{self as cubecl};
 
 #[cube]
 /// Arguments for the matrix multiplication algorithm.
-pub trait MatmulArgs<EG: Numeric>: Send + Sync + 'static + Clone {
+pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input: LaunchArg + CubeType;
+    type Input<EG: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
-    type Output: LaunchArg + CubeType;
+    type Output<EG: Numeric>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
-    type State: CubeType;
+    type State<EG: Numeric>: CubeType;
 
     /// Init the state.
-    fn init_state(input: &Self::Input, output: &mut Self::Output) -> Self::State;
+    fn init_state<EG: Numeric>(
+        input: &Self::Input<EG>,
+        output: &mut Self::Output<EG>,
+    ) -> Self::State<EG>;
 
     /// Read the line of the lhs tensor using the state at the given coordinate.
-    fn read_lhs(state: &Self::State, coordinate: u32) -> Line<EG>;
+    fn read_lhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG>;
     /// Read the line of the rhs tensor using the state at the given coordinate.
-    fn read_rhs(state: &Self::State, coordinate: u32) -> Line<EG>;
+    fn read_rhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG>;
 
     /// Write the line to the output at the given coordinate using the state.
-    fn write_out(state: &mut Self::State, coordinate: u32, value: Line<EG>);
+    fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>);
 
     /// Get the rank of the lhs tensor using the state.
-    fn rank_lhs(state: &Self::State) -> u32;
+    fn rank_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
     /// Get the rank of the rhs tensor using the state.
-    fn rank_rhs(state: &Self::State) -> u32;
+    fn rank_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
     /// Get the rank of the out tensor using the state.
-    fn rank_out(state: &Self::State) -> u32;
+    fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32;
 
     /// Get the shape of the lhs tensor using the state.
-    fn shape_lhs(state: &Self::State, axis: u32) -> u32;
+    fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the shape of the rhs tensor using the state.
-    fn shape_rhs(state: &Self::State, axis: u32) -> u32;
+    fn shape_rhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the shape of the out tensor using the state.
-    fn shape_out(state: &Self::State, axis: u32) -> u32;
+    fn shape_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
 
     /// Get the stride of the lhs tensor using the state.
-    fn stride_lhs(state: &Self::State, axis: u32) -> u32;
+    fn stride_lhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the stride of the rhs tensor using the state.
-    fn stride_rhs(state: &Self::State, axis: u32) -> u32;
+    fn stride_rhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
-    fn stride_out(state: &Self::State, axis: u32) -> u32;
+    fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
 }
 
 #[derive(Clone, Copy)]
@@ -56,17 +59,15 @@ pub enum TensorInputIdent {
 /// Tensor input representation.
 ///
 /// You can use the tensor input as if it was a pointer to the actually tensor.
-pub struct TensorInput<EG: Numeric, GA: MatmulArgs<EG>> {
-    state: *const GA::State,
+pub struct TensorInput<EG: Numeric, GA: MatmulArgs> {
+    state: *const GA::State<EG>,
     ident: TensorInputIdent,
 }
 
-impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperations<EG> for TensorInput<EG, MA> {}
-impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperations<EG> for TensorOutput<EG, MA> {}
+impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperations<EG> for TensorInput<EG, MA> {}
+impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperations<EG> for TensorOutput<EG, MA> {}
 
-impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
-    for TensorOutputExpand<EG, MA>
-{
+impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOutputExpand<EG, MA> {
     fn __expand_read_method(
         &self,
         _context: &mut CubeContext,
@@ -105,9 +106,7 @@ impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
     }
 }
 
-impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
-    for TensorInputExpand<EG, MA>
-{
+impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorInputExpand<EG, MA> {
     fn __expand_read_method(
         &self,
         context: &mut CubeContext,
@@ -153,25 +152,25 @@ impl<EG: Numeric, MA: MatmulArgs<EG>> VirtualTensorOperationsExpand<EG>
 /// # Warning
 ///
 /// There is no mutability guarantee.
-pub struct TensorOutput<EG: Numeric, GA: MatmulArgs<EG>> {
-    state: *mut GA::State,
+pub struct TensorOutput<EG: Numeric, GA: MatmulArgs> {
+    state: *mut GA::State<EG>,
 }
 
 /// Expand type for [tensor input](TensorInput).
-pub struct TensorInputExpand<EG: Numeric, GA: MatmulArgs<EG>> {
-    state: <GA::State as CubeType>::ExpandType,
+pub struct TensorInputExpand<EG: Numeric, GA: MatmulArgs> {
+    state: <GA::State<EG> as CubeType>::ExpandType,
     ident: TensorInputIdent,
 }
 
 /// Expand type for [tensor output](TensorOutput).
-pub struct TensorOutputExpand<EG: Numeric, GA: MatmulArgs<EG>> {
-    state: <GA::State as CubeType>::ExpandType,
+pub struct TensorOutputExpand<EG: Numeric, GA: MatmulArgs> {
+    state: <GA::State<EG> as CubeType>::ExpandType,
 }
 
 #[cube]
-impl<EG: Numeric, MA: MatmulArgs<EG>> TensorInput<EG, MA> {
+impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
-    pub fn new(state: &MA::State, #[comptime] ident: TensorInputIdent) -> TensorInput<EG, MA> {
+    pub fn new(state: &MA::State<EG>, #[comptime] ident: TensorInputIdent) -> TensorInput<EG, MA> {
         TensorInput::<EG, MA> { state, ident }
     }
 
@@ -217,9 +216,9 @@ impl<EG: Numeric, MA: MatmulArgs<EG>> TensorInput<EG, MA> {
 }
 
 #[cube]
-impl<EG: Numeric, GA: MatmulArgs<EG>> TensorOutput<EG, GA> {
+impl<EG: Numeric, GA: MatmulArgs> TensorOutput<EG, GA> {
     /// Create a [tensor output](TensorOutput) from the state.
-    pub fn new(state: &mut GA::State) -> TensorOutput<EG, GA> {
+    pub fn new(state: &mut GA::State<EG>) -> TensorOutput<EG, GA> {
         TensorOutput::<EG, GA> { state }
     }
 
@@ -260,64 +259,67 @@ pub struct TensorInputs<EG: Numeric> {
 }
 
 #[cube]
-impl<EG: Numeric> MatmulArgs<EG> for TensorArgs {
-    type Output = Tensor<Line<EG>>;
-    type Input = TensorInputs<EG>;
-    type State = (
+impl MatmulArgs for TensorArgs {
+    type Output<EG: Numeric> = Tensor<Line<EG>>;
+    type Input<EG: Numeric> = TensorInputs<EG>;
+    type State<EG: Numeric> = (
         *const Tensor<Line<EG>>,
         *const Tensor<Line<EG>>,
         *mut Tensor<Line<EG>>,
     );
 
-    fn init_state(input: &Self::Input, output: &mut Self::Output) -> Self::State {
+    fn init_state<EG: Numeric>(
+        input: &Self::Input<EG>,
+        output: &mut Self::Output<EG>,
+    ) -> Self::State<EG> {
         (&input.lhs, &input.rhs, output)
     }
 
-    fn read_lhs(state: &Self::State, coordinate: u32) -> Line<EG> {
+    fn read_lhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG> {
         unsafe { (*state.0)[coordinate] }
     }
 
-    fn read_rhs(state: &Self::State, coordinate: u32) -> Line<EG> {
+    fn read_rhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG> {
         unsafe { (*state.1)[coordinate] }
     }
 
-    fn shape_lhs(state: &Self::State, dim: u32) -> u32 {
+    fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_rhs(state: &Self::State, dim: u32) -> u32 {
+    fn shape_rhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.1).shape(dim) }
     }
 
-    fn shape_out(state: &Self::State, dim: u32) -> u32 {
+    fn shape_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.2).shape(dim) }
     }
 
-    fn stride_lhs(state: &Self::State, dim: u32) -> u32 {
+    fn stride_lhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.0).stride(dim) }
     }
 
-    fn stride_rhs(state: &Self::State, dim: u32) -> u32 {
+    fn stride_rhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.1).stride(dim) }
     }
 
-    fn stride_out(state: &Self::State, dim: u32) -> u32 {
+    fn stride_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.2).stride(dim) }
     }
 
-    fn write_out(state: &mut Self::State, coordinate: u32, value: Line<EG>) {
+    fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>) {
         unsafe { (*state.2)[coordinate] = value }
     }
 
-    fn rank_lhs(state: &Self::State) -> u32 {
+    fn rank_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.0).rank() }
     }
 
-    fn rank_rhs(state: &Self::State) -> u32 {
+    fn rank_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.1).rank() }
     }
 
-    fn rank_out(state: &Self::State) -> u32 {
+    fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).rank() }
     }
 }
@@ -325,11 +327,11 @@ impl<EG: Numeric> MatmulArgs<EG> for TensorArgs {
 mod __input {
     use super::*;
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> CubeType for TensorInput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> CubeType for TensorInput<EG, GA> {
         type ExpandType = TensorInputExpand<EG, GA>;
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorInputExpand<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Clone for TensorInputExpand<EG, GA> {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
@@ -338,20 +340,20 @@ mod __input {
         }
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Init for TensorInputExpand<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Init for TensorInputExpand<EG, GA> {
         fn init(mut self, context: &mut CubeContext) -> Self {
             self.state = self.state.init(context);
             self
         }
     }
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorInput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Clone for TensorInput<EG, GA> {
         fn clone(&self) -> Self {
             *self
         }
     }
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Copy for TensorInput<EG, GA> {}
+    impl<EG: Numeric, GA: MatmulArgs> Copy for TensorInput<EG, GA> {}
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> IntoRuntime for TensorInput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorInput<EG, GA> {
         fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
             panic!("Can't exist at compile time");
         }
@@ -361,17 +363,17 @@ mod __input {
 mod __output {
     use super::*;
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> CubeType for TensorOutput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> CubeType for TensorOutput<EG, GA> {
         type ExpandType = TensorOutputExpand<EG, GA>;
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorOutput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Clone for TensorOutput<EG, GA> {
         fn clone(&self) -> Self {
             *self
         }
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Clone for TensorOutputExpand<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Clone for TensorOutputExpand<EG, GA> {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
@@ -379,16 +381,16 @@ mod __output {
         }
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Init for TensorOutputExpand<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> Init for TensorOutputExpand<EG, GA> {
         fn init(mut self, context: &mut CubeContext) -> Self {
             self.state = self.state.init(context);
             self
         }
     }
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> Copy for TensorOutput<EG, GA> {}
+    impl<EG: Numeric, GA: MatmulArgs> Copy for TensorOutput<EG, GA> {}
 
-    impl<EG: Numeric, GA: MatmulArgs<EG>> IntoRuntime for TensorOutput<EG, GA> {
+    impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorOutput<EG, GA> {
         fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
             panic!("Can't exist at compile time");
         }
