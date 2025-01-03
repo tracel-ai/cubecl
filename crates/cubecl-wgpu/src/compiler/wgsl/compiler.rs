@@ -959,6 +959,14 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::CountOnes(op) => instructions.push(wgsl::Instruction::CountBits {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Operator::ReverseBits(op) => instructions.push(wgsl::Instruction::ReverseBits {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Operator::ShiftLeft(op) => instructions.push(wgsl::Instruction::ShiftLeft {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),

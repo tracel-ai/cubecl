@@ -6,6 +6,7 @@ use crate::{
         ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip, Remainder, Round, Sin, Sqrt,
         Tanh,
     },
+    prelude::{CountOnes, ReverseBits},
     unexpanded,
 };
 
@@ -259,6 +260,8 @@ impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
 impl<P: CubePrimitive + Round> Round for Line<P> {}
 impl<P: CubePrimitive + Floor> Floor for Line<P> {}
 impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
+impl<P: CubePrimitive + CountOnes> CountOnes for Line<P> {}
+impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
 
 impl<P: CubePrimitive + NumCast> NumCast for Line<P> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {

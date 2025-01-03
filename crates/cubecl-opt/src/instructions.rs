@@ -109,7 +109,9 @@ impl Optimizer {
             | Operator::Cast(unary_operator)
             | Operator::Bitcast(unary_operator)
             | Operator::Magnitude(unary_operator)
-            | Operator::Normalize(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Operator::Normalize(unary_operator)
+            | Operator::CountOnes(unary_operator)
+            | Operator::ReverseBits(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
             Operator::Clamp(clamp_operator) => {
                 visit_read(self, &mut clamp_operator.input);

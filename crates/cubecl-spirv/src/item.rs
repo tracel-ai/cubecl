@@ -159,42 +159,6 @@ impl Item {
             }
         };
 
-        let swap_sign = |b: &mut SpirvCompiler<T>,
-                         obj: Word,
-                         out_id: Option<Word>,
-                         width: u32,
-                         target_sign: bool| match (width, target_sign) {
-            (_, false) => {
-                let zero = self.const_u32(b, 0);
-                let id = out_id.unwrap_or_else(|| b.id());
-                let ty = self.id(b);
-                T::s_max(b, ty, obj, zero, id);
-                id
-            }
-            (64, true) => {
-                let max = ConstVal::Bit64(i64::MAX as u64);
-                let max = b.static_cast(max, &Elem::Int(64, true), self);
-                let id = out_id.unwrap_or_else(|| b.id());
-                let ty = self.id(b);
-                T::u_min(b, ty, obj, max, id);
-                id
-            }
-            (width, true) => {
-                let max = match width {
-                    32 => i32::MAX as u32,
-                    16 => i16::MAX as u32,
-                    8 => i8::MAX as u32,
-                    _ => unimplemented!("Invalid width"),
-                };
-                let max = ConstVal::Bit32(max);
-                let max = b.static_cast(max, &Elem::Int(32, true), self);
-                let id = out_id.unwrap_or_else(|| b.id());
-                let ty = self.id(b);
-                T::u_min(b, ty, obj, max, id);
-                id
-            }
-        };
-
         let convert_i_width =
             |b: &mut SpirvCompiler<T>, obj: Word, out_id: Option<Word>, signed: bool| {
                 if signed {
@@ -209,16 +173,11 @@ impl Item {
                            out_id: Option<Word>,
                            (width_self, signed_self),
                            (width_other, signed_other)| {
-            let sign_differs = signed_self != signed_other;
             let width_differs = width_self != width_other;
-            match (sign_differs, width_differs) {
-                (true, true) => {
-                    let sign_swap = swap_sign(b, obj, None, width_self, signed_other);
-                    convert_i_width(b, sign_swap, out_id, signed_other)
-                }
-                (true, false) => swap_sign(b, obj, out_id, width_self, signed_other),
-                (false, true) => convert_i_width(b, obj, out_id, signed_other),
-                (false, false) => b.copy_object(ty, out_id, obj).unwrap(),
+            let sign_extend = signed_self && signed_other;
+            match width_differs {
+                true => convert_i_width(b, obj, out_id, sign_extend),
+                false => b.copy_object(ty, out_id, obj).unwrap(),
             }
         };
 
