@@ -2,7 +2,7 @@
 #![allow(clippy::transmute_float_to_int)] // prev=1.83.
 
 use bytemuck::{Pod, Zeroable};
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use half::f16;
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
@@ -85,6 +85,14 @@ impl tf32 {
     #[must_use]
     pub const fn to_f64(self) -> f64 {
         self.0 as f64
+    }
+}
+
+impl Neg for tf32 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::from_f32(self.to_f32().neg())
     }
 }
 
