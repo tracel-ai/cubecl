@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cubecl_core::ir::{Instruction, Item, Operation, Operator, Variable, VariableKind};
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{analyses::writes::Writes, AtomicCounter, Optimizer};
 
 use super::OptimizerPass;
 
@@ -113,9 +113,8 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
                         if (id, depth) == arr_id {
                             let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                             let out = vars[const_index];
-                            let out_id = opt.local_variable_id(&out).unwrap();
                             *op = Instruction::new(Operation::Copy(assign.rhs), out);
-                            opt.program[block].writes.insert(out_id);
+                            opt.invalidate_analysis::<Writes>();
                         }
                     }
                 }

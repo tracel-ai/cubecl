@@ -437,23 +437,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             for inlined_at in &debug_info.definitions.inlined_at {
                 self.declare_inlined_at(inlined_at);
             }
-        }
 
-        // Declare entry
-        let entry_name = self.debug_info().name_str.clone();
-        let entry_def = self.definitions().functions[&entry_name];
-        let args = self.debug_string("");
-        let signature = self.debug_string(SIGNATURE);
-        self.void_debug(
-            None,
-            Instructions::DebugEntryPoint,
-            [
-                entry_def.id,
-                entry_def.source.compilation_unit,
-                signature,
-                args,
-            ],
-        );
+            // Declare entry
+            let entry_name = self.debug_info().name_str.clone();
+            let entry_def = self.definitions().functions[&entry_name];
+            let args = self.debug_string("");
+            let signature = self.debug_string(SIGNATURE);
+            self.void_debug(
+                None,
+                Instructions::DebugEntryPoint,
+                [
+                    entry_def.id,
+                    entry_def.source.compilation_unit,
+                    signature,
+                    args,
+                ],
+            );
+        }
     }
 
     fn declare_debug_function(&mut self, function: &FunctionDefinition) {

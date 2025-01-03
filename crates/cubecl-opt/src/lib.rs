@@ -24,13 +24,13 @@
 //!
 
 use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, Analyses};
 use cubecl_core::{
     ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -49,6 +49,7 @@ use passes::{
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
+mod analyses;
 mod block;
 mod control_flow;
 mod debug;
@@ -143,8 +144,8 @@ struct Range {
 pub struct Optimizer {
     /// The overall program state
     program: Program,
-    /// The post order of the graph for traversal
-    post_order: Vec<NodeIndex>,
+    /// Analyses with persistent state
+    analyses: Rc<Analyses>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -157,7 +158,6 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
-    pub(crate) gvn: Rc<RefCell<GvnPass>>,
 }
 
 impl Default for Optimizer {
@@ -170,8 +170,7 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
-            post_order: Default::default(),
-            gvn: Default::default(),
+            analyses: Default::default(),
         }
     }
 }
@@ -195,8 +194,6 @@ impl Optimizer {
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
         self.split_critical_edges();
-        self.determine_postorder(self.entry(), &mut HashSet::new());
-        self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
         self.ssa_transform();
@@ -208,14 +205,13 @@ impl Optimizer {
         let arrays_prop = AtomicCounter::new(0);
         CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
-            self.analyze_liveness();
+            self.invalidate_analysis::<Liveness>();
             self.ssa_transform();
             self.apply_post_ssa_passes();
         }
 
         let gvn_count = AtomicCounter::new(0);
-        let gvn = self.gvn.clone();
-        gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+        GvnPass.apply_post_ssa(self, gvn_count.clone());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
         CopyTransform.apply_post_ssa(self, gvn_count.clone());
 
@@ -241,24 +237,7 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
-    }
-
-    fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
-        for successor in self.successors(block) {
-            if !visited.contains(&successor) {
-                visited.insert(successor);
-                self.determine_postorder(successor, visited);
-            }
-        }
-        self.post_order.push(block);
-    }
-
-    pub fn post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.clone()
-    }
-
-    pub fn reverse_post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.iter().rev().copied().collect()
+        self.invalidate_structure();
     }
 
     fn apply_pre_ssa_passes(&mut self) {
@@ -334,14 +313,11 @@ impl Optimizer {
     }
 
     fn ssa_transform(&mut self) {
-        self.program.fill_dom_frontiers();
-        self.program.place_phi_nodes();
+        self.place_phi_nodes();
         self.version_program();
         self.program.variables.clear();
-        for block in self.node_ids() {
-            self.program[block].writes.clear();
-            self.program[block].dom_frontiers.clear();
-        }
+        self.invalidate_analysis::<Writes>();
+        self.invalidate_analysis::<DomFrontiers>();
     }
 
     /// Mutable reference to the current basic block
@@ -421,11 +397,9 @@ impl Optimizer {
                             const_len,
                         },
                     );
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
                 _ => {
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
             }
@@ -462,6 +436,7 @@ impl Optimizer {
             let new_ret = self.program.add_node(BasicBlock::default());
             self.program.add_edge(new_ret, self.ret, ());
             self.ret = new_ret;
+            self.invalidate_structure();
             new_ret
         } else {
             self.ret

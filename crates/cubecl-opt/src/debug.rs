@@ -1,10 +1,11 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    gvn::{BlockSets, Constant, Expression, Instruction, Local, OpId, Value, ValueTable},
+    analyses::liveness::Liveness,
+    gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, OpId, Value, ValueTable},
     passes::var_id,
     ControlFlow,
 };
@@ -16,10 +17,6 @@ const DEBUG_GVN: bool = false;
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let post_order = self.post_order.iter().map(|it| format!("bb{}", it.index()));
-        let post_order = post_order.collect::<Vec<_>>();
-        writeln!(f, "Post Order: {}", post_order.join(", "))?;
-        writeln!(f)?;
         f.write_str("Slices:\n")?;
         for (var_id, slice) in self.program.slices.iter() {
             let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));
@@ -34,7 +31,11 @@ impl Display for Optimizer {
         }
         f.write_str("\n\n")?;
 
-        let global_nums = self.gvn.borrow();
+        let global_nums = self.analyses.try_get::<GvnState>().unwrap_or_default();
+        let liveness = self
+            .analyses
+            .try_get::<Liveness>()
+            .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
@@ -57,7 +58,7 @@ impl Display for Optimizer {
             if !bb.block_use.is_empty() {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
-            let live_vars = bb.live_vars.iter();
+            let live_vars = liveness.at_block(node).iter();
             let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;

@@ -7,7 +7,10 @@ use std::{
 use cubecl_core::ir::{ConstantScalarValue, Instruction, Operation, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
-use crate::{visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer};
+use crate::{
+    analyses::{liveness::Liveness, post_order::PostOrder},
+    visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
+};
 
 use super::OptimizerPass;
 
@@ -93,6 +96,7 @@ impl OptimizerPass for EliminateConstBranches {
                     }
 
                     *control_flow.borrow_mut() = ControlFlow::None;
+                    opt.invalidate_structure();
                     changes.inc();
                 }
                 ControlFlow::Switch {
@@ -116,6 +120,7 @@ impl OptimizerPass for EliminateConstBranches {
                         opt.program.remove_edge(edge);
                     }
                     *control_flow.borrow_mut() = ControlFlow::None;
+                    opt.invalidate_structure();
                     changes.inc();
                 }
                 _ => {}
@@ -129,26 +134,14 @@ pub struct EliminateDeadBlocks;
 
 impl OptimizerPass for EliminateDeadBlocks {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        while search_dead_blocks(opt) {
-            changes.inc();
-        }
-    }
-}
-
-fn search_dead_blocks(opt: &mut Optimizer) -> bool {
-    for block in opt.node_ids() {
-        if block != opt.entry() && opt.predecessors(block).is_empty() {
-            let edges: Vec<_> = opt.program.edges(block).map(|it| it.id()).collect();
-            for edge in edges {
-                opt.program.remove_edge(edge);
+        let post_order = opt.analysis::<PostOrder>().forward();
+        for node in opt.node_ids() {
+            if !post_order.contains(&node) {
+                opt.program.remove_node(node);
+                changes.inc();
             }
-            opt.program.remove_node(block);
-            opt.post_order.retain(|it| *it != block);
-            return true;
         }
     }
-
-    false
 }
 
 /// Eliminates invalid phi nodes left over from other optimizations like branch elimination.
@@ -203,7 +196,7 @@ impl OptimizerPass for MergeBlocks {
 }
 
 fn merge_blocks(opt: &mut Optimizer) -> bool {
-    for block_idx in opt.reverse_post_order() {
+    for block_idx in opt.analysis::<PostOrder>().reverse() {
         let successors = opt.successors(block_idx);
         if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();
@@ -214,8 +207,6 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             let b_ops = block.ops.borrow().values().cloned().collect::<Vec<_>>();
             let s_ops = successor.ops.borrow().values().cloned().collect::<Vec<_>>();
 
-            new_block.live_vars.extend(block.live_vars.clone());
-            new_block.live_vars.extend(successor.live_vars.clone());
             new_block.phi_nodes.borrow_mut().extend(b_phi);
             new_block.phi_nodes.borrow_mut().extend(s_phi);
             new_block.ops.borrow_mut().extend(b_ops);
@@ -237,7 +228,8 @@ fn merge_blocks(opt: &mut Optimizer) -> bool {
             }
             *opt.program.node_weight_mut(block_idx).unwrap() = new_block;
             opt.program.remove_node(successors[0]);
-            opt.post_order.retain(|it| *it != successors[0]);
+            opt.invalidate_structure();
+            opt.invalidate_analysis::<Liveness>();
             update_references(opt, successors[0], block_idx);
             return true;
         }

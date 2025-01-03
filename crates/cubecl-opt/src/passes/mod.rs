@@ -7,7 +7,6 @@ mod in_bounds_analysis;
 mod index_merge;
 mod inlined_if_to_select;
 mod integer_range_analysis;
-mod liveness;
 mod reduce_strength;
 
 pub use array_copy_propagate::*;
