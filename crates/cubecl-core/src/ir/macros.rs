@@ -122,7 +122,7 @@ macro_rules! cpa {
     };
     // out = select(cond, then, or_else)
     ($scope:expr, $out:ident = select($cond:expr, $then:expr, $or_else:expr)) => {
-        $scope.register($crate::ir::Instruction::new($crate::ir::Branch::Select($crate::ir::Select{
+        $scope.register($crate::ir::Instruction::new($crate::ir::Operator::Select($crate::ir::Select{
             cond: $cond,
             then: $then,
             or_else: $or_else,

@@ -35,12 +35,11 @@ derive_more = { workspace = true, features = [
     "display",
 ] }
 half = { workspace = true, features = ["bytemuck"] }
+log = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-log = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

@@ -81,66 +81,38 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
         context: &mut CubeContext,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
-        {
-            {
-                let _arg_0 = index;
-                cubecl::frontend::debug_call_expand(context, "self.state.clone().read", |context| {
-                    self.state
-                        .clone()
-                        .__expand_read_method(context, _arg_0.into())
-                })
-            }
-        }
+        let _arg_0 = index;
+        self.state
+            .clone()
+            .__expand_read_method(context, _arg_0.into())
     }
+
     pub fn __expand_shape_method(
         self,
         context: &mut CubeContext,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
-        {
-            {
-                let _arg_0 = axis;
-                cubecl::frontend::debug_call_expand(
-                    context,
-                    "self.state.clone().shape",
-                    |context| {
-                        self.state
-                            .clone()
-                            .__expand_shape_method(context, _arg_0.into())
-                    },
-                )
-            }
-        }
+        let _arg_0 = axis;
+        self.state
+            .clone()
+            .__expand_shape_method(context, _arg_0.into())
     }
+
     pub fn __expand_stride_method(
         self,
         context: &mut CubeContext,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
-        {
-            {
-                let _arg_0 = axis;
-                cubecl::frontend::debug_call_expand(
-                    context,
-                    "self.state.clone().stride",
-                    |context| {
-                        self.state
-                            .clone()
-                            .__expand_stride_method(context, _arg_0.into())
-                    },
-                )
-            }
-        }
+        let _arg_0 = axis;
+        self.state
+            .clone()
+            .__expand_stride_method(context, _arg_0.into())
     }
+
     pub fn __expand_rank_method(self, context: &mut CubeContext) -> <u32 as CubeType>::ExpandType {
-        {
-            {
-                cubecl::frontend::debug_call_expand(context, "self.state.clone().rank", |context| {
-                    self.state.clone().__expand_rank_method(context)
-                })
-            }
-        }
+        self.state.clone().__expand_rank_method(context)
     }
+
     pub fn __expand_read(
         context: &mut CubeContext,
         this: Self,
@@ -148,6 +120,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     ) -> <Line<E> as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_read(context, this, index)
     }
+
     pub fn __expand_shape(
         context: &mut CubeContext,
         this: Self,
@@ -155,6 +128,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     ) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_shape(context, this, axis)
     }
+
     pub fn __expand_stride(
         context: &mut CubeContext,
         this: Self,
@@ -162,6 +136,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     ) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_stride(context, this, axis)
     }
+
     pub fn __expand_rank(context: &mut CubeContext, this: Self) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_rank(context, this)
     }
@@ -190,24 +165,14 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
-        {
-            {
-                let _arg_0 = index;
-                let _arg_1 = value;
-                cubecl::frontend::debug_call_expand(
-                    context,
-                    "self.state.clone().write",
-                    |context| {
-                        self.state.clone().__expand_write_method(
-                            context,
-                            _arg_0.into(),
-                            _arg_1.into(),
-                        )
-                    },
-                )
-            }
-        }
+        let _arg_0 = index;
+        let _arg_1 = value;
+
+        self.state
+            .clone()
+            .__expand_write_method(context, _arg_0.into(), _arg_1.into())
     }
+
     pub fn __expand_write(
         context: &mut CubeContext,
         this: Self,

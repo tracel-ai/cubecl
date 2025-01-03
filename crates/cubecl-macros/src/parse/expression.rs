@@ -28,6 +28,7 @@ impl Expression {
                 }
             }
             Expr::Binary(binary) => {
+                let span = binary.span();
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
@@ -41,6 +42,7 @@ impl Expression {
                         operator: parse_binop(&binary.op)?,
                         right: Box::new(right),
                         ty,
+                        span,
                     }
                 }
             }
@@ -73,12 +75,14 @@ impl Expression {
                 }
             }
             Expr::Unary(unary) => {
+                let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
                 let ty = input.ty();
                 Expression::Unary {
                     input: Box::new(input),
                     operator: parse_unop(&unary.op)?,
                     ty,
+                    span,
                 }
             }
             Expr::Block(block) => {
@@ -87,6 +91,7 @@ impl Expression {
             }
             Expr::Break(_) => Expression::Break,
             Expr::Call(call) => {
+                let span = call.span();
                 let func = Box::new(Expression::from_expr(*call.func, context)?);
                 let args = call
                     .args
@@ -103,11 +108,13 @@ impl Expression {
                             func: Box::new(func),
                             args,
                             associated_type,
+                            span,
                         }
                     }
                 }
             }
             Expr::MethodCall(method) => {
+                let span = method.span();
                 let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
                 let args = method
                     .args
@@ -127,6 +134,7 @@ impl Expression {
                         method: method.method,
                         generics: method.turbofish,
                         args,
+                        span,
                     }
                 }
             }
@@ -244,6 +252,7 @@ impl Expression {
                     Expression::Index {
                         expr: Box::new(expr),
                         index: Box::new(index),
+                        span,
                     }
                 }
             }
@@ -412,12 +421,14 @@ fn generate_strided_index(
                 ty: index_ty.clone(),
             }],
             generics: None,
+            span,
         };
         Expression::Binary {
             left: Box::new(elem),
             operator: Operator::Mul,
             right: Box::new(stride),
             ty: None,
+            span,
         }
     });
     let sum = strided_indices
@@ -426,6 +437,7 @@ fn generate_strided_index(
             operator: Operator::Add,
             right: Box::new(b),
             ty: None,
+            span,
         })
         .unwrap();
     Ok(sum)
@@ -442,7 +454,9 @@ fn is_slice(index: &Expression) -> bool {
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     // All supported primitives. Primitives don't start with an uppercase letter
-    const PRIMITIVES: &[&str] = &["bool", "i32", "i64", "u32", "f16", "bf16", "f32", "f64"];
+    const PRIMITIVES: &[&str] = &[
+        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
+    ];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }

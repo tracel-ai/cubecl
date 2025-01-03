@@ -44,8 +44,6 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     device: &HipDevice,
     options: RuntimeOptions,
 ) -> ComputeClient<Server, Channel> {
-    let mut ctx: cubecl_hip_sys::hipCtx_t = std::ptr::null_mut();
-
     #[allow(unused_assignments)]
     let mut prop_warp_size = 0;
     #[allow(unused_assignments)]
@@ -74,12 +72,6 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
             "Should set the default device for the current thread"
         );
     }
-
-    unsafe {
-        let status =
-            cubecl_hip_sys::hipCtxCreate(&mut ctx, 0, device.index as cubecl_hip_sys::hipDevice_t);
-        assert_eq!(status, HIP_SUCCESS, "Should create the HIP context");
-    };
 
     let stream = unsafe {
         let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
@@ -126,7 +118,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     let comp_opts = CompilationOptions {
         warp_size: arch.warp_size(),
     };
-    let hip_ctx = HipContext::new(memory_management, comp_opts, stream, ctx);
+    let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
     let server = HipServer::new(hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props)
 }
