@@ -50,6 +50,7 @@ pub trait Init: Sized {
     fn init(self, context: &mut CubeContext) -> Self;
 }
 
+/// Argument used during the compilation of kernels.
 pub trait CompilationArg:
     serde::Serialize
     + serde::de::DeserializeOwned
@@ -62,9 +63,17 @@ pub trait CompilationArg:
     + Sync
     + 'static
 {
+    /// Compilation args should be the same even with different element types. However, it isn't
+    /// possible to enforce it with the type system. So, we make the compilation args serializable
+    /// and dynamically cast them.
+    ///
+    /// Without this, the compilation time is unreasonable. The performance drop isn't a concern
+    /// since this is only done once when compiling a kernel for the first time.
     fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
-        let val = serde_json::to_string(self).expect("TODO");
-        serde_json::from_str(&val).expect("TODO")
+        let val = serde_json::to_string(self).unwrap();
+
+        serde_json::from_str(&val)
+            .expect("Compilation argument should be the same even with different element types")
     }
 }
 

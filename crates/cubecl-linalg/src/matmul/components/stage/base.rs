@@ -50,12 +50,6 @@ pub trait StageMatmulFamily:
 ///  - Enough planes are launched to perform the whole computation
 pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
     type Config: StageConfig;
-    // /// Number of rows of LHS
-    // const M: u32;
-    // /// Number of columns of RHS
-    // const N: u32;
-    // /// Common dimension of LHS and RHS
-    // const K: u32;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
     /// The same Accumulator will be added to across multiple executions of the stage matmul.

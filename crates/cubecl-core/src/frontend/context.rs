@@ -46,11 +46,12 @@ impl CubeContext {
     /// Resolve the element type of the given generic type.
     pub fn resolve_elem<T: 'static>(&self) -> Option<Elem> {
         let map = self.typemap.borrow();
-
         let result = map.get(&TypeId::of::<T>());
+
         result.cloned()
     }
 
+    /// Register the element type for the given generic type.
     pub fn register_elem<T: 'static>(&mut self, elem: Elem) {
         let mut map = self.typemap.borrow_mut();
 

@@ -1,3 +1,15 @@
+//! This module contains a configurable [element type](FloatExpand) for floats to be used during
+//! kernel expansion to speed up Rust compilation.
+//!
+//! Expand functions don't need to be generated for different element types even if they are generic
+//! over one, since the only use of numeric element types is to map to the [elem IR enum](Elem).
+//!
+//! This can be done dynamically using the context instead, reducing the binary size and the
+//! compilation time of kernels significantly.
+//!
+//! You can still have multiple element types in a single kernel, since [FloatExpand] uses const
+//! generics to differentiate between float kinds.
+
 use core::f32;
 use std::{
     cmp::Ordering,
