@@ -373,7 +373,6 @@ pub struct FmaOperator {
 pub fn expand_checked_index(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
     let array_len = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
     let inside_bound = scope.create_local(Item::new(Elem::Bool));
-    let item = scope.create_local(out.item);
     let zero: Variable = 0u32.into();
 
     if lhs.has_buffer_length() {
@@ -384,6 +383,8 @@ pub fn expand_checked_index(scope: &mut Scope, lhs: Variable, rhs: Variable, out
 
     cpa!(scope, inside_bound = rhs < array_len);
     cpa!(scope, if(inside_bound).then(|scope| {
+        let item = scope.create_local(out.item);
+
         cpa!(scope, item = unchecked(lhs[rhs]));
         cpa!(scope, out = item);
     }).else(|scope| {

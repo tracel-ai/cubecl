@@ -573,7 +573,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Index(op) => {
                 if let ExecutionMode::Checked = self.strategy {
-                    if op.lhs.has_length() {
+                    if op.lhs.has_length() && !out.item.elem.is_atomic() {
                         expand_checked_index(scope, op.lhs, op.rhs, out);
                         instructions.extend(self.compile_scope(scope));
                         return;
