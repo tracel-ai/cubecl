@@ -383,9 +383,12 @@ pub fn expand_checked_index(scope: &mut Scope, lhs: Variable, rhs: Variable, out
     }
 
     cpa!(scope, inside_bound = rhs < array_len);
-
-    cpa!(scope, item = unchecked(lhs[rhs]));
-    cpa!(scope, out = select(inside_bound, item, zero));
+    cpa!(scope, if(inside_bound).then(|scope| {
+        cpa!(scope, item = unchecked(lhs[rhs]));
+        cpa!(scope, out = item);
+    }).else(|scope| {
+        cpa!(scope, out = zero);
+    }));
 }
 
 #[allow(missing_docs)]

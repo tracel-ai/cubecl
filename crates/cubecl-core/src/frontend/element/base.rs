@@ -1,4 +1,5 @@
 use super::{flex32, CubePrimitive, Numeric};
+use crate::ir::FloatKind;
 use crate::tf32;
 use crate::{
     ir::{ConstantScalarValue, Operation, Variable, VariableKind},
@@ -425,9 +426,9 @@ impl<T: Init> Init for Vec<T> {
 
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
-    _context: &mut CubeContext,
+    context: &mut CubeContext,
     val: C,
 ) -> ExpandElementTyped<Out> {
-    let val = Out::from(val).unwrap();
-    val.into()
+    let input: ExpandElementTyped<C> = val.into();
+    <Out as super::Cast>::__expand_cast_from(context, input)
 }
