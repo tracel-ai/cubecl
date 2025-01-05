@@ -1,6 +1,4 @@
-use super::{flex32, CubePrimitive, Numeric};
-use crate::ir::FloatKind;
-use crate::tf32;
+use super::{flex32, tf32, CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantScalarValue, Operation, Variable, VariableKind},
     prelude::{init_expand, CubeContext, KernelBuilder, KernelLauncher},

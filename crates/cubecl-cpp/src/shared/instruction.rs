@@ -457,7 +457,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     (Elem::U32, Elem::BF16) => {
                         writeln!(f, "{out} = __ushort_as_bfloat16({input});")
                     }
-                    _ => panic!("Unsupported type for bitcasting"),
+                    (Elem::I32, Elem::U32) => {
+                        writeln!(f, "{out} = reinterpret_cast<uint&>({input});")
+                    }
+                    elem => panic!("Unsupported type for bitcasting {elem:?}"),
                 }
             }
             Instruction::AtomicCAS {
