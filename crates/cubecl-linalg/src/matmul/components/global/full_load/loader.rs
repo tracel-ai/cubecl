@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::Loader;
+use crate::matmul::components::global::{InputLoader, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
@@ -11,7 +11,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> {
+pub struct LhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     _config: PhantomData<S>,
@@ -19,7 +19,7 @@ pub struct LhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrat
 }
 
 #[derive(CubeType)]
-pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> {
+pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES>,
     _config: PhantomData<S>,
@@ -27,8 +27,8 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, full_load::Config<S>> for LhsLoader<EG, ES, S, L>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
+    InputLoader<EG, ES, full_load::Config<S>> for LhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES>;
 
@@ -51,8 +51,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> LhsLoader<EG, ES, S, L> {
-    pub fn new<G: global::Config>(
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> LhsLoader<EG, ES, S, L> {
+    pub fn new<G: global::GlobalConfig>(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
         y_offset: u32,
@@ -72,8 +72,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> LhsLoader<E
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
-    Loader<EG, ES, full_load::Config<S>> for RhsLoader<EG, ES, S, L>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
+    InputLoader<EG, ES, full_load::Config<S>> for RhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES>;
 
@@ -96,8 +96,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> RhsLoader<EG, ES, S, L> {
-    pub fn new<G: global::Config>(
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> RhsLoader<EG, ES, S, L> {
+    pub fn new<G: global::GlobalConfig>(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
         y_offset: u32,
@@ -117,8 +117,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::Config, L: LoadingStrategy> RhsLoader<E
 }
 
 #[cube]
-pub trait LoadingStrategy: 'static + Send + Sync + Clone {
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: global::Config>(
+pub trait LoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    fn load_to_slice<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

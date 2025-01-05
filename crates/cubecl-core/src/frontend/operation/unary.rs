@@ -82,7 +82,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item;
-                item.elem = <$out_ty as CubePrimitive>::as_elem();
+                item.elem = <$out_ty as CubePrimitive>::as_elem(context);
                 unary_expand_fixed_output(context, expand_element, item, $operator).into()
             }
         }

@@ -1,48 +1,116 @@
-use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::MatmulKernel;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::{
+    GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
+};
+use crate::matmul::components::stage::single_buffer::{
+    LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
+};
+use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
 use crate::matmul::components::StageDim;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
-use crate::matmul::components::{stage, MatmulSpec};
+use crate::matmul::components::{stage, MatmulPrecision};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
+    _stage_matmul: PhantomData<SMM>,
+}
+
+impl<SMM> GlobalMatmulFamily for SpecializedMatmulFamily<SMM>
+where
+    SMM: stage::StageMatmulFamily<
+        LhsReader = LhsBufferReaderFamily,
+        RhsReader = RhsBufferReaderFamily,
+    >,
+{
+    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+}
+
+impl<SMM> MatmulConfigFactory for SpecializedMatmulFamily<SMM>
+where
+    SMM: stage::StageMatmulFamily,
+{
+    type Input = SMM::Input;
+    type Config = Config<SMM::Config>;
+
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        if config.num_producers() == 0 {
+            return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
+        }
+        if config.stage_dim(Ident::Lhs).num_tiles_y_dim() <= 1 {
+            return Err(Box::new("Producer-consumer needs at least 2 buffers."));
+        }
+
+        SMM::check_config(&config.to_smm_config())
+    }
+
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), MatmulAvailabilityError> {
+        SMM::check_availability::<R, MP>(client, &config.smm_config)
+    }
+
+    fn make_config(
+        input: Self::Input,
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
+        let size = SMM::size(&smm_config);
+
+        Config::new(
+            smm_config,
+            problem.m as u32 % size.m != 0,
+            problem.n as u32 % size.n != 0,
+            problem.k as u32 % size.k != 0,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
+            problem.out_line_size as u32,
+            cube_dim.y,
+        )
+    }
+}
 
 /// Performs matrix multiplication at the global level, with planes split between two roles:
 /// - First n planes are used in the stage matmul computation, with n the number of planes needed by the underlying stage matmul
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct Matmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
-    _ms: PhantomData<MS>,
+pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
+    _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM> global::Matmul<MS> for Matmul<MS, SMM>
+impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM>
 where
-    SMM: stage::Matmul<
-        MS::ES,
-        MS::EG,
-        MS::EA,
-        LhsReader = LhsBufferReader<MS::ES>,
-        RhsReader = RhsBufferReader<MS::ES>,
+    SMM: StageMatmul<
+        MP::ES,
+        MP::EG,
+        MP::EA,
+        LhsReader = LhsBufferReader<MP::ES>,
+        RhsReader = RhsBufferReader<MP::ES>,
     >,
 {
-    type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
+    type Config = Config<SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MS::EG>;
+    type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -102,7 +170,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -119,7 +187,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -136,7 +204,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -154,60 +222,25 @@ where
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> Matmul<MS, SMM> {
-    fn is_consumer(#[comptime] config: <Self as MatmulKernel>::Config) -> bool {
-        UNIT_POS_Y < config.num_consumers()
-    }
-}
-
-impl<MS, SMM> MatmulKernel for Matmul<MS, SMM>
-where
-    MS: MatmulSpec,
-    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
+impl<
+        MP: MatmulPrecision,
+        SMM: StageMatmul<
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES>,
+            RhsReader = RhsBufferReader<MP::ES>,
+        >,
+    > SpecializedMatmul<MP, SMM>
 {
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: Self::Config) {
-        assert!(config.num_producers() > 0, "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.");
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() > 1,
-            "Producer-consumer needs at least 2 buffers."
-        );
-        SMM::check_config(config.to_smm_config());
-    }
-
-    fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R>(client)
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
-
-        Config::new(
-            smm_config,
-            problem.m as u32 % SMM::M != 0,
-            problem.n as u32 % SMM::N != 0,
-            problem.k as u32 % SMM::K != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
-            cube_dim.y,
-        )
+    fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {
+        UNIT_POS_Y < config.num_consumers()
     }
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the producer consumer global matmul
-pub struct Config<S: stage::Config> {
+pub struct Config<S: stage::StageConfig> {
     smm_config: S,
     check_m_bounds: bool,
     check_n_bounds: bool,
@@ -220,7 +253,7 @@ pub struct Config<S: stage::Config> {
     num_planes: u32,
 }
 
-impl<S: stage::Config> global::Config for Config<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -280,9 +313,9 @@ impl<S: stage::Config> global::Config for Config<S> {
     }
 }
 
-impl<S: stage::Config> MatmulConfig for Config<S> {}
+impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
 
-impl<S: stage::Config> Config<S> {
+impl<S: stage::StageConfig> Config<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,

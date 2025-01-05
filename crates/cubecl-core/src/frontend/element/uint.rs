@@ -24,8 +24,8 @@ macro_rules! declare_uint {
         }
 
         impl CubePrimitive for $primitive {
-            fn as_elem() -> Elem {
-                Elem::UInt(UIntKind::$kind)
+            fn as_elem_native() -> Option<Elem> {
+                Some(Elem::UInt(UIntKind::$kind))
             }
         }
 
@@ -46,13 +46,17 @@ macro_rules! declare_uint {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem()).into()
+                builder.scalar($primitive::as_elem(&builder.context)).into()
             }
         }
 
         impl Numeric for $primitive {
-            const MAX: Self = $primitive::MAX;
-            const MIN: Self = $primitive::MIN;
+            fn min_value() -> Self {
+                $primitive::MIN
+            }
+            fn max_value() -> Self {
+                $primitive::MAX
+            }
         }
 
         impl Int for $primitive {

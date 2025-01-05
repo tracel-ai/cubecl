@@ -38,7 +38,10 @@ impl MatmulProblem {
     ///
     ///  - If dimensions of the problem are larger than allowed by the config
     ///  - If line sizes do not divide well the dimension in which they are aligned
-    pub fn check_config<B: batch::Config>(&self, config: &B) -> Result<(), MatmulInvalidProblem> {
+    pub fn check_config<B: batch::BatchConfig>(
+        &self,
+        config: &B,
+    ) -> Result<(), MatmulInvalidProblem> {
         if self.m > config.max_m() as usize {
             return Err(MatmulInvalidProblem::ExceededMSize {
                 m: self.m as u32,

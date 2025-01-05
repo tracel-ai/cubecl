@@ -8,7 +8,7 @@ use crate::{LineMode, ReduceConfig, ReduceStrategy};
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceInstruction<In>>(
+pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
@@ -52,7 +52,7 @@ struct ReduceParams {
 }
 
 #[cube(launch_unchecked)]
-fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
+fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
     input: &Tensor<Line<In>>,
     output: &mut Tensor<Out>,
     axis_reduce: u32,
@@ -75,7 +75,7 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
 
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
-            let mut accumulator = reduce_slice_shared::<In, R>(
+            let mut accumulator = reduce_slice_shared::<In, R::Instruction<In>>(
                 input.to_slice(),
                 range,
                 accumulator_size,
@@ -84,18 +84,24 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
                 use_planes,
             );
             sync_units();
-            reduce_tree::<In, R>(&mut accumulator, accumulator_size)
+            reduce_tree::<In, R::Instruction<In>>(&mut accumulator, accumulator_size)
         }
-        (None, true) => {
-            reduce_slice_plane::<In, R>(input.to_slice(), range, params.line_size, params.line_mode)
-        }
-        (None, false) => {
-            reduce_slice::<In, R>(input.to_slice(), range, params.line_size, params.line_mode)
-        }
+        (None, true) => reduce_slice_plane::<In, R::Instruction<In>>(
+            input.to_slice(),
+            range,
+            params.line_size,
+            params.line_mode,
+        ),
+        (None, false) => reduce_slice::<In, R::Instruction<In>>(
+            input.to_slice(),
+            range,
+            params.line_size,
+            params.line_mode,
+        ),
     };
 
     if elected_writer(params) {
-        write_to_output::<In, Out, R>(
+        write_to_output::<In, Out, R::Instruction<In>>(
             output,
             accumulator,
             reduce_index,

@@ -25,7 +25,8 @@ mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_matmul_plane_mma!([flex32, f32], f32);
+    cubecl_linalg::testgen_matmul_plane!([f32]);
+    cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_reduce::testgen_reduce!();
@@ -38,8 +39,8 @@ mod tests_spirv {
     use half::f16;
 
     cubecl_core::testgen_all!(f32: [f16, flex32, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
-    cubecl_linalg::testgen_matmul_plane_mma!([f16, flex32, f32], f32);
+    cubecl_linalg::testgen_matmul_plane!([f16, flex32, f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, flex32, f32, f64]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
-    cubecl_linalg::testgen_matmul_cmma!([f16]);
+    cubecl_linalg::testgen_matmul_accelerated!([f16]);
 }

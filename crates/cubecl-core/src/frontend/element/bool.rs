@@ -28,8 +28,8 @@ impl CubeType for bool {
 }
 
 impl CubePrimitive for bool {
-    fn as_elem() -> Elem {
-        Elem::Bool
+    fn as_elem_native() -> Option<Elem> {
+        Some(Elem::Bool)
     }
 }
 
