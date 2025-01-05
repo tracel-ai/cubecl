@@ -213,10 +213,10 @@ impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
 
 impl<const POS: u8> Numeric for FloatExpand<POS> {
     fn min_value() -> Self {
-        <Self as num_traits::Float>::min_value()
+        panic!("Can't use min value in comptime with dynamic element type");
     }
     fn max_value() -> Self {
-        <Self as num_traits::Float>::max_value()
+        panic!("Can't use max value in comptime with dynamic element type");
     }
 }
 

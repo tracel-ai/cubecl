@@ -381,6 +381,7 @@ pub fn expand_checked_index(scope: &mut Scope, lhs: Variable, rhs: Variable, out
         cpa!(scope, array_len = len(lhs));
     }
 
+    // TODO: Use select, but it causes memory error on CUDA.
     cpa!(scope, inside_bound = rhs < array_len);
     cpa!(scope, if(inside_bound).then(|scope| {
         let item = scope.create_local(out.item);

@@ -311,20 +311,27 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
-                let vf_then = then.item().vectorization;
-                let vf_or_else = or_else.item().vectorization;
-                let vf_out = out.item().vectorization;
-                let vf_cond = cond.item().vectorization;
+                let item_or_else = or_else.item();
+                let item_then = then.item();
+                let item_out = out.item();
 
-                let vf = usize::max(vf_cond, vf_out);
-                let vf = usize::max(vf, vf_then);
-                let vf = usize::max(vf, vf_or_else);
+                let vf_then = item_then.vectorization;
+                let vf_or_else = item_or_else.vectorization;
+                let vf_out = item_out.vectorization;
+                let vf_cond = cond.item().vectorization;
 
                 let item_out = out.item();
                 let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                if vf > 1 {
+                let should_broadcast =
+                    vf_cond > 1 || item_out != item_or_else || item_out != item_then;
+
+                if should_broadcast {
+                    let vf = usize::max(vf_cond, vf_out);
+                    let vf = usize::max(vf, vf_then);
+                    let vf = usize::max(vf, vf_or_else);
+
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
