@@ -50,6 +50,12 @@ pub enum Instruction<D: Dialect> {
     Sub(BinaryInstruction<D>),
     Index(BinaryInstruction<D>),
     IndexAssign(BinaryInstruction<D>),
+    CheckedIndex {
+        len: Variable<D>,
+        lhs: Variable<D>,
+        rhs: Variable<D>,
+        out: Variable<D>,
+    },
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -228,6 +234,21 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::CheckedIndex { len, lhs, rhs, out } => {
+                let item_out = out.item();
+                if let Elem::Atomic(inner) = item_out.elem {
+                    write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+                } else {
+                    let out = out.fmt_left();
+                    write!(f, "{out} = ({rhs} < {len}) ? ")?;
+                    Index::format_scalar(f, *lhs, *rhs, item_out)?;
+                    if item_out.vectorization == 1 {
+                        writeln!(f, " : {item_out}(0);")
+                    } else {
+                        writeln!(f, " : {item_out}{{}};")
+                    }
+                }
+            }
             Instruction::Copy {
                 input,
                 in_index,
