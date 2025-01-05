@@ -1,5 +1,4 @@
-use super::{flex32, CubePrimitive, Numeric};
-use crate::tf32;
+use super::{flex32, tf32, CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantScalarValue, Operation, Variable, VariableKind},
     prelude::{init_expand, CubeContext, KernelBuilder, KernelLauncher},
@@ -50,6 +49,35 @@ pub trait Init: Sized {
     fn init(self, context: &mut CubeContext) -> Self;
 }
 
+/// Argument used during the compilation of kernels.
+pub trait CompilationArg:
+    serde::Serialize
+    + serde::de::DeserializeOwned
+    + Clone
+    + PartialEq
+    + Eq
+    + core::hash::Hash
+    + core::fmt::Debug
+    + Send
+    + Sync
+    + 'static
+{
+    /// Compilation args should be the same even with different element types. However, it isn't
+    /// possible to enforce it with the type system. So, we make the compilation args serializable
+    /// and dynamically cast them.
+    ///
+    /// Without this, the compilation time is unreasonable. The performance drop isn't a concern
+    /// since this is only done once when compiling a kernel for the first time.
+    fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
+        let val = serde_json::to_string(self).unwrap();
+
+        serde_json::from_str(&val)
+            .expect("Compilation argument should be the same even with different element types")
+    }
+}
+
+impl CompilationArg for () {}
+
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
 /// Normally this type should be implemented two times for an argument.
@@ -59,14 +87,7 @@ pub trait Init: Sized {
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
 pub trait LaunchArgExpand: CubeType {
     /// Compilation argument.
-    type CompilationArg: Clone
-        + PartialEq
-        + Eq
-        + core::hash::Hash
-        + core::fmt::Debug
-        + Send
-        + Sync
-        + 'static;
+    type CompilationArg: CompilationArg;
 
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(
@@ -285,9 +306,9 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
 
 impl<T: CubePrimitive> ExpandElementTyped<T> {
     /// Create an [ExpandElementTyped] from a value that is normally a literal.
-    pub fn from_lit<L: Into<Variable>>(lit: L) -> Self {
+    pub fn from_lit<L: Into<Variable>>(context: &CubeContext, lit: L) -> Self {
         let variable: Variable = lit.into();
-        let variable = T::as_elem().from_constant(variable);
+        let variable = T::as_elem(context).from_constant(variable);
 
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
@@ -403,9 +424,9 @@ impl<T: Init> Init for Vec<T> {
 
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
-    _context: &mut CubeContext,
+    context: &mut CubeContext,
     val: C,
 ) -> ExpandElementTyped<Out> {
-    let val = Out::from(val).unwrap();
-    val.into()
+    let input: ExpandElementTyped<C> = val.into();
+    <Out as super::Cast>::__expand_cast_from(context, input)
 }

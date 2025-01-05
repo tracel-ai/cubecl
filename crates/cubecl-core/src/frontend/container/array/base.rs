@@ -45,9 +45,8 @@ mod new {
                 .constant()
                 .expect("Array need constant initialization value")
                 .as_u32();
-            context
-                .create_local_array(Item::new(T::as_elem()), size)
-                .into()
+            let elem = T::as_elem(context);
+            context.create_local_array(Item::new(elem), size).into()
         }
 
         /// Expand function of [from_data](Array::from_data).
@@ -55,7 +54,7 @@ mod new {
             context: &mut CubeContext,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = context.create_const_array(Item::new(T::as_elem()), data.values);
+            let var = context.create_const_array(Item::new(T::as_elem(context)), data.values);
             ExpandElementTyped::new(var)
         }
     }
@@ -157,7 +156,10 @@ mod vectorization {
             };
             context
                 .create_local_array(
-                    Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
+                    Item::vectorized(
+                        T::as_elem(context),
+                        NonZero::new(vectorization_factor as u8),
+                    ),
                     size,
                 )
                 .into()
@@ -179,19 +181,23 @@ mod vectorization {
 
             let new_var = if factor == 1 {
                 let new_var = context.create_local_binding(item);
-                let element =
-                    index::expand(context, self.clone(), ExpandElementTyped::from_lit(0u32));
+                let element = index::expand(
+                    context,
+                    self.clone(),
+                    ExpandElementTyped::from_lit(context, 0u32),
+                );
                 assign::expand(context, element, new_var.clone().into());
                 new_var
             } else {
                 let new_var = context.create_local_variable(item);
                 for i in 0..factor {
                     let expand: Self = self.expand.clone().into();
-                    let element = index::expand(context, expand, ExpandElementTyped::from_lit(i));
+                    let element =
+                        index::expand(context, expand, ExpandElementTyped::from_lit(context, i));
                     index_assign::expand::<Array<C>>(
                         context,
                         new_var.clone().into(),
-                        ExpandElementTyped::from_lit(i),
+                        ExpandElementTyped::from_lit(context, i),
                         element,
                     );
                 }
@@ -224,7 +230,7 @@ mod metadata {
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
         // Expand method of [len](Array::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            let out = context.create_local_binding(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Metadata::Length {
                     var: self.expand.into(),
@@ -239,7 +245,7 @@ mod metadata {
             self,
             context: &mut CubeContext,
         ) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(u32::as_elem()));
+            let out = context.create_local_binding(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Metadata::BufferLength {
                     var: self.expand.into(),

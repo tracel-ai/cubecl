@@ -184,6 +184,8 @@ impl CubeTypeStruct {
         });
 
         quote! {
+            #[derive(serde::Serialize, serde::Deserialize)]
+            #[serde(bound(serialize = "", deserialize = ""))]
             #vis struct #name #generics {
                 #(#fields),*
             }
@@ -195,6 +197,8 @@ impl CubeTypeStruct {
                     }
                 }
             }
+
+            impl #type_generics_names CompilationArg for #name #impl_generics #where_generics { }
 
             impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

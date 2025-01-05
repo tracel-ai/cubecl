@@ -186,6 +186,94 @@ impl Elem {
             Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_)
         )
     }
+
+    pub fn max_variable(&self) -> Variable {
+        let value = match self {
+            Elem::Float(kind) => match kind {
+                FloatKind::F16 => {
+                    ConstantScalarValue::Float(half::f16::MAX.to_f64(), FloatKind::F16)
+                }
+                FloatKind::BF16 => {
+                    ConstantScalarValue::Float(half::bf16::MAX.to_f64(), FloatKind::BF16)
+                }
+                FloatKind::Flex32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::Flex32),
+                FloatKind::F32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::F32),
+                FloatKind::TF32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::TF32),
+                FloatKind::F64 => ConstantScalarValue::Float(f64::MAX, FloatKind::F64),
+            },
+            Elem::Int(kind) => match kind {
+                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
+                IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
+                IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
+                IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
+            },
+            Elem::AtomicInt(kind) => match kind {
+                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
+                IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
+                IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
+                IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
+            },
+            Elem::UInt(kind) => match kind {
+                UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
+                UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
+                UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
+                UIntKind::U64 => ConstantScalarValue::UInt(u64::MAX, UIntKind::U64),
+            },
+            Elem::AtomicUInt(kind) => match kind {
+                UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
+                UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
+                UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
+                UIntKind::U64 => ConstantScalarValue::UInt(u64::MAX, UIntKind::U64),
+            },
+            Elem::Bool => ConstantScalarValue::Bool(true),
+        };
+
+        Variable::new(VariableKind::ConstantScalar(value), Item::new(*self))
+    }
+
+    pub fn min_variable(&self) -> Variable {
+        let value = match self {
+            Elem::Float(kind) => match kind {
+                FloatKind::F16 => {
+                    ConstantScalarValue::Float(half::f16::MIN.to_f64(), FloatKind::F16)
+                }
+                FloatKind::BF16 => {
+                    ConstantScalarValue::Float(half::bf16::MIN.to_f64(), FloatKind::BF16)
+                }
+                FloatKind::Flex32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::Flex32),
+                FloatKind::F32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::F32),
+                FloatKind::TF32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::TF32),
+                FloatKind::F64 => ConstantScalarValue::Float(f64::MIN, FloatKind::F64),
+            },
+            Elem::Int(kind) => match kind {
+                IntKind::I8 => ConstantScalarValue::Int(i8::MIN.into(), IntKind::I8),
+                IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
+                IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
+                IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
+            },
+            Elem::AtomicInt(kind) => match kind {
+                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
+                IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
+                IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
+                IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
+            },
+            Elem::UInt(kind) => match kind {
+                UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
+                UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
+                UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
+                UIntKind::U64 => ConstantScalarValue::UInt(u64::MIN, UIntKind::U64),
+            },
+            Elem::AtomicUInt(kind) => match kind {
+                UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
+                UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
+                UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
+                UIntKind::U64 => ConstantScalarValue::UInt(u64::MIN, UIntKind::U64),
+            },
+            Elem::Bool => ConstantScalarValue::Bool(false),
+        };
+
+        Variable::new(VariableKind::ConstantScalar(value), Item::new(*self))
+    }
 }
 
 impl From<Elem> for Item {

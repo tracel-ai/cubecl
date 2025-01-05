@@ -9,8 +9,8 @@ pub use crate::runtime::Runtime;
 
 /// Elements
 pub use crate::frontend::{
-    Array, ArrayHandleRef, AtomicI32, AtomicI64, AtomicU32, Float, LaunchArg, Slice, SliceMut,
-    Tensor, TensorArg,
+    Array, ArrayHandleRef, AtomicI32, AtomicI64, AtomicU32, Float, FloatExpand, LaunchArg,
+    NumericExpand, Slice, SliceMut, Tensor, TensorArg,
 };
 pub use crate::pod::CubeElement;
 
