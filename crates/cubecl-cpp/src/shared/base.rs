@@ -1,10 +1,9 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
+use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
     ir::{self as gpu},
-    prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
@@ -546,7 +545,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let input_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {
@@ -572,14 +572,27 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operator::Index(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if op.lhs.has_length() {
-                        expand_checked_index(scope, op.lhs, op.rhs, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
+                    instructions.extend(self.compile_scope(scope));
+                    let lhs = op.lhs;
+                    let rhs = op.rhs;
+                    let array_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+                    instructions.extend(self.compile_scope(scope));
+                    let length = match lhs.has_buffer_length() {
+                        true => gpu::Metadata::BufferLength { var: lhs },
+                        false => gpu::Metadata::Length { var: lhs },
+                    };
+                    instructions.push(self.compile_metadata(length, Some(array_len)));
+                    instructions.push(Instruction::CheckedIndex {
+                        len: self.compile_variable(array_len),
+                        lhs: self.compile_variable(lhs),
+                        rhs: self.compile_variable(rhs),
+                        out: self.compile_variable(out),
+                    });
+                } else {
+                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                }
             }
             gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_binary(op, out)))

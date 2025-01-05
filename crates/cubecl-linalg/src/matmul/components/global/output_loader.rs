@@ -13,10 +13,10 @@ pub struct Unloader<EG: Numeric> {
 }
 
 #[cube]
-impl<EG: Numeric> global::Unloader<EG> for Unloader<EG> {
+impl<EG: Numeric> global::OutputLoader<EG> for Unloader<EG> {
     type StageWriter = Self;
 
-    fn as_stage_writer<G: global::Config>(this: Self) -> Self::StageWriter {
+    fn as_stage_writer<G: global::GlobalConfig>(this: Self) -> Self::StageWriter {
         this
     }
 }
@@ -37,7 +37,7 @@ impl<EG: Numeric> Unloader<EG> {
 
 #[cube]
 impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
-    fn write<ES: Numeric, G: global::Config>(
+    fn write<ES: Numeric, G: global::GlobalConfig>(
         this: &mut Self,
         slice: Slice<Line<ES>>,
         compute_plane_offset: u32,

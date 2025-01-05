@@ -83,7 +83,7 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced<G: global::Config>(
+    pub fn load_coalesced<G: global::GlobalConfig>(
         &self,
         tile_x: u32,
         tile_y: u32,
@@ -169,7 +169,7 @@ impl<EG: Numeric> TensorWriter<EG> {
     /// Writes data into the tensor view at the specified coordinates (write_x, write_y).
     ///
     /// Each unit writes one line in a coalesced manner for improved efficiency, assuming row-major layout.
-    pub fn write_coalesced<ES: Numeric, G: global::Config>(
+    pub fn write_coalesced<ES: Numeric, G: global::GlobalConfig>(
         &mut self,
         tile_x: u32,
         tile_y: u32,

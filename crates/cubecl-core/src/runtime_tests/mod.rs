@@ -15,6 +15,7 @@ pub mod sequence;
 pub mod slice;
 pub mod tensor;
 pub mod topology;
+pub mod traits;
 pub mod unary;
 
 #[allow(missing_docs)]

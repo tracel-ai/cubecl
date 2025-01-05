@@ -1,9 +1,13 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Item, Vectorization},
-    prelude::{ArgSettings, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand},
+    prelude::{
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+    },
     Runtime,
 };
 
@@ -53,11 +57,13 @@ impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
 }
 
 /// Compilation argument for a [tensor](Tensor).
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorCompilationArg {
     pub inplace: Option<u16>,
     pub vectorisation: Vectorization,
 }
+
+impl CompilationArg for TensorCompilationArg {}
 
 impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
     type CompilationArg = TensorCompilationArg;
@@ -67,7 +73,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Tensor<C>> {
         builder
-            .input_tensor(Item::vectorized(C::as_elem(), arg.vectorisation))
+            .input_tensor(Item::vectorized(
+                C::as_elem(&builder.context),
+                arg.vectorisation,
+            ))
             .into()
     }
     fn expand_output(
@@ -77,7 +86,10 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
         match arg.inplace {
             Some(id) => builder.inplace_output(id).into(),
             None => builder
-                .output_tensor(Item::vectorized(C::as_elem(), arg.vectorisation))
+                .output_tensor(Item::vectorized(
+                    C::as_elem(&builder.context),
+                    arg.vectorisation,
+                ))
                 .into(),
         }
     }
@@ -122,7 +134,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
                     handle,
                     strides,
                     shape,
-                    E::as_elem().size(),
+                    E::size().expect("Element should have a size"),
                 ),
                 vectorization_factor: factor,
             }

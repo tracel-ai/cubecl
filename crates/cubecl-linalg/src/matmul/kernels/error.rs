@@ -1,9 +1,12 @@
 use cubecl_core::ir::Elem;
 use std::fmt::Debug;
 
+use crate::matmul::components::InvalidConfigError;
+
 pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
     InvalidProblem(MatmulInvalidProblem),
+    InvalidConfig(InvalidConfigError),
 }
 
 pub enum MatmulAvailabilityError {
@@ -46,6 +49,12 @@ impl From<MatmulAvailabilityError> for MatmulLaunchError {
     }
 }
 
+impl From<InvalidConfigError> for MatmulLaunchError {
+    fn from(value: InvalidConfigError) -> Self {
+        Self::InvalidConfig(value)
+    }
+}
+
 impl Debug for MatmulLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -61,6 +70,13 @@ impl Debug for MatmulLaunchError {
                     f,
                     "Unable to launch matmul because the problem isn't correctly defined: {:?}",
                     err
+                )
+            }
+            MatmulLaunchError::InvalidConfig(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because the config is invalid: {:?}",
+                    err.to_string()
                 )
             }
         }

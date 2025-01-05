@@ -39,7 +39,7 @@ impl<F: Float> OutputWriter<F> for TileWriter<F> {
             skip_col: coordinates.skip_col,
         };
 
-        if line_size == tile_size {
+        if comptime![line_size == tile_size] {
             B::write_output::<MatchingVectorization>(
                 out,
                 results,

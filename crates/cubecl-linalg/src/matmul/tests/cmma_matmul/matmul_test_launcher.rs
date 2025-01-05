@@ -2,17 +2,22 @@ use std::fmt::Display;
 
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
+use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::CubeElement;
 use cubecl_core::Feature;
 
 use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::tile::accelerated::Accelerated;
+use crate::matmul::components::tile::plane::PlaneMma;
 use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::SingleMatmulSpec;
 use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::Algorithm;
+use crate::matmul::kernels::matmul::StandardSelector;
 use crate::matmul::tests::test_utils::CastInto;
 use crate::tensor::TensorHandle;
 
@@ -27,35 +32,83 @@ struct TensorRawParts<F: Float + CubeElement> {
     original_data: Option<Vec<F>>,
 }
 
-type Spec<EG, ES> = SingleMatmulSpec<32, EG, ES, f32>;
+type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_algorithm<A, EG, ES, R>(problem: MatmulProblem, device: &R::Device)
-where
-    A: Algorithm<Spec<EG, ES>>,
+pub fn test_matmul_algorithm<A, EG, ES, R>(
+    client: ComputeClient<R::Server, R::Channel>,
+    mut problem: MatmulProblem,
+    input: <A::BatchMatmul as MatmulConfigFactory>::Input,
+    selection: A::Selection,
+) where
+    A: Algorithm,
     EG: Float + CubeElement + Display + CastInto<ES>,
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
 {
-    let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
+    let env = std::env::var("MATMUL_TEST_MODE");
 
-    if A::check_availability::<R>(&client).is_err() {
+    let panic_on_launch_err = match env {
+        Ok(val) => match val.as_str() {
+            "panic" => true,
+            "skip" => false,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+    let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
+    let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
+    let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
+
+    problem.lhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &lhs.shape,
+        &lhs.strides,
+        lhs.strides.len() - 1,
+    );
+    problem.rhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &rhs.shape,
+        &rhs.strides,
+        rhs.strides.len() - 1,
+    );
+    problem.out_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        &out.shape,
+        &out.strides,
+        out.strides.len() - 1,
+    );
+
+    let cube_dim = A::cube_dim(&selection);
+    let cube_count = A::cube_count(&selection, &problem);
+    let config = match A::make_config(
+        input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+        &A::advanced_config(),
+    ) {
+        Ok(config) => config,
+        Err(err) => {
+            let msg = format!("Can't launch the test: {:?}", err);
+            if panic_on_launch_err {
+                panic!("{msg}");
+            } else {
+                println!("{msg}");
+                return;
+            }
+        }
+    };
+
+    if A::check_availability::<R, (EG, ES, f32)>(&client, &config).is_err() {
         // Can't execute the test.
         println!("Skipped - not supported!");
         return;
     }
 
-    let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
-
-    let cube_dim = A::cube_dim();
-    let cube_count = A::cube_count(&problem);
-    let config = A::make_config(&problem, &cube_dim, &cube_count, &A::advanced_config()).unwrap();
-
     unsafe {
-        A::BatchMatmul::launch_unchecked(
+        A::BatchMatmul::launch_unchecked::<Spec<EG, ES>, R>(
             &client,
             cube_dim,
             cube_count,
@@ -102,9 +155,9 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
 
     if !(client.properties().feature_enabled(Feature::Plane)
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(EG::as_elem())))
+        && client.properties().feature_enabled(Feature::Type(
+            EG::as_elem_native().expect("To be a native type"),
+        )))
     {
         // Can't execute the test.
         return;
@@ -118,15 +171,17 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     let rhs_handle = TensorHandle::new(rhs.shape, rhs.strides, rhs.handle);
     let out_handle = TensorHandle::new(out.shape, out.strides, out.handle);
 
-    let out = matmul::launch::<R, EG>(
+    let out = matmul::launch::<R, EG, StandardSelector<Accelerated>>(
         &client,
         lhs_handle.clone(),
         rhs_handle.clone(),
         out_handle.clone(),
-        false,
     )
     .unwrap_or_else(|_| {
-        matmul::launch::<R, EG>(&client, lhs_handle, rhs_handle, out_handle, true).unwrap()
+        matmul::launch::<R, EG, StandardSelector<PlaneMma>>(
+            &client, lhs_handle, rhs_handle, out_handle,
+        )
+        .unwrap()
     });
 
     assert_result::<EG, EG, R>(
@@ -181,7 +236,10 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Out => {
-            let handle = client.empty(tensor_size(problem, Ident::Out) * EG::as_elem().size());
+            let handle = client.empty(
+                tensor_size(problem, Ident::Out)
+                    * EG::as_elem_native().expect("To be a native type").size(),
+            );
             let shape = shape(problem, Ident::Out);
             let strides = strides(problem, Ident::Out);
 
@@ -223,9 +281,9 @@ fn assert_result<
         Some(epsilon) => epsilon,
         None => {
             let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-                a: ES::as_elem(),
-                b: ES::as_elem(),
-                c: EG::as_elem(),
+                a: ES::as_elem_native().expect("To be a native type"),
+                b: ES::as_elem_native().expect("To be a native type"),
+                c: EG::as_elem_native().expect("To be a native type"),
                 m: 16,
                 k: 16,
                 n: 16,
