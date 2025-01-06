@@ -688,6 +688,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::BitwiseXor(op) => {
                 instructions.push(Instruction::BitwiseXor(self.compile_binary(op, out)))
             }
+            gpu::Operator::CountOnes(op) => {
+                instructions.push(Instruction::CountBits(self.compile_unary(op, out)))
+            }
+            gpu::Operator::ReverseBits(op) => {
+                instructions.push(Instruction::ReverseBits(self.compile_unary(op, out)))
+            }
             gpu::Operator::ShiftLeft(op) => {
                 instructions.push(Instruction::ShiftLeft(self.compile_binary(op, out)))
             }

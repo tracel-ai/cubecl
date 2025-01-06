@@ -1,10 +1,13 @@
-use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
     CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
     Numeric,
 };
 use crate::ir::{Elem, IntKind};
 use crate::Runtime;
+use crate::{
+    compute::{KernelBuilder, KernelLauncher},
+    prelude::{CountOnes, ReverseBits},
+};
 
 use super::{
     init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
@@ -13,6 +16,8 @@ use super::{
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
+    + CountOnes
+    + ReverseBits
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

@@ -252,6 +252,8 @@ pub enum OpId {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
+    CountOnes,
+    ReverseBits,
     ShiftLeft,
     ShiftRight,
     Remainder,

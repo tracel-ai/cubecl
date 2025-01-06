@@ -439,7 +439,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
 
             // Declare entry
-            let entry_name = self.debug_info().name_str.clone();
+            let entry_name = debug_info.name_str.clone();
             let entry_def = self.definitions().functions[&entry_name];
             let args = self.debug_string("");
             let signature = self.debug_string(SIGNATURE);
@@ -539,6 +539,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap()
     }
 
+    #[track_caller]
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
     }

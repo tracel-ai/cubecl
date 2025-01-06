@@ -159,6 +159,53 @@ function!(Tanh, "tanh", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
 
+fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
+    match input.elem() {
+        Elem::I8 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U8),
+        Elem::I16 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U16),
+        Elem::U8 => format!("{}({input})", Elem::<D>::U32),
+        Elem::U16 => format!("{}({input})", Elem::<D>::U32),
+        _ => unreachable!("zero extend only supports integer < 32 bits"),
+    }
+}
+
+pub struct CountBits;
+
+impl<D: Dialect> Unary<D> for CountBits {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
+            _ => write!(f, "__popc({})", zero_extend(input)),
+        }
+    }
+}
+
+pub struct ReverseBits;
+
+impl<D: Dialect> Unary<D> for ReverseBits {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
+            _ => write!(
+                f,
+                "{elem}(__brev({}) >> {})",
+                zero_extend(input),
+                (size_of::<u32>() - elem.size()) * 8
+            ),
+        }
+    }
+}
+
 pub struct Not;
 
 impl<D: Dialect> Unary<D> for Not {
