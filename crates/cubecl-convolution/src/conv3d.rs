@@ -2,20 +2,20 @@ use cubecl::{calculate_cube_count_elemwise, prelude::*};
 use cubecl_core as cubecl;
 use cubecl_linalg::tensor::{into_contiguous, TensorHandle};
 
-use crate::utils::ConvOptions;
+use crate::utils::{bias_reshape_or_zero, ConvOptions};
 
 #[derive(CubeLaunch)]
-struct Conv3dArgs {
-    conv_stride_0: u32,
-    conv_stride_1: u32,
-    conv_stride_2: u32,
-    dilation_0: u32,
-    dilation_1: u32,
-    dilation_2: u32,
-    padding_0: u32,
-    padding_1: u32,
-    padding_2: u32,
-    groups: u32,
+pub(crate) struct Conv3dArgs {
+    pub conv_stride_0: u32,
+    pub conv_stride_1: u32,
+    pub conv_stride_2: u32,
+    pub dilation_0: u32,
+    pub dilation_1: u32,
+    pub dilation_2: u32,
+    pub padding_0: u32,
+    pub padding_1: u32,
+    pub padding_2: u32,
+    pub groups: u32,
 }
 
 #[cube(launch)]
@@ -143,22 +143,13 @@ pub fn launch_ref<R: Runtime, E: Float>(
         .try_into()
         .expect("Weight shape should have 5 dimensions");
 
-    let bias: TensorHandle<R, E> = match bias {
-        Some(bias) => {
-            let shape = vec![bias.shape[0], 1, 1, 1, 1];
-            TensorHandle::new_contiguous(shape, bias.handle.clone())
-        }
-        None => {
-            let shape = vec![out.shape[0], 1, 1, 1, 1];
-            TensorHandle::zeros(&client.clone(), shape)
-        }
-    };
+    let bias = bias_reshape_or_zero::<R, E>(client, bias, out.shape);
 
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(out.size(), cube_dim);
 
     conv3d_kernel::launch::<E, R>(
-        &client,
+        client,
         cube_count,
         cube_dim,
         input.as_arg(1),
