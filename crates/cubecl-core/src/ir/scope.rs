@@ -67,7 +67,7 @@ impl Scope {
 
     /// Create a variable initialized at zero.
     pub fn zero<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let local = self.create_local_mut(item);
+        let local = self.create_local(item.into());
         let zero: Variable = 0u32.into();
         cpa!(self, local = zero);
         local
@@ -88,7 +88,7 @@ impl Scope {
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
-        let local = self.create_local_mut(item);
+        let local = self.create_local(item);
         let value = Variable::constant(value);
         cpa!(self, local = value);
         local

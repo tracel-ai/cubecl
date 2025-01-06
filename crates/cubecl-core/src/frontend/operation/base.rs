@@ -170,7 +170,7 @@ where
     F: Fn(UnaryOperator) -> Operator,
 {
     let input = input.consume();
-    let output = context.create_local_mut(out_item);
+    let output = context.create_local(out_item);
     let out = *output;
 
     let op = func(UnaryOperator { input });
