@@ -320,7 +320,7 @@ impl Optimizer {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
                 if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
-                    if let VariableKind::Local { id, depth } = &op.out().kind {
+                    if let VariableKind::LocalMut { id, depth } = &op.out().kind {
                         self.program.variables.remove(&(*id, *depth));
                     }
                 }
@@ -382,7 +382,7 @@ impl Optimizer {
         let processed = scope.process();
 
         for var in processed.variables {
-            if let VariableKind::Local { id, depth } = var.kind {
+            if let VariableKind::LocalMut { id, depth } = var.kind {
                 self.program.variables.insert((id, depth), var.item);
             }
         }
@@ -437,7 +437,7 @@ impl Optimizer {
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<(u16, u8)> {
         match variable.kind {
-            core::VariableKind::Local { id, depth } if !variable.item.elem.is_atomic() => {
+            core::VariableKind::LocalMut { id, depth } if !variable.item.elem.is_atomic() => {
                 Some((id, depth))
             }
             _ => None,
@@ -449,7 +449,7 @@ impl Optimizer {
     pub fn create_temporary(&self, item: Item) -> Variable {
         let next_id = self.program.temp_id.inc() as u16;
         Variable::new(
-            VariableKind::LocalBinding {
+            VariableKind::LocalConst {
                 id: u16::MAX - next_id,
                 depth: u8::MAX,
             },
@@ -481,7 +481,7 @@ mod test {
     use cubecl::prelude::*;
     use cubecl_core::{
         self as cubecl,
-        ir::{Elem, HybridAllocator, Item, UIntKind, Variable, VariableKind},
+        ir::{Allocator, Elem, Item, UIntKind, Variable, VariableKind},
         prelude::{Array, CubeContext, ExpandElement},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
@@ -504,7 +504,7 @@ mod test {
     #[test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = CubeContext::root(HybridAllocator::default());
+        let mut ctx = CubeContext::root(Allocator::new());
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Item::new(Elem::UInt(UIntKind::U32)),

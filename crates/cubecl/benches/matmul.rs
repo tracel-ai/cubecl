@@ -85,14 +85,14 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
 }
 
 fn main() {
-    // #[cfg(feature = "wgpu")]
-    // {
-    //     run::<cubecl::wgpu::WgpuRuntime, f32>(
-    //         Default::default(),
-    //         matmul::Strategy::Tiling2D(Default::default()),
-    //     );
-    //     run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
-    // }
+    #[cfg(feature = "wgpu")]
+    {
+        run::<cubecl::wgpu::WgpuRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Tiling2D(Default::default()),
+        );
+        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+    }
 
     #[cfg(feature = "wgpu-spirv")]
     {
