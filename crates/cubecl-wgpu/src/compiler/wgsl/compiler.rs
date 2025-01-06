@@ -891,7 +891,9 @@ impl WgslCompiler {
                     let rhs = op.rhs;
                     let array_len =
                         scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
+
                     instructions.extend(self.compile_scope(scope));
+
                     let length = match lhs.has_buffer_length() {
                         true => cube::Metadata::BufferLength { var: lhs },
                         false => cube::Metadata::Length { var: lhs },
