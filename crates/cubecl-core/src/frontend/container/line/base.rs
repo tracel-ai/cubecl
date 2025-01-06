@@ -86,8 +86,7 @@ mod fill {
             value: ExpandElementTyped<P>,
         ) -> Self {
             let length = self.expand.item.vectorization;
-            let output =
-                context.create_local(Item::vectorized(P::as_elem(context), length));
+            let output = context.create_local(Item::vectorized(P::as_elem(context), length));
 
             cast::expand::<P>(context, value, output.clone().into());
 
