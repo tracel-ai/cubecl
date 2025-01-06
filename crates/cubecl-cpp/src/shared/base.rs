@@ -547,6 +547,7 @@ impl<D: Dialect> CppCompiler<D> {
                     let input = op.input;
                     let input_len =
                         scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {
@@ -573,12 +574,14 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    instructions.extend(self.compile_scope(scope));
                     let lhs = op.lhs;
                     let rhs = op.rhs;
+
                     let array_len =
                         scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+
                     instructions.extend(self.compile_scope(scope));
+
                     let length = match lhs.has_buffer_length() {
                         true => gpu::Metadata::BufferLength { var: lhs },
                         false => gpu::Metadata::Length { var: lhs },
