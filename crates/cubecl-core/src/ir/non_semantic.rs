@@ -8,6 +8,8 @@ use super::Variable;
 
 /// Operations that don't change the semantics of the kernel. In other words, operations that do not
 /// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
+///
+/// Can be safely removed or ignored without changing the kernel result.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NonSemantic {
     Source {
