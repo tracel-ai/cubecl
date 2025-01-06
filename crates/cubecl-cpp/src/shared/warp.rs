@@ -156,8 +156,8 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&str) -> String>(
 
 fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
     if target != input.item() {
-        let maybe_const = if input.is_const() { " const" } else { "" };
-        format!("reinterpret_cast<{}{}&>({})", target, maybe_const, input)
+        let qualifier = input.const_qualifier();
+        format!("reinterpret_cast<{}{}&>({})", target, qualifier, input)
     } else {
         format!("{}", input)
     }

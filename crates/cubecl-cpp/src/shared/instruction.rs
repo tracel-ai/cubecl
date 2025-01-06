@@ -729,12 +729,12 @@ impl<D: Dialect> Remainder<D> {
 
             write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
 
-            let maybe_const = if out.is_const() { " cosnt" } else { "" };
+            let qualifier = out.const_qualifier();
             let out = out.fmt_left();
 
             writeln!(
                 f,
-                "{out} = reinterpret_cast<{item_out_original}{maybe_const}&>({out_tmp});\n"
+                "{out} = reinterpret_cast<{item_out_original}{qualifier}&>({out_tmp});\n"
             )?;
 
             Ok(())

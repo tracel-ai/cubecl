@@ -450,6 +450,14 @@ impl<D: Dialect> Variable<D> {
             optimized: self.is_optimized(),
         }
     }
+
+    pub fn const_qualifier(&self) -> &str {
+        if self.is_const() {
+            " const"
+        } else {
+            ""
+        }
+    }
 }
 
 pub trait FmtLeft: Display {
