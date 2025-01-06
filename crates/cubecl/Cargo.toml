@@ -15,6 +15,7 @@ version.workspace = true
 default = [
     "std",
     "linalg",
+    "convolution",
     "cubecl-core/default",
     "cubecl-cuda?/default",
     "cubecl-hip?/default",
@@ -22,6 +23,7 @@ default = [
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 linalg = ["dep:cubecl-linalg"]
+convolution = ["dep:cubecl-convolution"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 template = ["cubecl-core/template"]
 
@@ -37,6 +39,7 @@ cubecl-core = { path = "../cubecl-core", version = "0.4.0", default-features = f
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.4.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "0.4.0", default-features = false, optional = true }
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", default-features = false, optional = true }
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.4.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.4.0", default-features = false, optional = true }
 half = { workspace = true }
