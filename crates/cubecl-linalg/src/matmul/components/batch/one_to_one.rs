@@ -1,37 +1,103 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::shared::gmm_execute;
-use crate::matmul::components::global::args::{TensorInput, TensorOutput};
+use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulKernel, MatmulLaunch, StageDim,
+    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageDim,
 };
-use crate::matmul::components::{InputRuntimeArg, MatmulProblem, MatmulSpec, OutputRuntimeArg};
+use crate::matmul::components::{
+    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
+    OutputRuntimeArg,
+};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::tensor::{ReadWrite, VirtualTensor};
+use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Config as _, CubeDispatch};
+use super::{BatchConfig as _, CubeDispatch};
+
+pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
+    _gmm: PhantomData<GMM>,
+    _c: PhantomData<C>,
+}
+
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
+    type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
+}
+
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
+    for OneToOneMatmulFamily<GMM, C>
+{
+    type Input = GMM::Input;
+    type Config = Config<GMM::Config, C>;
+
+    fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        GMM::check_config(&config.to_gmm_config())
+    }
+
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), MatmulAvailabilityError> {
+        GMM::check_availability::<R, MP>(client, &config.gmm_config)
+    }
+
+    fn make_config(
+        input: Self::Input,
+        problem: &MatmulProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+        advanced_config: &AdvancedConfig,
+    ) -> Self::Config {
+        let gmm_config = GMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
+        let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
+            (*x, *y, *z)
+        } else {
+            panic!("Dynamic cube count unsupported")
+        };
+
+        Config::<GMM::Config, C>::new(gmm_config, cube_count)
+    }
+}
+
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFamily<GMM, C> {
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        cube_dim: CubeDim,
+        cube_count: CubeCount,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        config: Self::Config,
+    ) {
+        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+            client, cube_count, cube_dim, input, output, config,
+        );
+    }
+}
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to a single global matmul.
 ///
 /// Note: This algorithm requires one cube per global matmul;
 /// insufficient cubes will result in incomplete computations.
-pub struct Matmul<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> {
-    _ms: PhantomData<MS>,
+pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> {
+    _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> batch::Matmul<MS>
-    for Matmul<MS, GMM, C>
+impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP>
+    for OneToOneMatmul<MP, GMM, C>
 {
+    type Config = Config<GMM::Config, C>;
+
     fn execute(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
@@ -42,7 +108,7 @@ impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> batch::Matmul<MS>
         let k_range = (0, lhs.shape(rank - 1));
 
         let gmm_config = config.to_gmm_config();
-        gmm_execute::<MS, GMM>(
+        gmm_execute::<MP, GMM>(
             lhs,
             rhs,
             out,
@@ -56,63 +122,15 @@ impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> batch::Matmul<MS>
     }
 }
 
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulKernel for Matmul<MS, GMM, C> {
-    type Config = Config<GMM::Config, C>;
-
-    fn check_config(config: Self::Config) {
-        GMM::check_config(config.to_gmm_config())
-    }
-
-    fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R>(client)
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let gmm_config = GMM::make_config(problem, cube_dim, cube_count, advanced_config);
-        let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
-            (*x, *y, *z)
-        } else {
-            panic!("Dynamic cube count unsupported")
-        };
-
-        Config::<GMM::Config, C>::new(gmm_config, cube_count)
-    }
-}
-
-impl<MS: MatmulSpec, GMM: global::Matmul<MS>, C: CubeDispatch> MatmulLaunch<MS>
-    for Matmul<MS, GMM, C>
-{
-    unsafe fn launch_unchecked<'a, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
-        cube_dim: CubeDim,
-        cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        config: Self::Config,
-    ) {
-        Self::check_config(config);
-        super::batch_matmul::launch_unchecked::<MS, Self, R>(
-            client, cube_count, cube_dim, input, output, config,
-        );
-    }
-}
-
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::Config, C: CubeDispatch> {
+pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
     cube_count: (u32, u32, u32),
     _c: PhantomData<C>,
 }
 
-impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
+impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, C> {
     type GmmConfig = G;
 
     fn to_gmm_config(&self) -> Self::GmmConfig {
@@ -136,9 +154,9 @@ impl<G: global::Config, C: CubeDispatch> batch::Config for Config<G, C> {
     }
 }
 
-impl<G: global::Config, C: CubeDispatch> MatmulConfig for Config<G, C> {}
+impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
-impl<G: global::Config, C: CubeDispatch> Config<G, C> {
+impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
     pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
         Self {
             gmm_config,

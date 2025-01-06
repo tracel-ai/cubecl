@@ -1,4 +1,4 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 
@@ -10,18 +10,20 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
         output[0] = item;
 
         // out of bounds write should not show up in the array.
-        output[2] = F::new(10.0);
+        output[3] = F::new(10.0);
 
         // out of bounds read should be read as 0.
-        output[1] = output[2];
+        output[1] = output[3];
     }
 }
 
 pub fn test_kernel_index_scalar<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    let handle = client.create(F::as_bytes(&[F::new(0.0), F::new(1.0), F::new(123.0)]));
-    let handle_slice = handle.clone().offset_end(1);
+    let handle = client.create(F::as_bytes(as_type![F: 0.0, 1.0, 123.0, 6.0]));
+    let handle_slice = handle
+        .clone()
+        .offset_end(F::as_elem_native_unchecked().size() as u64);
     let vectorization = 1;
 
     kernel_assign::launch::<F, R>(

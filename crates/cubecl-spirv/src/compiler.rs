@@ -183,7 +183,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.state.extensions = extensions;
 
         self.init_state(kernel.clone());
-        self.init_debug(kernel.clone());
+
+        let opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
+        self.init_debug(kernel.kernel_name.clone(), &opt);
+        self.opt = opt;
+
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         target.set_kernel_name(kernel.kernel_name.clone());
@@ -192,7 +196,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let setup = self.id();
         self.debug_name(setup, "setup");
-        self.opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
 
         let entry = self.opt.entry();
         let body = self.label(entry);
@@ -227,6 +230,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 id
             })
             .collect::<Vec<_>>();
+
+        self.finish_debug();
 
         target.set_modes(self, main, builtins, cube_dims);
 

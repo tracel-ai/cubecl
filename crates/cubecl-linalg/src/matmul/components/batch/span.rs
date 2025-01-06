@@ -1,13 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{
-    batch::shared::swizzle,
-    global::{
-        self,
-        args::{TensorInput, TensorOutput},
+use crate::{
+    matmul::components::{
+        batch::shared::swizzle,
+        global::{self},
+        MatmulPrecision,
     },
-    MatmulSpec,
+    tensor::{ReadWrite, VirtualTensor},
 };
 
 use super::shared::gmm_execute;
@@ -32,10 +32,10 @@ pub struct SpanDim {
 #[cube]
 /// Iterates on several global matmul across a span
 pub trait SpanMatmul: 'static + Send + Sync {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         span: Span,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -89,10 +89,10 @@ impl SpanDim {
 
 #[cube]
 impl SpanMatmul for RowMajorSpanMatmul {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -102,7 +102,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
             for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                 for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                     GMM::zero_accumulator(&mut acc, config);
-                    gmm_execute::<MS, GMM>(
+                    gmm_execute::<MP, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
                 }
@@ -113,10 +113,10 @@ impl SpanMatmul for RowMajorSpanMatmul {
 
 #[cube]
 impl SpanMatmul for ColMajorSpanMatmul {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -126,7 +126,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
             for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                 for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                     GMM::zero_accumulator(&mut acc, config);
-                    gmm_execute::<MS, GMM>(
+                    gmm_execute::<MP, GMM>(
                         lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                     );
                 }
@@ -137,10 +137,10 @@ impl SpanMatmul for ColMajorSpanMatmul {
 
 #[cube]
 impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
-    fn execute<MS: MatmulSpec, GMM: global::Matmul<MS>>(
-        lhs: TensorInput<MS::EG, MS::Args>,
-        rhs: TensorInput<MS::EG, MS::Args>,
-        out: TensorOutput<MS::EG, MS::Args>,
+    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        lhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EG>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -155,7 +155,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
 
                 let row_iter = span.row.start + row * span.row.step;
                 let col_iter = span.col.start + col * span.col.step;
-                gmm_execute::<MS, GMM>(
+                gmm_execute::<MP, GMM>(
                     lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
                 );
             }

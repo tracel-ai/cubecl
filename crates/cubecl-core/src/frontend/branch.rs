@@ -100,7 +100,7 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
         mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let mut child = context.child();
-        let index_ty = Item::new(I::as_elem());
+        let index_ty = Item::new(I::as_elem(context));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
@@ -130,7 +130,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
         mut body: impl FnMut(&mut CubeContext, <I as CubeType>::ExpandType),
     ) {
         let mut child = context.child();
-        let index_ty = Item::new(I::as_elem());
+        let index_ty = Item::new(I::as_elem(context));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());

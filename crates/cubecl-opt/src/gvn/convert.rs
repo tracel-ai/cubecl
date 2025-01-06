@@ -157,6 +157,10 @@ impl Expression {
                         rhs: args[1],
                     })
                     .into(),
+                    OpId::CountOnes => Operator::CountOnes(UnaryOperator { input: args[0] }).into(),
+                    OpId::ReverseBits => {
+                        Operator::ReverseBits(UnaryOperator { input: args[0] }).into()
+                    }
                     OpId::ShiftLeft => Operator::ShiftLeft(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
@@ -331,6 +335,8 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::BitwiseAnd(_) => OpId::BitwiseAnd,
         Operator::BitwiseOr(_) => OpId::BitwiseOr,
         Operator::BitwiseXor(_) => OpId::BitwiseXor,
+        Operator::CountOnes(_) => OpId::CountOnes,
+        Operator::ReverseBits(_) => OpId::ReverseBits,
         Operator::ShiftLeft(_) => OpId::ShiftLeft,
         Operator::ShiftRight(_) => OpId::ShiftRight,
         Operator::Remainder(_) => OpId::Remainder,

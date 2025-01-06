@@ -50,6 +50,12 @@ pub enum Instruction<D: Dialect> {
     Sub(BinaryInstruction<D>),
     Index(BinaryInstruction<D>),
     IndexAssign(BinaryInstruction<D>),
+    CheckedIndex {
+        len: Variable<D>,
+        lhs: Variable<D>,
+        rhs: Variable<D>,
+        out: Variable<D>,
+    },
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -111,6 +117,8 @@ pub enum Instruction<D: Dialect> {
     BitwiseOr(BinaryInstruction<D>),
     BitwiseAnd(BinaryInstruction<D>),
     BitwiseXor(BinaryInstruction<D>),
+    CountBits(UnaryInstruction<D>),
+    ReverseBits(UnaryInstruction<D>),
     ShiftLeft(BinaryInstruction<D>),
     ShiftRight(BinaryInstruction<D>),
     Abs(UnaryInstruction<D>),
@@ -224,10 +232,27 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::CountBits(it) => CountBits::format(f, &it.input, &it.out),
+            Instruction::ReverseBits(it) => ReverseBits::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::CheckedIndex { len, lhs, rhs, out } => {
+                let item_out = out.item();
+                if let Elem::Atomic(inner) = item_out.elem {
+                    write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+                } else {
+                    let out = out.fmt_left();
+                    write!(f, "{out} = ({rhs} < {len}) ? ")?;
+                    Index::format_scalar(f, *lhs, *rhs, item_out)?;
+                    if item_out.vectorization == 1 {
+                        writeln!(f, " : {item_out}(0);")
+                    } else {
+                        writeln!(f, " : {item_out}{{}};")
+                    }
+                }
+            }
             Instruction::Copy {
                 input,
                 in_index,
@@ -311,20 +336,27 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 or_else,
                 out,
             } => {
-                let vf_then = then.item().vectorization;
-                let vf_or_else = or_else.item().vectorization;
-                let vf_out = out.item().vectorization;
-                let vf_cond = cond.item().vectorization;
+                let item_or_else = or_else.item();
+                let item_then = then.item();
+                let item_out = out.item();
 
-                let vf = usize::max(vf_cond, vf_out);
-                let vf = usize::max(vf, vf_then);
-                let vf = usize::max(vf, vf_or_else);
+                let vf_then = item_then.vectorization;
+                let vf_or_else = item_or_else.vectorization;
+                let vf_out = item_out.vectorization;
+                let vf_cond = cond.item().vectorization;
 
                 let item_out = out.item();
                 let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                if vf > 1 {
+                let should_broadcast =
+                    vf_cond > 1 || item_out != item_or_else || item_out != item_then;
+
+                if should_broadcast {
+                    let vf = usize::max(vf_cond, vf_out);
+                    let vf = usize::max(vf, vf_then);
+                    let vf = usize::max(vf, vf_or_else);
+
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
@@ -457,7 +489,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     (Elem::U32, Elem::BF16) => {
                         writeln!(f, "{out} = __ushort_as_bfloat16({input});")
                     }
-                    _ => panic!("Unsupported type for bitcasting"),
+                    (Elem::I32, Elem::U32) => {
+                        writeln!(f, "{out} = reinterpret_cast<uint&>({input});")
+                    }
+                    elem => panic!("Unsupported type for bitcasting {elem:?}"),
                 }
             }
             Instruction::AtomicCAS {

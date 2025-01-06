@@ -1,25 +1,32 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
-    paths::{core_type, prelude_path, prelude_type},
+    paths::{core_type, frontend_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
+        let debug_source = frontend_type("debug_source_expand");
+
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
             KernelBody::Block(block) => &block.to_tokens(&mut self.context),
             KernelBody::Verbatim(tokens) => tokens,
         };
+        let name = &self.full_name;
+        let debug_source = quote_spanned! {self.span=>
+            #debug_source(context, #name, file!(), line!(), column!())
+        };
 
         let out = quote! {
             #vis #sig {
+                #debug_source;
                 use #prelude_path::IntoRuntime as _;
 
                 #body
@@ -166,8 +173,10 @@ impl Launch {
         let mut define = quote! {};
 
         let expand_fn = |ident, expand_name, ty| {
+            let ty = self.analysis.process_ty(&ty);
+
             quote! {
-                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident, &mut builder);
+                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for input in self.runtime_inputs() {
@@ -196,10 +205,10 @@ impl Launch {
         let runtime = prelude_type("Runtime");
         let compiler = core_type("Compiler");
         let io_map = self.io_mappings();
+        let register_type = self.analysis.register_elems();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
-        let (_, generics, _) = self.func.sig.generics.split_for_impl();
-        let generics = generics.as_turbofish();
+        let generics = self.analysis.process_generics(&self.func.sig.generics);
         let allocator = self.args.local_allocator.as_ref();
         let allocator = allocator.map(|it| it.to_token_stream()).unwrap_or_else(
             || quote![<<__R as #runtime>::Compiler as #compiler>::local_allocator()],
@@ -207,6 +216,7 @@ impl Launch {
 
         quote! {
             let mut builder = #kernel_builder::with_local_allocator(#allocator);
+            #register_type
             #io_map
             expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
             builder.build(self.settings.clone())

@@ -302,7 +302,7 @@ impl Display for Variable {
             // precision related problems.
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
-                    IntKind::I32 => write!(f, "{}i", *val as i32),
+                    IntKind::I32 => write!(f, "{}", *val as i32),
                     _ => unimplemented!("{:?} not supported in WGSL", kind),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {

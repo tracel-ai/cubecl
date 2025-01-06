@@ -9,9 +9,11 @@ use super::Numeric;
 
 mod relaxed;
 mod tensor_float;
+mod typemap;
 
 pub use relaxed::*;
 pub use tensor_float::*;
+pub use typemap::*;
 
 /// Floating point numbers. Used as input in float kernels
 pub trait Float:
@@ -33,6 +35,7 @@ pub trait Float:
     + Normalize
     + Dot
     + Into<Self::ExpandType>
+    + core::ops::Neg<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
     + core::ops::Mul<Output = Self>
@@ -77,8 +80,8 @@ macro_rules! impl_float {
 
         impl CubePrimitive for $primitive {
             /// Return the element type to use on GPU
-            fn as_elem() -> Elem {
-                Elem::Float(FloatKind::$kind)
+            fn as_elem_native() -> Option<Elem> {
+                Some(Elem::Float(FloatKind::$kind))
             }
         }
 
@@ -93,8 +96,12 @@ macro_rules! impl_float {
         }
 
         impl Numeric for $primitive {
-            const MAX: Self = $primitive::MAX;
-            const MIN: Self = $primitive::MIN;
+            fn min_value() -> Self {
+                <Self as num_traits::Float>::min_value()
+            }
+            fn max_value() -> Self {
+                <Self as num_traits::Float>::max_value()
+            }
         }
 
         impl ExpandElementBaseInit for $primitive {
@@ -129,7 +136,7 @@ macro_rules! impl_float {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem()).into()
+                builder.scalar($primitive::as_elem(&builder.context)).into()
             }
         }
     };

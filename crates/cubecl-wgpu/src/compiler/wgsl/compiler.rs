@@ -8,11 +8,10 @@ use crate::{
     WgpuServer,
 };
 
-use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
+use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
     ir::{self as cube, Allocator, UIntKind},
     prelude::CompiledKernel,
-    prelude::CubePrimitive,
     server::ComputeServer,
     Feature, Metadata,
 };
@@ -892,18 +891,32 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Operator::Index(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if op.lhs.has_length() {
-                        expand_checked_index(scope, op.lhs, op.rhs, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(wgsl::Instruction::Index {
-                    lhs: self.compile_variable(op.lhs),
-                    rhs: self.compile_variable(op.rhs),
-                    out: self.compile_variable(out),
-                });
+                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
+                    let lhs = op.lhs;
+                    let rhs = op.rhs;
+                    let array_len =
+                        scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
+
+                    instructions.extend(self.compile_scope(scope));
+
+                    let length = match lhs.has_buffer_length() {
+                        true => cube::Metadata::BufferLength { var: lhs },
+                        false => cube::Metadata::Length { var: lhs },
+                    };
+                    instructions.push(self.compile_metadata(length, Some(array_len)));
+                    instructions.push(wgsl::Instruction::CheckedIndex {
+                        len: self.compile_variable(array_len),
+                        lhs: self.compile_variable(lhs),
+                        rhs: self.compile_variable(rhs),
+                        out: self.compile_variable(out),
+                    });
+                } else {
+                    instructions.push(wgsl::Instruction::Index {
+                        lhs: self.compile_variable(op.lhs),
+                        rhs: self.compile_variable(op.rhs),
+                        out: self.compile_variable(out),
+                    });
+                }
             }
             cube::Operator::UncheckedIndex(op) => instructions.push(wgsl::Instruction::Index {
                 lhs: self.compile_variable(op.lhs),
@@ -960,6 +973,14 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::CountOnes(op) => instructions.push(wgsl::Instruction::CountBits {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Operator::ReverseBits(op) => instructions.push(wgsl::Instruction::ReverseBits {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Operator::ShiftLeft(op) => instructions.push(wgsl::Instruction::ShiftLeft {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
@@ -978,8 +999,8 @@ impl WgslCompiler {
             cube::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local_mut(cube::Item::new(u32::as_elem()));
-
+                    let input_len = scope
+                        .create_local_mut(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {

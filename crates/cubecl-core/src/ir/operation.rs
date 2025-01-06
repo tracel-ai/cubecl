@@ -169,6 +169,8 @@ pub enum Operator {
     BitwiseXor(BinaryOperator),
     ShiftLeft(BinaryOperator),
     ShiftRight(BinaryOperator),
+    CountOnes(UnaryOperator),
+    ReverseBits(UnaryOperator),
     Remainder(BinaryOperator),
     Bitcast(UnaryOperator),
     Magnitude(UnaryOperator),
@@ -236,6 +238,8 @@ impl Display for Operator {
             Operator::BitwiseAnd(op) => write!(f, "{} & {}", op.lhs, op.rhs),
             Operator::BitwiseOr(op) => write!(f, "{} | {}", op.lhs, op.rhs),
             Operator::BitwiseXor(op) => write!(f, "{} ^ {}", op.lhs, op.rhs),
+            Operator::CountOnes(op) => write!(f, "{}.count_bits()", op.input),
+            Operator::ReverseBits(op) => write!(f, "{}.reverse_bits()", op.input),
             Operator::ShiftLeft(op) => write!(f, "{} << {}", op.lhs, op.rhs),
             Operator::ShiftRight(op) => write!(f, "{} >> {}", op.lhs, op.rhs),
             Operator::Remainder(op) => write!(f, "{} rem {}", op.lhs, op.rhs),
@@ -367,25 +371,6 @@ pub struct FmaOperator {
     pub a: Variable,
     pub b: Variable,
     pub c: Variable,
-}
-
-#[allow(missing_docs)]
-pub fn expand_checked_index(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    let array_len = scope.create_local_mut(Item::new(Elem::UInt(UIntKind::U32)));
-    let inside_bound = scope.create_local_mut(Item::new(Elem::Bool));
-    let item = scope.create_local_mut(out.item);
-    let zero: Variable = 0u32.into();
-
-    if lhs.has_buffer_length() {
-        cpa!(scope, array_len = buffer_len(lhs));
-    } else {
-        cpa!(scope, array_len = len(lhs));
-    }
-
-    cpa!(scope, inside_bound = rhs < array_len);
-
-    cpa!(scope, item = unchecked(lhs[rhs]));
-    cpa!(scope, out = select(inside_bound, item, zero));
 }
 
 #[allow(missing_docs)]

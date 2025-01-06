@@ -1,8 +1,8 @@
-use crate::{ir::ConstantScalarValue, prelude::CubePrimitive};
+use crate::ir::ConstantScalarValue;
 
 use super::{
-    cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, Variable,
-    VariableKind,
+    cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, UIntKind,
+    Variable, VariableKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -333,7 +333,7 @@ impl Scope {
     ) -> Variable {
         let item_global = match item.elem() {
             Elem::Bool => Item {
-                elem: u32::as_elem(),
+                elem: Elem::UInt(UIntKind::U32),
                 vectorization: item.vectorization,
             },
             _ => item,

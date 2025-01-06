@@ -3,9 +3,8 @@ use std::{
     mem::swap,
 };
 
-use cubecl_core::{
-    ir::{self, Item, Metadata, Operation, Operator, Variable, VariableKind},
-    prelude::CubePrimitive,
+use cubecl_core::ir::{
+    self, Elem, Item, Metadata, Operation, Operator, UIntKind, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -103,6 +102,9 @@ impl ValueTable {
         }
     }
 
+    /// Create expression if it's numberable. Returns the number, optional out value and
+    /// expression. If the error includes a value, treats that value as volatile (i.e. atomics) and
+    /// don't number any expressions that depend on it.
     fn create_expr(
         &mut self,
         inst: &ir::Instruction,
@@ -208,7 +210,9 @@ impl ValueTable {
             | Operator::Not(op)
             | Operator::Neg(op)
             | Operator::Magnitude(op)
-            | Operator::Normalize(op) => {
+            | Operator::Normalize(op)
+            | Operator::CountOnes(op)
+            | Operator::ReverseBits(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
                 let item = out.item;
                 let out = value_of_var(&out);
@@ -317,7 +321,7 @@ impl ValueTable {
                     | VariableKind::LocalArray { length, .. } => {
                         let constant = length.into();
                         let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num, Item::new(u32::as_elem()));
+                        let expr = Expression::Copy(num, Item::new(Elem::UInt(UIntKind::U32)));
                         return Ok((expr, out));
                     }
                     _ => unreachable!("Length only available on array"),

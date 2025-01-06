@@ -4,9 +4,10 @@ use ash::{
     khr::cooperative_matrix,
     vk::{
         ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo,
-        PhysicalDevice16BitStorageFeatures, PhysicalDeviceCooperativeMatrixFeaturesKHR,
-        PhysicalDeviceShaderFloat16Int8Features, PhysicalDeviceVulkanMemoryModelFeatures, ScopeKHR,
-        EXT_ROBUSTNESS2_NAME, KHR_COOPERATIVE_MATRIX_NAME,
+        PhysicalDevice16BitStorageFeatures, PhysicalDevice8BitStorageFeatures,
+        PhysicalDeviceCooperativeMatrixFeaturesKHR, PhysicalDeviceShaderFloat16Int8Features,
+        PhysicalDeviceVulkanMemoryModelFeatures, ScopeKHR, EXT_ROBUSTNESS2_NAME,
+        KHR_COOPERATIVE_MATRIX_NAME,
     },
 };
 use cubecl_core::{
@@ -229,6 +230,7 @@ fn request_device(
         .shader_int8(true);
     let mut buf_16 =
         PhysicalDevice16BitStorageFeatures::default().storage_buffer16_bit_access(true);
+    let mut buf_8 = PhysicalDevice8BitStorageFeatures::default().storage_buffer8_bit_access(true);
 
     if has_cmma {
         device_extensions.push(KHR_COOPERATIVE_MATRIX_NAME);
@@ -265,6 +267,7 @@ fn request_device(
     info = info.push_next(&mut mem_model);
     info = info.push_next(&mut f16_i8);
     info = info.push_next(&mut buf_16);
+    info = info.push_next(&mut buf_8);
 
     if let Some(cmma) = &mut cmma {
         info = info.push_next(cmma);
