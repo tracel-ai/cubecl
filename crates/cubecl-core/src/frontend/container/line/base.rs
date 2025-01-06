@@ -86,8 +86,7 @@ mod fill {
             value: ExpandElementTyped<P>,
         ) -> Self {
             let length = self.expand.item.vectorization;
-            let output =
-                context.create_local_binding(Item::vectorized(P::as_elem(context), length));
+            let output = context.create_local(Item::vectorized(P::as_elem(context), length));
 
             cast::expand::<P>(context, value, output.clone().into());
 
@@ -128,7 +127,7 @@ mod empty {
                 None => None,
             };
             context
-                .create_local_variable(Item::vectorized(Self::as_elem(context), length))
+                .create_local_mut(Item::vectorized(Self::as_elem(context), length))
                 .into()
         }
     }
@@ -216,7 +215,7 @@ macro_rules! impl_line_comparison {
                         let lhs = self.expand.into();
                         let rhs = rhs.expand.into();
 
-                        let output = context.create_local_binding(Item::vectorized(bool::as_elem(context), size));
+                        let output = context.create_local_mut(Item::vectorized(bool::as_elem(context), size));
 
                         context.register(Instruction::new(
                             Operator::$operator(BinaryOperator { lhs, rhs }),

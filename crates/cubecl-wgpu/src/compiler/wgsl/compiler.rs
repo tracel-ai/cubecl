@@ -10,7 +10,7 @@ use crate::{
 
 use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
-    ir::{self as cube, HybridAllocator, UIntKind},
+    ir::{self as cube, Allocator, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
     Feature, Metadata,
@@ -81,8 +81,8 @@ impl cubecl_core::Compiler for WgslCompiler {
         32768
     }
 
-    fn local_allocator() -> impl cube::LocalAllocator {
-        HybridAllocator::default()
+    fn local_allocator() -> Allocator {
+        Allocator::new()
     }
 }
 
@@ -357,15 +357,16 @@ impl WgslCompiler {
             cube::VariableKind::GlobalScalar(id) => {
                 wgsl::Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
-            cube::VariableKind::Local { id, depth }
-            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::Local {
+            cube::VariableKind::LocalMut { id, depth }
+            | cube::VariableKind::Versioned { id, depth, .. } => wgsl::Variable::LocalMut {
                 id,
                 item: Self::compile_item(item),
                 depth,
             },
-            cube::VariableKind::LocalBinding { id, .. } => wgsl::Variable::LocalBinding {
+            cube::VariableKind::LocalConst { id, depth } => wgsl::Variable::LocalConst {
                 id,
                 item: Self::compile_item(item),
+                depth,
             },
             cube::VariableKind::Slice { id, depth } => wgsl::Variable::Slice {
                 id,
@@ -998,9 +999,8 @@ impl WgslCompiler {
             cube::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len =
-                        scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
-
+                    let input_len = scope
+                        .create_local_mut(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {

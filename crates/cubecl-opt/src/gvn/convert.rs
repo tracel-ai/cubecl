@@ -221,7 +221,7 @@ impl Value {
                 version: 0,
                 item,
             }) => Variable::new(
-                VariableKind::LocalBinding {
+                VariableKind::LocalConst {
                     id: *id,
                     depth: *depth,
                 },
@@ -276,7 +276,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             version,
             item,
         }),
-        VariableKind::LocalBinding { id, depth } => Value::Local(Local {
+        VariableKind::LocalConst { id, depth } => Value::Local(Local {
             id,
             depth,
             version: 0,
@@ -284,7 +284,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         }),
         VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
         VariableKind::ConstantArray { id, length } => Value::ConstArray(id, item, length),
-        VariableKind::Local { .. }
+        VariableKind::LocalMut { .. }
         | VariableKind::SharedMemory { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,

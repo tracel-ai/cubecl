@@ -101,7 +101,7 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem(context));
-        let i = child.create_local_undeclared(index_ty);
+        let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
 
@@ -131,7 +131,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
     ) {
         let mut child = context.child();
         let index_ty = Item::new(I::as_elem(context));
-        let i = child.create_local_undeclared(index_ty);
+        let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
 
@@ -396,7 +396,7 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
         None => {
             let mut then_child = context.child();
             let ret = then_block(&mut then_child);
-            let out: ExpandElementTyped<C> = context.create_local_variable(ret.expand.item).into();
+            let out: ExpandElementTyped<C> = context.create_local_mut(ret.expand.item).into();
             assign::expand(&mut then_child, ret, out.clone());
 
             IfElseExprExpand::Runtime {
@@ -501,7 +501,7 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
 ) -> SwitchExpandExpr<I, C> {
     let mut default_child = context.child();
     let default = default_block(&mut default_child);
-    let out: ExpandElementTyped<C> = context.create_local_variable(default.expand.item).into();
+    let out: ExpandElementTyped<C> = context.create_local_mut(default.expand.item).into();
     assign::expand(&mut default_child, default, out.clone());
 
     SwitchExpandExpr {

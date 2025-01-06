@@ -46,7 +46,7 @@ impl OptimizerPass for CompositeMerge {
                 let op = { ops.borrow()[idx].clone() };
                 if let (
                     Operation::Operator(Operator::IndexAssign(BinaryOperator { lhs, rhs })),
-                    Some(VariableKind::Local { id, depth }),
+                    Some(VariableKind::LocalMut { id, depth }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
                     let item = op.out.unwrap().item;
@@ -70,7 +70,7 @@ impl OptimizerPass for CompositeMerge {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(rhs),
-                                Variable::new(VariableKind::Local { id, depth }, item),
+                                Variable::new(VariableKind::LocalMut { id, depth }, item),
                             )
                         }
                     }
@@ -93,7 +93,7 @@ fn merge_assigns(
     let last = assigns.iter().map(|it| it.0).max().unwrap();
     assigns.sort_by_key(|it| it.1);
     let inputs = assigns.iter().map(|it| it.2).collect::<Vec<_>>();
-    let out = Variable::new(VariableKind::Local { id, depth }, item);
+    let out = Variable::new(VariableKind::LocalMut { id, depth }, item);
     ops.insert(
         last,
         Instruction::new(Operator::InitLine(LineInitOperator { inputs }), out),

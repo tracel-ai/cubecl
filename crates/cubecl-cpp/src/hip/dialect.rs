@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::shared::{Dialect, IndexedVariable, Variable, WmmaCompiler};
+use crate::shared::{Dialect, WmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct HipDialect<M> {
@@ -75,20 +75,19 @@ impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
         // "hip_bfloat16.h" has no "hip_bfloat162" type
         f.write_str("hip_bfloat16")
     }
-
-    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String {
-        format!("__shfl({input}, {id})")
+    fn warp_shuffle(var: &str, source: &str) -> String {
+        format!("__shfl({var}, {source})")
     }
-    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String {
-        format!("__shfl_xor({out}, offset)")
+    fn warp_shuffle_xor(var: &str, offset: &str) -> String {
+        format!("__shfl_xor_sync({var}, {offset})")
     }
-    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String {
-        format!("__shfl_down({out}, offset)")
+    fn warp_shuffle_down(var: &str, offset: &str) -> String {
+        format!("__shfl_down_sync({var}, {offset})")
     }
-    fn warp_all(out: &IndexedVariable<Self>) -> String {
-        format!("__all({out})")
+    fn warp_all(var: &str) -> String {
+        format!("__all({var})")
     }
-    fn warp_any(out: &IndexedVariable<Self>) -> String {
+    fn warp_any(out: &str) -> String {
         format!("__any({out})")
     }
 }

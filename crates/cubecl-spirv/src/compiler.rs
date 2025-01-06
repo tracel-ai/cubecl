@@ -9,7 +9,7 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{HybridAllocator, KernelDefinition, LocalAllocator},
+    ir::{Allocator, KernelDefinition},
     Compiler, ExecutionMode,
 };
 use rspirv::{
@@ -159,8 +159,8 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         elem.size()
     }
 
-    fn local_allocator() -> impl LocalAllocator {
-        HybridAllocator::default()
+    fn local_allocator() -> Allocator {
+        Allocator::new()
     }
 
     fn max_shared_memory_size() -> usize {

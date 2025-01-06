@@ -412,7 +412,7 @@ impl KernelIntegrator {
                     });
                     self.expansion.scope.write_global(
                         Variable::new(
-                            VariableKind::Local {
+                            VariableKind::LocalMut {
                                 id: local,
 
                                 depth: self.expansion.scope.depth,
@@ -432,7 +432,7 @@ impl KernelIntegrator {
                 } => {
                     self.expansion.scope.write_global(
                         Variable::new(
-                            VariableKind::Local {
+                            VariableKind::LocalMut {
                                 id: local,
                                 depth: self.expansion.scope.depth,
                             },

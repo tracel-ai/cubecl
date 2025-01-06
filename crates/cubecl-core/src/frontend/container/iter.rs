@@ -31,7 +31,7 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
         let len: ExpandElement = T::len(&self.expand, context);
 
         let mut child = context.child();
-        let i = child.create_local_undeclared(index_ty);
+        let i = child.create_local_restricted(index_ty);
 
         let item = index::expand(&mut child, self, i.clone().into());
         body(&mut child, item);

@@ -130,7 +130,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = context.create_local_binding(Item::new(u32::as_elem(context)));
+            let out = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -148,7 +148,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = context.create_local_binding(Item::new(u32::as_elem(context)));
+            let out = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,
@@ -171,7 +171,7 @@ mod metadata {
             let shape = self.clone().__expand_shape_method(context, dim.clone());
 
             // Compute `num_strides = index / stride`.
-            let num_strides = context.create_local_binding(Item::new(u32::as_elem(context)));
+            let num_strides = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Operator::Div(BinaryOperator {
                     lhs: *index,
@@ -181,7 +181,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = context.create_local_binding(Item::new(u32::as_elem(context)));
+            let coordinate = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
                 Operator::Modulo(BinaryOperator {
                     lhs: *num_strides,
@@ -210,7 +210,7 @@ mod metadata {
 
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local_binding(Item::new(u32::as_elem(context)));
+            let out = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
         }
@@ -258,7 +258,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item);
+            let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
