@@ -234,6 +234,14 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    CountBits {
+        input: Variable,
+        out: Variable,
+    },
+    ReverseBits {
+        input: Variable,
+        out: Variable,
+    },
     ShiftLeft {
         lhs: Variable,
         rhs: Variable,
@@ -816,6 +824,14 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::BitwiseXor { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} ^ {rhs};")
+            }
+            Instruction::CountBits { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = countOneBits({input});")
+            }
+            Instruction::ReverseBits { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = reverseBits({input});")
             }
             Instruction::ShiftLeft { lhs, rhs, out } => {
                 let out = out.fmt_left();

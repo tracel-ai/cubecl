@@ -6,6 +6,8 @@ use crate::ir::fmt_vararg;
 
 use super::Variable;
 
+/// Operations that don't change the semantics of the kernel. In other words, operations that do not
+/// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum NonSemantic {
     Source {
