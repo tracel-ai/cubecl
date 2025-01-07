@@ -764,6 +764,7 @@ impl<D: Dialect> Magnitude<D> {
             writeln!(f, "{mag} += {input_i} * {input_i};")?;
         }
 
+        let out = out.fmt_left();
         write!(f, "{out} = ")?;
         Sqrt::format_unary(f, &mag, elem)?;
         f.write_str(";\n")
