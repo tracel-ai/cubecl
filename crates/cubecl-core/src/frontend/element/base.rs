@@ -31,6 +31,8 @@ pub trait CubeType {
 }
 
 /// Trait useful for cube types that are also used with comptime.
+///
+/// This is used to set a variable as mutable. (Need to be fixed or at least renamed.)
 pub trait IntoRuntime: CubeType + Sized {
     /// Make sure a type is actually expanded into its runtime [expand type](CubeType::ExpandType).
     fn runtime(self) -> Self {
