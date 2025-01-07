@@ -3,7 +3,10 @@ use cubecl_core::ir::{
     VariableKind,
 };
 
-use crate::{AtomicCounter, Optimizer, Slice};
+use crate::{
+    analyses::const_len::{Slice, Slices},
+    AtomicCounter, Optimizer,
+};
 
 use super::OptimizerPass;
 
@@ -13,6 +16,8 @@ pub struct ConstOperandSimplify;
 
 impl OptimizerPass for ConstOperandSimplify {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+        let slices = opt.analysis::<Slices>();
+
         for node in opt.program.node_indices().collect::<Vec<_>>() {
             let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
 
@@ -123,7 +128,7 @@ impl OptimizerPass for ConstOperandSimplify {
                             changes.inc();
                         }
                         VariableKind::Slice { id, depth } => {
-                            let slice = opt.program.slices.get(&(id, depth));
+                            let slice = slices.get(&(id, depth));
                             if let Some(Slice {
                                 const_len: Some(len),
                                 ..

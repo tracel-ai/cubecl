@@ -4,9 +4,8 @@ use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    analyses::liveness::Liveness,
+    analyses::{const_len::Slices, integer_range::Ranges, liveness::Liveness},
     gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, OpId, Value, ValueTable},
-    passes::var_id,
     ControlFlow,
 };
 
@@ -17,8 +16,11 @@ const DEBUG_GVN: bool = false;
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let slices = self.analyses.try_get::<Slices>().unwrap_or_default();
+        let ranges = self.analyses.try_get::<Ranges>().unwrap_or_default();
+
         f.write_str("Slices:\n")?;
-        for (var_id, slice) in self.program.slices.iter() {
+        for (var_id, slice) in slices.iter() {
             let end_op = slice.end_op.as_ref().map(|it| format!("{it}"));
             writeln!(
                 f,
@@ -76,8 +78,7 @@ impl Display for Optimizer {
             }
 
             for op in bb.ops.borrow_mut().values_mut() {
-                let id = op.out.and_then(|var| var_id(&var));
-                let range = id.and_then(|id| self.program.int_ranges.get(&id));
+                let range = op.out.map(|var| ranges.range_of(self, &var));
                 let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
 
                 writeln!(f, "    {op};{range}")?;

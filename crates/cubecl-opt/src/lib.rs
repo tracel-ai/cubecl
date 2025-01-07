@@ -43,9 +43,8 @@ use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
-    EmptyBranchToSelect, FindConstSliceLen, InBoundsToUnchecked, InlineAssignments,
-    IntegerRangeAnalysis, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
-    RemoveIndexScalar,
+    EmptyBranchToSelect, InBoundsToUnchecked, InlineAssignments, MergeBlocks, MergeSameExpressions,
+    OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
@@ -90,14 +89,6 @@ impl AtomicCounter {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Slice {
-    pub(crate) start: Variable,
-    pub(crate) end: Variable,
-    pub(crate) end_op: Option<Operation>,
-    pub(crate) const_len: Option<u32>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ConstArray {
     pub id: u16,
     pub length: u32,
@@ -109,10 +100,8 @@ pub struct ConstArray {
 struct Program {
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<(u16, u8), Item>,
-    pub(crate) slices: HashMap<(u16, u8), Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
-    int_ranges: HashMap<VarId, Range>,
 
     temp_id: AtomicCounter,
 }
@@ -132,12 +121,6 @@ impl DerefMut for Program {
 }
 
 type VarId = (u16, u8, u16);
-
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-struct Range {
-    lower_bound: Option<i64>,
-    upper_bound: Option<i64>,
-}
 
 /// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone)]
@@ -270,15 +253,6 @@ impl Optimizer {
             Box::new(EliminateDeadBlocks),
             Box::new(EliminateDeadPhi),
         ];
-        // Passes that only run if execution mode is checked
-        let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
-            Box::new(IntegerRangeAnalysis),
-            Box::new(FindConstSliceLen),
-            Box::new(InBoundsToUnchecked),
-        ];
-        if matches!(self.mode, ExecutionMode::Checked) {
-            passes.extend(checked_passes);
-        }
 
         loop {
             let counter = AtomicCounter::default();
@@ -289,6 +263,11 @@ impl Optimizer {
             if counter.get() == 0 {
                 break;
             }
+        }
+
+        // Only replace indexing when checked, since all indexes are unchecked anyways in unchecked
+        if matches!(self.mode, ExecutionMode::Checked) {
+            InBoundsToUnchecked.apply_post_ssa(self, AtomicCounter::new(0));
         }
     }
 
@@ -378,27 +357,8 @@ impl Optimizer {
         let is_break = processed.operations.contains(&Branch::Break.into());
 
         for mut instruction in processed.operations {
-            let out = instruction.out;
             match &mut instruction.operation {
                 Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
-                Operation::Operator(Operator::Slice(slice_op)) => {
-                    let out_id = match out.unwrap().kind {
-                        VariableKind::Slice { id, depth } => (id, depth),
-                        _ => unreachable!(),
-                    };
-                    let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
-                    let const_len = const_len.map(|(start, end)| end.as_u32() - start.as_u32());
-                    self.program.slices.insert(
-                        out_id,
-                        Slice {
-                            start: slice_op.start,
-                            end: slice_op.end,
-                            end_op: None,
-                            const_len,
-                        },
-                    );
-                    self.current_block_mut().ops.borrow_mut().push(instruction);
-                }
                 _ => {
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
