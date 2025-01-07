@@ -15,6 +15,7 @@ pub mod sequence;
 pub mod slice;
 pub mod tensor;
 pub mod topology;
+pub mod traits;
 pub mod unary;
 
 #[allow(missing_docs)]
@@ -36,6 +37,8 @@ macro_rules! testgen_all {
 
         ::paste::paste! {
             $(mod [<$float _ty>] {
+                use super::*;
+
                 type FloatType = $float;
                 type IntType = $i_def;
                 type UintType = $u_def;
@@ -43,6 +46,8 @@ macro_rules! testgen_all {
                 $crate::testgen_float!();
             })*
             $(mod [<$int _ty>] {
+                use super::*;
+
                 type FloatType = $f_def;
                 type IntType = $int;
                 type UintType = $u_def;
@@ -50,6 +55,8 @@ macro_rules! testgen_all {
                 $crate::testgen_int!();
             })*
             $(mod [<$uint _ty>] {
+                use super::*;
+
                 type FloatType = $f_def;
                 type IntType = $i_def;
                 type UintType = $uint;
@@ -83,7 +90,9 @@ macro_rules! testgen_float {
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_int {
-    () => {};
+    () => {
+        cubecl_core::testgen_unary_int!();
+    };
 }
 
 #[allow(missing_docs)]

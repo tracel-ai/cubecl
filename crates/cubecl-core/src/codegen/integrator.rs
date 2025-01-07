@@ -3,10 +3,9 @@ use std::num::NonZero;
 use super::Compiler;
 use crate::{
     ir::{
-        Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, Variable,
-        VariableKind, Vectorization, Visibility,
+        Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, UIntKind,
+        Variable, VariableKind, Vectorization, Visibility,
     },
-    prelude::CubePrimitive,
     Runtime,
 };
 
@@ -321,7 +320,7 @@ impl KernelIntegrator {
         named.push((
             "info".to_string(),
             Binding {
-                item: Item::new(u32::as_elem()),
+                item: Item::new(Elem::UInt(UIntKind::U32)),
                 visibility: Visibility::Read,
                 location: Location::Storage,
                 has_extended_meta: false,
@@ -413,7 +412,7 @@ impl KernelIntegrator {
                     });
                     self.expansion.scope.write_global(
                         Variable::new(
-                            VariableKind::Local {
+                            VariableKind::LocalMut {
                                 id: local,
 
                                 depth: self.expansion.scope.depth,
@@ -433,7 +432,7 @@ impl KernelIntegrator {
                 } => {
                     self.expansion.scope.write_global(
                         Variable::new(
-                            VariableKind::Local {
+                            VariableKind::LocalMut {
                                 id: local,
                                 depth: self.expansion.scope.depth,
                             },
@@ -531,7 +530,7 @@ fn bool_item(ty: Item) -> Item {
 pub fn bool_elem(elem: Elem) -> Elem {
     match elem {
         // U32 are used for bool tensors
-        Elem::Bool => u32::as_elem(),
+        Elem::Bool => Elem::UInt(UIntKind::U32),
         _ => elem,
     }
 }

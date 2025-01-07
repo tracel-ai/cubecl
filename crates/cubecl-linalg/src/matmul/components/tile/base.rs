@@ -1,7 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, MatrixLayout};
+use crate::matmul::components::{
+    config::MatmulConfig, Ident, MatmulConfigFactory, MatmulSize, MatrixLayout,
+};
+
+pub trait TileMatmulFamily: MatmulConfigFactory<Config: TileConfig> {
+    fn size(config: &Self::Config) -> MatmulSize;
+    fn input(tile_size: MatmulSize) -> Self::Input;
+    fn requires_tensor_cores() -> bool;
+
+    type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;
+}
 
 #[cube]
 /// Provides matrix multiplication operations at the tile level.
@@ -16,16 +26,8 @@ use crate::matmul::components::{config::MatmulConfig, Ident, MatmulKernel, Matri
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-pub trait Matmul<I: Numeric, O: Numeric>:
-    'static + Send + Sync + MatmulKernel<Config: Config>
-{
-    /// Number of rows of LHS
-    const M: u32;
-    /// Number of columns of RHS
-    const N: u32;
-    /// Common dimension of LHS and RHS
-    const K: u32;
-
+pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
+    type Config: TileConfig;
     /// Contains LHS data that can be split across the units
     type Lhs: CubeType;
     /// Contains RHS data that can be split across the units
@@ -91,7 +93,7 @@ pub trait Matmul<I: Numeric, O: Numeric>:
 }
 
 /// Configuration for the Tile matmul (TMM) level
-pub trait Config: MatmulConfig {
+pub trait TileConfig: MatmulConfig {
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
 
@@ -100,4 +102,7 @@ pub trait Config: MatmulConfig {
 
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
+
+    /// Returns the line size for the given ident
+    fn size(&self) -> &MatmulSize;
 }

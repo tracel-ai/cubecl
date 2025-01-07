@@ -1,8 +1,6 @@
 use std::fmt::Display;
 use std::num::NonZero;
 
-use crate::prelude::CubePrimitive;
-
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +17,10 @@ impl Variable {
     }
 
     pub fn builtin(builtin: Builtin) -> Self {
-        Self::new(VariableKind::Builtin(builtin), Item::new(u32::as_elem()))
+        Self::new(
+            VariableKind::Builtin(builtin),
+            Item::new(Elem::UInt(UIntKind::U32)),
+        )
     }
 
     pub fn constant(scalar: ConstantScalarValue) -> Self {
@@ -40,13 +41,13 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    Local { id: Id, depth: u8 },
+    LocalArray { id: Id, depth: u8, length: u32 },
+    LocalMut { id: Id, depth: u8 },
+    LocalConst { id: Id, depth: u8 },
     Versioned { id: Id, depth: u8, version: u16 },
-    LocalBinding { id: Id, depth: u8 },
     ConstantScalar(ConstantScalarValue),
     ConstantArray { id: Id, length: u32 },
     SharedMemory { id: Id, length: u32 },
-    LocalArray { id: Id, depth: u8, length: u32 },
     Matrix { id: Id, mat: Matrix, depth: u8 },
     Slice { id: Id, depth: u8 },
     Builtin(Builtin),
@@ -84,7 +85,7 @@ impl Variable {
     pub fn is_immutable(&self) -> bool {
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
-            VariableKind::Local { .. } => false,
+            VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
             VariableKind::Slice { .. } => false,
@@ -92,7 +93,7 @@ impl Variable {
             VariableKind::GlobalInputArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
             VariableKind::Versioned { .. } => true,
-            VariableKind::LocalBinding { .. } => true,
+            VariableKind::LocalConst { .. } => true,
             VariableKind::ConstantScalar(_) => true,
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
@@ -368,21 +369,33 @@ impl Variable {
     pub fn vectorization_factor(&self) -> u8 {
         self.item.vectorization.map(NonZero::get).unwrap_or(1u8)
     }
-    pub fn index(&self) -> Option<u16> {
+
+    pub fn index(&self) -> Option<Id> {
         match self.kind {
-            VariableKind::GlobalInputArray(id) => Some(id),
-            VariableKind::GlobalScalar(id) => Some(id),
-            VariableKind::Local { id, .. } => Some(id),
-            VariableKind::Versioned { id, .. } => Some(id),
-            VariableKind::LocalBinding { id, .. } => Some(id),
-            VariableKind::Slice { id, .. } => Some(id),
-            VariableKind::GlobalOutputArray(id) => Some(id),
-            VariableKind::ConstantScalar(_) => None,
-            VariableKind::ConstantArray { id, .. } => Some(id),
-            VariableKind::SharedMemory { id, .. } => Some(id),
-            VariableKind::LocalArray { id, .. } => Some(id),
-            VariableKind::Matrix { id, .. } => Some(id),
-            VariableKind::Builtin(_) => None,
+            VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalScalar(id)
+            | VariableKind::LocalMut { id, .. }
+            | VariableKind::Versioned { id, .. }
+            | VariableKind::LocalConst { id, .. }
+            | VariableKind::Slice { id, .. }
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::ConstantArray { id, .. }
+            | VariableKind::SharedMemory { id, .. }
+            | VariableKind::LocalArray { id, .. }
+            | VariableKind::Matrix { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn depth(&self) -> Option<u8> {
+        match self.kind {
+            VariableKind::LocalMut { depth, .. }
+            | VariableKind::Versioned { depth, .. }
+            | VariableKind::LocalConst { depth, .. }
+            | VariableKind::LocalArray { depth, .. }
+            | VariableKind::Matrix { depth, .. }
+            | VariableKind::Slice { depth, .. } => Some(depth),
+            _ => None,
         }
     }
 
@@ -401,11 +414,11 @@ impl Display for Variable {
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
-            VariableKind::Local { id, depth } => write!(f, "local({id}, {depth})"),
+            VariableKind::LocalMut { id, depth } => write!(f, "local({id}, {depth})"),
             VariableKind::Versioned { id, depth, version } => {
                 write!(f, "local({id}, {depth}).v{version}")
             }
-            VariableKind::LocalBinding { id, depth } => write!(f, "binding({id}, {depth})"),
+            VariableKind::LocalConst { id, depth } => write!(f, "binding({id}, {depth})"),
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),

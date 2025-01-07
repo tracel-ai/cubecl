@@ -336,6 +336,8 @@ impl Display for Instruction {
             OpId::BitwiseAnd => write!(f, "{} & {}", args[0], args[1]),
             OpId::BitwiseOr => write!(f, "{} | {}", args[0], args[1]),
             OpId::BitwiseXor => write!(f, "{} ^ {}", args[0], args[1]),
+            OpId::CountOnes => write!(f, "{}.count_ones()", args[0]),
+            OpId::ReverseBits => write!(f, "{}.reverse_bits()", args[0]),
             OpId::ShiftLeft => write!(f, "{} << {}", args[0], args[1]),
             OpId::ShiftRight => write!(f, "{} >> {}", args[0], args[1]),
             OpId::Remainder => write!(f, "{} % {}", args[0], args[1]),

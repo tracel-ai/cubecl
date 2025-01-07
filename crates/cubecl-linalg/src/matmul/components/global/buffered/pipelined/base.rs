@@ -1,15 +1,9 @@
-use crate::matmul::components::global::unloader::Unloader;
-use crate::matmul::components::global::{Config as _, Loader};
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader};
+use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::TilingOrderConfig;
-use crate::matmul::components::MatmulKernel;
-use crate::matmul::components::StageDim;
-use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
-use crate::matmul::components::{global, MatmulProblem};
-use crate::matmul::components::{stage, MatmulSpec};
-use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::kernels::matmul::AdvancedConfig;
-use crate::matmul::kernels::MatmulAvailabilityError;
+use crate::matmul::components::Ident;
+use crate::matmul::components::{stage, MatmulPrecision};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
@@ -21,26 +15,27 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct Matmul<MS: MatmulSpec, SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>> {
-    _ms: PhantomData<MS>,
+pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>> {
+    _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MS: MatmulSpec, SMM> global::Matmul<MS> for Matmul<MS, SMM>
+impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for PipelinedMatmul<MP, SMM>
 where
-    SMM: stage::Matmul<
-        MS::ES,
-        MS::EG,
-        MS::EA,
-        LhsReader = LhsBufferReader<MS::ES>,
-        RhsReader = RhsBufferReader<MS::ES>,
+    SMM: stage::StageMatmul<
+        MP::ES,
+        MP::EG,
+        MP::EA,
+        LhsReader = LhsBufferReader<MP::ES>,
+        RhsReader = RhsBufferReader<MP::ES>,
     >,
 {
-    type LhsLoader = LhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MS::EG, MS::ES, SMM::Config>;
+    type Config = CommonGlobalConfig<SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MS::EG>;
+    type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -135,7 +130,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -145,7 +140,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -155,7 +150,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -169,154 +164,5 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
-    }
-}
-
-impl<MS: MatmulSpec, SMM> MatmulKernel for Matmul<MS, SMM>
-where
-    SMM: stage::Matmul<MS::ES, MS::EG, MS::EA>,
-{
-    type Config = Config<SMM::Config>;
-
-    fn check_config(config: Self::Config) {
-        assert!(
-            config.stage_dim(Ident::Lhs).num_tiles_y_dim() == 2,
-            "Pipelined matmul needs exactly 2 buffers."
-        );
-        SMM::check_config(config.to_smm_config());
-    }
-
-    fn check_availability<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R>(client)
-    }
-
-    fn make_config(
-        problem: &MatmulProblem,
-        cube_dim: &CubeDim,
-        cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
-    ) -> Self::Config {
-        let smm_config = SMM::make_config(problem, cube_dim, cube_count, advanced_config);
-
-        Config::new(
-            smm_config,
-            problem.m as u32 % SMM::M != 0,
-            problem.n as u32 % SMM::N != 0,
-            problem.k as u32 % SMM::K != 0,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            problem.lhs_line_size as u32,
-            problem.rhs_line_size as u32,
-            problem.out_line_size as u32,
-            cube_dim.y,
-        )
-    }
-}
-
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the pipelined global matmul
-pub struct Config<S: stage::Config> {
-    smm_config: S,
-    check_m_bounds: bool,
-    check_n_bounds: bool,
-    check_k_bounds: bool,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
-    lhs_line_size: u32,
-    rhs_line_size: u32,
-    out_line_size: u32,
-    num_planes: u32,
-}
-
-impl<S: stage::Config> global::Config for Config<S> {
-    type SmmConfig = S;
-
-    fn to_smm_config(&self) -> Self::SmmConfig {
-        self.smm_config
-    }
-
-    fn global_line_size(&self, ident: Ident) -> u32 {
-        match ident {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
-    }
-
-    fn stage_line_size(&self, ident: Ident) -> u32 {
-        self.smm_config.line_size(ident)
-    }
-
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
-        self.smm_config.stage_dim(ident)
-    }
-
-    fn layout(&self, ident: Ident) -> MatrixLayout {
-        match ident {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
-        }
-    }
-
-    fn num_planes(&self) -> u32 {
-        self.num_planes
-    }
-
-    fn plane_dim(&self) -> u32 {
-        self.smm_config.plane_dim()
-    }
-
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
-        self.smm_config.tiling_order(ident)
-    }
-
-    fn check_m_bounds(&self) -> bool {
-        self.check_m_bounds
-    }
-
-    fn check_n_bounds(&self) -> bool {
-        self.check_n_bounds
-    }
-
-    fn check_k_bounds(&self) -> bool {
-        self.check_k_bounds
-    }
-
-    fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
-    }
-}
-
-impl<S: stage::Config> MatmulConfig for Config<S> {}
-
-impl<S: stage::Config> Config<S> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        smm_config: S,
-        check_m_bounds: bool,
-        check_n_bounds: bool,
-        check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-        num_planes: u32,
-    ) -> Self {
-        Self {
-            smm_config,
-            check_m_bounds,
-            check_n_bounds,
-            check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-            num_planes,
-        }
     }
 }

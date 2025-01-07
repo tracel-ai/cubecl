@@ -49,7 +49,10 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .expect("Shared memory need constant initialization value")
             .as_u32();
         let var = context.create_shared(
-            Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
+            Item::vectorized(
+                T::as_elem(context),
+                NonZero::new(vectorization_factor as u8),
+            ),
             size,
         );
         ExpandElementTyped::new(var)
@@ -68,7 +71,10 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .expect("Shared memory need constant initialization value")
             .as_u32();
         let var = context.create_shared(
-            Item::vectorized(T::as_elem(), NonZero::new(vectorization_factor as u8)),
+            Item::vectorized(
+                T::as_elem(context),
+                NonZero::new(vectorization_factor as u8),
+            ),
             size,
         );
         ExpandElementTyped::new(var)
@@ -82,7 +88,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = context.create_shared(Item::new(T::as_elem()), size);
+        let var = context.create_shared(Item::new(T::as_elem(context)), size);
         ExpandElementTyped::new(var)
     }
 }
@@ -129,7 +135,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item);
+            let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,

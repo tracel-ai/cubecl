@@ -157,6 +157,10 @@ impl Expression {
                         rhs: args[1],
                     })
                     .into(),
+                    OpId::CountOnes => Operator::CountOnes(UnaryOperator { input: args[0] }).into(),
+                    OpId::ReverseBits => {
+                        Operator::ReverseBits(UnaryOperator { input: args[0] }).into()
+                    }
                     OpId::ShiftLeft => Operator::ShiftLeft(BinaryOperator {
                         lhs: args[0],
                         rhs: args[1],
@@ -217,7 +221,7 @@ impl Value {
                 version: 0,
                 item,
             }) => Variable::new(
-                VariableKind::LocalBinding {
+                VariableKind::LocalConst {
                     id: *id,
                     depth: *depth,
                 },
@@ -272,7 +276,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             version,
             item,
         }),
-        VariableKind::LocalBinding { id, depth } => Value::Local(Local {
+        VariableKind::LocalConst { id, depth } => Value::Local(Local {
             id,
             depth,
             version: 0,
@@ -280,7 +284,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         }),
         VariableKind::ConstantScalar(val) => Value::Constant(val.into()),
         VariableKind::ConstantArray { id, length } => Value::ConstArray(id, item, length),
-        VariableKind::Local { .. }
+        VariableKind::LocalMut { .. }
         | VariableKind::SharedMemory { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
@@ -331,6 +335,8 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::BitwiseAnd(_) => OpId::BitwiseAnd,
         Operator::BitwiseOr(_) => OpId::BitwiseOr,
         Operator::BitwiseXor(_) => OpId::BitwiseXor,
+        Operator::CountOnes(_) => OpId::CountOnes,
+        Operator::ReverseBits(_) => OpId::ReverseBits,
         Operator::ShiftLeft(_) => OpId::ShiftLeft,
         Operator::ShiftRight(_) => OpId::ShiftRight,
         Operator::Remainder(_) => OpId::Remainder,

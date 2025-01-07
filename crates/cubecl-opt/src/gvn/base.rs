@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::{
-    ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item, UIntKind},
-    prelude::CubePrimitive,
-};
+use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item, UIntKind};
 use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
@@ -142,7 +139,7 @@ impl Value {
             Value::Input(_, item) => *item,
             Value::Scalar(_, elem) => Item::new(*elem),
             Value::ConstArray(_, item, _) => *item,
-            Value::Builtin(_) => Item::new(u32::as_elem()),
+            Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
             Value::Slice(_, _, item) => *item,
         }
@@ -230,6 +227,8 @@ pub enum OpId {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
+    CountOnes,
+    ReverseBits,
     ShiftLeft,
     ShiftRight,
     Remainder,

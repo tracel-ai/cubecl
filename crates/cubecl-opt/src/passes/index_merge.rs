@@ -62,7 +62,7 @@ impl OptimizerPass for CopyTransform {
 
 fn as_versioned(var: &Variable) -> Option<(u16, u8, u16)> {
     match var.kind {
-        VariableKind::LocalBinding { id, depth } => Some((id, depth, 0)),
+        VariableKind::LocalConst { id, depth } => Some((id, depth, 0)),
         VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
         _ => None,
     }

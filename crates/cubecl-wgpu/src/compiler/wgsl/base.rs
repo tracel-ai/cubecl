@@ -7,14 +7,15 @@ pub enum Variable {
     GlobalOutputArray(u16, Item),
     GlobalScalar(u16, Elem, cube::Elem),
     ConstantScalar(ConstantScalarValue, Elem),
-    Local {
+    LocalMut {
         id: u16,
         item: Item,
         depth: u8,
     },
-    LocalBinding {
+    LocalConst {
         id: u16,
         item: Item,
+        depth: u8,
     },
     Named {
         name: String,
@@ -98,8 +99,8 @@ impl Variable {
             Variable::SharedMemory(_, _, _) => false,
             Variable::ConstantArray(_, _, _) => false,
             Variable::LocalArray(_, _, _, _) => false,
-            Variable::Local { .. } => false,
-            Variable::LocalBinding { .. } => false,
+            Variable::LocalMut { .. } => false,
+            Variable::LocalConst { .. } => false,
             Variable::Named { .. } => false,
             Variable::Slice { .. } => false,
             Variable::WorkgroupIdX => true,
@@ -132,7 +133,7 @@ impl Variable {
             Variable::GlobalInputArray(_, item) => item.elem().is_atomic(),
             Variable::GlobalOutputArray(_, item) => item.elem().is_atomic(),
             Variable::GlobalScalar(_, elem, _) => elem.is_atomic(),
-            Variable::Local { item, .. } => item.elem().is_atomic(),
+            Variable::LocalMut { item, .. } => item.elem().is_atomic(),
             Variable::Named { item, .. } => item.elem().is_atomic(),
             Variable::Slice { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
@@ -149,8 +150,8 @@ impl Variable {
             Self::SharedMemory(_, e, _) => *e,
             Self::ConstantArray(_, e, _) => *e,
             Self::LocalArray(_, e, _, _) => *e,
-            Self::Local { item, .. } => *item,
-            Self::LocalBinding { item, .. } => *item,
+            Self::LocalMut { item, .. } => *item,
+            Self::LocalConst { item, .. } => *item,
             Self::Slice { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::ConstantScalar(_, e) => Item::Scalar(*e),
@@ -279,12 +280,12 @@ impl Display for Variable {
                 depth: scope_depth,
                 ..
             } => write!(f, "s_{scope_depth}_{index}"),
-            Variable::Local {
+            Variable::LocalMut {
                 id: index,
                 depth: scope_depth,
                 ..
-            } => write!(f, "l_{scope_depth}_{index}"),
-            Variable::LocalBinding { id: index, .. } => write!(f, "_{index}"),
+            } => write!(f, "l_mut_{scope_depth}_{index}"),
+            Variable::LocalConst { id, depth, .. } => write!(f, "l_{depth}_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice {
                 id: index,
@@ -301,7 +302,7 @@ impl Display for Variable {
             // precision related problems.
             Variable::ConstantScalar(number, _elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
-                    IntKind::I32 => write!(f, "{}i", *val as i32),
+                    IntKind::I32 => write!(f, "{}", *val as i32),
                     _ => unimplemented!("{:?} not supported in WGSL", kind),
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
@@ -365,8 +366,8 @@ impl Display for IndexedVariable {
 impl Variable {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalBinding { id, .. } => {
-                format!("let _{id}")
+            Variable::LocalConst { .. } => {
+                format!("let {self}")
             }
             var => format!("{}", var),
         }

@@ -2,7 +2,7 @@
 #![allow(clippy::transmute_float_to_int)] // prev=1.83.
 
 use bytemuck::{Pod, Zeroable};
-use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use half::f16;
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
@@ -85,6 +85,14 @@ impl tf32 {
     #[must_use]
     pub const fn to_f64(self) -> f64 {
         self.0 as f64
+    }
+}
+
+impl Neg for tf32 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::from_f32(self.to_f32().neg())
     }
 }
 
@@ -174,8 +182,8 @@ impl CubeType for tf32 {
 
 impl CubePrimitive for tf32 {
     /// Return the element type to use on GPU
-    fn as_elem() -> Elem {
-        Elem::Float(FloatKind::TF32)
+    fn as_elem_native() -> Option<Elem> {
+        Some(Elem::Float(FloatKind::TF32))
     }
 }
 
@@ -187,8 +195,12 @@ impl IntoRuntime for tf32 {
 }
 
 impl Numeric for tf32 {
-    const MAX: Self = tf32::from_f32(f32::MAX);
-    const MIN: Self = tf32::from_f32(f32::MIN);
+    fn min_value() -> Self {
+        Self(f32::MIN)
+    }
+    fn max_value() -> Self {
+        Self(f32::MAX)
+    }
 }
 
 impl ExpandElementBaseInit for tf32 {
@@ -240,6 +252,6 @@ impl LaunchArgExpand for tf32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_elem()).into()
+        builder.scalar(tf32::as_elem(&builder.context)).into()
     }
 }

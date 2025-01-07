@@ -68,6 +68,13 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    // Index handles casting to correct local variable.
+    CheckedIndex {
+        len: Variable,
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     // Assign handle casting to correct output variable.
     Assign {
         input: Variable,
@@ -225,6 +232,14 @@ pub enum Instruction {
     BitwiseXor {
         lhs: Variable,
         rhs: Variable,
+        out: Variable,
+    },
+    CountBits {
+        input: Variable,
+        out: Variable,
+    },
+    ReverseBits {
+        input: Variable,
         out: Variable,
     },
     ShiftLeft {
@@ -480,6 +495,22 @@ impl Display for Instruction {
                     index_assign(f, lhs, rhs, out, None)
                 }
             }
+            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
+                Variable::Slice { item, .. } => {
+                    let offset = Variable::Named {
+                        name: format!("{lhs}_offset"),
+                        item: Item::Scalar(Elem::U32),
+                        is_array: false,
+                    };
+                    let lhs = Variable::Named {
+                        name: format!("(*{lhs}_ptr)"),
+                        item: *item,
+                        is_array: true,
+                    };
+                    index(f, &lhs, rhs, out, Some(offset), Some(len))
+                }
+                _ => index(f, lhs, rhs, out, None, Some(len)),
+            },
             Instruction::Copy {
                 input,
                 in_index,
@@ -794,6 +825,14 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} ^ {rhs};")
             }
+            Instruction::CountBits { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = countOneBits({input});")
+            }
+            Instruction::ReverseBits { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = reverseBits({input});")
+            }
             Instruction::ShiftLeft { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} << {rhs};")
@@ -1043,8 +1082,8 @@ fn index(
     len: Option<&Variable>,
 ) -> core::fmt::Result {
     let is_scalar = match lhs {
-        Variable::Local { item, .. } => item.vectorization_factor() == 1,
-        Variable::LocalBinding { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
+        Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
         _ => false,
     };
 

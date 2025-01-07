@@ -1,10 +1,13 @@
-use crate::compute::{KernelBuilder, KernelLauncher};
 use crate::frontend::{
     CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
     Numeric,
 };
 use crate::ir::{Elem, IntKind};
 use crate::Runtime;
+use crate::{
+    compute::{KernelBuilder, KernelLauncher},
+    prelude::{CountOnes, ReverseBits},
+};
 
 use super::{
     init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
@@ -13,6 +16,8 @@ use super::{
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
+    + CountOnes
+    + ReverseBits
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
@@ -51,8 +56,8 @@ macro_rules! impl_int {
         }
 
         impl CubePrimitive for $type {
-            fn as_elem() -> Elem {
-                Elem::Int(IntKind::$kind)
+            fn as_elem_native() -> Option<Elem> {
+                Some(Elem::Int(IntKind::$kind))
             }
         }
 
@@ -67,8 +72,12 @@ macro_rules! impl_int {
         }
 
         impl Numeric for $type {
-            const MAX: Self = $type::MAX;
-            const MIN: Self = $type::MIN;
+            fn min_value() -> Self {
+                $type::MIN
+            }
+            fn max_value() -> Self {
+                $type::MAX
+            }
         }
 
         impl ExpandElementBaseInit for $type {
@@ -92,7 +101,7 @@ macro_rules! impl_int {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($type::as_elem()).into()
+                builder.scalar($type::as_elem(&builder.context)).into()
             }
         }
     };

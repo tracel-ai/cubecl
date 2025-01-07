@@ -454,7 +454,9 @@ fn is_slice(index: &Expression) -> bool {
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     // All supported primitives. Primitives don't start with an uppercase letter
-    const PRIMITIVES: &[&str] = &["bool", "i32", "i64", "u32", "f16", "bf16", "f32", "f64"];
+    const PRIMITIVES: &[&str] = &[
+        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "bf16", "f32", "f64",
+    ];
     if !matches!(path, Expression::Path { .. }) {
         panic!("path: {path:?}");
     }

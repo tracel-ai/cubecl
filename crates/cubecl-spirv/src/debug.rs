@@ -539,6 +539,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap()
     }
 
+    #[track_caller]
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
     }

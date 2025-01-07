@@ -1,18 +1,17 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::{expand_checked_index, expand_checked_index_assign};
+use cubecl_core::ir::{expand_checked_index_assign, Allocator};
 use cubecl_core::{
     ir::{self as gpu},
-    prelude::CubePrimitive,
     Compiler, Feature,
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
-    FragmentIdent, FragmentLayout, IndexedVariable, Instruction, Item, LocalArray, SharedMemory,
-    UnaryInstruction, Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
+    FragmentIdent, FragmentLayout, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction,
+    Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -29,11 +28,11 @@ pub trait Dialect:
     fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // warp instructions (all threads participating)
-    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String;
-    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String;
-    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String;
-    fn warp_all(out: &IndexedVariable<Self>) -> String;
-    fn warp_any(out: &IndexedVariable<Self>) -> String;
+    fn warp_shuffle(var: &str, source: &str) -> String;
+    fn warp_shuffle_xor(var: &str, offset: &str) -> String;
+    fn warp_shuffle_down(var: &str, offset: &str) -> String;
+    fn warp_all(var: &str) -> String;
+    fn warp_any(var: &str) -> String;
 }
 
 #[derive(Clone, Debug)]
@@ -95,8 +94,8 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         49152
     }
 
-    fn local_allocator() -> impl gpu::LocalAllocator {
-        gpu::ReusingAllocator::default()
+    fn local_allocator() -> Allocator {
+        Allocator::new()
     }
 }
 
@@ -546,7 +545,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope.create_local(gpu::Item::new(u32::as_elem()));
+                    let input_len =
+                        scope.create_local_mut(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 
                     let length = match input.has_buffer_length() {
@@ -572,14 +572,29 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operator::Index(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if op.lhs.has_length() {
-                        expand_checked_index(scope, op.lhs, op.rhs, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
+                    let lhs = op.lhs;
+                    let rhs = op.rhs;
+
+                    let array_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+
+                    instructions.extend(self.compile_scope(scope));
+
+                    let length = match lhs.has_buffer_length() {
+                        true => gpu::Metadata::BufferLength { var: lhs },
+                        false => gpu::Metadata::Length { var: lhs },
+                    };
+                    instructions.push(self.compile_metadata(length, Some(array_len)));
+                    instructions.push(Instruction::CheckedIndex {
+                        len: self.compile_variable(array_len),
+                        lhs: self.compile_variable(lhs),
+                        rhs: self.compile_variable(rhs),
+                        out: self.compile_variable(out),
+                    });
+                } else {
+                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                }
             }
             gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_binary(op, out)))
@@ -671,6 +686,12 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::BitwiseXor(op) => {
                 instructions.push(Instruction::BitwiseXor(self.compile_binary(op, out)))
+            }
+            gpu::Operator::CountOnes(op) => {
+                instructions.push(Instruction::CountBits(self.compile_unary(op, out)))
+            }
+            gpu::Operator::ReverseBits(op) => {
+                instructions.push(Instruction::ReverseBits(self.compile_unary(op, out)))
             }
             gpu::Operator::ShiftLeft(op) => {
                 instructions.push(Instruction::ShiftLeft(self.compile_binary(op, out)))
@@ -800,17 +821,17 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::VariableKind::Local { id, depth } => Variable::Local {
+            gpu::VariableKind::LocalMut { id, depth } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::Versioned { id, depth, .. } => Variable::Local {
+            gpu::VariableKind::Versioned { id, depth, .. } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
                 depth,
             },
-            gpu::VariableKind::LocalBinding { id, depth } => Variable::ConstLocal {
+            gpu::VariableKind::LocalConst { id, depth } => Variable::LocalConst {
                 id,
                 item: self.compile_item(item),
                 depth,
