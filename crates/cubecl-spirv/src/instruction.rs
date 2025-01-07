@@ -440,7 +440,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Operator::ReverseBits(op) => {
-                self.capabilities.insert(Capability::BitInstructions);
                 self.compile_unary_op(op, out, |b, _, ty, input, out| {
                     b.bit_reverse(ty, Some(out), input).unwrap();
                 });
