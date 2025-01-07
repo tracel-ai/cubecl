@@ -66,6 +66,44 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
     }
 }
 
+#[cube(launch_unchecked)]
+pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime] line_size: u32) {
+    if UNIT_POS == 0 {
+        let mut line = output[0];
+        #[unroll]
+        for k in 0..line_size {
+            line[k] += F::cast_from(k);
+        }
+        output[0] = line;
+    }
+}
+
+pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    for line_size in R::line_size_elem(&F::as_elem(&Default::default())) {
+        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        unsafe {
+            kernel_line_loop_unroll::launch_unchecked::<F, R>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_single(),
+                ArrayArg::from_raw_parts::<F>(&handle, 1, line_size),
+                line_size as u32,
+            );
+        }
+
+        let actual = client.read_one(handle.binding());
+        let actual = F::from_bytes(&actual);
+
+        let expected = (0..line_size as i64)
+            .map(|x| F::from_int(x))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected);
+    }
+}
+
 macro_rules! impl_line_comparison {
     ($cmp:ident, $expected:expr) => {
         ::paste::paste! {
@@ -130,6 +168,14 @@ macro_rules! testgen_line {
         fn test_line_index_assign() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::line::test_line_index_assign::<TestRuntime, FloatType>(
+                client,
+            );
+        }
+
+        #[test]
+        fn test_line_loop_unroll() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::line::test_line_loop_unroll::<TestRuntime, FloatType>(
                 client,
             );
         }

@@ -126,9 +126,7 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
             .get(&(id, depth, version))
             .copied()
             .unwrap_or_default(),
-        VariableKind::LocalBinding { id, depth }
-            if var.item.elem() == Elem::UInt(UIntKind::U32) =>
-        {
+        VariableKind::LocalConst { id, depth } if var.item.elem() == Elem::UInt(UIntKind::U32) => {
             opt.program
                 .int_ranges
                 .get(&(id, depth, 0))
@@ -138,7 +136,7 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
                     upper_bound: None,
                 })
         }
-        VariableKind::LocalBinding { id, depth } => opt
+        VariableKind::LocalConst { id, depth } => opt
             .program
             .int_ranges
             .get(&(id, depth, 0))
@@ -166,7 +164,7 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
 pub(crate) fn var_id(var: &Variable) -> Option<(u16, u8, u16)> {
     match var.kind {
         VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
-        VariableKind::LocalBinding { id, depth } => Some((id, depth, 0)),
+        VariableKind::LocalConst { id, depth } => Some((id, depth, 0)),
         _ => None,
     }
 }

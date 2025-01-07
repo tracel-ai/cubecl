@@ -378,7 +378,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::GlobalOutputArray(id, self.compile_item(item), pos)
             }
             core::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
-            core::VariableKind::Local { id, depth } => {
+            core::VariableKind::LocalMut { id, depth } => {
                 let item = self.compile_item(item);
                 let var = self.get_local((id, depth), &item);
                 Variable::Local { id: var, item }
@@ -388,7 +388,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = (id, depth, version);
                 Variable::Versioned { id, item }
             }
-            core::VariableKind::LocalBinding { id, depth } => {
+            core::VariableKind::LocalConst { id, depth } => {
                 let item = self.compile_item(item);
                 let id = (id, depth);
                 Variable::LocalBinding { id, item }

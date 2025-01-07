@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::shared::{Dialect, IndexedVariable, Variable, WmmaCompiler};
+use crate::shared::{Dialect, WmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect<M> {
@@ -74,20 +74,19 @@ impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
     fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("__nv_bfloat162")
     }
-
-    fn warp_shuffle(input: &IndexedVariable<Self>, id: &Variable<Self>) -> String {
-        format!("__shfl_sync(-1, {input}, {id})")
+    fn warp_shuffle(var: &str, source: &str) -> String {
+        format!("__shfl_sync(-1, {var}, {source})")
     }
-    fn warp_shuffle_xor(out: &IndexedVariable<Self>) -> String {
-        format!("__shfl_xor_sync(-1, {out}, offset)")
+    fn warp_shuffle_xor(var: &str, offset: &str) -> String {
+        format!("__shfl_xor_sync(-1, {var}, {offset})")
     }
-    fn warp_shuffle_down(out: &IndexedVariable<Self>) -> String {
-        format!("__shfl_down_sync(-1, {out}, offset)")
+    fn warp_shuffle_down(var: &str, offset: &str) -> String {
+        format!("__shfl_down_sync(-1, {var}, {offset})")
     }
-    fn warp_all(out: &IndexedVariable<Self>) -> String {
-        format!("__all_sync(-1, {out})")
+    fn warp_all(var: &str) -> String {
+        format!("__all_sync(-1, {var})")
     }
-    fn warp_any(out: &IndexedVariable<Self>) -> String {
-        format!("__any_sync(-1, {out})")
+    fn warp_any(var: &str) -> String {
+        format!("__any_sync(-1, {var})")
     }
 }

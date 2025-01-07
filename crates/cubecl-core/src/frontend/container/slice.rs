@@ -177,7 +177,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item);
+            let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
@@ -195,7 +195,7 @@ mod indexation {
             context: &mut CubeContext,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local_binding(self.expand.item);
+            let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
