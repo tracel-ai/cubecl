@@ -122,8 +122,7 @@ impl ValueTable {
             Operation::Branch(_)
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
-            | Operation::Comment(_) => Err(None),
-            Operation::Debug(_) => Err(None),
+            | Operation::NonSemantic(_) => Err(None),
         }
     }
 
