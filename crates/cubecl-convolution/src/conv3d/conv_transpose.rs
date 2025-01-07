@@ -2,10 +2,9 @@ use cubecl::{calculate_cube_count_elemwise, prelude::*};
 use cubecl_core as cubecl;
 use cubecl_linalg::tensor::{into_contiguous, TensorHandle};
 
-use crate::{
-    conv3d::{Conv3dArgs, Conv3dArgsLaunch},
-    utils::{bias_reshape_or_zero, ConvTransposeOptions},
-};
+use crate::utils::{bias_reshape_or_zero, ConvTransposeOptions, ConvType};
+
+use super::conv::{Conv3dArgs, Conv3dArgsLaunch};
 
 #[cube(launch)]
 fn conv_transpose3d_kernel<E: Numeric>(
@@ -137,7 +136,7 @@ pub fn launch_ref<R: Runtime, E: Float>(
     let input: TensorHandle<R, E> = into_contiguous(client, &input);
     let weight: TensorHandle<R, E> = into_contiguous(client, &weight);
 
-    let bias = bias_reshape_or_zero::<R, E>(client, bias, out.shape);
+    let bias = bias_reshape_or_zero::<R, E>(client, bias, out.shape, ConvType::Conv3d);
 
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(out.size(), cube_dim);

@@ -31,13 +31,14 @@ impl Default for Conv2dStrategy {
 /// * `options` - The options to use for the convolution
 /// * `strategy` - The convolution algorithm to use. Autotune will pick the fastest available option.
 ///
-pub fn conv2d<R: Runtime>(
+pub fn launch_ref<R: Runtime>(
+    strategy: &Conv2dStrategy,
+    client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     weight: TensorHandleRef<R>,
     bias: Option<TensorHandleRef<R>>,
     out: TensorHandleRef<R>,
     options: ConvOptions<2>,
-    strategy: Conv2dStrategy,
 ) {
     match strategy {
         Conv2dStrategy::Direct => {

@@ -2,7 +2,7 @@ use cubecl::{calculate_cube_count_elemwise, prelude::*};
 use cubecl_core as cubecl;
 use cubecl_linalg::tensor::{into_contiguous, TensorHandle};
 
-use crate::utils::{bias_reshape_or_zero, ConvOptions};
+use crate::utils::{bias_reshape_or_zero, ConvOptions, ConvType};
 
 #[derive(CubeLaunch)]
 pub(crate) struct Conv3dArgs {
@@ -143,7 +143,7 @@ pub fn launch_ref<R: Runtime, E: Float>(
         .try_into()
         .expect("Weight shape should have 5 dimensions");
 
-    let bias = bias_reshape_or_zero::<R, E>(client, bias, out.shape);
+    let bias = bias_reshape_or_zero::<R, E>(client, bias, out.shape, ConvType::Conv3d);
 
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(out.size(), cube_dim);
