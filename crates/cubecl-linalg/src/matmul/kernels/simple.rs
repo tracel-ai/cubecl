@@ -6,6 +6,8 @@ use cubecl_core as cubecl;
 
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
+use super::MatmulLaunchError;
+
 #[cube(launch_unchecked)]
 fn matmul_kernel<F: Float>(
     lhs: &Tensor<Line<F>>,
@@ -83,13 +85,13 @@ pub fn launch_ref<R: Runtime, E: Float>(
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-) {
+) -> Result<(), MatmulLaunchError> {
     let lhs =
         TensorHandle::<R, E>::new(lhs.shape.to_vec(), lhs.strides.to_vec(), lhs.handle.clone());
     let rhs =
         TensorHandle::<R, E>::new(rhs.shape.to_vec(), rhs.strides.to_vec(), rhs.handle.clone());
 
-    launch(client, lhs, rhs, out);
+    launch(client, lhs, rhs, out)
 }
 
 pub fn launch<R: Runtime, E: Float>(
@@ -97,7 +99,7 @@ pub fn launch<R: Runtime, E: Float>(
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
     out: &TensorHandleRef<'_, R>,
-) {
+) -> Result<(), MatmulLaunchError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let ndims = lhs.shape.len();
     let dim1 = ndims - 1;
@@ -147,7 +149,7 @@ pub fn launch<R: Runtime, E: Float>(
         out.shape,
         cube_dim_x,
         cube_dim_y,
-    );
+    )?;
 
     let vectorization_factor = match lhs.shape[ndims - 1] % 4 == 0 {
         true => 4,
@@ -170,6 +172,8 @@ pub fn launch<R: Runtime, E: Float>(
             Some(ndims as u32 - 2),
         );
     };
+
+    Ok(())
 }
 
 fn simple_cube_count(
@@ -178,19 +182,28 @@ fn simple_cube_count(
     output_shape: &[usize],
     cube_dim_x: usize,
     cube_dim_y: usize,
-) -> CubeCount {
+) -> Result<CubeCount, MatmulLaunchError> {
     let ndims = lhs_shape.len();
     let num_rows = lhs_shape[ndims - 2];
     let num_cols = rhs_shape[ndims - 1];
 
     let cubes_x = f32::ceil(num_rows as f32 / cube_dim_x as f32) as u32;
     let cubes_y = f32::ceil(num_cols as f32 / cube_dim_y as f32) as u32;
-    let mut num_iter = 1;
+    let mut num_iter = 1u32;
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..ndims - 2 {
-        num_iter *= output_shape[i];
+        num_iter *= output_shape[i] as u32;
     }
 
-    CubeCount::Static(cubes_x, cubes_y, num_iter as u32)
+    let result = CubeCount::Static(cubes_x, cubes_y, num_iter);
+    let max_cube_count = u16::MAX as u32;
+
+    if cubes_x > max_cube_count || cubes_y > max_cube_count || num_iter > max_cube_count {
+        return Err(MatmulLaunchError::Unavailable(
+            super::MatmulAvailabilityError::CubeCountTooBig(result),
+        ));
+    }
+
+    Ok(result)
 }

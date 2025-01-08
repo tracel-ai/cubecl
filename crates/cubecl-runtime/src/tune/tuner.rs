@@ -1,6 +1,7 @@
 use async_channel::{Receiver, Sender};
 use cubecl_common::future;
 
+use core::any::Any;
 use core::future::Future;
 use core::mem::ManuallyDrop;
 use cubecl_common::stub::Duration;
@@ -40,9 +41,18 @@ enum AutotuneMessage<K> {
 }
 
 /// Error from running autotune.
+#[derive(Debug)]
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
+    /// An error catched with panic unwind.
+    PanicUnwind(ManuallyDrop<Box<dyn Any + Send>>),
+}
+
+impl From<String> for AutotuneError {
+    fn from(value: String) -> Self {
+        Self::Unknown(value)
+    }
 }
 
 #[allow(clippy::new_without_default)]
@@ -154,10 +164,15 @@ impl<K: AutotuneKey> Tuner<K> {
                 let sample_fut = future::catch_unwind(sample_fut);
                 let result = sample_fut.await;
 
-                let result = result.map_err(|e| {
-                    log::warn!("Caught error while benchmarking, falling back to next operation.");
-                    ManuallyDrop::new(e)
-                });
+                let result = match result {
+                    Ok(result) => result,
+                    Err(err) => {
+                        log::warn!(
+                            "Caught unknown error while benchmarking, falling back to next operation."
+                        );
+                        Err(AutotuneError::PanicUnwind(ManuallyDrop::new(err)))
+                    }
+                };
 
                 let result = result.map(|durations| {
                     log::info!("Name: {name} => {}", durations);
@@ -167,11 +182,17 @@ impl<K: AutotuneKey> Tuner<K> {
                 bench_results.push(result);
             }
 
-            // // Panic if all tuners panicked.
+            // Panic if all tuners panicked.
             #[cfg(all(feature = "std", not(target_family = "wasm")))]
             if bench_results.iter().all(|result| result.is_err()) {
                 let first_error = bench_results.into_iter().next().unwrap().err().unwrap();
-                resume_unwind(ManuallyDrop::into_inner(first_error));
+
+                match first_error {
+                    AutotuneError::Unknown(reason) => panic!("{reason}"),
+                    AutotuneError::PanicUnwind(err) => {
+                        resume_unwind(ManuallyDrop::into_inner(err));
+                    }
+                }
             }
 
             // Finds the fastest operation (by the median time).
