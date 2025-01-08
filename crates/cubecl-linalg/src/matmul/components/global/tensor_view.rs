@@ -85,24 +85,45 @@ impl<EG: Numeric> TensorReader<EG> {
     /// Out-of-bounds reads will be translated to zeros.
     pub fn load_coalesced<G: global::GlobalConfig>(
         &self,
+        // Lhs | Rhs
+        // 0,1 | 0
         tile_x: u32,
+        // 0 | 0,1
         tile_y: u32,
+        // 0..256 (bonds de 8)
         unit_id: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Line<EG> {
+        // 8
         let line_size = config.global_line_size(ident);
+        // Lhs | Rhs
+        // 8 | 32
         let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
+        // 32 | 8
         let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
 
+        // Lhs | Rhs
+        // 0,8 | 0
         let view_tile_x = tile_x * tile_size_x + self.x_offset;
+        // 0 | 0,8
         let view_tile_y = tile_y * tile_size_y + self.y_offset;
 
+        // Lhs Col
+        // 0..256 (bonds de 8) % 8, 0..256 / 8 = 0, 0..32
+        // Rhs Row
+        // 0..256 / 8, 0..256 (bonds de 8) % 8 = 0..32, 0
         let (load_x, load_y) = match config.layout(ident) {
             MatrixLayout::RowMajor => (unit_id / tile_size_y, unit_id % tile_size_y),
             MatrixLayout::ColMajor => (unit_id % tile_size_x, unit_id / tile_size_x),
         };
 
+        // Lhs
+        // 0,8 + 0   = 0,8
+        // 0 + 0..32 = 0..32
+        // Rhs
+        // 0 + 0..32 = 0..32
+        // 0,8 + 0   = 0,8
         let view_x = view_tile_x + load_x;
         let view_y = view_tile_y + load_y;
 

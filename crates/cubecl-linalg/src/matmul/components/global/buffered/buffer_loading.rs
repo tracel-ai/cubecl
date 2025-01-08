@@ -49,10 +49,23 @@ impl BufferLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
+        // 32x8 boguent quand rhs vec8 et layout row
+        // 8x32 boguent quand lhs vec8 et layout col
+
+        // f16 rr
+        // 32x8x16
+        // 2x2x2
+        // 256x256x256
+        // 2 planes
+
+        // 2 * 32 * 8 = 512
         let num_buffer_elements = stage_dim.buffer_num_elements();
 
+        // 2 * 32 = 64
         let total_units = comptime!(num_producer_planes * config.plane_dim());
+        // 64 * 8 = 512
         let jump_length = comptime!(total_units * line_size);
+        // 512 / 512 = 1
         let num_loads_per_unit = num_buffer_elements / jump_length;
 
         let plane_id = if comptime!(producer_plane_offset > 0) {
@@ -61,16 +74,24 @@ impl BufferLoading {
             UNIT_POS_Y
         };
 
+        // 0..2 * 32 + 0..32 -> 0..64
         let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        // 0..64 * 8 = 0..512 (bonds de 8)
         let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
+            // 32*8 = 256
             let tile_num_elements = stage_dim.tile_num_elements();
+            // 0..2
             let nth_buffer_tile = unit_position / tile_num_elements;
+            // 0..256 (bonds de 8)
             let pos_within_tile = unit_position % tile_num_elements;
 
+            // Lhs | Rhs
+            // 0,1 | 0
+            // 0 | 0,1
             let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
 
             let line_read =
