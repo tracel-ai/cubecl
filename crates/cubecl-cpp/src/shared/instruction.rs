@@ -450,8 +450,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
+                let qualifier = out.const_qualifier();
                 let out_elem = out.elem();
                 let out = out.fmt_left();
+
                 match (input.elem(), out_elem) {
                     (Elem::F32, Elem::I32) => {
                         writeln!(f, "{out} = __float_as_int({input});")
@@ -490,7 +492,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                         writeln!(f, "{out} = __ushort_as_bfloat16({input});")
                     }
                     (Elem::I32, Elem::U32) => {
-                        writeln!(f, "{out} = reinterpret_cast<uint&>({input});")
+                        writeln!(f, "{out} = reinterpret_cast<uint{qualifier}&>({input});")
                     }
                     elem => panic!("Unsupported type for bitcasting {elem:?}"),
                 }
