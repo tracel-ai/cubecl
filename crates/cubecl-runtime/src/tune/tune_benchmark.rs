@@ -4,6 +4,7 @@ use crate::server::ComputeServer;
 #[cfg(feature = "std")]
 use cubecl_common::benchmark::{BenchmarkDurations, TimingMethod};
 
+use super::AutotuneError;
 use super::AutotuneOperation;
 use alloc::boxed::Box;
 
@@ -25,12 +26,13 @@ impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'st
 {
     /// Benchmark how long this operation takes for a number of samples.
     #[cfg(feature = "std")]
-    pub async fn sample_durations(self) -> BenchmarkDurations {
+    pub async fn sample_durations(self) -> Result<BenchmarkDurations, AutotuneError> {
         let operation = self.operation.clone();
 
         // If the inner operation need autotuning as well, we need to call it before.
         let _ = self.client.sync().await;
-        operation.clone().execute();
+        operation.clone().execute()?;
+
         let _ = self.client.sync().await;
 
         let client = self.client.clone();
@@ -42,7 +44,10 @@ impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'st
                 let mut durations = Vec::with_capacity(num_samples);
 
                 for _ in 0..num_samples {
-                    operation.clone().execute();
+                    operation
+                        .clone()
+                        .execute()
+                        .expect("Should not fail when previsously tried during the warmup.");
                     // For benchmarks - we need to wait for all tasks to complete before returning.
                     let duration = match client.sync_elapsed().await {
                         Ok(val) => val,
@@ -64,9 +69,9 @@ impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'st
             })
             .await;
 
-        BenchmarkDurations {
+        Ok(BenchmarkDurations {
             timing_method: TimingMethod::DeviceOnly,
             durations,
-        }
+        })
     }
 }

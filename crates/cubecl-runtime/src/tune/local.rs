@@ -61,7 +61,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
                     let op = autotune_operation_set.fastest(fastest_index);
-                    return op.execute();
+                    return op.execute().expect("Should run when selected by autotune.");
                 }
             }
         }
@@ -91,7 +91,10 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
-                return autotune_operation_set.fastest(fastest_index).execute();
+                return autotune_operation_set
+                    .fastest(fastest_index)
+                    .execute()
+                    .expect("Should run when selected by autotune.");
             }
             TuneCacheResult::Miss => {
                 // We don't know the results yet, start autotuning.
@@ -147,6 +150,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             }
         };
 
-        autotune_operation_set.fastest(fastest).execute()
+        autotune_operation_set
+            .fastest(fastest)
+            .execute()
+            .expect("Should run when selected by autotune.")
     }
 }
