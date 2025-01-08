@@ -20,7 +20,7 @@ mod strategy;
 
 pub use config::*;
 pub use error::*;
-use instructions::Reduce;
+pub use instructions::Reduce;
 pub use instructions::ReduceInstruction;
 pub use strategy::*;
 

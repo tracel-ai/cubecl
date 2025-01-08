@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::{Reduce, ReduceInstruction, Sum};
 
+#[derive(Debug)]
 pub struct Mean;
 
 impl Reduce for Mean {

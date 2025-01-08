@@ -11,3 +11,6 @@ pub use cubecl_hip as hip;
 
 #[cfg(feature = "linalg")]
 pub use cubecl_linalg as linalg;
+
+#[cfg(feature = "reduce")]
+pub use cubecl_reduce as reduce;
