@@ -86,11 +86,7 @@ fn const_len(opt: &Optimizer, var: &Variable) -> Option<u32> {
         VariableKind::ConstantArray { length, .. } => Some(length),
         VariableKind::SharedMemory { length, .. } => Some(length),
         VariableKind::LocalArray { length, .. } => Some(length),
-        VariableKind::Slice { id, depth } => opt
-            .program
-            .slices
-            .get(&(id, depth))
-            .and_then(|it| it.const_len),
+        VariableKind::Slice { id } => opt.program.slices.get(&id).and_then(|it| it.const_len),
         _ => None,
     }
 }

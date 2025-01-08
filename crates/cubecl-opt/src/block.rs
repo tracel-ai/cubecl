@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
-use cubecl_core::ir::{Instruction, Variable};
+use cubecl_core::ir::{Id, Instruction, Variable};
 use petgraph::graph::NodeIndex;
 use stable_vec::StableVec;
 
@@ -20,9 +20,9 @@ pub struct BasicBlock {
     /// The phi nodes that are required to be generated at the start of this block.
     pub phi_nodes: Rc<RefCell<Vec<PhiInstruction>>>,
     /// The variables written to by this block. Only set during the SSA transformation.
-    pub(crate) writes: HashSet<(u16, u8)>,
+    pub(crate) writes: HashSet<Id>,
     /// The live variables at the start of this block. Used for pruning phi nodes.
-    pub(crate) live_vars: HashSet<(u16, u8)>,
+    pub(crate) live_vars: HashSet<Id>,
     /// The dominance frontiers of this block (where phi nodes must be inserted).
     pub(crate) dom_frontiers: HashSet<NodeIndex>,
     /// A stable list of operations performed in this block.
@@ -66,7 +66,7 @@ impl Program {
     /// Check whether a variable is dead at the start of this block. Note that `false` does not mean
     /// the variable is definitely live - just that it *may* be live and must be treated as such.
     #[track_caller]
-    pub fn is_dead(&self, node: NodeIndex, var: (u16, u8)) -> bool {
+    pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
         !self[node].live_vars.contains(&var)
     }
 }

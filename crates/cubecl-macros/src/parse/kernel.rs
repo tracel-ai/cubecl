@@ -4,8 +4,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::{collections::HashMap, iter};
 use syn::{
-    parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
-    Generics, Ident, ItemFn, ReturnType, Signature, TraitItemFn, Type, Visibility,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, FnArg, Generics,
+    Ident, ItemFn, ReturnType, Signature, TraitItemFn, Type, Visibility,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -16,7 +16,6 @@ pub(crate) struct KernelArgs {
     pub launch_unchecked: Flag,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
-    pub local_allocator: Option<Expr>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {

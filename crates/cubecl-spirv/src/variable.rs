@@ -6,7 +6,7 @@ use crate::{
     SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::{
-    ir::{self as core, ConstantScalarValue, FloatKind},
+    ir::{self as core, ConstantScalarValue, FloatKind, Id},
     ExecutionMode,
 };
 use rspirv::{
@@ -26,11 +26,11 @@ pub enum Variable {
         item: Item,
     },
     Versioned {
-        id: (u16, u8, u16),
+        id: (Id, u16),
         item: Item,
     },
     LocalBinding {
-        id: (u16, u8),
+        id: Id,
         item: Item,
     },
     Raw(Word, Item),
@@ -49,7 +49,7 @@ pub enum Variable {
     SharedMemory(Word, Item, u32),
     ConstantArray(Word, Item, u32),
     LocalArray(Word, Item, u32),
-    CoopMatrix(u16, u8, Elem),
+    CoopMatrix(Id, Elem),
     Id(Word),
     LocalInvocationIndex(Word),
     LocalInvocationIdX(Word),
@@ -193,7 +193,7 @@ impl Variable {
             Variable::SharedMemory(id, _, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
             Variable::LocalArray(id, _, _) => *id,
-            Variable::CoopMatrix(_, _, _) => unimplemented!("Can't get ID from matrix var"),
+            Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::SubgroupSize(id) => *id,
             Variable::Id(id) => *id,
             Variable::LocalInvocationIndex(id) => *id,
@@ -234,7 +234,7 @@ impl Variable {
             Variable::SharedMemory(_, item, _) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::LocalArray(_, item, _) => item.clone(),
-            Variable::CoopMatrix(_, _, elem) => Item::Scalar(*elem),
+            Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
             _ => Item::Scalar(Elem::Int(32, false)), // builtin
         }
     }
@@ -296,7 +296,7 @@ impl Variable {
         }
     }
 
-    pub fn as_binding(&self) -> Option<(u16, u8)> {
+    pub fn as_binding(&self) -> Option<Id> {
         match self {
             Self::LocalBinding { id, .. } => Some(*id),
             _ => None,
@@ -361,36 +361,35 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::ConstantScalar(id, const_val, item.elem())
                 }
             }
-            core::VariableKind::Slice { id, depth, .. } => self
+            core::VariableKind::Slice { id, .. } => self
                 .state
                 .slices
-                .get(&(id, depth))
+                .get(&id)
                 .expect("Tried accessing non-existing slice")
                 .into(),
             core::VariableKind::GlobalInputArray(id) => {
-                let pos = id as u32;
+                let pos = id;
                 let id = self.state.inputs[id as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item), pos)
             }
             core::VariableKind::GlobalOutputArray(id) => {
-                let pos = self.state.inputs.len() as u32 + id as u32;
+                let pos = self.state.inputs.len() as u32 + id;
                 let id = self.state.outputs[id as usize];
                 Variable::GlobalOutputArray(id, self.compile_item(item), pos)
             }
             core::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
-            core::VariableKind::LocalMut { id, depth } => {
+            core::VariableKind::LocalMut { id } => {
                 let item = self.compile_item(item);
-                let var = self.get_local((id, depth), &item);
+                let var = self.get_local(id, &item);
                 Variable::Local { id: var, item }
             }
-            core::VariableKind::Versioned { id, depth, version } => {
+            core::VariableKind::Versioned { id, version } => {
                 let item = self.compile_item(item);
-                let id = (id, depth, version);
+                let id = (id, version);
                 Variable::Versioned { id, item }
             }
-            core::VariableKind::LocalConst { id, depth } => {
+            core::VariableKind::LocalConst { id } => {
                 let item = self.compile_item(item);
-                let id = (id, depth);
                 Variable::LocalBinding { id, item }
             }
             core::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
@@ -415,33 +414,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 Variable::SharedMemory(id, item, length)
             }
-            core::VariableKind::LocalArray { id, depth, length } => {
+            core::VariableKind::LocalArray { id, length } => {
                 let item = self.compile_item(item);
-                let id = if let Some(arr) = self.state.local_arrays.get(&(id, depth)) {
+                let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
                 } else {
                     let arr_ty = Item::Array(Box::new(item.clone()), length);
                     let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(arr_ty)).id(self);
                     let arr_id = self.declare_function_variable(ptr_ty);
-                    self.debug_name(arr_id, format!("array({id}, {depth})"));
+                    self.debug_name(arr_id, format!("array({id})"));
                     let arr = Array {
                         id: arr_id,
                         item: item.clone(),
                         len: length,
                     };
-                    self.state.local_arrays.insert((id, depth), arr);
+                    self.state.local_arrays.insert(id, arr);
                     arr_id
                 };
                 Variable::LocalArray(id, item, length)
             }
-            core::VariableKind::Matrix { id, mat, depth } => {
+            core::VariableKind::Matrix { id, mat } => {
                 let elem = self.compile_item(core::Item::new(mat.elem)).elem();
-                if self.state.matrices.contains_key(&(id, depth)) {
-                    Variable::CoopMatrix(id, depth, elem)
+                if self.state.matrices.contains_key(&id) {
+                    Variable::CoopMatrix(id, elem)
                 } else {
                     let matrix = self.init_coop_matrix(mat);
-                    self.state.matrices.insert((id, depth), matrix);
-                    Variable::CoopMatrix(id, depth, elem)
+                    self.state.matrices.insert(id, matrix);
+                    Variable::CoopMatrix(id, elem)
                 }
             }
         }

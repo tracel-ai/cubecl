@@ -58,7 +58,7 @@ impl Display for Optimizer {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
             let live_vars = bb.live_vars.iter();
-            let live_vars = live_vars.map(|it| format!("local({}, {})", it.0, it.1));
+            let live_vars = live_vars.map(|it| format!("local({})", it));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
 
@@ -229,7 +229,7 @@ impl Display for Value {
             Value::ConstArray(id, _, _) => write!(f, "const_array({id})"),
             Value::Builtin(builtin) => write!(f, "{builtin:?}"),
             Value::Output(id, _) => write!(f, "output({id})"),
-            Value::Slice(id, depth, _) => write!(f, "slice({id}, {depth})"),
+            Value::Slice(id, _) => write!(f, "slice({id})"),
         }
     }
 }
@@ -237,8 +237,8 @@ impl Display for Value {
 impl Display for Local {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.version {
-            0 => write!(f, "binding({}, {})", self.id, self.depth),
-            v => write!(f, "local({}, {}).v{v}", self.id, self.depth),
+            0 => write!(f, "binding({})", self.id),
+            v => write!(f, "local({}).v{v}", self.id),
         }
     }
 }

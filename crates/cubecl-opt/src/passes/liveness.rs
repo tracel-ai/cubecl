@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use cubecl_core::ir::Id;
 use petgraph::graph::NodeIndex;
 
 use crate::Optimizer;
 
 #[derive(Clone)]
 struct BlockSets {
-    gen: HashSet<(u16, u8)>,
-    kill: HashSet<(u16, u8)>,
+    gen: HashSet<Id>,
+    kill: HashSet<Id>,
 }
 
 struct State {

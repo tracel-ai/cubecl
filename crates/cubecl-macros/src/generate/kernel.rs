@@ -202,20 +202,14 @@ impl Launch {
 
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
-        let runtime = prelude_type("Runtime");
-        let compiler = core_type("Compiler");
         let io_map = self.io_mappings();
         let register_type = self.analysis.register_elems();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);
-        let allocator = self.args.local_allocator.as_ref();
-        let allocator = allocator.map(|it| it.to_token_stream()).unwrap_or_else(
-            || quote![<<__R as #runtime>::Compiler as #compiler>::local_allocator()],
-        );
 
         quote! {
-            let mut builder = #kernel_builder::with_local_allocator(#allocator);
+            let mut builder = #kernel_builder::default();
             #register_type
             #io_map
             expand #generics(&mut builder.context, #(#runtime_args.clone(),)* #(self.#comptime_args.clone()),*);
