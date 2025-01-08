@@ -61,19 +61,33 @@ macro_rules! matmul_standard_tests {
     () => {
         use $crate::matmul::components::{MatmulSize, MatrixLayout};
 
-        $crate::matmul_standard_tests!([RowMajor, ColMajor], [RowMajor, ColMajor]);
-    };
+        mod row_major {
+            use super::*;
 
-    ([$($lhs_layout:ident),*], [$($rhs_layout:ident),*]) => {
-        $(
-            mod $lhs_layout {
+            mod row_major {
                 use super::*;
-                mod $rhs_layout {
-                    use super::*;
-                    $crate::matmul_standard_tests!($lhs_layout, $rhs_layout);
-                }
+                $crate::matmul_standard_tests!(RowMajor, RowMajor);
             }
-        )*
+
+            mod col_major {
+                use super::*;
+                $crate::matmul_standard_tests!(RowMajor, ColMajor);
+            }
+        }
+
+        mod col_major {
+            use super::*;
+
+            mod row_major {
+                use super::*;
+                $crate::matmul_standard_tests!(ColMajor, RowMajor);
+            }
+
+            mod col_major {
+                use super::*;
+                $crate::matmul_standard_tests!(ColMajor, ColMajor);
+            }
+        }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident) => {
