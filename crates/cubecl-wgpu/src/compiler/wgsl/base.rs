@@ -1,21 +1,19 @@
-use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, IntKind};
+use cubecl_core::ir::{self as cube, ConstantScalarValue, FloatKind, Id, IntKind};
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    GlobalInputArray(u16, Item),
-    GlobalOutputArray(u16, Item),
-    GlobalScalar(u16, Elem, cube::Elem),
+    GlobalInputArray(Id, Item),
+    GlobalOutputArray(Id, Item),
+    GlobalScalar(Id, Elem, cube::Elem),
     ConstantScalar(ConstantScalarValue, Elem),
     LocalMut {
-        id: u16,
+        id: Id,
         item: Item,
-        depth: u8,
     },
     LocalConst {
-        id: u16,
+        id: Id,
         item: Item,
-        depth: u8,
     },
     Named {
         name: String,
@@ -23,18 +21,16 @@ pub enum Variable {
         is_array: bool,
     },
     Slice {
-        id: u16,
+        id: Id,
         item: Item,
-        depth: u8,
     },
     LocalScalar {
-        id: u16,
+        id: Id,
         elem: Elem,
-        depth: u8,
     },
-    SharedMemory(u16, Item, u32),
-    ConstantArray(u16, Item, u32),
-    LocalArray(u16, Item, u8, u32),
+    SharedMemory(Id, Item, u32),
+    ConstantArray(Id, Item, u32),
+    LocalArray(Id, Item, u32),
     Id,
     LocalInvocationIndex,
     LocalInvocationIdX,
@@ -98,7 +94,7 @@ impl Variable {
             Variable::GlobalOutputArray(_, _) => false,
             Variable::SharedMemory(_, _, _) => false,
             Variable::ConstantArray(_, _, _) => false,
-            Variable::LocalArray(_, _, _, _) => false,
+            Variable::LocalArray(_, _, _) => false,
             Variable::LocalMut { .. } => false,
             Variable::LocalConst { .. } => false,
             Variable::Named { .. } => false,
@@ -138,7 +134,7 @@ impl Variable {
             Variable::Slice { item, .. } => item.elem().is_atomic(),
             Variable::LocalScalar { elem, .. } => elem.is_atomic(),
             Variable::SharedMemory(_, item, _) => item.elem().is_atomic(),
-            Variable::LocalArray(_, item, _, _) => item.elem().is_atomic(),
+            Variable::LocalArray(_, item, _) => item.elem().is_atomic(),
             _ => false,
         }
     }
@@ -149,7 +145,7 @@ impl Variable {
             Self::GlobalOutputArray(_, e) => *e,
             Self::SharedMemory(_, e, _) => *e,
             Self::ConstantArray(_, e, _) => *e,
-            Self::LocalArray(_, e, _, _) => *e,
+            Self::LocalArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
             Self::Slice { item, .. } => *item,
@@ -275,23 +271,11 @@ impl Display for Variable {
             Variable::GlobalInputArray(number, _) => {
                 write!(f, "input_{number}_global")
             }
-            Variable::LocalScalar {
-                id: index,
-                depth: scope_depth,
-                ..
-            } => write!(f, "s_{scope_depth}_{index}"),
-            Variable::LocalMut {
-                id: index,
-                depth: scope_depth,
-                ..
-            } => write!(f, "l_mut_{scope_depth}_{index}"),
-            Variable::LocalConst { id, depth, .. } => write!(f, "l_{depth}_{id}"),
+            Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
+            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
+            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
-            Variable::Slice {
-                id: index,
-                item: _,
-                depth: scope_depth,
-            } => write!(f, "slice_{scope_depth}_{index}"),
+            Variable::Slice { id, .. } => write!(f, "slice_{id}"),
             Variable::GlobalOutputArray(number, _) => {
                 write!(f, "output_{number}_global")
             }
@@ -320,8 +304,8 @@ impl Display for Variable {
                 write!(f, "shared_memory_{number}")
             }
             Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::LocalArray(number, _, scope_depth, _) => {
-                write!(f, "a_{scope_depth}_{number}")
+            Variable::LocalArray(number, _, _) => {
+                write!(f, "a_{number}")
             }
             Variable::Id => f.write_str("id"),
             Variable::LocalInvocationIndex => f.write_str("local_idx"),

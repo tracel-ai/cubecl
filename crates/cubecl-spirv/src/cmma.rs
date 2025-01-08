@@ -4,7 +4,7 @@ use crate::{
     variable::{ConstVal, IndexedVariable, Variable},
     SpirvCompiler, SpirvTarget,
 };
-use cubecl_core::ir::{self as core, CoopMma, MatrixLayout};
+use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
 use rspirv::spirv::{
     Capability, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word,
 };
@@ -44,7 +44,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         layout: Option<MatrixLayout>,
     ) {
         let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).2;
+        let mat = self.matrix_var(&mat).1;
 
         let value = self.compile_variable(value);
         let stride = self.compile_variable(stride);
@@ -79,7 +79,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn compile_fill(&mut self, mat: core::Variable, value: core::Variable) {
         let mat = self.compile_variable(mat);
         let value = self.compile_variable(value);
-        let mat = self.matrix_var(&mat).2;
+        let mat = self.matrix_var(&mat).1;
         let item = self.item(&mat);
         let ty = item.id(self);
         let mat_id = match value {
@@ -103,7 +103,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         layout: MatrixLayout,
     ) {
         let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).2;
+        let mat = self.matrix_var(&mat).1;
         let item = self.item(&mat);
         let ty = item.id(self);
         let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
@@ -141,10 +141,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat_c = self.compile_variable(mat_c);
         let mat_d = self.compile_variable(mat_d);
 
-        let mat_a = self.matrix_var(&mat_a).2;
-        let mat_b = self.matrix_var(&mat_b).2;
-        let mat_c = self.matrix_var(&mat_c).2;
-        let mat_d = self.matrix_var(&mat_d).2;
+        let mat_a = self.matrix_var(&mat_a).1;
+        let mat_b = self.matrix_var(&mat_b).1;
+        let mat_c = self.matrix_var(&mat_c).1;
+        let mat_d = self.matrix_var(&mat_d).1;
 
         let mat_a_ty = self.item(&mat_a).id(self);
         let mat_b_ty = self.item(&mat_b).id(self);
@@ -167,8 +167,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let input = self.compile_variable(input);
         let output = self.compile_variable(output);
 
-        let input = self.matrix_var(&input).2;
-        let output = self.matrix_var(&output).2;
+        let input = self.matrix_var(&input).1;
+        let output = self.matrix_var(&output).1;
 
         let input_ty = self.item(&input).id(self);
         let output_ty = self.item(&output).id(self);
@@ -180,13 +180,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.store(output.id, frag_new, None, vec![]).unwrap();
     }
 
-    fn matrix_var(&mut self, var: &Variable) -> (u16, u8, Matrix) {
-        let (id, depth) = match var {
-            Variable::CoopMatrix(id, depth, _) => (*id, *depth),
+    fn matrix_var(&mut self, var: &Variable) -> (Id, Matrix) {
+        let id = match var {
+            Variable::CoopMatrix(id, _) => *id,
             _ => unreachable!(),
         };
-        let mat = self.state.matrices[&(id, depth)];
-        (id, depth, mat)
+        let mat = self.state.matrices[&id];
+        (id, mat)
     }
 
     pub fn deref_slice(&mut self, var: &Variable) -> Word {

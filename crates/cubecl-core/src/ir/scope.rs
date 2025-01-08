@@ -1,10 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 use crate::ir::ConstantScalarValue;
 
 use super::{
-    cpa, processing::ScopeProcessing, Elem, Instruction, Item, Matrix, Operation, UIntKind,
-    Variable, VariableKind,
+    cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Matrix, Operation,
+    UIntKind, Variable, VariableKind,
 };
-use serde::{Deserialize, Serialize};
 
 /// The scope is the main [operation](Operation) and [variable](Variable) container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
@@ -29,10 +30,11 @@ pub struct Scope {
     writes_global: Vec<(Variable, Variable, Variable)>,
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
-    pub undeclared: u16,
+    #[serde(skip)]
+    pub allocator: Allocator,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum ReadingStrategy {
     /// Each element will be read in a way to be compatible with the output layout.
@@ -61,7 +63,7 @@ impl Scope {
             writes_global: Vec::new(),
             reads_scalar: Vec::new(),
             layout_ref: None,
-            undeclared: 0,
+            allocator: Allocator::default(),
         }
     }
 
@@ -96,69 +98,50 @@ impl Scope {
 
     /// Create a matrix variable
     pub fn create_matrix(&mut self, matrix: Matrix) -> Variable {
-        let index = self.matrices.len() as u16;
-        let variable = Variable::new(
-            VariableKind::Matrix {
-                id: index,
-                mat: matrix,
-                depth: self.depth,
-            },
-            Item::new(matrix.elem),
-        );
-        self.matrices.push(variable);
+        let variable = *self.allocator.create_matrix(matrix);
+        self.add_matrix(variable);
         variable
+    }
+
+    pub fn add_matrix(&mut self, variable: Variable) {
+        self.matrices.push(variable);
     }
 
     /// Create a slice variable
     pub fn create_slice(&mut self, item: Item) -> Variable {
-        let id = self.slices.len() as u16;
-        let variable = Variable::new(
-            VariableKind::Slice {
-                id,
-                depth: self.depth,
-            },
-            item,
-        );
-        self.slices.push(variable);
+        let variable = *self.allocator.create_slice(item);
+        self.add_slice(variable);
         variable
+    }
+
+    pub fn add_slice(&mut self, slice: Variable) {
+        self.slices.push(slice);
     }
 
     /// Create a mutable variable of the given [item type](Item).
     pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let item = item.into();
-        let index = self.new_local_index();
-        let local = Variable::new(
-            VariableKind::LocalMut {
-                id: index,
-                depth: self.depth,
-            },
-            item,
-        );
-        self.locals.push(local);
+        let id = self.new_local_index();
+        let local = Variable::new(VariableKind::LocalMut { id }, item.into());
+        self.add_local_mut(local);
         local
+    }
+
+    /// Create a mutable variable of the given [item type](Item).
+    pub fn add_local_mut(&mut self, var: Variable) {
+        if !self.locals.contains(&var) {
+            self.locals.push(var);
+        }
     }
 
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_restricted(&mut self, item: Item) -> Variable {
-        let index = self.new_local_index();
-        let local = VariableKind::LocalMut {
-            id: index,
-            depth: self.depth,
-        };
-        self.undeclared += 1;
-        Variable::new(local, item)
+        *self.allocator.create_local_restricted(item)
     }
 
     /// Create a new immutable variable.
     pub fn create_local(&mut self, item: Item) -> Variable {
-        let index = self.new_local_index();
-        let local = VariableKind::LocalConst {
-            id: index,
-            depth: self.depth,
-        };
-        self.undeclared += 1;
-        Variable::new(local, item)
+        *self.allocator.create_local(item)
     }
 
     /// Reads an input array to a local variable.
@@ -166,7 +149,7 @@ impl Scope {
     /// The index refers to the argument position of the array in the compute shader.
     pub fn read_array<I: Into<Item>>(
         &mut self,
-        index: u16,
+        index: Id,
         item: I,
         position: Variable,
     ) -> Variable {
@@ -176,14 +159,9 @@ impl Scope {
     /// Reads an input scalar to a local variable.
     ///
     /// The index refers to the scalar position for the same [element](Elem) type.
-    pub fn read_scalar(&mut self, index: u16, elem: Elem) -> Variable {
-        let local = Variable::new(
-            VariableKind::LocalConst {
-                id: self.new_local_index(),
-                depth: self.depth,
-            },
-            Item::new(elem),
-        );
+    pub fn read_scalar(&mut self, index: Id, elem: Elem) -> Variable {
+        let id = self.new_local_index();
+        let local = Variable::new(VariableKind::LocalConst { id }, Item::new(elem));
         let scalar = Variable::new(VariableKind::GlobalScalar(index), Item::new(elem));
 
         self.reads_scalar.push((local, scalar));
@@ -226,7 +204,7 @@ impl Scope {
     /// Notes:
     ///
     /// This should only be used when doing compilation.
-    pub(crate) fn update_read(&mut self, index: u16, strategy: ReadingStrategy) {
+    pub(crate) fn update_read(&mut self, index: Id, strategy: ReadingStrategy) {
         if let Some((_, strategy_old, _, _position)) = self
             .reads_global
             .iter_mut()
@@ -237,7 +215,7 @@ impl Scope {
     }
 
     #[allow(dead_code)]
-    pub fn read_globals(&self) -> Vec<(u16, ReadingStrategy)> {
+    pub fn read_globals(&self) -> Vec<(Id, ReadingStrategy)> {
         self.reads_global
             .iter()
             .map(|(var, strategy, _, _)| match var.kind {
@@ -268,7 +246,7 @@ impl Scope {
             writes_global: Vec::new(),
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
-            undeclared: 0,
+            allocator: self.allocator.clone(),
         }
     }
 
@@ -279,8 +257,6 @@ impl Scope {
     /// New operations and variables can be created within the same scope without having name
     /// conflicts.
     pub fn process(&mut self) -> ScopeProcessing {
-        self.undeclared += self.locals.len() as u16;
-
         let mut variables = core::mem::take(&mut self.locals);
 
         for var in self.matrices.drain(..) {
@@ -308,25 +284,21 @@ impl Scope {
         .optimize()
     }
 
-    pub fn new_local_index(&self) -> u16 {
-        self.locals.len() as u16 + self.undeclared
+    pub fn new_local_index(&self) -> u32 {
+        self.allocator.new_local_index()
     }
 
-    fn new_shared_index(&self) -> u16 {
-        self.shared_memories.len() as u16
+    fn new_shared_index(&self) -> Id {
+        self.shared_memories.len() as Id
     }
 
-    fn new_const_array_index(&self) -> u16 {
-        self.const_arrays.len() as u16
-    }
-
-    fn new_local_array_index(&self) -> u16 {
-        self.local_arrays.len() as u16
+    fn new_const_array_index(&self) -> Id {
+        self.const_arrays.len() as Id
     }
 
     fn read_input_strategy(
         &mut self,
-        index: u16,
+        index: Id,
         item: Item,
         strategy: ReadingStrategy,
         position: Variable,
@@ -339,14 +311,8 @@ impl Scope {
             _ => item,
         };
         let input = Variable::new(VariableKind::GlobalInputArray(index), item_global);
-        let index = self.new_local_index();
-        let local = Variable::new(
-            VariableKind::LocalMut {
-                id: index,
-                depth: self.depth,
-            },
-            item,
-        );
+        let id = self.new_local_index();
+        let local = Variable::new(VariableKind::LocalMut { id }, item);
         self.reads_global.push((input, strategy, local, position));
         self.locals.push(local);
         local
@@ -384,17 +350,12 @@ impl Scope {
 
     /// Create a local array of the given [item type](Item).
     pub fn create_local_array<I: Into<Item>>(&mut self, item: I, array_size: u32) -> Variable {
-        let item = item.into();
-        let index = self.new_local_array_index();
-        let local_array = Variable::new(
-            VariableKind::LocalArray {
-                id: index,
-                depth: self.depth,
-                length: array_size,
-            },
-            item,
-        );
-        self.local_arrays.push(local_array);
-        local_array
+        let local_array = self.allocator.create_local_array(item.into(), array_size);
+        self.add_local_array(*local_array);
+        *local_array
+    }
+
+    pub fn add_local_array(&mut self, var: Variable) {
+        self.local_arrays.push(var);
     }
 }

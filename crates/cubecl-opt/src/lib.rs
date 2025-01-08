@@ -32,7 +32,7 @@ use std::{
 };
 
 use cubecl_core::{
-    ir::{self as core, Branch, Operation, Operator, Variable, VariableKind},
+    ir::{self as core, Allocator, Branch, Id, Operation, Operator, Variable, VariableKind},
     CubeDim,
 };
 use cubecl_core::{
@@ -98,7 +98,7 @@ pub(crate) struct Slice {
 
 #[derive(Debug, Clone)]
 pub struct ConstArray {
-    pub id: u16,
+    pub id: Id,
     pub length: u32,
     pub item: Item,
     pub values: Vec<core::Variable>,
@@ -107,13 +107,11 @@ pub struct ConstArray {
 #[derive(Default, Debug, Clone)]
 struct Program {
     pub const_arrays: Vec<ConstArray>,
-    pub variables: HashMap<(u16, u8), Item>,
-    pub(crate) slices: HashMap<(u16, u8), Slice>,
+    pub variables: HashMap<Id, Item>,
+    pub(crate) slices: HashMap<Id, Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
     int_ranges: HashMap<VarId, Range>,
-
-    temp_id: AtomicCounter,
 }
 
 impl Deref for Program {
@@ -130,7 +128,7 @@ impl DerefMut for Program {
     }
 }
 
-type VarId = (u16, u8, u16);
+type VarId = (Id, u16);
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 struct Range {
@@ -158,6 +156,8 @@ pub struct Optimizer {
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
     pub(crate) gvn: Rc<RefCell<GvnPass>>,
+
+    pub allocator: Allocator,
 }
 
 impl Default for Optimizer {
@@ -172,6 +172,7 @@ impl Default for Optimizer {
             mode: Default::default(),
             post_order: Default::default(),
             gvn: Default::default(),
+            allocator: Default::default(),
         }
     }
 }
@@ -184,6 +185,7 @@ impl Optimizer {
             root_scope: expand.clone(),
             cube_dim,
             mode,
+            allocator: expand.allocator.clone(),
             ..Default::default()
         };
         opt.run_opt(expand);
@@ -320,8 +322,8 @@ impl Optimizer {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
                 if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
-                    if let VariableKind::LocalMut { id, depth } = &op.out().kind {
-                        self.program.variables.remove(&(*id, *depth));
+                    if let VariableKind::LocalMut { id } = &op.out().kind {
+                        self.program.variables.remove(id);
                     }
                 }
             }
@@ -382,8 +384,8 @@ impl Optimizer {
         let processed = scope.process();
 
         for var in processed.variables {
-            if let VariableKind::LocalMut { id, depth } = var.kind {
-                self.program.variables.insert((id, depth), var.item);
+            if let VariableKind::LocalMut { id } = var.kind {
+                self.program.variables.insert(id, var.item);
             }
         }
 
@@ -407,7 +409,7 @@ impl Optimizer {
                 Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
                 Operation::Operator(Operator::Slice(slice_op)) => {
                     let out_id = match out.unwrap().kind {
-                        VariableKind::Slice { id, depth } => (id, depth),
+                        VariableKind::Slice { id } => id,
                         _ => unreachable!(),
                     };
                     let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
@@ -435,26 +437,11 @@ impl Optimizer {
     }
 
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
-    pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<(u16, u8)> {
+    pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<Id> {
         match variable.kind {
-            core::VariableKind::LocalMut { id, depth } if !variable.item.elem.is_atomic() => {
-                Some((id, depth))
-            }
+            core::VariableKind::LocalMut { id } if !variable.item.elem.is_atomic() => Some(id),
             _ => None,
         }
-    }
-
-    /// Create a temporary variable for use in the compiler. Counts backwards from u16::MAX to avoid
-    /// Collisions with existing locals, since binding counter is no longer available.
-    pub fn create_temporary(&self, item: Item) -> Variable {
-        let next_id = self.program.temp_id.inc() as u16;
-        Variable::new(
-            VariableKind::LocalConst {
-                id: u16::MAX - next_id,
-                depth: u8::MAX,
-            },
-            item,
-        )
     }
 
     pub(crate) fn ret(&mut self) -> NodeIndex {
@@ -481,7 +468,7 @@ mod test {
     use cubecl::prelude::*;
     use cubecl_core::{
         self as cubecl,
-        ir::{Allocator, Elem, Item, UIntKind, Variable, VariableKind},
+        ir::{Elem, Item, UIntKind, Variable, VariableKind},
         prelude::{Array, CubeContext, ExpandElement},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
@@ -504,7 +491,7 @@ mod test {
     #[test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = CubeContext::root(Allocator::new());
+        let mut ctx = CubeContext::root();
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Item::new(Elem::UInt(UIntKind::U32)),

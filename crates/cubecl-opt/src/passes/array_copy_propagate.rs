@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Instruction, Item, Operation, Operator, Variable, VariableKind};
+use cubecl_core::ir::{Id, Instruction, Item, Operation, Operator, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer};
 
@@ -48,7 +48,7 @@ impl OptimizerPass for CopyPropagateArray {
 
 #[derive(Clone, Copy, Debug)]
 struct Array {
-    id: (u16, u8),
+    id: Id,
     length: u32,
     item: Item,
 }
@@ -62,8 +62,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         for op in ops.borrow().values() {
             match &op.operation {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray { id, length, depth } = index.lhs.kind {
-                        let id = (id, depth);
+                    if let VariableKind::LocalArray { id, length } = index.lhs.kind {
                         let item = index.lhs.item;
                         arrays.insert(id, Array { id, length, item });
                         let is_const = index.rhs.as_const().is_some();
@@ -73,8 +72,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let VariableKind::LocalArray { id, length, depth } = op.out().kind {
-                        let id = (id, depth);
+                    if let VariableKind::LocalArray { id, length } = op.out().kind {
                         let item = op.out().item;
                         arrays.insert(id, Array { id, length, item });
                         let is_const = assign.lhs.as_const().is_some();
@@ -93,14 +91,14 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable]) {
+fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
     for block in opt.node_ids() {
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             match &mut op.operation.clone() {
                 Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray { id, depth, .. } = index.lhs.kind {
-                        if (id, depth) == arr_id {
+                    if let VariableKind::LocalArray { id, .. } = index.lhs.kind {
+                        if id == arr_id {
                             let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
                             op.operation = Operation::Copy(vars[const_index]);
                         }
@@ -109,8 +107,8 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: (u16, u8), vars: &[Variable
                 Operation::Operator(
                     Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
                 ) => {
-                    if let VariableKind::LocalArray { id, depth, .. } = op.out.unwrap().kind {
-                        if (id, depth) == arr_id {
+                    if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind {
+                        if id == arr_id {
                             let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                             let out = vars[const_index];
                             let out_id = opt.local_variable_id(&out).unwrap();

@@ -1,6 +1,6 @@
 use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{
-    ir::{CubeDim, Visibility},
+    ir::{CubeDim, Id, Visibility},
     CompilerRepresentation,
 };
 use std::{collections::HashSet, fmt::Display};
@@ -14,14 +14,14 @@ pub struct Binding<D: Dialect> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory<D: Dialect> {
-    pub index: u16,
+    pub index: Id,
     pub item: Item<D>,
     pub size: u32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ConstArray<D: Dialect> {
-    pub index: u16,
+    pub index: Id,
     pub item: Item<D>,
     pub size: u32,
     pub values: Vec<Variable<D>>,
@@ -29,25 +29,19 @@ pub struct ConstArray<D: Dialect> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray<D: Dialect> {
-    pub index: u16,
+    pub index: Id,
     pub item: Item<D>,
-    pub depth: u8,
     pub size: u32,
 }
 
 impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: u16, item: Item<D>, depth: u8, size: u32) -> Self {
-        Self {
-            index,
-            item,
-            depth,
-            size,
-        }
+    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+        Self { index, item, size }
     }
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: u16, item: Item<D>, size: u32) -> Self {
+    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
         Self { index, item, size }
     }
 }

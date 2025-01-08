@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, IntKind, Item, UIntKind};
+use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, UIntKind};
 use float_ord::FloatOrd;
 use petgraph::{
     algo::dominators::{self, Dominators},
@@ -95,8 +95,7 @@ impl Default for ValueTable {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 pub struct Local {
-    pub id: u16,
-    pub depth: u8,
+    pub id: Id,
     pub version: u16,
     pub item: Item,
 }
@@ -113,13 +112,13 @@ pub enum Constant {
 pub enum Value {
     Constant(Constant),
     Local(Local),
-    Input(u16, Item),
-    Scalar(u16, Elem),
-    ConstArray(u16, Item, u32),
+    Input(Id, Item),
+    Scalar(Id, Elem),
+    ConstArray(Id, Item, u32),
     Builtin(Builtin),
     // Metadata only
-    Output(u16, Item),
-    Slice(u16, u8, Item),
+    Output(Id, Item),
+    Slice(Id, Item),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -166,7 +165,7 @@ impl Value {
             Value::ConstArray(_, item, _) => *item,
             Value::Builtin(_) => Item::new(Elem::UInt(UIntKind::U32)),
             Value::Output(_, item) => *item,
-            Value::Slice(_, _, item) => *item,
+            Value::Slice(_, item) => *item,
         }
     }
 }

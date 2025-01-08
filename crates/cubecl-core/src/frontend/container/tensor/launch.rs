@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    ir::{Item, Vectorization},
+    ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
     },
@@ -59,7 +59,7 @@ impl<R: Runtime> core::fmt::Debug for TensorHandleRef<'_, R> {
 /// Compilation argument for a [tensor](Tensor).
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorCompilationArg {
-    pub inplace: Option<u16>,
+    pub inplace: Option<Id>,
     pub vectorisation: Vectorization,
 }
 
@@ -108,7 +108,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
                 vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
             },
             TensorArg::Alias { input_pos } => TensorCompilationArg {
-                inplace: Some(*input_pos as u16),
+                inplace: Some(*input_pos as Id),
                 vectorisation: Vectorization::None,
             },
         }

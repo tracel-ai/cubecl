@@ -1,5 +1,5 @@
-use crate::frontend::ExpandElement;
-use crate::ir::{self, Allocator, Elem, Instruction, Item, Scope, Variable, VariableKind};
+use crate::ir::{self, Elem, Instruction, Item, Scope, Variable, VariableKind};
+use crate::{frontend::ExpandElement, ir::Id};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use cubecl_runtime::debug::DebugLogger;
@@ -9,14 +9,13 @@ use std::collections::HashMap;
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,
-    pub allocator: Allocator,
     pub debug_enabled: bool,
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
 }
 
 impl Default for CubeContext {
     fn default() -> Self {
-        Self::root(Allocator::new())
+        Self::root()
     }
 }
 
@@ -25,13 +24,12 @@ impl CubeContext {
     /// A root scope is at the root of a compute shader
     /// Therefore there is one cube context per shader
     /// The allocator will define the strategy for creating local intermediates and mutable variables
-    pub fn root(allocator: Allocator) -> CubeContext {
+    pub fn root() -> CubeContext {
         let root = Rc::new(RefCell::new(Scope::root()));
         let typemap = Rc::new(RefCell::new(HashMap::new()));
         let scope = root.clone();
 
         Self {
-            allocator,
             scope,
             root,
             debug_enabled: DebugLogger::default().is_activated(),
@@ -64,7 +62,6 @@ impl CubeContext {
         Self {
             scope: Rc::new(RefCell::new(scope)),
             root: self.root.clone(),
-            allocator: self.allocator.clone(),
             debug_enabled: self.debug_enabled,
             typemap: self.typemap.clone(),
         }
@@ -80,33 +77,34 @@ impl CubeContext {
 
     /// Create a new mutable local variable.
     pub fn create_local_mut(&mut self, item: Item) -> ExpandElement {
-        self.allocator
-            .create_local_mut(&mut self.root.borrow_mut(), item)
+        let local = self.scope.borrow().allocator.create_local_mut(item);
+        self.scope.borrow_mut().add_local_mut(*local);
+        local
     }
 
     /// Create a new immutable local variable.
     pub fn create_local(&mut self, item: Item) -> ExpandElement {
-        self.allocator
-            .create_local(&mut self.scope.borrow_mut(), item)
+        self.scope.borrow().allocator.create_local(item)
     }
 
     /// Create a new immutable local binding that must never be a reused variable, regardless of
     /// allocator
     pub fn create_local_restricted(&mut self, item: Item) -> ExpandElement {
-        self.allocator
-            .create_local_restricted(&mut self.scope.borrow_mut(), item)
+        self.scope.borrow().allocator.create_local_restricted(item)
     }
 
     /// Create a new matrix element.
     pub fn create_matrix(&mut self, matrix: ir::Matrix) -> ExpandElement {
-        let variable = self.scope.borrow_mut().create_matrix(matrix);
-        ExpandElement::Plain(variable)
+        let matrix = self.scope.borrow().allocator.create_matrix(matrix);
+        self.scope.borrow_mut().add_matrix(*matrix);
+        matrix
     }
 
     /// Create a new slice element.
     pub fn create_slice(&mut self, item: Item) -> ExpandElement {
-        let variable = self.scope.borrow_mut().create_slice(item);
-        ExpandElement::Plain(variable)
+        let slice = self.scope.borrow().allocator.create_slice(item);
+        self.scope.borrow_mut().add_slice(*slice);
+        slice
     }
 
     pub fn create_shared(&mut self, item: Item, size: u32) -> ExpandElement {
@@ -114,7 +112,10 @@ impl CubeContext {
     }
 
     pub fn create_local_array(&mut self, item: Item, size: u32) -> ExpandElement {
-        ExpandElement::Plain(self.root.borrow_mut().create_local_array(item, size))
+        let local_array: ExpandElement =
+            self.root.borrow().allocator.create_local_array(item, size);
+        self.root.borrow_mut().add_local_array(*local_array);
+        local_array
     }
 
     pub fn create_const_array(&mut self, item: Item, data: Vec<Variable>) -> ExpandElement {
@@ -122,7 +123,7 @@ impl CubeContext {
     }
 
     /// Obtain the index-th input
-    pub fn input(&mut self, id: u16, item: Item) -> ExpandElement {
+    pub fn input(&mut self, id: Id, item: Item) -> ExpandElement {
         ExpandElement::Plain(crate::ir::Variable::new(
             VariableKind::GlobalInputArray(id),
             item,
@@ -130,14 +131,14 @@ impl CubeContext {
     }
 
     /// Obtain the index-th output
-    pub fn output(&mut self, id: u16, item: Item) -> ExpandElement {
+    pub fn output(&mut self, id: Id, item: Item) -> ExpandElement {
         let var = crate::ir::Variable::new(VariableKind::GlobalOutputArray(id), item);
         self.scope.borrow_mut().write_global_custom(var);
         ExpandElement::Plain(var)
     }
 
     /// Obtain the index-th scalar
-    pub fn scalar(&self, id: u16, elem: Elem) -> ExpandElement {
+    pub fn scalar(&self, id: Id, elem: Elem) -> ExpandElement {
         ExpandElement::Plain(crate::ir::Variable::new(
             VariableKind::GlobalScalar(id),
             Item::new(elem),

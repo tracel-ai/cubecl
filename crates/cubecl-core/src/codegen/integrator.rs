@@ -3,8 +3,8 @@ use std::num::NonZero;
 use super::Compiler;
 use crate::{
     ir::{
-        Binding, CubeDim, Elem, Item, KernelDefinition, Location, ReadingStrategy, Scope, UIntKind,
-        Variable, VariableKind, Vectorization, Visibility,
+        Binding, CubeDim, Elem, Id, Item, KernelDefinition, Location, ReadingStrategy, Scope,
+        UIntKind, Variable, VariableKind, Vectorization, Visibility,
     },
     Runtime,
 };
@@ -54,7 +54,7 @@ pub struct KernelSettings {
     pub mappings: Vec<InplaceMapping>,
     vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
-    pub reading_strategy: Vec<(u16, ReadingStrategy)>,
+    pub reading_strategy: Vec<(Id, ReadingStrategy)>,
     pub kernel_name: String,
 }
 
@@ -263,7 +263,7 @@ pub enum OutputInfo {
     /// This will create a new binding in the [kernel definition](KernelDefinition).
     ArrayWrite {
         item: Item,
-        local: u16,
+        local: Id,
         position: Variable,
         /// Whether this output has extended metadata (rank, shape, strides)
         has_extended_meta: bool,
@@ -271,8 +271,8 @@ pub enum OutputInfo {
     /// Write the local variable to an existing input binding.
     InputArrayWrite {
         item: Item,
-        input: u16,
-        local: u16,
+        input: Id,
+        local: Id,
         position: Variable,
     },
     /// Simply register the output, but don't automatically add a write to it.
@@ -411,14 +411,7 @@ impl KernelIntegrator {
                         size: None,
                     });
                     self.expansion.scope.write_global(
-                        Variable::new(
-                            VariableKind::LocalMut {
-                                id: local,
-
-                                depth: self.expansion.scope.depth,
-                            },
-                            item,
-                        ),
+                        Variable::new(VariableKind::LocalMut { id: local }, item),
                         Variable::new(VariableKind::GlobalOutputArray(index), item_adapted),
                         position,
                     );
@@ -431,13 +424,7 @@ impl KernelIntegrator {
                     position,
                 } => {
                     self.expansion.scope.write_global(
-                        Variable::new(
-                            VariableKind::LocalMut {
-                                id: local,
-                                depth: self.expansion.scope.depth,
-                            },
-                            item,
-                        ),
+                        Variable::new(VariableKind::LocalMut { id: local }, item),
                         Variable::new(VariableKind::GlobalInputArray(input), bool_item(item)),
                         position,
                     );
@@ -485,7 +472,7 @@ impl KernelIntegrator {
                 position: _,
             } => {
                 assert_eq!(
-                    *input, mapping.pos_input as u16,
+                    *input, mapping.pos_input as Id,
                     "Can't use different inputs for the same output."
                 );
                 return;
@@ -500,7 +487,7 @@ impl KernelIntegrator {
                 // Inputs modified inplace should be read without any specified layout.
                 self.expansion
                     .scope
-                    .update_read(mapping.pos_input as u16, ReadingStrategy::Plain);
+                    .update_read(mapping.pos_input as Id, ReadingStrategy::Plain);
 
                 // Use the same item as the input.
                 //
@@ -513,7 +500,7 @@ impl KernelIntegrator {
         // Update the output.
         *output = OutputInfo::InputArrayWrite {
             item,
-            input: mapping.pos_input as u16,
+            input: mapping.pos_input as Id,
             local: *local,
             position: *position,
         };

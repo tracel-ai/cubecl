@@ -217,25 +217,12 @@ impl Value {
             Value::Constant(val) => Variable::constant((*val).into()),
             Value::Local(Local {
                 id,
-                depth,
                 version: 0,
                 item,
-            }) => Variable::new(
-                VariableKind::LocalConst {
-                    id: *id,
-                    depth: *depth,
-                },
-                *item,
-            ),
-            Value::Local(Local {
-                id,
-                depth,
-                version,
-                item,
-            }) => Variable::new(
+            }) => Variable::new(VariableKind::LocalConst { id: *id }, *item),
+            Value::Local(Local { id, version, item }) => Variable::new(
                 VariableKind::Versioned {
                     id: *id,
-                    depth: *depth,
                     version: *version,
                 },
                 *item,
@@ -253,13 +240,7 @@ impl Value {
             ),
             Value::Builtin(builtin) => Variable::builtin(*builtin),
             Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
-            Value::Slice(id, depth, item) => Variable::new(
-                VariableKind::Slice {
-                    id: *id,
-                    depth: *depth,
-                },
-                *item,
-            ),
+            Value::Slice(id, item) => Variable::new(VariableKind::Slice { id: *id }, *item),
         }
     }
 }
@@ -270,15 +251,10 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::GlobalInputArray(id) => Value::Input(id, item),
         VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
         VariableKind::GlobalScalar(id) => Value::Scalar(id, item.elem),
-        VariableKind::Versioned { id, depth, version } => Value::Local(Local {
+        VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
+        VariableKind::LocalConst { id } => Value::Local(Local {
             id,
-            depth,
-            version,
-            item,
-        }),
-        VariableKind::LocalConst { id, depth } => Value::Local(Local {
-            id,
-            depth,
+
             version: 0,
             item,
         }),
@@ -288,7 +264,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         | VariableKind::SharedMemory { .. }
         | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
-        VariableKind::Slice { id, depth } => Value::Slice(id, depth, item),
+        VariableKind::Slice { id } => Value::Slice(id, item),
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
     };
     Some(val)
