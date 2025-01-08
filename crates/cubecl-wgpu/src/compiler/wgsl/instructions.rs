@@ -1170,7 +1170,7 @@ fn index_assign(
                 | Variable::GlobalOutputArray(_, _)
                 | Variable::SharedMemory(_, _, _)
                 | Variable::Slice { .. }
-                | Variable::LocalArray(_, _, _, _) => true,
+                | Variable::LocalArray(_, _, _) => true,
                 Variable::Named { is_array, .. } => *is_array,
                 _ => false,
             };

@@ -159,14 +159,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         for block_id in opt.node_ids() {
             for inst in opt.block(block_id).ops.borrow().values() {
                 match &inst.operation {
-                    Operation::Debug(core::DebugInfo::BeginCall { name, .. }) => {
+                    Operation::NonSemantic(core::NonSemantic::BeginCall { name, .. }) => {
                         calls.push(name.clone());
                         self.debug_function(name);
                     }
-                    Operation::Debug(core::DebugInfo::EndCall) => {
+                    Operation::NonSemantic(core::NonSemantic::EndCall) => {
                         calls.pop();
                     }
-                    Operation::Debug(core::DebugInfo::Source {
+                    Operation::NonSemantic(core::NonSemantic::Source {
                         name,
                         file_name,
                         line,
@@ -244,10 +244,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         (main, setup)
     }
 
-    pub fn compile_debug(&mut self, debug: core::DebugInfo) {
+    pub fn compile_debug(&mut self, debug: core::NonSemantic) {
         if self.debug {
             match debug {
-                core::DebugInfo::Source {
+                core::NonSemantic::Source {
                     name,
                     file_name,
                     line,
@@ -268,7 +268,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.stack_top().line = line;
                     self.stack_top().col = col;
                 }
-                core::DebugInfo::BeginCall { name, line, col } => {
+                core::NonSemantic::BeginCall { name, line, col } => {
                     let func = self.debug_function(name.clone());
 
                     self.stack_top().line = line;
@@ -290,7 +290,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                     self.void_op(Instructions::DebugScope, [func, inlined_at]);
                 }
-                core::DebugInfo::EndCall => {
+                core::NonSemantic::EndCall => {
                     self.stack().pop();
 
                     if self.is_last_instruction_scope() {
@@ -305,7 +305,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                     self.line(new_func.file_name, line, col);
                 }
-                core::DebugInfo::Line { line, col } => {
+                core::NonSemantic::Line { line, col } => {
                     self.stack_top().line = line;
                     self.stack_top().col = col;
 
@@ -313,7 +313,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                     self.line(file, line, col);
                 }
-                core::DebugInfo::Print {
+                core::NonSemantic::Print {
                     format_string,
                     args,
                 } => {
@@ -329,6 +329,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let mut operands = vec![Operand::IdRef(self.debug_string(format_string))];
                     operands.extend(args);
                     self.ext_inst(void, None, ext, 1, operands).unwrap();
+                }
+                core::NonSemantic::Comment { .. } => {
+                    // Comments not supported for SPIR-V
                 }
             };
         }

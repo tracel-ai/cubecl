@@ -116,8 +116,8 @@ impl<D: Dialect> Display for Body<D> {
         for array in self.local_arrays.iter() {
             write!(
                 f,
-                "{} l_arr_{}_{}[{}];\n\n",
-                array.item, array.index, array.depth, array.size
+                "{} l_arr_{}[{}];\n\n",
+                array.item, array.index, array.size
             )?;
         }
 

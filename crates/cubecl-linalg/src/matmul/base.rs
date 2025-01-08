@@ -74,7 +74,7 @@ pub fn launch_ref<R: Runtime, EG: Float>(
             Ok(())
         }
         Strategy::Simple => {
-            simple::launch_ref::<R, EG>(client, lhs, rhs, out);
+            simple::launch_ref::<R, EG>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {

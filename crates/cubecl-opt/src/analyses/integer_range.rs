@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, Elem, Operation, Operator, Variable, VariableKind,
+    Builtin, ConstantScalarValue, Elem, Id, Operation, Operator, Variable, VariableKind,
 };
 
 use crate::{Optimizer, VarId};
@@ -134,32 +134,28 @@ impl Ranges {
     /// can be determined, or the type is not an integer.
     pub fn range_of(&self, opt: &Optimizer, var: &Variable) -> Range {
         match var.kind {
-            VariableKind::Versioned { id, depth, version } if is_uint(var.item.elem()) => self
+            VariableKind::Versioned { id, version } if is_uint(var.item.elem()) => self
                 .int_ranges
-                .get(&(id, depth, version))
+                .get(&(id, version))
                 .copied()
                 .unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
                 }),
-            VariableKind::Versioned { id, depth, version } => self
+            VariableKind::Versioned { id, version } => self
                 .int_ranges
-                .get(&(id, depth, version))
+                .get(&(id, version))
                 .copied()
                 .unwrap_or_default(),
-            VariableKind::LocalConst { id, depth } if is_uint(var.item.elem()) => self
-                .int_ranges
-                .get(&(id, depth, 0))
-                .copied()
-                .unwrap_or(Range {
+            VariableKind::LocalConst { id } if is_uint(var.item.elem()) => {
+                self.int_ranges.get(&(id, 0)).copied().unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
-                }),
-            VariableKind::LocalConst { id, depth } => self
-                .int_ranges
-                .get(&(id, depth, 0))
-                .copied()
-                .unwrap_or_default(),
+                })
+            }
+            VariableKind::LocalConst { id } => {
+                self.int_ranges.get(&(id, 0)).copied().unwrap_or_default()
+            }
             VariableKind::ConstantScalar(ConstantScalarValue::UInt(val, _)) => Range::constant(val),
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPos => Range::uint(opt.cube_dim.num_elems() as u64 - 1),
@@ -177,10 +173,10 @@ impl Ranges {
     }
 }
 
-pub(crate) fn var_id(var: &Variable) -> Option<(u16, u8, u16)> {
+pub(crate) fn var_id(var: &Variable) -> Option<(Id, u16)> {
     match var.kind {
-        VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
-        VariableKind::LocalConst { id, depth } => Some((id, depth, 0)),
+        VariableKind::Versioned { id, version } => Some((id, version)),
+        VariableKind::LocalConst { id } => Some((id, 0)),
         _ => None,
     }
 }

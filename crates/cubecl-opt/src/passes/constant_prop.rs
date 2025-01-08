@@ -127,8 +127,8 @@ impl OptimizerPass for ConstOperandSimplify {
                             op.operation = Operation::Copy(length.into());
                             changes.inc();
                         }
-                        VariableKind::Slice { id, depth } => {
-                            let slice = slices.get(&(id, depth));
+                        VariableKind::Slice { id } => {
+                            let slice = slices.get(&id);
                             if let Some(Slice {
                                 const_len: Some(len),
                                 ..

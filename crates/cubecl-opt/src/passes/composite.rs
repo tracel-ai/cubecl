@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_core::ir::{
-    BinaryOperator, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
+    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
     VariableKind,
 };
 use stable_vec::StableVec;
@@ -31,7 +31,7 @@ impl OptimizerPass for CompositeMerge {
         let blocks = opt.node_ids();
 
         for block in blocks {
-            let mut assigns = HashMap::<(u16, u8), Vec<(usize, u32, Variable)>>::new();
+            let mut assigns = HashMap::<Id, Vec<(usize, u32, Variable)>>::new();
 
             let ops = opt.program[block].ops.clone();
             let indices = { ops.borrow().indices().collect::<Vec<_>>() };
@@ -46,7 +46,7 @@ impl OptimizerPass for CompositeMerge {
                 let op = { ops.borrow()[idx].clone() };
                 if let (
                     Operation::Operator(Operator::IndexAssign(BinaryOperator { lhs, rhs })),
-                    Some(VariableKind::LocalMut { id, depth }),
+                    Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
                     let item = op.out.unwrap().item;
@@ -54,14 +54,13 @@ impl OptimizerPass for CompositeMerge {
                         let index = index.as_u32();
                         let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
                         if vectorization > 1 {
-                            let assigns = assigns.entry((id, depth)).or_default();
+                            let assigns = assigns.entry(id).or_default();
                             assigns.push((idx, index, rhs));
                             if assigns.len() as u8 == vectorization {
                                 merge_assigns(
                                     &mut opt.program[block].ops.borrow_mut(),
                                     take(assigns),
                                     id,
-                                    depth,
                                     item,
                                 );
                                 changes.inc();
@@ -70,7 +69,7 @@ impl OptimizerPass for CompositeMerge {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(rhs),
-                                Variable::new(VariableKind::LocalMut { id, depth }, item),
+                                Variable::new(VariableKind::LocalMut { id }, item),
                             )
                         }
                     }
@@ -83,8 +82,7 @@ impl OptimizerPass for CompositeMerge {
 fn merge_assigns(
     ops: &mut StableVec<Instruction>,
     mut assigns: Vec<(usize, u32, Variable)>,
-    id: u16,
-    depth: u8,
+    id: Id,
     item: Item,
 ) {
     for assignment in assigns.iter() {
@@ -93,7 +91,7 @@ fn merge_assigns(
     let last = assigns.iter().map(|it| it.0).max().unwrap();
     assigns.sort_by_key(|it| it.1);
     let inputs = assigns.iter().map(|it| it.2).collect::<Vec<_>>();
-    let out = Variable::new(VariableKind::LocalMut { id, depth }, item);
+    let out = Variable::new(VariableKind::LocalMut { id }, item);
     ops.insert(
         last,
         Instruction::new(Operator::InitLine(LineInitOperator { inputs }), out),

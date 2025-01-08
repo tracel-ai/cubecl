@@ -32,8 +32,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Plane(plane) => self.compile_plane(plane, inst.out),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
-            Operation::Comment(_) => { /* Comment are not supported on spir-v. */ }
-            Operation::Debug(debug) => self.compile_debug(debug),
+            Operation::NonSemantic(debug) => self.compile_debug(debug),
         }
     }
 
@@ -91,7 +90,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let start = self.compile_variable(op.start);
                 let end = self.compile_variable(op.end);
                 let out = match out.kind {
-                    core::VariableKind::Slice { id, depth } => (id, depth),
+                    core::VariableKind::Slice { id } => id,
                     _ => unreachable!(),
                 };
 

@@ -253,7 +253,7 @@ impl Optimizer {
         let step = range_loop.step.unwrap_or(1.into());
 
         let i_id = match range_loop.i.kind {
-            VariableKind::LocalMut { id, depth, .. } => (id, depth),
+            VariableKind::LocalMut { id, .. } => id,
             _ => unreachable!(),
         };
         let i = range_loop.i;
@@ -307,7 +307,9 @@ impl Optimizer {
                 true => Operator::LowerEqual,
                 false => Operator::Lower,
             };
-            let tmp = self.create_temporary(Item::new(Elem::Bool));
+            let tmp = *self
+                .allocator
+                .create_local_restricted(Item::new(Elem::Bool));
             self.program[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,

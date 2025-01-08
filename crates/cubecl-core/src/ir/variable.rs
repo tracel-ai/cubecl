@@ -34,22 +34,22 @@ impl Variable {
     }
 }
 
-type Id = u16;
+pub type Id = u32;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    LocalArray { id: Id, depth: u8, length: u32 },
-    LocalMut { id: Id, depth: u8 },
-    LocalConst { id: Id, depth: u8 },
-    Versioned { id: Id, depth: u8, version: u16 },
+    LocalArray { id: Id, length: u32 },
+    LocalMut { id: Id },
+    LocalConst { id: Id },
+    Versioned { id: Id, version: u16 },
     ConstantScalar(ConstantScalarValue),
     ConstantArray { id: Id, length: u32 },
     SharedMemory { id: Id, length: u32 },
-    Matrix { id: Id, mat: Matrix, depth: u8 },
-    Slice { id: Id, depth: u8 },
+    Matrix { id: Id, mat: Matrix },
+    Slice { id: Id },
     Builtin(Builtin),
 }
 
@@ -387,18 +387,6 @@ impl Variable {
         }
     }
 
-    pub fn depth(&self) -> Option<u8> {
-        match self.kind {
-            VariableKind::LocalMut { depth, .. }
-            | VariableKind::Versioned { depth, .. }
-            | VariableKind::LocalConst { depth, .. }
-            | VariableKind::LocalArray { depth, .. }
-            | VariableKind::Matrix { depth, .. }
-            | VariableKind::Slice { depth, .. } => Some(depth),
-            _ => None,
-        }
-    }
-
     pub fn as_const(&self) -> Option<ConstantScalarValue> {
         match self.kind {
             VariableKind::ConstantScalar(constant) => Some(constant),
@@ -414,16 +402,16 @@ impl Display for Variable {
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
-            VariableKind::LocalMut { id, depth } => write!(f, "local({id}, {depth})"),
-            VariableKind::Versioned { id, depth, version } => {
-                write!(f, "local({id}, {depth}).v{version}")
+            VariableKind::LocalMut { id } => write!(f, "local({id})"),
+            VariableKind::Versioned { id, version } => {
+                write!(f, "local({id}).v{version}")
             }
-            VariableKind::LocalConst { id, depth } => write!(f, "binding({id}, {depth})"),
+            VariableKind::LocalConst { id } => write!(f, "binding({id})"),
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             VariableKind::SharedMemory { id, .. } => write!(f, "shared({id})"),
             VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
-            VariableKind::Matrix { id, depth, .. } => write!(f, "matrix({id}, {depth})"),
-            VariableKind::Slice { id, depth } => write!(f, "slice({id}, {depth})"),
+            VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
+            VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
         }
     }

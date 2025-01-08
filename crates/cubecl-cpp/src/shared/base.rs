@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::{expand_checked_index_assign, Allocator};
+use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -92,10 +92,6 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
     fn max_shared_memory_size() -> usize {
         49152
-    }
-
-    fn local_allocator() -> Allocator {
-        Allocator::new()
     }
 }
 
@@ -229,9 +225,6 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
-            gpu::Operation::Comment(val) => instructions.push(Instruction::Comment {
-                content: val.content,
-            }),
             gpu::Operation::Plane(op) => {
                 self.warp_size_checked = true;
                 let out = self.compile_variable(out.unwrap());
@@ -285,13 +278,13 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
-            gpu::Operation::Debug(debug) => match debug {
+            gpu::Operation::NonSemantic(debug) => match debug {
                 // No good way to attach debug info
-                gpu::DebugInfo::BeginCall { .. }
-                | gpu::DebugInfo::EndCall
-                | gpu::DebugInfo::Source { .. }
-                | gpu::DebugInfo::Line { .. } => {}
-                gpu::DebugInfo::Print {
+                gpu::NonSemantic::BeginCall { .. }
+                | gpu::NonSemantic::EndCall
+                | gpu::NonSemantic::Source { .. }
+                | gpu::NonSemantic::Line { .. } => {}
+                gpu::NonSemantic::Print {
                     format_string,
                     args,
                 } => {
@@ -303,6 +296,9 @@ impl<D: Dialect> CppCompiler<D> {
                             .map(|arg| self.compile_variable(arg))
                             .collect(),
                     })
+                }
+                gpu::NonSemantic::Comment { content } => {
+                    instructions.push(Instruction::Comment { content })
                 }
             },
         }
@@ -397,10 +393,8 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
                         let id = match input {
-                            Variable::GlobalInputArray(id, _) => id as u32,
-                            Variable::GlobalOutputArray(id, _) => {
-                                self.num_inputs as u32 + id as u32
-                            }
+                            Variable::GlobalInputArray(id, _) => id,
+                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
                             _ => panic!("Can only get length of global array"),
                         };
                         let offset = self.metadata.len_index(id);
@@ -419,10 +413,8 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
                         let id = match input {
-                            Variable::GlobalInputArray(id, _) => id as u32,
-                            Variable::GlobalOutputArray(id, _) => {
-                                self.num_inputs as u32 + id as u32
-                            }
+                            Variable::GlobalInputArray(id, _) => id,
+                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
                             _ => panic!("Can only get buffer length of global array"),
                         };
                         let offset = self.metadata.buffer_len_index(id);
@@ -821,25 +813,21 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
-            gpu::VariableKind::LocalMut { id, depth } => Variable::LocalMut {
+            gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
-                depth,
             },
-            gpu::VariableKind::Versioned { id, depth, .. } => Variable::LocalMut {
+            gpu::VariableKind::Versioned { id, .. } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
-                depth,
             },
-            gpu::VariableKind::LocalConst { id, depth } => Variable::LocalConst {
+            gpu::VariableKind::LocalConst { id } => Variable::LocalConst {
                 id,
                 item: self.compile_item(item),
-                depth,
             },
-            gpu::VariableKind::Slice { id, depth } => Variable::Slice {
+            gpu::VariableKind::Slice { id } => Variable::Slice {
                 id,
                 item: self.compile_item(item),
-                depth,
             },
             gpu::VariableKind::GlobalOutputArray(id) => {
                 Variable::GlobalOutputArray(id, self.compile_item(item))
@@ -907,24 +895,18 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::PlaneDim => Variable::WarpSize,
                 gpu::Builtin::UnitPosPlane => Variable::ThreadIdxWarp,
             },
-            gpu::VariableKind::LocalArray { id, depth, length } => {
+            gpu::VariableKind::LocalArray { id, length } => {
                 let item = self.compile_item(item);
-                if !self
-                    .local_arrays
-                    .iter()
-                    .any(|s| s.index == id && s.depth == depth)
-                {
-                    self.local_arrays
-                        .push(LocalArray::new(id, item, depth, length));
+                if !self.local_arrays.iter().any(|s| s.index == id) {
+                    self.local_arrays.push(LocalArray::new(id, item, length));
                 }
-                Variable::LocalArray(id, item, depth, length)
+                Variable::LocalArray(id, item, length)
             }
-            gpu::VariableKind::Matrix { id, mat, depth } => {
+            gpu::VariableKind::Matrix { id, mat } => {
                 self.wmma = true;
                 Variable::WmmaFragment {
                     id,
                     frag: self.compile_matrix(mat),
-                    depth,
                 }
             }
         }

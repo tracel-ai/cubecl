@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    ir::{Item, Vectorization},
+    ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
         TensorHandleRef,
@@ -16,7 +16,7 @@ use super::Array;
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ArrayCompilationArg {
-    pub inplace: Option<u16>,
+    pub inplace: Option<Id>,
     pub vectorisation: Vectorization,
 }
 
@@ -166,7 +166,7 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
                 vectorisation: Vectorization::Some(NonZero::new(*vectorization_factor).unwrap()),
             },
             ArrayArg::Alias { input_pos } => ArrayCompilationArg {
-                inplace: Some(*input_pos as u16),
+                inplace: Some(*input_pos as Id),
                 vectorisation: Vectorization::None,
             },
         }

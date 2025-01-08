@@ -187,15 +187,13 @@ where
     if input.can_mut() {
         return input;
     }
-
     let input_var: Variable = *input;
     let item = input.item;
 
-    let out = context.create_local_mut(item);
+    let out = context.create_local_mut(item); // TODO: The mut is safe, but unecessary if the variable is immutable.
     let out_var = *out;
 
     let op = func(input_var);
-
     context.register(Instruction::new(op, out_var));
 
     out
@@ -254,7 +252,7 @@ pub fn array_assign_binary_op_expand<
         *array_value,
     );
     let array_value = array_value.consume();
-    let op_out = context.create_local(array.item);
+    let op_out = context.create_local(array_item);
     let calculate = Instruction::new(
         func(BinaryOperator {
             lhs: array_value,

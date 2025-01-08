@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use cubecl_core::ir::{Operation, Operator, Variable, VariableKind};
+use cubecl_core::ir::{Id, Operation, Operator, Variable, VariableKind};
 
 use crate::Optimizer;
 
@@ -17,11 +17,11 @@ pub struct Slice {
 /// Try to find any constant length slices by cancelling common factors in `start` and `end`
 #[derive(Default, Debug)]
 pub struct Slices {
-    slices: HashMap<(u16, u8), Slice>,
+    slices: HashMap<Id, Slice>,
 }
 
 impl Deref for Slices {
-    type Target = HashMap<(u16, u8), Slice>;
+    type Target = HashMap<Id, Slice>;
 
     fn deref(&self) -> &Self::Target {
         &self.slices
@@ -49,7 +49,7 @@ impl Slices {
                 let out = operator.out.as_ref();
                 if let Operator::Slice(slice_op) = op {
                     let out_id = match out.unwrap().kind {
-                        VariableKind::Slice { id, depth } => (id, depth),
+                        VariableKind::Slice { id } => id,
                         _ => unreachable!(),
                     };
                     let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());

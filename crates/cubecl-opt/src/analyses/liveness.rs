@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use cubecl_core::ir::Id;
 use petgraph::graph::NodeIndex;
 
 use crate::{analyses::post_order::PostOrder, Optimizer};
@@ -7,13 +8,13 @@ use crate::{analyses::post_order::PostOrder, Optimizer};
 use super::Analysis;
 
 pub struct Liveness {
-    live_vars: HashMap<NodeIndex, HashSet<(u16, u8)>>,
+    live_vars: HashMap<NodeIndex, HashSet<Id>>,
 }
 
 #[derive(Clone)]
 struct BlockSets {
-    gen: HashSet<(u16, u8)>,
-    kill: HashSet<(u16, u8)>,
+    gen: HashSet<Id>,
+    kill: HashSet<Id>,
 }
 
 struct State {
@@ -39,11 +40,11 @@ impl Liveness {
         Self { live_vars }
     }
 
-    pub fn at_block(&self, block: NodeIndex) -> &HashSet<(u16, u8)> {
+    pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
         &self.live_vars[&block]
     }
 
-    pub fn is_dead(&self, node: NodeIndex, var: (u16, u8)) -> bool {
+    pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
         !self.at_block(node).contains(&var)
     }
 

@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use super::{lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceInstruction};
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
+#[derive(Debug)]
 pub struct ArgMax;
 
 #[cube]

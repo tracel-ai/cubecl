@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use cubecl_core::ir::{self, KernelDefinition};
+use cubecl_core::ir::{self, Id, KernelDefinition};
 use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
@@ -20,23 +20,23 @@ pub struct LookupTables {
     pub cube_size: Word,
 
     pub const_arrays: Vec<Array>,
-    pub shared_memories: HashMap<u16, Array>,
-    pub local_arrays: HashMap<(u16, u8), Array>,
-    pub matrices: HashMap<(u16, u8), Matrix>,
+    pub shared_memories: HashMap<Id, Array>,
+    pub local_arrays: HashMap<Id, Array>,
+    pub matrices: HashMap<Id, Matrix>,
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
-    pub scalars: HashMap<(u16, ir::Elem), Word>,
+    pub scalars: HashMap<(Id, ir::Elem), Word>,
     pub globals: HashMap<Globals, Word>,
     pub array_types: HashMap<Word, Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
-    pub bindings: HashMap<(u16, u8), Word>,
-    pub variables: HashMap<(u16, u8), Word>,
-    pub versioned: HashMap<(u16, u8, u16), Word>,
+    pub bindings: HashMap<Id, Word>,
+    pub variables: HashMap<Id, Word>,
+    pub versioned: HashMap<(Id, u16), Word>,
     pub labels: HashMap<NodeIndex, Word>,
     pub end_labels: HashMap<NodeIndex, Word>,
 
-    pub slices: HashMap<(u16, u8), Slice>,
+    pub slices: HashMap<Id, Slice>,
 
     pub extensions: HashMap<String, Word>,
     // For break, continue
@@ -172,40 +172,40 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn get_local(&mut self, id: (u16, u8), item: &Item) -> Word {
+    pub fn get_local(&mut self, id: Id, item: &Item) -> Word {
         if let Some(existing) = self.state.variables.get(&id) {
             *existing
         } else {
             let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
             let word = self.declare_function_variable(ty);
             self.state.variables.insert(id, word);
-            self.debug_name(word, format!("local({}, {})", id.0, id.1));
+            self.debug_name(word, format!("local({})", id));
             word
         }
     }
 
-    pub fn get_binding(&mut self, id: (u16, u8)) -> Word {
+    pub fn get_binding(&mut self, id: Id) -> Word {
         if let Some(existing) = self.state.bindings.get(&id) {
             *existing
         } else {
             let word = self.id();
             self.state.bindings.insert(id, word);
-            self.debug_name(word, format!("binding({}, {})", id.0, id.1));
+            self.debug_name(word, format!("binding({})", id));
             word
         }
     }
 
-    pub fn merge_binding(&mut self, id: (u16, u8), word: Word) {
+    pub fn merge_binding(&mut self, id: Id, word: Word) {
         self.state.bindings.insert(id, word);
     }
 
-    pub fn get_versioned(&mut self, id: (u16, u8, u16)) -> Word {
+    pub fn get_versioned(&mut self, id: (Id, u16)) -> Word {
         if let Some(existing) = self.state.versioned.get(&id) {
             *existing
         } else {
             let word = self.id();
             self.state.versioned.insert(id, word);
-            self.debug_name(word, format!("local({}, {}).v{}", id.0, id.1, id.2));
+            self.debug_name(word, format!("local({}).v{}", id.0, id.1));
             word
         }
     }
@@ -231,7 +231,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn global_scalar(&mut self, id: u16, elem: ir::Elem) -> Variable {
+    pub fn global_scalar(&mut self, id: Id, elem: ir::Elem) -> Variable {
         if let Some(existing) = self.state.scalars.get(&(id, elem)).copied() {
             let item = self.compile_item(ir::Item::new(elem));
             Variable::GlobalScalar(existing, item.elem())
@@ -242,9 +242,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let arr_id = self.state.named[&format!("scalars_{elem}")];
             let item = self.compile_item(ir::Item::new(elem));
             let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
-            let const_id = self.const_u32(id as u32);
-            let index =
-                Variable::ConstantScalar(const_id, (id as u32).into(), Elem::Int(32, false));
+            let const_id = self.const_u32(id);
+            let index = Variable::ConstantScalar(const_id, id.into(), Elem::Int(32, false));
             let read_id = self.id();
             let var = Variable::GlobalScalar(read_id, item.elem());
             self.debug_name(read_id, format!("scalars<{elem}>({id})"));
