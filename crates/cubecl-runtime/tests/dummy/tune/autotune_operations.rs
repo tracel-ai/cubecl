@@ -3,7 +3,7 @@ use std::sync::Arc;
 use cubecl_runtime::{
     client::ComputeClient,
     server::{Binding, CubeCount},
-    tune::AutotuneOperation,
+    tune::{AutotuneError, AutotuneOperation},
 };
 use derive_new::new;
 
@@ -21,12 +21,14 @@ pub struct OneKernelAutotuneOperation {
 
 impl AutotuneOperation for OneKernelAutotuneOperation {
     /// Executes the operation on given bindings and server, with the additional parameters
-    fn execute(self: Box<Self>) {
+    fn execute(self: Box<Self>) -> Result<(), AutotuneError> {
         self.client.execute(
             self.kernel.clone(),
             CubeCount::Static(1, 1, 1),
             self.bindings,
         );
+
+        Ok(())
     }
 
     fn clone(&self) -> Box<dyn AutotuneOperation> {

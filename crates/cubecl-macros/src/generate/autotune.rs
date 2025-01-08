@@ -357,6 +357,7 @@ impl AutotuneOperations {
 
     fn generate_op_impl(&self, name: &Ident, func_name: &Path) -> TokenStream {
         let operation = tune_type("AutotuneOperation");
+        let error = tune_type("AutotuneError");
 
         let key = &self.key;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
@@ -386,8 +387,11 @@ impl AutotuneOperations {
 
         quote! {
             impl #generics #operation<#output> for #name #generic_names #where_clause {
-                fn execute(self: Box<Self>) -> #output {
-                    #func_name #turbofish(#(#func_args),*)
+                fn execute(self: Box<Self>) -> Result<#output, #error> {
+                    #func_name #turbofish(#(#func_args),*).map_err(|err| {
+                        let err: #error = err.into();
+                        err
+                    })
                 }
 
                 fn clone(&self) -> Box<dyn #operation<#output>> {
