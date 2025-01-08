@@ -4,6 +4,8 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
+use super::AutotuneError;
+
 /// Default checksum for an operation set
 #[cfg(autotune_persistent_cache)]
 pub fn compute_checksum<Out: Send + 'static>(
@@ -46,7 +48,7 @@ pub trait AutotuneOperationSet<K: Send + 'static, Output: Send + 'static = ()>: 
 /// Contains operation to run and inputs on which to run it
 pub trait AutotuneOperation<Output: Send + 'static = ()>: Send + core::fmt::Debug {
     /// Runs the operation
-    fn execute(self: Box<Self>) -> Output;
+    fn execute(self: Box<Self>) -> Result<Output, AutotuneError>;
 
     /// The name of the operation.
     fn name(&self) -> &str {

@@ -61,7 +61,7 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display>(
     let expected = case.matmul_cpu::<R, F>(&lhs, &rhs, &client);
 
     let out: TensorHandle<R, F> = case.empty_out(&client);
-    simple::launch::<R, F>(&client, lhs, rhs, &out.as_ref());
+    simple::launch::<R, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
 
     if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 10e-4) {
         panic!("{}", e);
