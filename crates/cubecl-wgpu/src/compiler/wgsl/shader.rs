@@ -1,5 +1,8 @@
 use super::{Body, Extension, Item, Variable};
-use cubecl_core::{ir::CubeDim, CompilerRepresentation};
+use cubecl_core::{
+    ir::{CubeDim, Id},
+    CompilerRepresentation,
+};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -25,13 +28,13 @@ pub struct Binding {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory {
     location: Location,
-    pub index: u16,
+    pub index: Id,
     item: Item,
     size: u32,
 }
 
 impl SharedMemory {
-    pub fn new(index: u16, item: Item, size: u32) -> Self {
+    pub fn new(index: Id, item: Item, size: u32) -> Self {
         Self {
             location: Location::Workgroup,
             index,
@@ -43,7 +46,7 @@ impl SharedMemory {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ConstantArray {
-    pub index: u16,
+    pub index: Id,
     pub item: Item,
     pub size: u32,
     pub values: Vec<Variable>,
@@ -51,20 +54,14 @@ pub struct ConstantArray {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray {
-    pub index: u16,
+    pub index: Id,
     item: Item,
-    name: u8,
     size: u32,
 }
 
 impl LocalArray {
-    pub fn new(index: u16, item: Item, name: u8, size: u32) -> Self {
-        Self {
-            index,
-            item,
-            name,
-            size,
-        }
+    pub fn new(index: Id, item: Item, size: u32) -> Self {
+        Self { index, item, size }
     }
 }
 
@@ -183,8 +180,8 @@ fn {}(
         for array in self.local_arrays.iter() {
             writeln!(
                 f,
-                "var a_{}_{}: array<{}, {}>;\n",
-                array.name, array.index, array.item, array.size
+                "var a_{}: array<{}, {}>;\n",
+                array.index, array.item, array.size
             )?;
         }
 

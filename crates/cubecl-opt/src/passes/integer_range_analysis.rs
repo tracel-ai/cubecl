@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul, Sub};
 
 use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, Elem, Operation, Operator, UIntKind, Variable, VariableKind,
+    Builtin, ConstantScalarValue, Elem, Id, Operation, Operator, UIntKind, Variable, VariableKind,
 };
 
 use crate::{AtomicCounter, Optimizer, Range};
@@ -108,38 +108,35 @@ impl OptimizerPass for IntegerRangeAnalysis {
 /// can be determined, or the type is not an integer.
 pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
     match var.kind {
-        VariableKind::Versioned { id, depth, version }
-            if var.item.elem() == Elem::UInt(UIntKind::U32) =>
-        {
+        VariableKind::Versioned { id, version } if var.item.elem() == Elem::UInt(UIntKind::U32) => {
             opt.program
                 .int_ranges
-                .get(&(id, depth, version))
+                .get(&(id, version))
                 .copied()
                 .unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
                 })
         }
-        VariableKind::Versioned { id, depth, version } => opt
+        VariableKind::Versioned { id, version } => opt
             .program
             .int_ranges
-            .get(&(id, depth, version))
+            .get(&(id, version))
             .copied()
             .unwrap_or_default(),
-        VariableKind::LocalConst { id, depth } if var.item.elem() == Elem::UInt(UIntKind::U32) => {
-            opt.program
-                .int_ranges
-                .get(&(id, depth, 0))
-                .copied()
-                .unwrap_or(Range {
-                    lower_bound: Some(0),
-                    upper_bound: None,
-                })
-        }
-        VariableKind::LocalConst { id, depth } => opt
+        VariableKind::LocalConst { id } if var.item.elem() == Elem::UInt(UIntKind::U32) => opt
             .program
             .int_ranges
-            .get(&(id, depth, 0))
+            .get(&(id, 0))
+            .copied()
+            .unwrap_or(Range {
+                lower_bound: Some(0),
+                upper_bound: None,
+            }),
+        VariableKind::LocalConst { id } => opt
+            .program
+            .int_ranges
+            .get(&(id, 0))
             .copied()
             .unwrap_or_default(),
         VariableKind::ConstantScalar(ConstantScalarValue::Int(val, _)) => Range::constant(val),
@@ -161,10 +158,10 @@ pub(crate) fn range_of(opt: &Optimizer, var: &Variable) -> Range {
     }
 }
 
-pub(crate) fn var_id(var: &Variable) -> Option<(u16, u8, u16)> {
+pub(crate) fn var_id(var: &Variable) -> Option<(Id, u16)> {
     match var.kind {
-        VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
-        VariableKind::LocalConst { id, depth } => Some((id, depth, 0)),
+        VariableKind::Versioned { id, version } => Some((id, version)),
+        VariableKind::LocalConst { id } => Some((id, 0)),
         _ => None,
     }
 }

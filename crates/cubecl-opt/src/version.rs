@@ -3,7 +3,7 @@ use std::{
     mem::take,
 };
 
-use cubecl_core::ir::{Instruction, Item, Variable, VariableKind};
+use cubecl_core::ir::{Id, Instruction, Item, Variable, VariableKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{ControlFlow, EdgeIndex, NodeIndex};
@@ -13,10 +13,10 @@ use super::Optimizer;
 /// The state required by the SSA transform
 #[derive(Debug)]
 pub struct SsaState<'a> {
-    versions: HashMap<(u16, u8), u16>,
+    versions: HashMap<Id, u16>,
     visited_blocks: &'a mut HashSet<NodeIndex>,
     visited_edges: &'a mut HashSet<EdgeIndex>,
-    max_versions: &'a mut HashMap<(u16, u8), u16>,
+    max_versions: &'a mut HashMap<Id, u16>,
 }
 
 /// An entry in the phi instruction. Contains the variable ID that should be used when coming from
@@ -122,11 +122,10 @@ impl Optimizer {
                 .iter_mut()
                 .find(|it| it.block == source)
                 .unwrap();
-            if let Some((id, depth, item, _)) = as_versioned(entry.value) {
-                if self.program.variables.contains_key(&(id, depth)) {
-                    let version = state.versions[&(id, depth)];
-                    entry.value =
-                        Variable::new(VariableKind::Versioned { id, depth, version }, item);
+            if let Some((id, item, _)) = as_versioned(entry.value) {
+                if self.program.variables.contains_key(&id) {
+                    let version = state.versions[&id];
+                    entry.value = Variable::new(VariableKind::Versioned { id, version }, item);
                 }
             }
         }
@@ -135,16 +134,15 @@ impl Optimizer {
     /// Version the operations for this block
     fn version_block_ops(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
         for phi in self.program[block].phi_nodes.borrow_mut().iter_mut() {
-            if let Some((id, depth, item, _)) = as_versioned(phi.out) {
-                if self.program.variables.contains_key(&(id, depth)) {
-                    let version = state.versions.get_mut(&(id, depth)).unwrap();
-                    let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
+            if let Some((id, item, _)) = as_versioned(phi.out) {
+                if self.program.variables.contains_key(&id) {
+                    let version = state.versions.get_mut(&id).unwrap();
+                    let max_version = state.max_versions.get_mut(&id).unwrap();
                     *max_version += 1;
                     *version = *max_version;
                     phi.out = Variable::new(
                         VariableKind::Versioned {
                             id,
-                            depth,
                             version: *version,
                         },
                         item,
@@ -175,15 +173,14 @@ impl Optimizer {
 
     fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
         self.visit_out(&mut op.out, |_, var| match var.kind {
-            VariableKind::LocalMut { id, depth } | VariableKind::Versioned { id, depth, .. } => {
-                if let Some(version) = state.versions.get_mut(&(id, depth)) {
-                    let max_version = state.max_versions.get_mut(&(id, depth)).unwrap();
+            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
+                if let Some(version) = state.versions.get_mut(&id) {
+                    let max_version = state.max_versions.get_mut(&id).unwrap();
                     *max_version += 1;
                     *version = *max_version;
                     *var = Variable::new(
                         VariableKind::Versioned {
                             id,
-                            depth,
                             version: *version,
                         },
                         var.item,
@@ -196,13 +193,12 @@ impl Optimizer {
 
     fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
         match var.kind {
-            VariableKind::LocalMut { id, depth } | VariableKind::Versioned { id, depth, .. } => {
-                if self.program.variables.contains_key(&(id, depth)) {
-                    if let Some(version) = state.versions.get(&(id, depth)) {
+            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
+                if self.program.variables.contains_key(&id) {
+                    if let Some(version) = state.versions.get(&id) {
                         *var = Variable::new(
                             VariableKind::Versioned {
                                 id,
-                                depth,
                                 version: *version,
                             },
                             var.item,
@@ -215,9 +211,9 @@ impl Optimizer {
     }
 }
 
-fn as_versioned(var: Variable) -> Option<(u16, u8, Item, u16)> {
+fn as_versioned(var: Variable) -> Option<(Id, Item, u16)> {
     match var.kind {
-        VariableKind::Versioned { id, depth, version } => Some((id, depth, var.item, version)),
+        VariableKind::Versioned { id, version } => Some((id, var.item, version)),
         _ => None,
     }
 }

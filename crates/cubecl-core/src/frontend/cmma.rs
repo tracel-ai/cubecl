@@ -433,7 +433,7 @@ pub mod cast {
         }
         let input = *input.elem;
         let input_mat = match input.kind {
-            ir::VariableKind::Matrix { id, mat, depth } => mat,
+            ir::VariableKind::Matrix { mat, .. } => mat,
             _ => unreachable!(),
         };
 

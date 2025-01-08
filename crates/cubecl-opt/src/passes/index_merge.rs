@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cubecl_core::ir::{
-    CopyMemoryOperator, Instruction, Operation, Operator, Variable, VariableKind,
+    CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind,
 };
 
 use crate::{AtomicCounter, Optimizer};
@@ -60,10 +60,10 @@ impl OptimizerPass for CopyTransform {
     }
 }
 
-fn as_versioned(var: &Variable) -> Option<(u16, u8, u16)> {
+fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
     match var.kind {
-        VariableKind::LocalConst { id, depth } => Some((id, depth, 0)),
-        VariableKind::Versioned { id, depth, version } => Some((id, depth, version)),
+        VariableKind::LocalConst { id } => Some((id, 0)),
+        VariableKind::Versioned { id, version } => Some((id, version)),
         _ => None,
     }
 }

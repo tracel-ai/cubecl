@@ -252,7 +252,7 @@ pub fn array_assign_binary_op_expand<
         *array_value,
     );
     let array_value = array_value.consume();
-    let op_out = context.create_local(array.item);
+    let op_out = context.create_local(array_item);
     let calculate = Instruction::new(
         func(BinaryOperator {
             lhs: array_value,

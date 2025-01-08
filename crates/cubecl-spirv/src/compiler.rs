@@ -8,10 +8,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_core::{
-    ir::{Allocator, KernelDefinition},
-    Compiler, ExecutionMode,
-};
+use cubecl_core::{ir::KernelDefinition, Compiler, ExecutionMode};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{BuiltIn, Capability, Decoration, Op, StorageClass, Word},
@@ -157,10 +154,6 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn elem_size(elem: core::Elem) -> usize {
         elem.size()
-    }
-
-    fn local_allocator() -> Allocator {
-        Allocator::new()
     }
 
     fn max_shared_memory_size() -> usize {

@@ -90,7 +90,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let start = self.compile_variable(op.start);
                 let end = self.compile_variable(op.end);
                 let out = match out.kind {
-                    core::VariableKind::Slice { id, depth } => (id, depth),
+                    core::VariableKind::Slice { id } => id,
                     _ => unreachable!(),
                 };
 

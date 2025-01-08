@@ -1,4 +1,4 @@
-use crate::ir::{Allocator, Elem, Item, Visibility};
+use crate::ir::{Elem, Id, Item, Visibility};
 use crate::prelude::KernelDefinition;
 use crate::KernelSettings;
 use crate::{
@@ -14,8 +14,8 @@ pub struct KernelBuilder {
     inputs: Vec<InputInfo>,
     outputs: Vec<OutputInfo>,
     indices: HashMap<Elem, usize>,
-    num_input: u16,
-    num_output: u16,
+    num_input: Id,
+    num_output: Id,
 }
 
 impl KernelBuilder {
@@ -25,7 +25,7 @@ impl KernelBuilder {
             Some(index) => match self.inputs.get_mut(*index).unwrap() {
                 InputInfo::Scalar { elem: _, size } => {
                     *size += 1;
-                    *size as u16 - 1
+                    *size as Id - 1
                 }
                 _ => panic!("Should be a scalar."),
             },
@@ -76,7 +76,7 @@ impl KernelBuilder {
     }
 
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace_output(&mut self, position: u16) -> ExpandElement {
+    pub fn inplace_output(&mut self, position: Id) -> ExpandElement {
         let input = self
             .inputs
             .get_mut(position as usize)
@@ -117,9 +117,9 @@ impl KernelBuilder {
         .integrate(settings)
     }
 
-    pub fn with_local_allocator(allocator: Allocator) -> Self {
+    pub fn new() -> Self {
         Self {
-            context: CubeContext::root(allocator),
+            context: CubeContext::root(),
             inputs: Vec::new(),
             outputs: Vec::new(),
             indices: HashMap::new(),
@@ -131,6 +131,6 @@ impl KernelBuilder {
 
 impl Default for KernelBuilder {
     fn default() -> Self {
-        Self::with_local_allocator(Allocator::new())
+        Self::new()
     }
 }
