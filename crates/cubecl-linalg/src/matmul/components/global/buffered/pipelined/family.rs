@@ -5,6 +5,8 @@ use crate::matmul::components::global::{
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
+use crate::matmul::components::stage::StageConfig;
+use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{stage, MatmulPrecision};
@@ -41,6 +43,13 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         check_buffers_contiguous::<Self::Config>(Ident::Lhs, config)?;
         check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
+
+        let tmm_config = config.smm_config.to_tmm_config();
+        let tmm_size = tmm_config.size();
+
+        if tmm_size.m != tmm_size.n || tmm_size.n != tmm_size.k {
+            return Err(Box::new("Only support square tiling"));
+        }
 
         BufferLoading::check::<Self::Config>(config, Ident::Lhs)?;
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
