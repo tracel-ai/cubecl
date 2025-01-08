@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 
 use super::{Reduce, ReduceInstruction};
 
+#[derive(Debug)]
 pub struct Prod;
 
 impl Reduce for Prod {

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-pub trait Reduce: Send + Sync + 'static {
+pub trait Reduce: Send + Sync + 'static + std::fmt::Debug {
     type Instruction<In: Numeric>: ReduceInstruction<In>;
 }
 
@@ -14,7 +14,7 @@ pub trait Reduce: Send + Sync + 'static {
 /// with their coordinate into an `AccumulatorItem`. Then, multiple `AccumulatorItem` are possibly fused
 /// together into a single accumulator that is converted to the expected output type.
 #[cube]
-pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static {
+pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debug {
     /// The intermediate state into which we accumulate new input elements.
     /// This is most likely a `Line<T>` or a struct or tuple of lines.
     type AccumulatorItem: CubeType;
