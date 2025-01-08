@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::ir::ConstantScalarValue;
 
 use super::{
-    cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Matrix, Operation,
-    UIntKind, Variable, VariableKind,
+    cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
+    Variable, VariableKind,
 };
 
 /// The scope is the main [operation](Operation) and [variable](Variable) container that simplify
@@ -96,22 +96,8 @@ impl Scope {
         local
     }
 
-    /// Create a matrix variable
-    pub fn create_matrix(&mut self, matrix: Matrix) -> Variable {
-        let variable = *self.allocator.create_matrix(matrix);
-        self.add_matrix(variable);
-        variable
-    }
-
     pub fn add_matrix(&mut self, variable: Variable) {
         self.matrices.push(variable);
-    }
-
-    /// Create a slice variable
-    pub fn create_slice(&mut self, item: Item) -> Variable {
-        let variable = *self.allocator.create_slice(item);
-        self.add_slice(variable);
-        variable
     }
 
     pub fn add_slice(&mut self, slice: Variable) {

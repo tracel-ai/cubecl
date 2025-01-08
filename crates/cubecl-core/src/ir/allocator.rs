@@ -41,15 +41,15 @@ impl PartialEq for Allocator {
 }
 
 impl Allocator {
-    /// Create a new immutable local variable of type specified by `item` for the given `scope`.
+    /// Create a new immutable local variable of type specified by `item`.
     pub fn create_local(&self, item: Item) -> ExpandElement {
         let id = self.new_local_index();
         let local = VariableKind::LocalConst { id };
         ExpandElement::Plain(Variable::new(local, item))
     }
 
-    /// Create a new mutable local variable of type specified by `item` for the given `scope`.
-    /// Try to reuse a previously defined but unused mutable variable in the current scope if possible.
+    /// Create a new mutable local variable of type specified by `item`.
+    /// Try to reuse a previously defined but unused mutable variable if possible.
     /// Else, this define a new variable.
     pub fn create_local_mut(&self, item: Item) -> ExpandElement {
         if item.elem.is_atomic() {
@@ -60,7 +60,7 @@ impl Allocator {
         }
     }
 
-    /// Create a new mutable restricted local variable of type specified by `item` into the given `scope`.
+    /// Create a new mutable restricted local variable of type specified by `item`.
     pub fn create_local_restricted(&self, item: Item) -> ExpandElement {
         let id = self.new_local_index();
         let local = VariableKind::LocalMut { id };
@@ -122,14 +122,5 @@ impl Allocator {
 
     pub fn new_local_index(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::Release)
-    }
-
-    pub fn managed_locals(&self) -> Vec<Variable> {
-        self.local_mut_pool
-            .borrow()
-            .values()
-            .flatten()
-            .map(|it| **it)
-            .collect()
     }
 }
