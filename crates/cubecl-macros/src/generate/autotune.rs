@@ -388,11 +388,10 @@ impl AutotuneOperations {
         quote! {
             impl #generics #operation<#output> for #name #generic_names #where_clause {
                 fn execute(self: Box<Self>) -> Result<#output, #error> {
-                    let output = #func_name #turbofish(#(#func_args),*).map_err(|err| {
+                    #func_name #turbofish(#(#func_args),*).map_err(|err| {
                         let err: #error = err.into();
                         err
-                    })?;
-                    Ok(output)
+                    })
                 }
 
                 fn clone(&self) -> Box<dyn #operation<#output>> {
