@@ -1,20 +1,18 @@
-use cubecl::{
-    linalg::{
-        matmul::components::{
-            global::InputLoader,
-            stage::{
-                multi_buffer::LhsReader, ColMajorTiling, RowMajorTiling, Stage, TilingOrder as _,
-                TilingOrderConfig,
-            },
-            Ident,
-        },
-        tensor::VirtualTensor,
-    },
-    prelude::*,
-};
 use std::marker::PhantomData;
 
-use crate::kernel::conv::{precision::ConvPrecision, reader::im2col::Im2colReader, ConvGemmConfig};
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_linalg::matmul::components::global::InputLoader;
+use cubecl_linalg::matmul::components::stage::multi_buffer::LhsReader;
+use cubecl_linalg::matmul::components::stage::{
+    ColMajorTiling, RowMajorTiling, Stage, TilingOrder, TilingOrderConfig,
+};
+use cubecl_linalg::matmul::components::Ident;
+use cubecl_linalg::tensor::VirtualTensor;
+
+use crate::conv2d::gemm::precision::ConvPrecision;
+use crate::conv2d::gemm::reader::im2col::Im2colReader;
+use crate::conv2d::gemm::ConvGemmConfig;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]

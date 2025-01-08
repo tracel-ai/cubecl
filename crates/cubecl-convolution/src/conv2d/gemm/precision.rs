@@ -1,4 +1,4 @@
-use cubecl::prelude::Numeric;
+use cubecl_core::prelude::Numeric;
 
 /// Implicit convolution spec definiting each element types used in the computation.
 pub trait ConvPrecision: Send + Sync + Clone + 'static {

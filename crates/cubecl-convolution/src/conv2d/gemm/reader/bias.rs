@@ -1,10 +1,8 @@
-use cubecl::{
-    linalg::{
-        matmul::components::{stage::StageConfig, Ident},
-        tensor::VirtualTensor,
-    },
-    prelude::*,
-};
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_linalg::matmul::components::stage::StageConfig;
+use cubecl_linalg::matmul::components::Ident;
+use cubecl_linalg::tensor::VirtualTensor;
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.

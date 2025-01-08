@@ -4,7 +4,7 @@ use cubecl_linalg::tensor::{into_contiguous, TensorHandle};
 
 use crate::utils::{bias_reshape_or_zero, ConvTransposeOptions, ConvType};
 
-use super::conv::{Conv3dArgs, Conv3dArgsLaunch};
+use super::conv3d::{Conv3dArgs, Conv3dArgsLaunch};
 
 #[cube(launch)]
 fn conv_transpose3d_kernel<E: Numeric>(

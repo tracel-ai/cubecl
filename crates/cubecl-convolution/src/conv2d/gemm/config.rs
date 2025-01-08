@@ -1,4 +1,4 @@
-use cubecl::linalg::matmul::components::global::GlobalConfig;
+use cubecl_linalg::matmul::components::global::GlobalConfig;
 
 /// Convolution specific config, extends regular matmul [`Config`](global::Config)
 pub trait ConvGemmConfig: GlobalConfig {

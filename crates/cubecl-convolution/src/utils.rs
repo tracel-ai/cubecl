@@ -1,7 +1,8 @@
 use cubecl_core::{
     client::ComputeClient,
+    ir::{Elem, FloatKind},
     prelude::{Float, TensorHandleRef},
-    Runtime,
+    Feature, Runtime,
 };
 use cubecl_linalg::tensor::TensorHandle;
 
@@ -68,4 +69,10 @@ pub(crate) fn bias_reshape_or_zero<R: Runtime, E: Float>(
             TensorHandle::zeros(&client.clone(), shape)
         }
     }
+}
+
+pub fn has_tf32<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
+    client
+        .properties()
+        .feature_enabled(Feature::Type(Elem::Float(FloatKind::TF32)))
 }

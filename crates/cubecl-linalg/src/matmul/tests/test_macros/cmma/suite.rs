@@ -44,12 +44,12 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
 
     let selection = MatmulSelection {
         tile,
-        num_stagess: stage,
+        num_stages: stage,
         plane_dim,
     };
     let config_input = CommonStageInput {
         tile: A::TileMatmul::input(selection.tile),
-        num_stages: selection.num_stagess,
+        num_stages: selection.num_stages,
     };
 
     test_matmul_algorithm::<A, P::EG, P::ES, R>(client, problem, config_input, selection);

@@ -1,12 +1,13 @@
-use super::{
-    algorithm::{Algorithm, ImplicitCmmaConv},
-    precision::ConvPrecision,
-};
-use crate::JitRuntime;
-use cubecl::linalg::matmul::components::{
+use cubecl_core::Runtime;
+use cubecl_linalg::matmul::components::{
     stage::CommonStageInput,
     tile::{accelerated::Accelerated, TileMatmulFamily},
     MatmulSelection, MatmulSize,
+};
+
+use super::{
+    algorithm::{Algorithm, ImplicitCmmaConv},
+    precision::ConvPrecision,
 };
 
 pub struct ConvSelection {
@@ -14,7 +15,7 @@ pub struct ConvSelection {
 }
 
 pub trait ConvSelector<A: Algorithm> {
-    fn select_kernel<R: JitRuntime, CS: ConvPrecision>(plane_dim: u32) -> (A::Selection, A::Input);
+    fn select_kernel<R: Runtime, CS: ConvPrecision>(plane_dim: u32) -> (A::Selection, A::Input);
 }
 
 /// Large m stage size for the usual case where `batch_size * out_h * out_w` is significantly larger
@@ -25,7 +26,7 @@ pub struct Large;
 pub struct Balanced;
 
 impl ConvSelector<ImplicitCmmaConv> for Large {
-    fn select_kernel<R: JitRuntime, CS: ConvPrecision>(
+    fn select_kernel<R: Runtime, CS: ConvPrecision>(
         plane_dim: u32,
     ) -> (
         <ImplicitCmmaConv as Algorithm>::Selection,
@@ -37,12 +38,12 @@ impl ConvSelector<ImplicitCmmaConv> for Large {
                 n: 16,
                 k: 16,
             },
-            num_stagess: MatmulSize { m: 8, n: 4, k: 2 },
+            num_stages: MatmulSize { m: 8, n: 4, k: 2 },
             plane_dim,
         };
         let config_input = CommonStageInput {
             tile: Accelerated::input(selection.tile),
-            num_stages: selection.num_stagess,
+            num_stages: selection.num_stages,
         };
 
         let selection = ConvSelection { matmul: selection };
@@ -52,7 +53,7 @@ impl ConvSelector<ImplicitCmmaConv> for Large {
 }
 
 impl ConvSelector<ImplicitCmmaConv> for Balanced {
-    fn select_kernel<R: JitRuntime, CS: ConvPrecision>(
+    fn select_kernel<R: Runtime, CS: ConvPrecision>(
         plane_dim: u32,
     ) -> (
         <ImplicitCmmaConv as Algorithm>::Selection,
@@ -64,12 +65,12 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
                 n: 16,
                 k: 16,
             },
-            num_stagess: MatmulSize { m: 4, n: 2, k: 4 },
+            num_stages: MatmulSize { m: 4, n: 2, k: 4 },
             plane_dim,
         };
         let config_input = CommonStageInput {
             tile: Accelerated::input(selection.tile),
-            num_stages: selection.num_stagess,
+            num_stages: selection.num_stages,
         };
 
         let selection = ConvSelection { matmul: selection };

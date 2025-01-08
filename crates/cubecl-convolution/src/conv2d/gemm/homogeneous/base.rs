@@ -1,38 +1,39 @@
+use crate::conv2d::gemm::config::ConvGemmConfig;
 use config::HomogeneousConfig;
-use cubecl::{
-    linalg::{
-        matmul::{
-            components::{
-                global::{
-                    self,
-                    full_load::{self, CyclicLoading, RhsLoader},
-                    output_loader::Unloader,
-                    AccumulatorLoader, GlobalConfig, InputLoader,
-                },
-                stage::{
-                    self,
-                    multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
-                    StageMatmulFamily, TilingOrderConfig,
-                },
-                Ident, InvalidConfigError, MatrixLayout, StageDim,
-            },
-            kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_linalg::matmul::components::global::full_load::{CyclicLoading, RhsLoader};
+use cubecl_linalg::matmul::components::global::output_loader::Unloader;
+use cubecl_linalg::matmul::components::global::AccumulatorLoader;
+use cubecl_linalg::matmul::components::global::GlobalConfig;
+use cubecl_linalg::matmul::components::global::InputLoader;
+use cubecl_linalg::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use cubecl_linalg::matmul::components::{stage, Ident};
+use cubecl_linalg::matmul::{
+    components::{
+        global::full_load,
+        stage::{
+            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
+            StageMatmulFamily,
         },
-        tensor::{ReadWrite, VirtualTensor},
+        InvalidConfigError,
     },
-    prelude::*,
+    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
+use cubecl_linalg::tensor::{ReadWrite, VirtualTensor};
+
 use std::marker::PhantomData;
 
-use crate::kernel::conv::{
-    conv2d::gemm::base::{
-        Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
-        ConvolutionProblem,
-    },
-    loader::im2col::SimpleIm2colLoader,
-    precision::ConvPrecision,
+use crate::conv2d::gemm::base::{
+    Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
 };
-use crate::kernel::conv::{conv2d::gemm::ConvGemmConfig as _, loader::bias::BiasLoader};
+use crate::conv2d::{
+    gemm::{
+        loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
+        precision::ConvPrecision,
+    },
+    ConvolutionProblem,
+};
 
 pub struct ImplicitGemmConvolutionFamily<SMM: StageMatmulFamily> {
     _smm: PhantomData<SMM>,
@@ -304,11 +305,13 @@ pub(crate) fn implicit_conv<
 pub mod config {
     use std::ops::Deref;
 
-    use burn_tensor::ops::ConvOptions;
-    use cubecl::linalg::matmul::components::MatmulConfig;
-    use global::GlobalConfig;
+    use crate::ConvOptions;
+    use cubecl_linalg::matmul::components::MatmulConfig;
+    use cubecl_linalg::matmul::components::{
+        global::GlobalConfig, stage::TilingOrderConfig, Ident, MatrixLayout, StageDim,
+    };
 
-    use crate::kernel::conv::conv2d::gemm::{self};
+    use crate::conv2d::gemm;
 
     use super::*;
 

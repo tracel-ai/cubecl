@@ -1,16 +1,18 @@
-use burn_tensor::ops::ConvOptions;
-use cubecl::linalg::{
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_linalg::{
     matmul::{
         components::{
             global::{AccumulatorLoader, OutputLoader},
             stage::{StageMatmul, StageMatmulFamily},
-            InvalidConfigError, MatmulProblem, MatrixLayout,
+            InvalidConfigError,
         },
         kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
     },
     tensor::{ReadWrite, VirtualTensor},
 };
-use cubecl::prelude::*;
+
+use crate::conv2d::ConvolutionProblem;
 
 use super::{precision::ConvPrecision, ConvGemmConfig};
 
@@ -124,39 +126,4 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
         out: TensorArg<'_, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
     );
-}
-
-#[derive(Clone)]
-/// Description of a matmul problem to solve, regardless of actual data
-pub struct ConvolutionProblem {
-    pub m: usize,
-    pub n: usize,
-    pub k: usize,
-    pub lhs_layout: MatrixLayout,
-    pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u8,
-    pub rhs_line_size: u8,
-    pub out_line_size: u8,
-
-    pub kernel_size: (u32, u32),
-    pub options: ConvOptions<2>,
-    pub out_shape_y: usize,
-    pub out_shape_x: usize,
-    pub has_bias: bool,
-}
-
-impl ConvolutionProblem {
-    pub fn as_matmul_problem(&self) -> MatmulProblem {
-        MatmulProblem {
-            m: self.m,
-            n: self.n,
-            k: self.k,
-            batches: (vec![], vec![]),
-            lhs_layout: self.lhs_layout,
-            rhs_layout: self.rhs_layout,
-            lhs_line_size: self.lhs_line_size,
-            rhs_line_size: self.rhs_line_size,
-            out_line_size: self.out_line_size,
-        }
-    }
 }

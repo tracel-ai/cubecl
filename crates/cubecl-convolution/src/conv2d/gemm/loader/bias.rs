@@ -1,19 +1,15 @@
 use std::marker::PhantomData;
 
-use cubecl::{
-    linalg::{
-        matmul::components::{
-            global::AccumulatorLoader,
-            stage::{Stage, StageConfig},
-            tile::{TileConfig, TileMatmul},
-            Ident,
-        },
-        tensor::VirtualTensor,
-    },
-    prelude::*,
-};
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_linalg::matmul::components::global::AccumulatorLoader;
+use cubecl_linalg::matmul::components::stage::{Stage, StageConfig};
+use cubecl_linalg::matmul::components::tile::{TileConfig as _, TileMatmul};
+use cubecl_linalg::matmul::components::Ident;
+use cubecl_linalg::tensor::VirtualTensor;
 
-use crate::kernel::conv::{precision::ConvPrecision, reader::bias::BiasReader};
+use crate::conv2d::gemm::precision::ConvPrecision;
+use crate::conv2d::gemm::reader::bias::BiasReader;
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]

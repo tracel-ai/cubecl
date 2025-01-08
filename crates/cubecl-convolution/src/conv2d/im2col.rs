@@ -1,5 +1,8 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, calculate_cube_count_elemwise};
+use cubecl_linalg::tensor::{into_contiguous, TensorHandle};
+
+use crate::ConvOptions;
 
 #[derive(CubeLaunch)]
 struct Im2ColArgs {
@@ -105,187 +108,54 @@ pub fn batches_per_run(batch_size: usize, out_h: usize, out_w: usize) -> Option<
     }
 }
 
-// fn im2col<R: JitRuntime, E: FloatElement>(
-//     input: JitTensor<R>,
-//     options: ConvOptions<2>,
-//     kernel_h: usize,
-//     kernel_w: usize,
-//     out_h: usize,
-//     out_w: usize,
-// ) -> JitTensor<R> {
-//     let input = into_contiguous(input);
-//     let [batch_size, in_channels, _, _] = input.shape.dims();
+pub fn im2col<R: Runtime, E: Float>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: TensorHandleRef<R>,
+    columns: TensorHandleRef<R>,
+    kernel_h: usize,
+    kernel_w: usize,
+    out_h: usize,
+    out_w: usize,
+    options: ConvOptions<2>,
+) {
+    let input: TensorHandle<R, E> = into_contiguous(client, &input);
+    let [batch_size, in_channels, _, _] = input
+        .shape
+        .clone()
+        .try_into()
+        .expect("Input shape should have 4 dimensions");
 
-//     let col_shape_0 = in_channels * kernel_h * kernel_w;
-//     let col_shape_1 = batch_size * out_h * out_w;
-//     let shape_col = Shape::new([col_shape_0, col_shape_1]);
-//     let columns = empty_device::<R, E>(
-//         input.client.clone(),
-//         input.device.clone(),
-//         shape_col.clone(),
-//     );
+    let col_shape_1 = batch_size * out_h * out_w;
+    let num_elems = in_channels * batch_size * out_h * out_w;
+    let kernel_w_unroll = (kernel_w <= 8).then_some(kernel_w as u32);
+    let line_size = 1;
 
-//     let num_elems = in_channels * batch_size * out_h * out_w;
-//     let cube_dim = CubeDim::default();
-//     let cube_count = calculate_cube_count_elemwise(num_elems, cube_dim);
+    let cube_dim = CubeDim::default();
+    let cube_count = calculate_cube_count_elemwise(num_elems, cube_dim);
 
-//     let kernel_w_unroll = (kernel_w <= 8).then_some(kernel_w as u32);
-
-//     let vectorization = 1;
-
-//     unsafe {
-//         im2col_kernel::launch_unchecked::<E, R>(
-//             &input.client,
-//             cube_count,
-//             cube_dim,
-//             input.as_handle_ref().as_tensor_arg(vectorization),
-//             columns.as_handle_ref().as_tensor_arg(vectorization),
-//             Im2ColArgsLaunch::new(
-//                 ScalarArg::new(options.stride[0] as u32),
-//                 ScalarArg::new(options.stride[1] as u32),
-//                 ScalarArg::new(options.dilation[0] as u32),
-//                 ScalarArg::new(options.dilation[1] as u32),
-//                 ScalarArg::new(options.padding[0] as u32),
-//                 ScalarArg::new(options.padding[1] as u32),
-//                 ScalarArg::new(kernel_h as u32),
-//                 ScalarArg::new(kernel_w as u32),
-//                 ScalarArg::new(out_h as u32),
-//                 ScalarArg::new(out_w as u32),
-//                 ScalarArg::new(col_shape_1 as u32),
-//                 ScalarArg::new(num_elems as u32),
-//             ),
-//             kernel_w_unroll,
-//             options.padding != [0, 0],
-//         )
-//     };
-
-//     columns
-// }
-
-// /// Perform a 2D convolution using the GEMM (im2col) algorithm.
-// ///
-// /// * `input` - The input feature map
-// /// * `weight` - The weights (filter) applied to each kernel
-// /// * `bias` - The bias added to each channel
-// /// * `options` - The options to use for the convolution
-// ///
-// pub fn conv2d_im2col<R: JitRuntime, E: FloatElement>(
-//     input: JitTensor<R>,
-//     weight: JitTensor<R>,
-//     bias: Option<JitTensor<R>>,
-//     options: ConvOptions<2>,
-// ) -> JitTensor<R> {
-//     let [batch_size, in_channels, in_height, in_width] = input.shape.dims();
-//     let [out_channels, _, kernel_h, kernel_w] = weight.shape.dims();
-//     let groups = options.groups;
-//     let out_c_per_group = out_channels / groups;
-
-//     let out_h = calculate_conv_output_size(
-//         kernel_h,
-//         options.stride[0],
-//         options.padding[0],
-//         options.dilation[0],
-//         in_height,
-//     );
-//     let out_w = calculate_conv_output_size(
-//         kernel_w,
-//         options.stride[1],
-//         options.padding[1],
-//         options.dilation[1],
-//         in_width,
-//     );
-
-//     if kernel_h == 1 && kernel_w == 1 && in_height == out_h && in_width == out_w {
-//         // Special case for 1x1 kernels (sometimes used to scale the image by a set of weights)
-//         return execute_1x1_kernel::<R, E>(input, weight, bias, options);
-//     }
-
-//     let batches_per_run = batches_per_run(batch_size, out_h, out_w)
-//         .expect("Image too large to run even one batch at once");
-//     let matmul_shape = Shape::new([groups, out_c_per_group, batches_per_run * out_h * out_w]);
-
-//     let mut out = if batches_per_run != batch_size {
-//         let runs = batch_size / batches_per_run;
-//         let out_shape = Shape::new([runs, out_channels, batches_per_run, out_h, out_w]);
-//         let out = empty_device::<R, E>(input.client.clone(), input.device.clone(), out_shape);
-//         let in_shape = Shape::new([runs, batches_per_run, in_channels, in_height, in_width]);
-//         let input = reshape(input, in_shape);
-//         let in_shape_run = Shape::new([batches_per_run, in_channels, in_height, in_width]);
-//         for run in 0..runs {
-//             let input = index::<R, E>(input.clone(), run);
-//             let input = reshape(input, in_shape_run.clone());
-//             let out_slice = index::<R, E>(out.clone(), run);
-//             let out_slice = reshape(out_slice, matmul_shape.clone());
-//             execute::<R, E>(
-//                 input,
-//                 weight.clone(),
-//                 out_slice,
-//                 options.clone(),
-//                 out_h,
-//                 out_w,
-//             );
-//         }
-//         let out = swap_dims(out, 1, 2);
-//         reshape(out, Shape::new([batch_size, out_channels, out_h, out_w]))
-//     } else {
-//         let out = empty_device::<R, E>(input.client.clone(), input.device.clone(), matmul_shape);
-//         execute::<R, E>(input, weight, out.clone(), options, out_h, out_w);
-//         let out = reshape(out, Shape::new([out_channels, batch_size, out_h, out_w]));
-//         swap_dims(out, 0, 1)
-//     };
-
-//     if let Some(bias) = bias {
-//         let bias = reshape(bias, Shape::new([1, out_channels, 1, 1]));
-//         out = launch_binop::<R, E, AddOp>(out, bias)
-//     }
-//     out
-// }
-
-// fn execute_1x1_kernel<R: JitRuntime, E: FloatElement>(
-//     input: JitTensor<R>,
-//     weight: JitTensor<R>,
-//     bias: Option<JitTensor<R>>,
-//     options: ConvOptions<2>,
-// ) -> JitTensor<R> {
-//     let [batch_size, _, height, width] = input.shape.dims();
-//     let [out_channels, in_c_per_grp, _, _] = weight.shape.dims();
-//     let groups = options.groups;
-//     let out_c_per_grp = out_channels / groups;
-
-//     let input = swap_dims(input, 0, 1); // [CNHW]
-
-//     let weight = reshape(weight, Shape::new([groups, out_c_per_grp, in_c_per_grp]));
-//     let in_shape = Shape::new([groups, in_c_per_grp, batch_size * height * width]);
-//     let input = reshape(input, in_shape);
-//     let out = matmul::<R, E>(weight, input, None, MatmulStrategy::default());
-//     let mut out = reshape(out, Shape::new([out_channels, batch_size, height, width]));
-
-//     if let Some(bias) = bias {
-//         let bias = reshape(bias, Shape::new([out_channels, 1, 1, 1]));
-//         out = launch_binop::<R, E, AddOp>(out, bias)
-//     }
-
-//     swap_dims(out, 0, 1)
-// }
-
-// fn execute<R: JitRuntime, E: FloatElement>(
-//     input: JitTensor<R>,
-//     weight: JitTensor<R>,
-//     out: JitTensor<R>,
-//     options: ConvOptions<2>,
-//     out_h: usize,
-//     out_w: usize,
-// ) {
-//     let [out_channels, _, kernel_h, kernel_w] = weight.shape.dims();
-//     let groups = options.groups;
-
-//     let columns = im2col::<R, E>(input, options.clone(), kernel_h, kernel_w, out_h, out_w);
-//     let [col_shape_0, col_shape_1] = columns.shape.dims();
-//     let col_shape_0 = col_shape_0 / groups;
-//     let out_c_per_group = out_channels / groups;
-
-//     let columns = reshape(columns, Shape::new([groups, col_shape_0, col_shape_1]));
-//     let weight = reshape(weight, Shape::new([groups, out_c_per_group, col_shape_0]));
-
-//     matmul::<R, E>(weight, columns, Some(out), Default::default());
-// }
+    unsafe {
+        im2col_kernel::launch_unchecked::<E, R>(
+            client,
+            cube_count,
+            cube_dim,
+            input.as_arg(line_size),
+            columns.as_tensor_arg(line_size),
+            Im2ColArgsLaunch::new(
+                ScalarArg::new(options.stride[0] as u32),
+                ScalarArg::new(options.stride[1] as u32),
+                ScalarArg::new(options.dilation[0] as u32),
+                ScalarArg::new(options.dilation[1] as u32),
+                ScalarArg::new(options.padding[0] as u32),
+                ScalarArg::new(options.padding[1] as u32),
+                ScalarArg::new(kernel_h as u32),
+                ScalarArg::new(kernel_w as u32),
+                ScalarArg::new(out_h as u32),
+                ScalarArg::new(out_w as u32),
+                ScalarArg::new(col_shape_1 as u32),
+                ScalarArg::new(num_elems as u32),
+            ),
+            kernel_w_unroll,
+            options.padding != [0, 0],
+        )
+    };
+}
