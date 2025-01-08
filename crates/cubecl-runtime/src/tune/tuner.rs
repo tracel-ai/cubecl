@@ -49,6 +49,12 @@ pub enum AutotuneError {
     PanicUnwind(ManuallyDrop<Box<dyn Any + Send>>),
 }
 
+impl From<String> for AutotuneError {
+    fn from(value: String) -> Self {
+        Self::Unknown(value)
+    }
+}
+
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
     /// Returns a tuner with cache initialized from persistent cache
@@ -176,7 +182,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 bench_results.push(result);
             }
 
-            // // Panic if all tuners panicked.
+            // Panic if all tuners panicked.
             #[cfg(all(feature = "std", not(target_family = "wasm")))]
             if bench_results.iter().all(|result| result.is_err()) {
                 let first_error = bench_results.into_iter().next().unwrap().err().unwrap();
