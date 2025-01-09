@@ -56,7 +56,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local_restricted(inst.item());
+                                let temp = *opt.allocator.create_local(inst.item());
                                 new_ops.push(Instruction::new(
                                     Operator::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
@@ -74,7 +74,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local_restricted(inst.item());
+                                let temp = *opt.allocator.create_local(inst.item());
                                 new_ops.push(Instruction::new(
                                     Operator::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
