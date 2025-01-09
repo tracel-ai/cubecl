@@ -81,6 +81,23 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_KHR_cooperative_matrix");
         }
 
+        if caps.contains(&Capability::AtomicFloat16AddEXT) {
+            b.extension("SPV_EXT_shader_atomic_float16_add");
+        }
+
+        if caps.contains(&Capability::AtomicFloat32AddEXT)
+            | caps.contains(&Capability::AtomicFloat64AddEXT)
+        {
+            b.extension("SPV_EXT_shader_atomic_float_add");
+        }
+
+        if caps.contains(&Capability::AtomicFloat16MinMaxEXT)
+            | caps.contains(&Capability::AtomicFloat32MinMaxEXT)
+            | caps.contains(&Capability::AtomicFloat64MinMaxEXT)
+        {
+            b.extension("SPV_EXT_shader_atomic_float_min_max");
+        }
+
         if b.debug {
             b.extension("SPV_KHR_non_semantic_info");
         }

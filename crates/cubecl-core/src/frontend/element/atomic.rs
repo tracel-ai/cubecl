@@ -9,8 +9,7 @@ use super::{
 use crate::{
     frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
     ir::{
-        BinaryOperator, CompareAndSwapOperator, Elem, Instruction, IntKind, Item, Operation,
-        UIntKind, UnaryOperator,
+        BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, Operation, UnaryOperator,
     },
     prelude::KernelBuilder,
     unexpanded,
@@ -54,7 +53,7 @@ impl Display for AtomicOp {
 }
 
 /// An atomic type. Represents an shared value that can be operated on atomically.
-pub trait Atomic: Sized + CubeType
+pub trait AtomicTrait: Sized + CubeType
 where
     ExpandElement: From<<Self::Primitive as CubeType>::ExpandType>,
     ExpandElement: From<<Self as CubeType>::ExpandType>,
@@ -330,108 +329,75 @@ where
     }
 }
 
-macro_rules! impl_atomic_int {
-    ($type:ident, $inner_type:ident, $primitive:ty) => {
-        /// An unsigned atomic integer. Can only be acted on atomically.
-        #[allow(clippy::derived_hash_with_manual_eq)]
-        #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-        pub struct $type {
-            pub val: $primitive,
-        }
-
-        impl CubeType for $type {
-            type ExpandType = ExpandElementTyped<Self>;
-        }
-
-        impl IntoRuntime for $type {
-            fn __expand_runtime_method(
-                self,
-                _context: &mut CubeContext,
-            ) -> ExpandElementTyped<Self> {
-                unimplemented!("Atomics don't exist at compile time")
-            }
-        }
-
-        impl CubePrimitive for $type {
-            fn as_elem_native() -> Option<Elem> {
-                Some(Elem::AtomicInt(IntKind::$inner_type))
-            }
-        }
-
-        impl ExpandElementBaseInit for $type {
-            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(context, elem)
-            }
-        }
-
-        impl LaunchArgExpand for $type {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar(Elem::AtomicInt(IntKind::$inner_type)).into()
-            }
-        }
-    };
-}
-
-impl_atomic_int!(AtomicI32, I32, i32);
-impl_atomic_int!(AtomicI64, I64, i64);
-
-/// An atomic version of `u32`. Can only be acted on atomically.
-#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-/// An atomic unsigned int.
-pub struct AtomicU32 {
-    pub val: u32,
+pub struct Atomic<Inner: CubePrimitive> {
+    pub val: Inner,
 }
 
-impl core::fmt::Debug for AtomicU32 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}", self.val))
-    }
-}
-
-impl CubeType for AtomicU32 {
+impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
     type ExpandType = ExpandElementTyped<Self>;
 }
 
-impl CubePrimitive for AtomicU32 {
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::AtomicUInt(UIntKind::U32))
-    }
-}
-
-impl IntoRuntime for AtomicU32 {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> ExpandElementTyped<Self> {
+impl<Inner: CubePrimitive> IntoRuntime for Atomic<Inner> {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
         unimplemented!("Atomics don't exist at compile time")
     }
 }
 
-impl ExpandElementBaseInit for AtomicU32 {
+impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
+    fn as_elem_native() -> Option<Elem> {
+        match Inner::as_elem_native() {
+            Some(Elem::Float(kind)) => Some(Elem::AtomicFloat(kind)),
+            Some(Elem::Int(kind)) => Some(Elem::AtomicInt(kind)),
+            Some(Elem::UInt(kind)) => Some(Elem::AtomicUInt(kind)),
+            None => None,
+            _ => unreachable!("Atomics can only be float/int/uint"),
+        }
+    }
+
+    fn as_elem(context: &CubeContext) -> Elem {
+        match Inner::as_elem(context) {
+            Elem::Float(kind) => Elem::AtomicFloat(kind),
+            Elem::Int(kind) => Elem::AtomicInt(kind),
+            Elem::UInt(kind) => Elem::AtomicUInt(kind),
+            _ => unreachable!("Atomics can only be float/int/uint"),
+        }
+    }
+
+    fn as_elem_native_unchecked() -> Elem {
+        match Inner::as_elem_native_unchecked() {
+            Elem::Float(kind) => Elem::AtomicFloat(kind),
+            Elem::Int(kind) => Elem::AtomicInt(kind),
+            Elem::UInt(kind) => Elem::AtomicUInt(kind),
+            _ => unreachable!("Atomics can only be float/int/uint"),
+        }
+    }
+
+    fn size() -> Option<usize> {
+        Inner::size()
+    }
+
+    fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
+        ExpandElementTyped::new(elem)
+    }
+}
+
+impl<Inner: CubePrimitive> ExpandElementBaseInit for Atomic<Inner> {
     fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }
 
-impl LaunchArgExpand for AtomicU32 {
+impl<Inner: CubePrimitive> LaunchArgExpand for Atomic<Inner> {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(Elem::AtomicUInt(UIntKind::U32)).into()
+        builder.scalar(Self::as_elem_native_unchecked()).into()
     }
 }
 
-impl Atomic for AtomicI32 {
-    type Primitive = i32;
-}
-impl Atomic for AtomicI64 {
-    type Primitive = i64;
-}
-impl Atomic for AtomicU32 {
-    type Primitive = u32;
+impl<Inner: Numeric> AtomicTrait for Atomic<Inner> {
+    type Primitive = Inner;
 }
 
 impl From<AtomicOp> for Operation {

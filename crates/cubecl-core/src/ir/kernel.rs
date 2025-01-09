@@ -170,7 +170,10 @@ impl Elem {
     }
 
     pub fn is_atomic(&self) -> bool {
-        matches!(self, Elem::AtomicInt(_) | Elem::AtomicUInt(_))
+        matches!(
+            self,
+            Elem::AtomicFloat(_) | Elem::AtomicInt(_) | Elem::AtomicUInt(_)
+        )
     }
 
     pub fn is_int(&self) -> bool {

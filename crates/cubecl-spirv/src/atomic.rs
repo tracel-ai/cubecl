@@ -1,5 +1,5 @@
 use cubecl_core::ir::{AtomicOp, Variable};
-use rspirv::spirv::{MemorySemantics, Scope};
+use rspirv::spirv::{Capability, MemorySemantics, Scope};
 
 use crate::{item::Elem, SpirvCompiler, SpirvTarget};
 
@@ -71,6 +71,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let semantics_success = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
                 let semantics_failure = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                assert!(
+                    matches!(out_ty.elem(), Elem::Int(_, _)),
+                    "compare and swap doesn't support float atomics"
+                );
                 self.atomic_compare_exchange(
                     ty,
                     Some(out_id),
@@ -98,6 +102,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                match out_ty.elem() {
+                    Elem::Int(_, _) => self
+                        .atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    Elem::Float(width) => {
+                        match width {
+                            16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
+                            32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
+                            64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
+                            _ => unreachable!(),
+                        };
+                        self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                            .unwrap()
+                    }
+                    _ => unreachable!(),
+                };
+
                 self.atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);
@@ -116,6 +137,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                assert!(
+                    matches!(out_ty.elem(), Elem::Int(_, _)),
+                    "sub doesn't support float atomics"
+                );
                 self.atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);
@@ -141,6 +166,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, true) => self
                         .atomic_s_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
+                    Elem::Float(width) => {
+                        match width {
+                            16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
+                            32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
+                            64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
+                            _ => unreachable!(),
+                        };
+                        self.atomic_f_max_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                            .unwrap()
+                    }
                     _ => unreachable!(),
                 };
                 self.write(&out, out_id);
@@ -166,6 +201,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, true) => self
                         .atomic_s_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
+                    Elem::Float(width) => {
+                        match width {
+                            16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
+                            32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
+                            64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
+                            _ => unreachable!(),
+                        };
+                        self.atomic_f_min_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                            .unwrap()
+                    }
                     _ => unreachable!(),
                 };
                 self.write(&out, out_id);
@@ -184,6 +229,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                assert!(
+                    matches!(out_ty.elem(), Elem::Int(_, _)),
+                    "and doesn't support float atomics"
+                );
                 self.atomic_and(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);
@@ -202,6 +251,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                assert!(
+                    matches!(out_ty.elem(), Elem::Int(_, _)),
+                    "or doesn't support float atomics"
+                );
                 self.atomic_or(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);
@@ -220,6 +273,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.const_u32(Scope::Device as u32);
                 let semantics = self.const_u32(MemorySemantics::UNIFORM_MEMORY.bits());
 
+                assert!(
+                    matches!(out_ty.elem(), Elem::Int(_, _)),
+                    "xor doesn't support float atomics"
+                );
                 self.atomic_xor(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);
