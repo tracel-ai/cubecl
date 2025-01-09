@@ -984,7 +984,10 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::FloatKind::F64 => Elem::F64,
             },
             gpu::Elem::AtomicFloat(kind) => match kind {
+                gpu::FloatKind::F16 => Elem::Atomic(AtomicKind::F16),
+                gpu::FloatKind::BF16 => Elem::Atomic(AtomicKind::BF16),
                 gpu::FloatKind::F32 => Elem::Atomic(AtomicKind::F32),
+                gpu::FloatKind::F64 => Elem::Atomic(AtomicKind::F64),
                 kind => unimplemented!("atomic<{kind:?}> not yet supported"),
             },
             gpu::Elem::Int(kind) => match kind {
