@@ -183,7 +183,6 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 }
             })
         }
-        println!("{:#?}", props);
     }
 }
 
