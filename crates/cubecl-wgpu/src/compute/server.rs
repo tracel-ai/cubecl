@@ -249,7 +249,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
         };
 
-        if self.stream.register(pipeline, resources, dispatch) {
+        if self
+            .stream
+            .register(pipeline, resources, dispatch, &self.storage_locked)
+        {
             self.on_flushed();
         }
 
