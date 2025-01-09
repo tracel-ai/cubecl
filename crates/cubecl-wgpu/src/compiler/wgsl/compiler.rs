@@ -324,6 +324,10 @@ impl WgslCompiler {
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::Bool => wgsl::Elem::Bool,
+            cube::Elem::AtomicFloat(i) => match i {
+                cube::FloatKind::F32 => wgsl::Elem::AtomicF32,
+                kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),
+            },
             cube::Elem::AtomicInt(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::AtomicI32,
                 kind => panic!("atomic<{kind:?}> is not a valid WgpuElement"),

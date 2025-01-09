@@ -33,6 +33,7 @@ pub enum Elem<D: Dialect> {
 pub enum AtomicKind {
     I32,
     U32,
+    F32,
 }
 
 impl Display for AtomicKind {
@@ -40,6 +41,7 @@ impl Display for AtomicKind {
         match self {
             AtomicKind::I32 => f.write_str("int"),
             AtomicKind::U32 => f.write_str("uint"),
+            AtomicKind::F32 => f.write_str("float"),
         }
     }
 }
@@ -564,6 +566,7 @@ impl<D: Dialect> Elem<D> {
             Elem::Bool => core::mem::size_of::<bool>(),
             Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
+            Elem::Atomic(AtomicKind::F32) => core::mem::size_of::<f32>(),
             Elem::_Dialect(_) => 0,
         }
     }

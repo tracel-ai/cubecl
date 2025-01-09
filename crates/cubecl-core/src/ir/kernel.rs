@@ -63,8 +63,9 @@ pub enum UIntKind {
 pub enum Elem {
     Float(FloatKind),
     Int(IntKind),
-    AtomicInt(IntKind),
     UInt(UIntKind),
+    AtomicFloat(FloatKind),
+    AtomicInt(IntKind),
     AtomicUInt(UIntKind),
     Bool,
 }
@@ -81,6 +82,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val, *kind),
         })
     }
     /// Create a constant scalar from a signed integer.
@@ -94,6 +96,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as f64, *kind),
         })
     }
     /// Create a constant scalar from a unsigned integer.
@@ -107,6 +110,7 @@ impl Elem {
             Elem::Bool => ConstantScalarValue::Bool(val > 0),
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val, *kind),
+            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as f64, *kind),
         })
     }
     /// Create a constant scalar from a boolean.
@@ -119,6 +123,7 @@ impl Elem {
             Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
             Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
             Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
             Elem::Bool => ConstantScalarValue::Bool(val),
         })
     }
@@ -140,7 +145,7 @@ impl Elem {
     /// Get the size in bytes.
     pub const fn size(&self) -> usize {
         match self {
-            Elem::Float(kind) => match kind {
+            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                 FloatKind::F16 => core::mem::size_of::<half::f16>(),
                 FloatKind::BF16 => core::mem::size_of::<half::bf16>(),
                 FloatKind::F32 => core::mem::size_of::<f32>(),
@@ -148,25 +153,13 @@ impl Elem {
                 FloatKind::Flex32 => core::mem::size_of::<f32>(),
                 FloatKind::TF32 => core::mem::size_of::<f32>(),
             },
-            Elem::Int(kind) => match kind {
+            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
                 IntKind::I8 => core::mem::size_of::<i8>(),
                 IntKind::I16 => core::mem::size_of::<i16>(),
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
-            Elem::AtomicInt(kind) => match kind {
-                IntKind::I8 => core::mem::size_of::<i8>(),
-                IntKind::I16 => core::mem::size_of::<i16>(),
-                IntKind::I32 => core::mem::size_of::<i32>(),
-                IntKind::I64 => core::mem::size_of::<i64>(),
-            },
-            Elem::UInt(kind) => match kind {
-                UIntKind::U8 => core::mem::size_of::<u8>(),
-                UIntKind::U16 => core::mem::size_of::<u16>(),
-                UIntKind::U32 => core::mem::size_of::<u32>(),
-                UIntKind::U64 => core::mem::size_of::<u64>(),
-            },
-            Elem::AtomicUInt(kind) => match kind {
+            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
                 UIntKind::U8 => core::mem::size_of::<u8>(),
                 UIntKind::U16 => core::mem::size_of::<u16>(),
                 UIntKind::U32 => core::mem::size_of::<u32>(),
@@ -189,7 +182,7 @@ impl Elem {
 
     pub fn max_variable(&self) -> Variable {
         let value = match self {
-            Elem::Float(kind) => match kind {
+            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                 FloatKind::F16 => {
                     ConstantScalarValue::Float(half::f16::MAX.to_f64(), FloatKind::F16)
                 }
@@ -201,25 +194,13 @@ impl Elem {
                 FloatKind::TF32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::TF32),
                 FloatKind::F64 => ConstantScalarValue::Float(f64::MAX, FloatKind::F64),
             },
-            Elem::Int(kind) => match kind {
+            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
                 IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
                 IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
                 IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
                 IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
             },
-            Elem::AtomicInt(kind) => match kind {
-                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
-                IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
-                IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
-                IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
-            },
-            Elem::UInt(kind) => match kind {
-                UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
-                UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
-                UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
-                UIntKind::U64 => ConstantScalarValue::UInt(u64::MAX, UIntKind::U64),
-            },
-            Elem::AtomicUInt(kind) => match kind {
+            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
                 UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
                 UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
                 UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
@@ -233,7 +214,7 @@ impl Elem {
 
     pub fn min_variable(&self) -> Variable {
         let value = match self {
-            Elem::Float(kind) => match kind {
+            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                 FloatKind::F16 => {
                     ConstantScalarValue::Float(half::f16::MIN.to_f64(), FloatKind::F16)
                 }
@@ -245,25 +226,13 @@ impl Elem {
                 FloatKind::TF32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::TF32),
                 FloatKind::F64 => ConstantScalarValue::Float(f64::MIN, FloatKind::F64),
             },
-            Elem::Int(kind) => match kind {
+            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
                 IntKind::I8 => ConstantScalarValue::Int(i8::MIN.into(), IntKind::I8),
                 IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
                 IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
                 IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
             },
-            Elem::AtomicInt(kind) => match kind {
-                IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
-                IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
-                IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
-                IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
-            },
-            Elem::UInt(kind) => match kind {
-                UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
-                UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
-                UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
-                UIntKind::U64 => ConstantScalarValue::UInt(u64::MIN, UIntKind::U64),
-            },
-            Elem::AtomicUInt(kind) => match kind {
+            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
                 UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
                 UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
                 UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
@@ -293,30 +262,21 @@ impl Display for Elem {
                 FloatKind::F32 => f.write_str("f32"),
                 FloatKind::F64 => f.write_str("f64"),
             },
+            Self::AtomicFloat(kind) => write!(f, "atomic<{}>", Elem::Float(*kind)),
             Self::Int(kind) => match kind {
                 IntKind::I8 => f.write_str("i8"),
                 IntKind::I16 => f.write_str("i16"),
                 IntKind::I32 => f.write_str("i32"),
                 IntKind::I64 => f.write_str("i64"),
             },
-            Self::AtomicInt(kind) => match kind {
-                IntKind::I8 => f.write_str("atomic<i8>"),
-                IntKind::I16 => f.write_str("atomic<i16>"),
-                IntKind::I32 => f.write_str("atomic<i32>"),
-                IntKind::I64 => f.write_str("atomic<i64>"),
-            },
+            Self::AtomicInt(kind) => write!(f, "atomic<{}>", Elem::Int(*kind)),
             Self::UInt(kind) => match kind {
                 UIntKind::U8 => f.write_str("u8"),
                 UIntKind::U16 => f.write_str("u16"),
                 UIntKind::U32 => f.write_str("u32"),
                 UIntKind::U64 => f.write_str("u64"),
             },
-            Self::AtomicUInt(kind) => match kind {
-                UIntKind::U8 => f.write_str("atomic<u8>"),
-                UIntKind::U16 => f.write_str("atomic<u16>"),
-                UIntKind::U32 => f.write_str("atomic<u32>"),
-                UIntKind::U64 => f.write_str("atomic<u64>"),
-            },
+            Self::AtomicUInt(kind) => write!(f, "atomic<{}>", Elem::UInt(*kind)),
             Self::Bool => f.write_str("bool"),
         }
     }

@@ -704,7 +704,9 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::Elem::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
                     gpu::Elem::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
                     gpu::Elem::Bool => gpu::ConstantScalarValue::Bool(true),
-                    gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt(_) => {
+                    gpu::Elem::AtomicInt(_)
+                    | gpu::Elem::AtomicUInt(_)
+                    | gpu::Elem::AtomicFloat(_) => {
                         panic!("Cannot use recip with atomics")
                     }
                 };
@@ -980,6 +982,10 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::FloatKind::Flex32 => Elem::F32,
                 gpu::FloatKind::F32 => Elem::F32,
                 gpu::FloatKind::F64 => Elem::F64,
+            },
+            gpu::Elem::AtomicFloat(kind) => match kind {
+                gpu::FloatKind::F32 => Elem::Atomic(AtomicKind::F32),
+                kind => unimplemented!("atomic<{kind:?}> not yet supported"),
             },
             gpu::Elem::Int(kind) => match kind {
                 gpu::IntKind::I8 => Elem::I8,

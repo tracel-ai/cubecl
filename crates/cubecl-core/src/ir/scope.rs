@@ -83,11 +83,15 @@ impl Scope {
     {
         let item: Item = item.into();
         let value = match item.elem() {
-            Elem::Float(kind) => ConstantScalarValue::Float(value.to_f64().unwrap(), kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(value.to_i64().unwrap(), kind),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(value.to_i64().unwrap(), kind),
-            Elem::UInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
-            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(value.to_u64().unwrap(), kind),
+            Elem::Float(kind) | Elem::AtomicFloat(kind) => {
+                ConstantScalarValue::Float(value.to_f64().unwrap(), kind)
+            }
+            Elem::Int(kind) | Elem::AtomicInt(kind) => {
+                ConstantScalarValue::Int(value.to_i64().unwrap(), kind)
+            }
+            Elem::UInt(kind) | Elem::AtomicUInt(kind) => {
+                ConstantScalarValue::UInt(value.to_u64().unwrap(), kind)
+            }
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
         let local = self.create_local(item);

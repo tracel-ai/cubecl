@@ -58,6 +58,7 @@ pub enum Variable {
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Elem {
     F32,
+    AtomicF32,
     I32,
     AtomicI32,
     U32,
@@ -222,6 +223,7 @@ impl Elem {
     pub fn size(&self) -> usize {
         match self {
             Self::F32 => core::mem::size_of::<f32>(),
+            Self::AtomicF32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
             Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
@@ -239,6 +241,7 @@ impl Display for Elem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::F32 => f.write_str("f32"),
+            Self::AtomicF32 => f.write_str("atomic<f32>"),
             Self::I32 => f.write_str("i32"),
             Self::AtomicI32 => f.write_str("atomic<i32>"),
             Self::U32 => f.write_str("u32"),
