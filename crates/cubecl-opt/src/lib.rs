@@ -195,8 +195,6 @@ impl Optimizer {
             self.apply_post_ssa_passes();
         }
 
-        println!("{self}");
-
         let gvn_count = AtomicCounter::new(0);
         GvnPass.apply_post_ssa(self, gvn_count.clone());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
