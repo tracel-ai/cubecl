@@ -1,5 +1,3 @@
-use alloc::collections::BTreeSet;
-
 use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
     MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryPoolOptions, MemoryUsage,
@@ -12,32 +10,6 @@ enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
 }
-
-// Bin sizes as per https://github.com/sebbbi/OffsetAllocator/blob/main/README.md
-// This guarantees that _for bins in use_, the wasted space is at most 12.5%. So as long
-// as bins have a high use rate this should be fairly efficient. That said, currently slices in
-// bins don't deallocate, so there is a chance more memory than needed is used.
-const EXP_BIN_SIZES: [u64; 200] = [
-    128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640,
-    704, 768, 832, 896, 960, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2304, 2560,
-    2816, 3072, 3328, 3584, 3840, 4096, 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 9216,
-    10240, 11264, 12288, 13312, 14336, 15360, 16384, 18432, 20480, 22528, 24576, 26624, 28672,
-    30720, 32768, 36864, 40960, 45056, 49152, 53248, 57344, 61440, 65536, 73728, 81920, 90112,
-    98304, 106496, 114688, 122880, 131072, 147456, 163840, 180224, 196608, 212992, 229376, 245760,
-    262144, 294912, 327680, 360448, 393216, 425984, 458752, 491520, 524288, 589824, 655360, 720896,
-    786432, 851968, 917504, 983040, 1048576, 1179648, 1310720, 1441792, 1572864, 1703936, 1835008,
-    1966080, 2097152, 2359296, 2621440, 2883584, 3145728, 3407872, 3670016, 3932160, 4194304,
-    4718592, 5242880, 5767168, 6291456, 6815744, 7340032, 7864320, 8388608, 9437184, 10485760,
-    11534336, 12582912, 13631488, 14680064, 15728640, 16777216, 18874368, 20971520, 23068672,
-    25165824, 27262976, 29360128, 31457280, 33554432, 37748736, 41943040, 46137344, 50331648,
-    54525952, 58720256, 62914560, 67108864, 75497472, 83886080, 92274688, 100663296, 109051904,
-    117440512, 125829120, 134217728, 150994944, 167772160, 184549376, 201326592, 218103808,
-    234881024, 251658240, 268435456, 301989888, 335544320, 369098752, 402653184, 436207616,
-    469762048, 503316480, 536870912, 603979776, 671088640, 738197504, 805306368, 872415232,
-    939524096, 1006632960, 1073741824, 1207959552, 1342177280, 1476395008, 1610612736, 1744830464,
-    1879048192, 2013265920, 2147483648, 2415919104, 2684354560, 2952790016, 3221225472, 3489660928,
-    3758096384, 4026531840,
-];
 
 const MB: usize = 1024 * 1024;
 
@@ -96,6 +68,53 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
+// fn generate_bucket_sizes(
+//     min_alloc_size: u64,
+//     max_alloc_size: u64,
+//     max_buckets: usize,
+//     align: u64,
+// ) -> Vec<u64> {
+//     let mut buckets = Vec::with_capacity(max_buckets);
+
+//     // Use geometric progression: each step multiplied by a constant ratio
+//     // ratio = (max/min)^(1/(n-1)) to get n points from min to max
+//     let ratio = f64::powf(
+//         max_alloc_size as f64 / min_alloc_size as f64,
+//         1.0 / (max_buckets - 1) as f64,
+//     );
+
+//     for i in 0..max_buckets {
+//         let size = (min_alloc_size as f64 * f64::powf(ratio, i as f64)).round() as u64;
+//         buckets.push(size.next_multiple_of(align));
+//     }
+
+//     buckets.dedup();
+//     buckets
+// }
+fn generate_bucket_sizes(
+    min_alloc_size: u64,
+    max_alloc_size: u64,
+    max_buckets: usize,
+    alignment: u64,
+) -> Vec<u64> {
+    let mut buckets = Vec::with_capacity(max_buckets);
+    let log_min = (min_alloc_size as f64).ln();
+    let log_max = (max_alloc_size as f64).ln();
+    let log_range = log_max - log_min;
+
+    // Pure exponential performed best, but let's try slightly denser in lower-mid range
+    for i in 0..max_buckets {
+        let p = i as f64 / (max_buckets - 1) as f64;
+        // Slight bias toward lower-mid range with less aggressive curve than sigmoid
+        let log_size = log_min + log_range * p;
+        let size = log_size.exp() as u64;
+        let aligned_size = size.next_multiple_of(alignment);
+        buckets.push(aligned_size);
+    }
+
+    buckets.dedup();
+    buckets
+}
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -149,18 +168,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 pools
             }
             MemoryConfiguration::ExclusivePages => {
-                // Round chunk size to be aligned.
-                let memory_alignment = properties.alignment;
-
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                let sizes: BTreeSet<_> = EXP_BIN_SIZES
-                    .iter()
-                    .copied()
-                    .map(|size| size.next_multiple_of(memory_alignment))
-                    .take_while(|&size| size < properties.max_page_size)
-                    .collect();
+                let sizes = generate_bucket_sizes(
+                    4096,
+                    properties.max_page_size,
+                    256,
+                    properties.alignment,
+                );
+
+                log::info!("Using buckets {:?}", sizes);
 
                 // Add in one pool for all massive allocations.
                 sizes
@@ -178,8 +196,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         //   10kb, 105857 allocations
                         //   1MB, 2024 allocations
                         //   100MB+, 1000-1011 allocations
-                        let base_period = 1000;
-                        let dealloc_period = base_period + 1024 * MB as u64 / s;
+                        let base_period = 250;
+                        let dealloc_period = base_period + 256 * MB as u64 / (s + 1024);
 
                         MemoryPoolOptions {
                             page_size: s,
