@@ -31,6 +31,11 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 
         for idx in ops {
             let mut op = opt.program[node].ops.borrow()[idx].clone();
+            // Assume operations and metadata are pure, and everything else might have side effects
+            // Technically not correct but much simpler than
+            if !op.operation.is_pure() {
+                continue;
+            }
             let mut out = None;
             let used = Rc::new(AtomicBool::new(false));
             opt.visit_out(&mut op.out, |_, var| {

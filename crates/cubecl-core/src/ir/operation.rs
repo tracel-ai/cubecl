@@ -54,6 +54,27 @@ impl Instruction {
     }
 }
 
+impl Operation {
+    /// Whether this operation is pure, aka has no side effects. Pure operations can be removed
+    /// if their output is not needed, impure operations must be kept since their execution can
+    /// affect things down the line. e.g. atomics.
+    ///
+    /// Operations that operate across multiple units are always considered impure.
+    pub fn is_pure(&self) -> bool {
+        match self {
+            Operation::Copy(_) => true,
+            Operation::Operator(_) => true,
+            Operation::Atomic(_) => false,
+            Operation::Metadata(_) => true,
+            Operation::Branch(_) => false,
+            Operation::Synchronization(_) => false,
+            Operation::Plane(_) => false,
+            Operation::CoopMma(_) => false,
+            Operation::NonSemantic(_) => false,
+        }
+    }
+}
+
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.operation {
