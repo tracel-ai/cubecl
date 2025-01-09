@@ -166,11 +166,7 @@ impl GvnState {
                 .map(|child| &self.block_sets[child].antic_in);
             // Only add expressions expected at all successors to this block's anticipated list
             for (val, expr) in potential_out {
-                if rest
-                    .clone()
-                    .map(|child| child.iter().any(|v| v.0 == *val))
-                    .all(|b| b)
-                {
+                if rest.clone().all(|child| child.iter().any(|v| v.0 == *val)) {
                     result.push_back((*val, expr.clone()));
                 }
             }

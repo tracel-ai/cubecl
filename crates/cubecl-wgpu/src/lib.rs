@@ -21,6 +21,7 @@ pub use runtime::*;
 pub use compiler::spirv;
 
 #[cfg(test)]
+#[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
@@ -33,6 +34,7 @@ mod tests {
 }
 
 #[cfg(all(test, feature = "spirv"))]
+#[allow(unexpected_cfgs)]
 mod tests_spirv {
     pub type TestRuntime = crate::WgpuRuntime<crate::spirv::VkSpirvCompiler>;
     use cubecl_core::flex32;
