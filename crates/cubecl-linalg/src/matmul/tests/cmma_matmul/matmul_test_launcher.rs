@@ -104,6 +104,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     if A::check_availability::<R, (EG, ES, f32)>(&client, &config).is_err() {
         // Can't execute the test.
         println!("Skipped - not supported!");
+        client.flush();
         return;
     }
 
