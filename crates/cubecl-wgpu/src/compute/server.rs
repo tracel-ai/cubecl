@@ -52,12 +52,17 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         let stream = WgpuStream::new(device.clone(), queue.clone(), timestamps, tasks_max);
 
+        // Low estimate, but it makes sure there is no memory error from allocating too much
+        // at the same time.
+        let estimated_buffers_per_task = 4;
+        let storage_locked = MemoryLock::new(tasks_max * estimated_buffers_per_task);
+
         Self {
             memory_management,
             compilation_options,
             device: device.clone(),
             queue: queue.clone(),
-            storage_locked: MemoryLock::default(),
+            storage_locked,
             pipelines: HashMap::new(),
             logger,
             duration_profiled: None,
@@ -128,10 +133,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+        let handle = self.memory_management.get(binding.memory.clone());
+
         // Keep track of any buffer that might be used in the wgpu queue, as we cannot copy into them
         // after they have any outstanding compute work. Calling get_resource repeatedly
         // will add duplicates to this, but that is ok.
-        let handle = self.memory_management.get(binding.memory.clone());
         self.storage_locked.add_locked(handle.id);
 
         let handle = match binding.offset_start {
@@ -179,6 +185,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 .write_buffer_with(&resource.buffer, resource.offset(), len)
                 .expect("Failed to write to staging buffer.")[0..data.len()]
                 .copy_from_slice(data);
+
+            // If too many handles are locked, we flush.
+            if self.storage_locked.should_flush() {
+                self.flush();
+            }
         }
 
         Handle::new(memory, None, None, aligned_len)

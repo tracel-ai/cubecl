@@ -43,4 +43,5 @@ mod tests_spirv {
     cubecl_linalg::testgen_matmul_tiling2d!([f16, flex32, f32, f64]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
+    cubecl_reduce::testgen_reduce!();
 }

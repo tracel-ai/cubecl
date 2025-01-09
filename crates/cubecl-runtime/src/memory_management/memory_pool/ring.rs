@@ -300,7 +300,7 @@ mod tests {
             .unwrap();
         assert_eq!(slice, slice_ids[0]);
 
-        let mut locked = MemoryLock::default();
+        let mut locked = MemoryLock::new(32);
         locked.add_locked(storage_id_1);
 
         let slice = ring
