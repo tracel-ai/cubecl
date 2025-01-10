@@ -94,17 +94,8 @@ impl MemoryPool for SlicedPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-    ) -> SliceHandle {
-        let slice = self.get_free_slice(size);
-
-        match slice {
-            Some(slice) => slice.clone(),
-            None => self.alloc(storage, size),
-        }
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+        self.get_free_slice(size)
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
@@ -156,7 +147,7 @@ impl MemoryPool for SlicedPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage) {
+    fn cleanup<Storage: ComputeStorage>(&mut self, _storage: &mut Storage, _alloc_nr: u64) {
         // This pool doesn't do any shrinking currently.
     }
 }

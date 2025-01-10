@@ -18,14 +18,10 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-    ) -> SliceHandle {
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         match self {
-            DynamicPool::Sliced(m) => m.reserve(storage, size),
-            DynamicPool::Exclusive(m) => m.reserve(storage, size),
+            DynamicPool::Sliced(m) => m.try_reserve(size),
+            DynamicPool::Exclusive(m) => m.try_reserve(size),
         }
     }
 
@@ -50,18 +46,22 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage),
-            DynamicPool::Exclusive(m) => m.cleanup(storage),
+            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
+            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr),
         }
     }
 }
+
+const POOL_CANDIDATES: usize = 3;
+const MB: u64 = 1024 * 1024;
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
+    alloc_reserve_count: u64,
 }
 
 fn generate_bucket_sizes(
@@ -146,9 +146,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
                 let sizes = generate_bucket_sizes(
-                    128 * 1024,
+                    64 * 1024,
                     properties.max_page_size,
-                    32,
+                    64,
                     properties.alignment,
                 );
 
@@ -156,10 +156,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 sizes
                     .iter()
                     .map(|&s| {
-                        // We neeed to know whether a page is unused. Since smaller allocations happen more frequently,
-                        // we need less evidence to know they are actually unused.
-                        // let dealloc_period = (15.0 + 1.0 * s as f64 / MB as f64).round() as u64;
-                        let dealloc_period = 15;
+                        // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
+                        // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
+                        let dealloc_period = (250.0 + s as f64 / (MB as f64)).round() as u64;
 
                         MemoryPoolOptions {
                             page_size: s,
@@ -210,13 +209,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         pools.sort_by(|pool1, pool2| u64::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
-        Self { pools, storage }
+        Self {
+            pools,
+            storage,
+            alloc_reserve_count: 0,
+        }
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self) {
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage);
+            pool.cleanup(&mut self.storage, self.alloc_reserve_count);
         }
     }
 
@@ -249,20 +252,33 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> SliceHandle {
+        // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
+        // hard about overflow here.
+        self.alloc_reserve_count += 1;
+
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
 
-        // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
-        // requested allocation
         if pool_ind >= self.pools.len() {
-            panic!("Unable to find valid pool partition point: No memory pool big enough to reserve {size} bytes.");
-        }
-
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
             panic!("No memory pool big enough to reserve {size} bytes.");
         }
-        pool.reserve(&mut self.storage, size)
+
+        // Try to find a free slot on the pool, or on its neighbours. The amount of neighbours considered
+        // is hardcoded atm.
+        for i in 0..POOL_CANDIDATES {
+            // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
+            // requested allocation
+            let Some(pool) = self.pools.get_mut(pool_ind + i) else {
+                break;
+            };
+
+            if let Some(slice) = pool.try_reserve(size) {
+                return slice;
+            }
+        }
+
+        // If no free slices, alloc a new one.
+        self.pools[pool_ind].alloc(&mut self.storage, size)
     }
 
     /// Bypass the memory allocation algorithm to allocate data directly.
@@ -273,10 +289,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn alloc(&mut self, size: u64) -> SliceHandle {
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
-            panic!("No memory pool big enough to alloc {size} bytes.");
-        }
+        // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
+        // requested allocation
+        let pool = self.pools.get_mut(pool_ind);
+        let Some(pool) = pool else {
+            panic!("No memory pool big enough to reserve {size} bytes.");
+        };
         pool.alloc(&mut self.storage, size)
     }
 

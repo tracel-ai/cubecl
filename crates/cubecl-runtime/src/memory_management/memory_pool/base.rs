@@ -39,12 +39,11 @@ pub trait MemoryPool {
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn reserve<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64)
-        -> SliceHandle;
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle;
 
     fn get_memory_usage(&self) -> MemoryUsage;
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage);
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64);
 }
