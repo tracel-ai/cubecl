@@ -37,7 +37,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn supported_line_sizes() -> &'static [u8];
 
     /// Returns all line sizes that are useful to perform IO operation on the given element.
-    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> {
+    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone{
         Self::supported_line_sizes()
             .iter()
             .filter(|v| **v as usize * elem.size() <= 16)
