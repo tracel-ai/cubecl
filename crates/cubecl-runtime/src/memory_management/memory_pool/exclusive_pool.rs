@@ -1,10 +1,9 @@
 use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::{
     memory_management::MemoryUsage,
-    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
+    storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 use alloc::vec::Vec;
-use hashbrown::{HashMap, HashSet};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
@@ -12,20 +11,16 @@ use hashbrown::{HashMap, HashSet};
 ///   either read only or read_write slices but not a mix of both.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub struct ExclusiveMemoryPool {
-    pages: HashMap<StorageId, MemoryPage>,
-    slices: HashMap<SliceId, Slice>,
-    ring_buffer: Vec<StorageId>,
-    index: usize,
-    max_page_size: u64,
+    pages: Vec<MemoryPage>,
+    page_size: u64,
     alignment: u64,
-    dealloc_period: u64,
-    last_dealloc: u64,
+    dealloc_period: u32,
 }
 
 struct MemoryPage {
     slice_id: SliceId,
-    dealloc_mark: bool,
-    size: u64,
+    slice: Slice,
+    free_count: u32,
 }
 
 impl ExclusiveMemoryPool {
@@ -33,45 +28,46 @@ impl ExclusiveMemoryPool {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);
         Self {
-            pages: HashMap::new(),
-            slices: HashMap::new(),
-            ring_buffer: Vec::new(),
-            index: 0,
-            max_page_size: page_size,
+            pages: Vec::new(),
+            page_size,
             alignment,
-            dealloc_period,
-            last_dealloc: 0,
+            dealloc_period: dealloc_period as u32,
         }
     }
 
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if successful.
-    fn get_free_page(&mut self, size: u64) -> Option<SliceId> {
-        for _ in 0..self.ring_buffer.len() {
-            let storage_id = &self.ring_buffer[self.index];
-            let page = self.pages.get_mut(storage_id).unwrap();
-            page.dealloc_mark = false;
+    fn get_free_page(&mut self) -> Option<&mut MemoryPage> {
+        // Start iteratng from first free page index.
+        self.pages.iter_mut().find(|page| page.slice.is_free())
+    }
 
-            if page.size < size {
-                continue;
-            }
+    fn alloc_page<Storage: ComputeStorage>(&mut self, storage: &mut Storage) -> &mut MemoryPage {
+        let storage = storage.alloc(self.page_size);
 
-            let slice = self.slices.get(&page.slice_id).unwrap();
-            self.index = (self.index + 1) % self.ring_buffer.len();
+        let handle = SliceHandle::new();
+        let padding = calculate_padding(self.page_size, self.alignment);
+        let slice = Slice::new(storage.clone(), handle, padding);
 
-            if slice.handle.is_free() {
-                return Some(page.slice_id);
-            }
-        }
-
-        None
+        let slice_id = *slice.handle.id();
+        self.pages.push(MemoryPage {
+            slice,
+            slice_id,
+            free_count: 0,
+        });
+        let idx = self.pages.len() - 1;
+        &mut self.pages[idx]
     }
 }
 
 impl MemoryPool for ExclusiveMemoryPool {
     /// Returns the resource from the storage, for the specified handle.
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
-        self.slices.get(binding.id()).map(|s| &s.storage)
+        let binding_id = *binding.id();
+        self.pages
+            .iter()
+            .find(|p| p.slice_id == binding_id)
+            .map(|p| &p.slice.storage)
     }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
@@ -83,107 +79,63 @@ impl MemoryPool for ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> SliceHandle {
-        let page = self.get_free_page(size);
+        let padding = calculate_padding(size, self.alignment);
 
-        let slice_id = if let Some(page) = page {
+        let page = self.get_free_page();
+
+        let page = if let Some(page) = page {
             page
         } else {
-            // Alloc with 25% slack space.
-            let alloc_size = ((size as f64 * 1.25).ceil() as u64).min(self.max_page_size);
-            *self.alloc(storage, alloc_size).id()
+            self.alloc_page(storage)
         };
 
-        let padding = calculate_padding(size, self.alignment);
-        let slice = self.slices.get_mut(&slice_id).unwrap();
+        page.free_count = 0;
+
         // Return a smaller part of the slice. By construction, we only ever
         // get a page with a big enough size, so this is ok to do.
-        slice.storage.utilization = StorageUtilization { offset: 0, size };
-        slice.padding = padding;
-        slice.handle.clone()
+        page.slice.storage.utilization = StorageUtilization { offset: 0, size };
+        page.slice.padding = padding;
+        page.slice.handle.clone()
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
-        let storage = storage.alloc(size);
-        self.ring_buffer.push(storage.id);
-
-        let handle = SliceHandle::new();
-        let padding = calculate_padding(size, self.alignment);
-        let slice = Slice::new(storage.clone(), handle, padding);
-
-        let handle_slice = slice.handle.clone();
-        let slice_id = *slice.handle.id();
-        self.pages.insert(
-            storage.id,
-            MemoryPage {
-                slice_id,
-                dealloc_mark: false,
-                size,
-            },
-        );
-        self.slices.insert(slice_id, slice);
-        handle_slice
+        assert!(size <= self.page_size);
+        let page = self.alloc_page(storage);
+        page.slice.handle.clone()
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
         let used_slices: Vec<_> = self
-            .slices
-            .values()
-            .filter(|slice| !slice.is_free())
+            .pages
+            .iter()
+            .filter(|page| !page.slice.is_free())
             .collect();
 
         MemoryUsage {
             number_allocs: used_slices.len() as u64,
-            bytes_in_use: used_slices.iter().map(|s| s.storage.size()).sum(),
-            bytes_padding: used_slices.iter().map(|s| s.padding).sum(),
-            bytes_reserved: self.pages.len() as u64 * self.max_page_size,
+            bytes_in_use: used_slices.iter().map(|s| s.slice.storage.size()).sum(),
+            bytes_padding: used_slices.iter().map(|s| s.slice.padding).sum(),
+            bytes_reserved: self.pages.len() as u64 * self.page_size,
         }
     }
 
     fn max_alloc_size(&self) -> u64 {
-        self.max_page_size
+        self.page_size
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
-        let elapsed = alloc_nr - self.last_dealloc;
-
-        if elapsed < self.dealloc_period {
-            return;
-        }
-
-        self.last_dealloc = alloc_nr;
-
-        let deallocations: HashSet<_> = self
-            .pages
-            .iter_mut()
-            .filter_map(|(storage_id, page)| {
-                let slice = self.slices.get(&page.slice_id).unwrap();
-
-                if slice.is_free() {
-                    // If not marked yet the memory might just have been freed.
-                    if !page.dealloc_mark {
-                        page.dealloc_mark = true;
-                        None
-                    } else {
-                        Some(*storage_id)
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Perform any deallocations if necessary.
-        if !deallocations.is_empty() {
-            for storage_id in deallocations.iter() {
-                let slice_id = self.pages[storage_id].slice_id;
-                self.pages.remove(storage_id);
-                self.slices.remove(&slice_id);
-                storage.dealloc(*storage_id);
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
+        self.pages.retain_mut(|page| {
+            if page.slice.is_free() {
+                page.free_count += 1;
             }
 
-            self.index = 0;
-            self.ring_buffer
-                .retain(|storage| !deallocations.contains(storage));
-        }
+            if page.free_count >= self.dealloc_period {
+                // Dealloc page.
+                storage.dealloc(page.slice.storage.id);
+                false
+            } else {
+                true
+            }
+        });
     }
 }

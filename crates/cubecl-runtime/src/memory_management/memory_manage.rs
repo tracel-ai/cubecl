@@ -10,8 +10,6 @@ enum DynamicPool {
     Exclusive(ExclusiveMemoryPool),
 }
 
-const MB: usize = 1024 * 1024;
-
 impl MemoryPool for DynamicPool {
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         match self {
@@ -51,10 +49,11 @@ impl MemoryPool for DynamicPool {
             DynamicPool::Exclusive(m) => m.max_alloc_size(),
         }
     }
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr),
+            DynamicPool::Sliced(m) => m.cleanup(storage),
+            DynamicPool::Exclusive(m) => m.cleanup(storage),
         }
     }
 }
@@ -63,7 +62,6 @@ impl MemoryPool for DynamicPool {
 pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
-    alloc_reserve_count: u64,
 }
 
 fn generate_bucket_sizes(
@@ -148,9 +146,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
                 let sizes = generate_bucket_sizes(
-                    8192,
+                    128 * 1024,
                     properties.max_page_size,
-                    256,
+                    32,
                     properties.alignment,
                 );
 
@@ -158,20 +156,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 sizes
                     .iter()
                     .map(|&s| {
-                        // Bigger buckets will logically have less slices, and are a bigger win
-                        // to deallocate, so make the deallocation period roughly proportional to
-                        // alloc size.
-                        //
-                        // This also +- follows zipfs law https://en.wikipedia.org/wiki/Zipf%27s_law
-                        // which is an ok assumption for the distribution of allocations.
-                        //
-                        // This ranges from:
-                        //   128 bytes, 8389608 allocations (aka almost never)
-                        //   10kb, 105857 allocations
-                        //   1MB, 2024 allocations
-                        //   100MB+, 1000-1011 allocations
-                        let base_period = 250;
-                        let dealloc_period = base_period + 128 * MB as u64 / (s + 1024);
+                        // We neeed to know whether a page is unused. Since smaller allocations happen more frequently,
+                        // we need less evidence to know they are actually unused.
+                        // let dealloc_period = (15.0 + 1.0 * s as f64 / MB as f64).round() as u64;
+                        let dealloc_period = 15;
 
                         MemoryPoolOptions {
                             page_size: s,
@@ -222,17 +210,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         pools.sort_by(|pool1, pool2| u64::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
-        Self {
-            pools,
-            storage,
-            alloc_reserve_count: 0,
-        }
+        Self { pools, storage }
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self) {
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage, self.alloc_reserve_count);
+            pool.cleanup(&mut self.storage);
         }
     }
 
@@ -265,10 +249,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> SliceHandle {
-        // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
-        // hard about overflow here.
-        self.alloc_reserve_count += 1;
-
         // Find first pool where size <= p.max_alloc with a binary search.
         let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
 
@@ -298,15 +278,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             panic!("No memory pool big enough to alloc {size} bytes.");
         }
         pool.alloc(&mut self.storage, size)
-    }
-
-    /// Bypass the memory allocation algorithm to deallocate data directly.
-    ///
-    /// # Notes
-    ///
-    /// Can be useful for servers that want specific control over memory.
-    pub fn dealloc(&mut self, _binding: SliceBinding) {
-        // Can't dealloc slices.
     }
 
     /// Fetch the storage used by the memory manager.

@@ -46,5 +46,5 @@ pub trait MemoryPool {
 
     fn get_memory_usage(&self) -> MemoryUsage;
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64);
+    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage);
 }
