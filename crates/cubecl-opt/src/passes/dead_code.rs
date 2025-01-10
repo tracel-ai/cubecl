@@ -31,8 +31,8 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 
         for idx in ops {
             let mut op = opt.program[node].ops.borrow()[idx].clone();
-            // Assume operations and metadata are pure, and everything else might have side effects
-            // Technically not correct but much simpler than
+            // Impure operations must be skipped because they can change things even if the output
+            // is unused
             if !op.operation.is_pure() {
                 continue;
             }
