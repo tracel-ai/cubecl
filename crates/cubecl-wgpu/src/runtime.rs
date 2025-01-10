@@ -16,10 +16,7 @@ use cubecl_runtime::{
     ComputeRuntime,
 };
 use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
-use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
-    storage::ComputeStorage,
-};
+use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.

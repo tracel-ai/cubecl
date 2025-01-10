@@ -66,29 +66,6 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
-// fn generate_bucket_sizes(
-//     min_alloc_size: u64,
-//     max_alloc_size: u64,
-//     max_buckets: usize,
-//     align: u64,
-// ) -> Vec<u64> {
-//     let mut buckets = Vec::with_capacity(max_buckets);
-
-//     // Use geometric progression: each step multiplied by a constant ratio
-//     // ratio = (max/min)^(1/(n-1)) to get n points from min to max
-//     let ratio = f64::powf(
-//         max_alloc_size as f64 / min_alloc_size as f64,
-//         1.0 / (max_buckets - 1) as f64,
-//     );
-
-//     for i in 0..max_buckets {
-//         let size = (min_alloc_size as f64 * f64::powf(ratio, i as f64)).round() as u64;
-//         buckets.push(size.next_multiple_of(align));
-//     }
-
-//     buckets.dedup();
-//     buckets
-// }
 fn generate_bucket_sizes(
     min_alloc_size: u64,
     max_alloc_size: u64,
@@ -113,6 +90,7 @@ fn generate_bucket_sizes(
     buckets.dedup();
     buckets
 }
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -170,13 +148,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
                 let sizes = generate_bucket_sizes(
-                    4096,
+                    8192,
                     properties.max_page_size,
                     256,
                     properties.alignment,
                 );
-
-                log::info!("Using buckets {:?}", sizes);
 
                 // Add in one pool for all massive allocations.
                 sizes

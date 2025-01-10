@@ -171,34 +171,18 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
-        if let Some(handle) = self.memory_management.get(binding.memory.clone()) {
-            let handle = match binding.offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match binding.offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            let resource = self.memory_management.storage().get(&handle);
-
-            BindingResource::new(binding, resource)
+        let resource = if let Some(handle) = self.memory_management.get(binding.memory.clone()) {
+            let handle = binding.adjust_storage_handle(handle);
+            self.memory_management.storage().get(&handle)
         } else if let Some(handle) = self.memory_management_uniforms.get(binding.memory.clone()) {
             self.locked_copy_handles.push(binding.clone());
-
-            let handle = match binding.offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match binding.offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            let resource = self.memory_management_uniforms.storage().get(&handle);
-            BindingResource::new(binding, resource)
+            let handle = binding.adjust_storage_handle(handle);
+            self.memory_management_uniforms.storage().get(&handle)
         } else {
             panic!("Failed to find resource");
-        }
+        };
+
+        BindingResource::new(binding, resource)
     }
 
     /// When we create a new handle from existing data, we use custom allocations so that we don't
@@ -216,8 +200,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         // Handle small uniform buffers.
         let (memory, resource) = if aligned_len < MAX_UNIFORM_BUFFER_SIZE {
-            // Reserve memory on some storage we haven't yet used this command queue for compute
-            // or copying.
+            // Reserve memory from the small uniforms storage. This is specially taken care
+            // off so that we know no outstanding compute work is set on it, and we
+            // can safely use write_buffer_with.
             let memory = self.memory_management_uniforms.reserve(aligned_len);
             let handle = self
                 .memory_management_uniforms
@@ -226,9 +211,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             let resource = self.memory_management_uniforms.storage().get(&handle);
             (memory, resource)
         } else {
+            // Reserve some memory for this buffer. First flush to make sure there is no outstanding work
+            // which could accidently happen after write_buffer_with.
             self.stream.flush();
-            // Reserve memory on some storage we haven't yet used this command queue for compute
-            // or copying.
             let memory = self.memory_management.reserve(aligned_len);
             let handle = self
                 .memory_management
