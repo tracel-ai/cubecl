@@ -1,5 +1,4 @@
 use super::{SliceBinding, SliceHandle, SliceId};
-use crate::memory_management::MemoryLock;
 use crate::{
     memory_management::MemoryUsage,
     storage::{ComputeStorage, StorageHandle},
@@ -40,12 +39,8 @@ pub trait MemoryPool {
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        locked: Option<&MemoryLock>,
-    ) -> SliceHandle;
+    fn reserve<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64)
+        -> SliceHandle;
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle;
 

@@ -1,7 +1,6 @@
 use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
-    MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryPoolOptions, MemoryUsage,
-    PoolType,
+    MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
 use alloc::vec::Vec;
@@ -25,11 +24,10 @@ impl MemoryPool for DynamicPool {
         &mut self,
         storage: &mut Storage,
         size: u64,
-        locked: Option<&MemoryLock>,
     ) -> SliceHandle {
         match self {
-            DynamicPool::Sliced(m) => m.reserve(storage, size, locked),
-            DynamicPool::Exclusive(m) => m.reserve(storage, size, locked),
+            DynamicPool::Sliced(m) => m.reserve(storage, size),
+            DynamicPool::Exclusive(m) => m.reserve(storage, size),
         }
     }
 
@@ -263,12 +261,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get(&mut self, binding: SliceBinding) -> StorageHandle {
-        self.pools
-            .iter()
-            .find_map(|p| p.get(&binding))
-            .expect("No handle found in memory pools")
-            .clone()
+    pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -277,21 +271,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         binding: SliceBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Storage::Resource {
+    ) -> Option<Storage::Resource> {
         let handle = self.get(binding);
-        let handle = match offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        self.storage().get(&handle)
+
+        handle.map(|handle| {
+            let handle = match offset_start {
+                Some(offset) => handle.offset_start(offset),
+                None => handle,
+            };
+            let handle = match offset_end {
+                Some(offset) => handle.offset_end(offset),
+                None => handle,
+            };
+            self.storage().get(&handle)
+        })
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    pub fn reserve(&mut self, size: u64, exclude: Option<&MemoryLock>) -> SliceHandle {
+    pub fn reserve(&mut self, size: u64) -> SliceHandle {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
@@ -309,7 +306,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         if pool.max_alloc_size() < size {
             panic!("No memory pool big enough to reserve {size} bytes.");
         }
-        pool.reserve(&mut self.storage, size, exclude)
+        pool.reserve(&mut self.storage, size)
     }
 
     /// Bypass the memory allocation algorithm to allocate data directly.
@@ -399,7 +396,7 @@ mod tests {
             },
             MemoryConfiguration::SubSlices,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10);
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -424,8 +421,8 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -452,9 +449,9 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -480,8 +477,8 @@ mod tests {
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -505,8 +502,8 @@ mod tests {
             50,
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -530,7 +527,7 @@ mod tests {
         let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
+        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
 
         let usage = memory_management.memory_usage();
 
@@ -552,14 +549,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
@@ -583,7 +580,7 @@ mod tests {
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
         let handles: Vec<_> = sizes
             .iter()
-            .map(|&size| memory_management.reserve(size, None))
+            .map(|&size| memory_management.reserve(size))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate every other allocation
@@ -592,7 +589,7 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management.reserve(size, None);
+            memory_management.reserve(size);
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
@@ -611,7 +608,7 @@ mod tests {
             mem_props,
             MemoryConfiguration::ExclusivePages,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10);
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -634,8 +631,8 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -658,9 +655,9 @@ mod tests {
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -683,8 +680,8 @@ mod tests {
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
@@ -705,8 +702,8 @@ mod tests {
             50,
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -728,7 +725,7 @@ mod tests {
         let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
+        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
         let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
@@ -746,14 +743,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
