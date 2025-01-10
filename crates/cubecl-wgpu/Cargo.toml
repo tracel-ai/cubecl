@@ -19,6 +19,7 @@ default = [
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
 spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+webgpu_subgroups = [] # enable subgroups on webgpu (not always available)
 
 spirv-dump = ["sanitize-filename"]
 

@@ -93,7 +93,7 @@ impl Display for ComputeShader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // On wasm, writeout what extensions we're using. This is standard wgsl but not yet
         // supported by wgpu.
-        #[cfg(target_family = "wasm")]
+        #[cfg(all(target_family = "wasm", feature = "webgpu_subgroups"))]
         f.write_str("enable subgroups;")?;
 
         Self::format_bindings(f, "input", &self.inputs, 0)?;
