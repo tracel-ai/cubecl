@@ -25,6 +25,7 @@ pub struct ExclusiveMemoryPool {
 struct MemoryPage {
     slice_id: SliceId,
     dealloc_mark: bool,
+    size: u64,
 }
 
 impl ExclusiveMemoryPool {
@@ -50,8 +51,14 @@ impl ExclusiveMemoryPool {
             let storage_id = &self.ring_buffer[self.index];
             let page = self.pages.get_mut(storage_id).unwrap();
             page.dealloc_mark = false;
+
+            if page.size < size {
+                continue;
+            }
+
             let slice = self.slices.get(&page.slice_id).unwrap();
             self.index = (self.index + 1) % self.ring_buffer.len();
+
             if slice.handle.is_free() {
                 return Some(page.slice_id);
             }
@@ -81,13 +88,15 @@ impl MemoryPool for ExclusiveMemoryPool {
         let slice_id = if let Some(page) = page {
             page
         } else {
-            *self.alloc(storage, self.max_page_size).id()
+            // Alloc with 25% slack space.
+            let alloc_size = ((size as f64 * 1.25).ceil() as u64).min(self.max_page_size);
+            *self.alloc(storage, alloc_size).id()
         };
 
         let padding = calculate_padding(size, self.alignment);
         let slice = self.slices.get_mut(&slice_id).unwrap();
         // Return a smaller part of the slice. By construction, we only ever
-        // get a page with a size > size, so this is ok to do.
+        // get a page with a big enough size, so this is ok to do.
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         slice.padding = padding;
         slice.handle.clone()
@@ -108,6 +117,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             MemoryPage {
                 slice_id,
                 dealloc_mark: false,
+                size,
             },
         );
         self.slices.insert(slice_id, slice);

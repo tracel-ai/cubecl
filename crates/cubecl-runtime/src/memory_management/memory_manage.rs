@@ -171,7 +171,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         //   1MB, 2024 allocations
                         //   100MB+, 1000-1011 allocations
                         let base_period = 250;
-                        let dealloc_period = base_period + 256 * MB as u64 / (s + 1024);
+                        let dealloc_period = base_period + 128 * MB as u64 / (s + 1024);
 
                         MemoryPoolOptions {
                             page_size: s,

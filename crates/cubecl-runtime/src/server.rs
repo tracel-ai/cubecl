@@ -130,6 +130,7 @@ pub struct Binding {
 }
 
 impl Binding {
+    /// Create a storage handle with offsets adjusted for this binding.
     pub fn adjust_storage_handle(&self, handle: StorageHandle) -> StorageHandle {
         let handle = match self.offset_start {
             Some(offset) => handle.offset_start(offset),
