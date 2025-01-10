@@ -6,7 +6,10 @@ use cubecl_cpp::{
     shared::{register_wmma_features, Architecture, CompilationOptions, CppCompiler, WmmaCompiler},
 };
 
-use cubecl_core::{Feature, MemoryConfiguration, Runtime};
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    Feature, MemoryConfiguration, Runtime,
+};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
