@@ -67,7 +67,7 @@ impl ReduceRange {
         axis_reduce: u32,
         #[comptime] line_size: u32,
     ) -> ReduceRange {
-        let mut start = 0; 
+        let mut start = 0;
         for axis in 0..input.rank() {
             let coordinate = output.coordinate(reduce_index * line_size, axis);
             start += coordinate * input.stride(axis);
