@@ -119,8 +119,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     _ => unreachable!(),
                 };
 
-                self.atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
-                    .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Sub(op) => {
