@@ -28,6 +28,12 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 
         for idx in ops {
             let mut op = opt.program[node].ops.borrow()[idx].clone();
+            if !matches!(
+                op.operation,
+                Operation::Copy(_) | Operation::Metadata(_) | Operation::Operator(_)
+            ) {
+                continue;
+            }
             let mut out = None;
             let used = Rc::new(AtomicBool::new(false));
             opt.visit_out(&mut op.out, |_, var| {
