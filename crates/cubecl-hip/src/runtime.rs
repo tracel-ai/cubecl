@@ -8,7 +8,7 @@ use cubecl_cpp::{
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
