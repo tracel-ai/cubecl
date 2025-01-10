@@ -37,7 +37,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
 ) {
     if !supports_feature::<R, F>(&client, AtomicFeature::Add) {
         println!(
-            "{} Add Not supported - skipped",
+            "{} Add not supported - skipped",
             Atomic::<F>::as_elem_native_unchecked()
         );
         return;
@@ -70,7 +70,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
 ) {
     if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
         println!(
-            "{} Min Not supported - skipped",
+            "{} Min not supported - skipped",
             Atomic::<F>::as_elem_native_unchecked()
         );
         return;
@@ -103,7 +103,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
 ) {
     if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
         println!(
-            "{} Add Max supported - skipped",
+            "{} Max not supported - skipped",
             Atomic::<F>::as_elem_native_unchecked()
         );
         return;
