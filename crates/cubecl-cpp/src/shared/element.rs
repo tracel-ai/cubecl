@@ -39,6 +39,7 @@ pub enum AtomicKind<D: Dialect> {
     BF16,
     F32,
     F64,
+    /// Required to construct the inner `Elem` of the atomic value
     _Dialect(std::marker::PhantomData<D>),
 }
 

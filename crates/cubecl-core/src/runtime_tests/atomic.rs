@@ -17,7 +17,7 @@ fn supports_feature<R: Runtime, F: Numeric>(
         Elem::Float(kind) => {
             client
                 .properties()
-                .feature_enabled(Feature::FloatAtomic(float_feat))
+                .feature_enabled(Feature::AtomicFloat(float_feat))
                 && client
                     .properties()
                     .feature_enabled(Feature::Type(Elem::AtomicFloat(kind)))

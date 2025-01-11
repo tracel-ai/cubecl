@@ -15,6 +15,14 @@ use crate::{
     unexpanded,
 };
 
+/// An atomic numerical type wrapping a normal numeric primitive. Enables the use of atomic
+/// operations, while disabling normal operations. In WGSL, this is a separate type - on CUDA/SPIR-V
+/// it can theoretically be bitcast to a normal number, but this isn't recommended.
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Atomic<Inner: CubePrimitive> {
+    pub val: Inner,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AtomicOp {
     Load(UnaryOperator),
@@ -214,7 +222,6 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 }
 
-/// An atomic type. Represents an shared value that can be operated on atomically.
 impl<Inner: Int> Atomic<Inner> {
     /// Compare the value at `pointer` to `cmp` and set it to `value` only if they are the same.
     /// Returns the old value of the pointer before the store.
@@ -318,11 +325,6 @@ impl<Inner: Int> Atomic<Inner> {
         ));
         new_var.into()
     }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Atomic<Inner: CubePrimitive> {
-    pub val: Inner,
 }
 
 impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {

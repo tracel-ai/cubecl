@@ -112,8 +112,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
-    device_props.register_feature(Feature::FloatAtomic(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::FloatAtomic(AtomicFeature::Add));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     let comp_opts = Default::default();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);

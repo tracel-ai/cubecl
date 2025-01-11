@@ -278,15 +278,15 @@ fn register_features(
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
-            props.register_feature(Feature::FloatAtomic(AtomicFeature::LoadStore));
+            props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         }
         if atomic_float.shader_buffer_float32_atomic_add == TRUE {
-            props.register_feature(Feature::FloatAtomic(AtomicFeature::Add));
+            props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
         }
     }
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
-            props.register_feature(Feature::FloatAtomic(AtomicFeature::MinMax));
+            props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
         }
     }
 
