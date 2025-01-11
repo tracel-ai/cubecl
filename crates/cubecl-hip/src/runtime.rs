@@ -120,8 +120,8 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-    device_props.register_feature(Feature::FloatAtomic(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::FloatAtomic(AtomicFeature::Add));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
