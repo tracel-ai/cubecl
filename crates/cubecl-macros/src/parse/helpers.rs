@@ -52,10 +52,7 @@ impl Unroll {
         }
 
         let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"));
-        let attr = match attr {
-            Some(attr) => attr,
-            None => return None,
-        };
+        let attr = attr?;
 
         match &attr.meta {
             syn::Meta::Path(_) => None,
