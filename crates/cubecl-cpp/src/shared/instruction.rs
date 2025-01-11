@@ -165,7 +165,7 @@ pub enum Instruction<D: Dialect> {
         val: Variable<D>,
         out: Variable<D>,
     },
-    Negate(UnaryInstruction<D>),
+    Neg(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
     Dot(BinaryInstruction<D>),
@@ -547,9 +547,9 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "atomicExch({out}, {input});")
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::Negate(UnaryInstruction { input, out }) => {
+            Instruction::Neg(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = !{input};")
+                writeln!(f, "{out} = -{input};")
             }
             Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
             Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
