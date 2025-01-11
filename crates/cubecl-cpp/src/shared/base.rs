@@ -1028,8 +1028,7 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         gpu::Elem::Int(gpu::IntKind::I32),
         gpu::Elem::Int(gpu::IntKind::I64),
         gpu::Elem::AtomicInt(gpu::IntKind::I32),
-        // CUDA doesn't support atomic add for signed 64-bit integers, only unsigned.
-        //gpu::Elem::AtomicInt(gpu::IntKind::I64),
+        gpu::Elem::AtomicInt(gpu::IntKind::I64),
         gpu::Elem::AtomicUInt(gpu::UIntKind::U32),
         gpu::Elem::AtomicUInt(gpu::UIntKind::U64),
         gpu::Elem::Float(gpu::FloatKind::BF16),
