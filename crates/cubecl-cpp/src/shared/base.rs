@@ -998,7 +998,8 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Elem::AtomicInt(kind) => match kind {
                 gpu::IntKind::I32 => Elem::Atomic(AtomicKind::I32),
-                _ => panic!("atomic<{}> isn't supported yet", value),
+                gpu::IntKind::I64 => Elem::Atomic(AtomicKind::I64),
+                kind => panic!("atomic<{kind:?}> isn't supported yet"),
             },
             gpu::Elem::UInt(kind) => match kind {
                 gpu::UIntKind::U8 => Elem::U8,
@@ -1008,6 +1009,7 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Elem::AtomicUInt(kind) => match kind {
                 gpu::UIntKind::U32 => Elem::Atomic(AtomicKind::U32),
+                gpu::UIntKind::U64 => Elem::Atomic(AtomicKind::U64),
                 kind => unimplemented!("atomic<{kind:?}> not yet supported"),
             },
             gpu::Elem::Bool => Elem::Bool,
@@ -1026,7 +1028,10 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         gpu::Elem::Int(gpu::IntKind::I32),
         gpu::Elem::Int(gpu::IntKind::I64),
         gpu::Elem::AtomicInt(gpu::IntKind::I32),
+        // CUDA doesn't support atomic add for signed 64-bit integers, only unsigned.
+        //gpu::Elem::AtomicInt(gpu::IntKind::I64),
         gpu::Elem::AtomicUInt(gpu::UIntKind::U32),
+        gpu::Elem::AtomicUInt(gpu::UIntKind::U64),
         gpu::Elem::Float(gpu::FloatKind::BF16),
         gpu::Elem::Float(gpu::FloatKind::F16),
         gpu::Elem::Float(gpu::FloatKind::F32),
