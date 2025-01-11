@@ -139,6 +139,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     matches!(out_ty.elem(), Elem::Int(_, _)),
                     "sub doesn't support float atomics"
                 );
+                match out_ty.elem() {
+                    Elem::Int(_, _) => self
+                        .atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .unwrap(),
+                    Elem::Float(width) => {
+                        match width {
+                            16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
+                            32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
+                            64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
+                            _ => unreachable!(),
+                        };
+                        let negated = self.f_negate(ty, None, rhs_id).unwrap();
+                        self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, negated)
+                            .unwrap()
+                    }
+                    _ => unreachable!(),
+                };
                 self.atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                     .unwrap();
                 self.write(&out, out_id);

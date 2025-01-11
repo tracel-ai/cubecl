@@ -516,7 +516,12 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
+                match rhs.elem() {
+                    Elem::U32 | Elem::I32 | Elem::U64 | Elem::I64 => {
+                        writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
+                    }
+                    _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
+                }
             }
             Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();

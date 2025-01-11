@@ -880,7 +880,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::AtomicSub { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicSub({lhs}, {rhs});")
+                match rhs.elem() {
+                    Elem::F32 => write!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
+                    _ => write!(f, "{out} = atomicSub({lhs}, {rhs});"),
+                }
             }
             Instruction::AtomicMax { lhs, rhs, out } => {
                 let out = out.fmt_left();
