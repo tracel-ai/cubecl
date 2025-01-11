@@ -18,11 +18,11 @@ pub trait Analysis {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct Analyses {
+pub struct AnalysisCache {
     cache: Rc<RefCell<TypeMap>>,
 }
 
-impl Analyses {
+impl AnalysisCache {
     pub fn get<A: Analysis + Any>(&self, opt: &mut Optimizer) -> Rc<A> {
         let analysis = self.cache.borrow().get::<Rc<A>>().cloned();
         if let Some(analysis) = analysis {
@@ -44,15 +44,19 @@ impl Analyses {
 }
 
 impl Optimizer {
+    /// Fetch an analysis if cached, or run it if not.
     pub fn analysis<A: Analysis + Any>(&mut self) -> Rc<A> {
-        let analyses = self.analyses.clone();
+        let analyses = self.analysis_cache.clone();
         analyses.get(self)
     }
 
+    /// Invalidate an analysis by removing it from the cache. The analysis is rerun when requested
+    /// again.
     pub fn invalidate_analysis<A: Analysis + Any>(&self) {
-        self.analyses.invalidate::<A>();
+        self.analysis_cache.invalidate::<A>();
     }
 
+    /// Invalidate all analyses that rely on the structure of the control flow graph.
     pub fn invalidate_structure(&self) {
         self.invalidate_analysis::<PostOrder>();
         self.invalidate_analysis::<Dominators>();

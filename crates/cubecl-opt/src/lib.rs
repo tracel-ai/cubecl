@@ -30,7 +30,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, Analyses};
+use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
 use cubecl_core::{
     ir::{self as core, Allocator, Branch, Id, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -128,7 +128,7 @@ pub struct Optimizer {
     /// Allocator for kernel
     pub allocator: Allocator,
     /// Analyses with persistent state
-    analyses: Rc<Analyses>,
+    analysis_cache: Rc<AnalysisCache>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -154,7 +154,7 @@ impl Default for Optimizer {
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
-            analyses: Default::default(),
+            analysis_cache: Default::default(),
         }
     }
 }
@@ -222,6 +222,8 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
+        // Analyses shouldn't have run at this point, but just in case they have, invalidate
+        // all analyses that depend on the graph
         self.invalidate_structure();
     }
 

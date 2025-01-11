@@ -16,8 +16,8 @@ const DEBUG_GVN: bool = false;
 /// Debug display for the program state.
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let slices = self.analyses.try_get::<Slices>().unwrap_or_default();
-        let ranges = self.analyses.try_get::<Ranges>().unwrap_or_default();
+        let slices = self.analysis_cache.try_get::<Slices>().unwrap_or_default();
+        let ranges = self.analysis_cache.try_get::<Ranges>().unwrap_or_default();
 
         f.write_str("Slices:\n")?;
         for (var_id, slice) in slices.iter() {
@@ -33,9 +33,12 @@ impl Display for Optimizer {
         }
         f.write_str("\n\n")?;
 
-        let global_nums = self.analyses.try_get::<GvnState>().unwrap_or_default();
+        let global_nums = self
+            .analysis_cache
+            .try_get::<GvnState>()
+            .unwrap_or_default();
         let liveness = self
-            .analyses
+            .analysis_cache
             .try_get::<Liveness>()
             .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
 
