@@ -737,7 +737,7 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
             gpu::Operator::Neg(op) => {
-                instructions.push(Instruction::Negate(self.compile_unary(op, out)))
+                instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }
             gpu::Operator::Normalize(op) => {
                 instructions.push(Instruction::Normalize(self.compile_unary(op, out)))
