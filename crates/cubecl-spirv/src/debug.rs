@@ -442,7 +442,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
 
             // Declare entry
-            let entry_name = debug_info.name_str.clone();
+            let entry_name = self.debug_info().name_str.clone();
             let entry_def = self.definitions().functions[&entry_name];
             let args = self.debug_string("");
             let signature = self.debug_string(SIGNATURE);

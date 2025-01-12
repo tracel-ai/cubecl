@@ -79,12 +79,11 @@ impl OptimizerPass for EmptyBranchToSelect {
                         opt.program.remove_node(then);
                         opt.program.remove_node(or_else);
                         opt.program.remove_node(merge);
-                        opt.post_order
-                            .retain(|it| *it != then && *it != or_else && *it != merge);
                         for merge_successor in merge_successors {
                             opt.program.add_edge(block, merge_successor, ());
                         }
                         *opt.program[block].control_flow.borrow_mut() = merge_control;
+                        opt.invalidate_structure();
                         update_references(opt, merge, block);
                         return true;
                     }

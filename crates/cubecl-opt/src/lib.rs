@@ -24,13 +24,13 @@
 //!
 
 use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     ops::{Deref, DerefMut},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
 use cubecl_core::{
     ir::{self as core, Allocator, Branch, Id, Operation, Operator, Variable, VariableKind},
     CubeDim,
@@ -43,12 +43,12 @@ use gvn::GvnPass;
 use passes::{
     CompositeMerge, ConstEval, ConstOperandSimplify, CopyPropagateArray, CopyTransform,
     EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
-    EmptyBranchToSelect, FindConstSliceLen, InBoundsToUnchecked, InlineAssignments,
-    IntegerRangeAnalysis, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
-    RemoveIndexScalar,
+    EmptyBranchToSelect, InBoundsToUnchecked, InlineAssignments, MergeBlocks, MergeSameExpressions,
+    OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
 
+mod analyses;
 mod block;
 mod control_flow;
 mod debug;
@@ -89,14 +89,6 @@ impl AtomicCounter {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Slice {
-    pub(crate) start: Variable,
-    pub(crate) end: Variable,
-    pub(crate) end_op: Option<Operation>,
-    pub(crate) const_len: Option<u32>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ConstArray {
     pub id: Id,
     pub length: u32,
@@ -108,10 +100,8 @@ pub struct ConstArray {
 struct Program {
     pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Item>,
-    pub(crate) slices: HashMap<Id, Slice>,
     pub graph: StableDiGraph<BasicBlock, ()>,
     root: NodeIndex,
-    int_ranges: HashMap<VarId, Range>,
 }
 
 impl Deref for Program {
@@ -130,19 +120,15 @@ impl DerefMut for Program {
 
 type VarId = (Id, u16);
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-struct Range {
-    lower_bound: Option<i64>,
-    upper_bound: Option<i64>,
-}
-
 /// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     /// The overall program state
     program: Program,
-    /// The post order of the graph for traversal
-    post_order: Vec<NodeIndex>,
+    /// Allocator for kernel
+    pub allocator: Allocator,
+    /// Analyses with persistent state
+    analysis_cache: Rc<AnalysisCache>,
     /// The current block while parsing
     current_block: Option<NodeIndex>,
     /// The current loop's break target
@@ -155,24 +141,20 @@ pub struct Optimizer {
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
-    pub(crate) gvn: Rc<RefCell<GvnPass>>,
-
-    pub allocator: Allocator,
 }
 
 impl Default for Optimizer {
     fn default() -> Self {
         Self {
             program: Default::default(),
+            allocator: Default::default(),
             current_block: Default::default(),
             loop_break: Default::default(),
             ret: Default::default(),
             root_scope: Scope::root(),
             cube_dim: Default::default(),
             mode: Default::default(),
-            post_order: Default::default(),
-            gvn: Default::default(),
-            allocator: Default::default(),
+            analysis_cache: Default::default(),
         }
     }
 }
@@ -197,8 +179,6 @@ impl Optimizer {
     fn run_opt(&mut self, expand: Scope) {
         self.parse_graph(expand);
         self.split_critical_edges();
-        self.determine_postorder(self.entry(), &mut HashSet::new());
-        self.analyze_liveness();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
         self.ssa_transform();
@@ -210,14 +190,13 @@ impl Optimizer {
         let arrays_prop = AtomicCounter::new(0);
         CopyPropagateArray.apply_post_ssa(self, arrays_prop.clone());
         if arrays_prop.get() > 0 {
-            self.analyze_liveness();
+            self.invalidate_analysis::<Liveness>();
             self.ssa_transform();
             self.apply_post_ssa_passes();
         }
 
         let gvn_count = AtomicCounter::new(0);
-        let gvn = self.gvn.clone();
-        gvn.borrow_mut().apply_post_ssa(self, gvn_count.clone());
+        GvnPass.apply_post_ssa(self, gvn_count.clone());
         ReduceStrength.apply_post_ssa(self, gvn_count.clone());
         CopyTransform.apply_post_ssa(self, gvn_count.clone());
 
@@ -243,24 +222,9 @@ impl Optimizer {
         if let Some(current_block) = self.current_block {
             self.program.add_edge(current_block, self.ret, ());
         }
-    }
-
-    fn determine_postorder(&mut self, block: NodeIndex, visited: &mut HashSet<NodeIndex>) {
-        for successor in self.successors(block) {
-            if !visited.contains(&successor) {
-                visited.insert(successor);
-                self.determine_postorder(successor, visited);
-            }
-        }
-        self.post_order.push(block);
-    }
-
-    pub fn post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.clone()
-    }
-
-    pub fn reverse_post_order(&self) -> Vec<NodeIndex> {
-        self.post_order.iter().rev().copied().collect()
+        // Analyses shouldn't have run at this point, but just in case they have, invalidate
+        // all analyses that depend on the graph
+        self.invalidate_structure();
     }
 
     fn apply_pre_ssa_passes(&mut self) {
@@ -293,15 +257,6 @@ impl Optimizer {
             Box::new(EliminateDeadBlocks),
             Box::new(EliminateDeadPhi),
         ];
-        // Passes that only run if execution mode is checked
-        let checked_passes: Vec<Box<dyn OptimizerPass>> = vec![
-            Box::new(IntegerRangeAnalysis),
-            Box::new(FindConstSliceLen),
-            Box::new(InBoundsToUnchecked),
-        ];
-        if matches!(self.mode, ExecutionMode::Checked) {
-            passes.extend(checked_passes);
-        }
 
         loop {
             let counter = AtomicCounter::default();
@@ -312,6 +267,11 @@ impl Optimizer {
             if counter.get() == 0 {
                 break;
             }
+        }
+
+        // Only replace indexing when checked, since all indexes are unchecked anyways in unchecked
+        if matches!(self.mode, ExecutionMode::Checked) {
+            InBoundsToUnchecked.apply_post_ssa(self, AtomicCounter::new(0));
         }
     }
 
@@ -336,14 +296,11 @@ impl Optimizer {
     }
 
     fn ssa_transform(&mut self) {
-        self.program.fill_dom_frontiers();
-        self.program.place_phi_nodes();
+        self.place_phi_nodes();
         self.version_program();
         self.program.variables.clear();
-        for block in self.node_ids() {
-            self.program[block].writes.clear();
-            self.program[block].dom_frontiers.clear();
-        }
+        self.invalidate_analysis::<Writes>();
+        self.invalidate_analysis::<DomFrontiers>();
     }
 
     /// Mutable reference to the current basic block
@@ -404,30 +361,9 @@ impl Optimizer {
         let is_break = processed.operations.contains(&Branch::Break.into());
 
         for mut instruction in processed.operations {
-            let out = instruction.out;
             match &mut instruction.operation {
                 Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
-                Operation::Operator(Operator::Slice(slice_op)) => {
-                    let out_id = match out.unwrap().kind {
-                        VariableKind::Slice { id } => id,
-                        _ => unreachable!(),
-                    };
-                    let const_len = slice_op.start.as_const().zip(slice_op.end.as_const());
-                    let const_len = const_len.map(|(start, end)| end.as_u32() - start.as_u32());
-                    self.program.slices.insert(
-                        out_id,
-                        Slice {
-                            start: slice_op.start,
-                            end: slice_op.end,
-                            end_op: None,
-                            const_len,
-                        },
-                    );
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
-                    self.current_block_mut().ops.borrow_mut().push(instruction);
-                }
                 _ => {
-                    self.visit_out(&mut instruction.out, |opt, var| opt.write_var(var));
                     self.current_block_mut().ops.borrow_mut().push(instruction);
                 }
             }
@@ -449,6 +385,7 @@ impl Optimizer {
             let new_ret = self.program.add_node(BasicBlock::default());
             self.program.add_edge(new_ret, self.ret, ());
             self.ret = new_ret;
+            self.invalidate_structure();
             new_ret
         } else {
             self.ret

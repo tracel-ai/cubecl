@@ -259,8 +259,7 @@ impl Optimizer {
         let i = range_loop.i;
         self.program.variables.insert(i_id, i.item);
 
-        let mut assign = Instruction::new(Operation::Copy(range_loop.start), i);
-        self.visit_out(&mut assign.out, |opt, var| opt.write_var(var));
+        let assign = Instruction::new(Operation::Copy(range_loop.start), i);
         self.current_block_mut().ops.borrow_mut().push(assign);
 
         let current_block = self.current_block.unwrap();
@@ -302,7 +301,7 @@ impl Optimizer {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.program.insert_phi(header, i_id, range_loop.start.item);
+        self.insert_phi(header, i_id, range_loop.start.item);
         {
             let op = match range_loop.inclusive {
                 true => Operator::LowerEqual,
@@ -351,6 +350,7 @@ impl Optimizer {
                     let new_block = self.program.add_node(BasicBlock::default());
                     self.program.add_edge(block, new_block, ());
                     self.program.add_edge(new_block, *successor, ());
+                    self.invalidate_structure();
                     update_phi(self, *successor, block, new_block);
                     update_control_flow(self, block, *successor, new_block);
                 }
