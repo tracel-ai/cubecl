@@ -309,3 +309,17 @@ impl_unary_func!(
     u64,
     i64
 );
+impl_unary_func!(
+    Not,
+    not,
+    __expand_not,
+    Operator::Not,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);
