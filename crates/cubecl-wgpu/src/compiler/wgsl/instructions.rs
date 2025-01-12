@@ -826,8 +826,12 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = {lhs} ^ {rhs};")
             }
             Instruction::CountBits { input, out } => {
+                let out_item = out.item();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = countOneBits({input});")
+                match input.elem() == *out_item.elem() {
+                    true => writeln!(f, "{out} = countOneBits({input});"),
+                    false => writeln!(f, "{out} = {}(countOneBits({input}));", out_item),
+                }
             }
             Instruction::ReverseBits { input, out } => {
                 let out = out.fmt_left();
@@ -876,7 +880,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::AtomicSub { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicSub({lhs}, {rhs});")
+                match rhs.elem() {
+                    Elem::F32 => write!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
+                    _ => write!(f, "{out} = atomicSub({lhs}, {rhs});"),
+                }
             }
             Instruction::AtomicMax { lhs, rhs, out } => {
                 let out = out.fmt_left();

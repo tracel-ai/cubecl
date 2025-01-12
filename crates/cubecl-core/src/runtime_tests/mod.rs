@@ -1,4 +1,5 @@
 pub mod assign;
+pub mod atomic;
 pub mod binary;
 pub mod branch;
 pub mod cmma;
@@ -29,7 +30,7 @@ macro_rules! testgen_all {
         type UintType = u32;
 
         $crate::testgen_float!();
-
+        $crate::testgen_int!();
         $crate::testgen_untyped!();
     };
     ($f_def:ident: [$($float:ident),*], $i_def:ident: [$($int:ident),*], $u_def:ident: [$($uint:ident),*]) => {
@@ -84,6 +85,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
         cubecl_core::testgen_unary!();
+        cubecl_core::testgen_atomic_float!();
     };
 }
 
@@ -92,6 +94,7 @@ macro_rules! testgen_float {
 macro_rules! testgen_int {
     () => {
         cubecl_core::testgen_unary_int!();
+        cubecl_core::testgen_atomic_int!();
     };
 }
 

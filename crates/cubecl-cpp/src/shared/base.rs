@@ -704,7 +704,9 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::Elem::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
                     gpu::Elem::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
                     gpu::Elem::Bool => gpu::ConstantScalarValue::Bool(true),
-                    gpu::Elem::AtomicInt(_) | gpu::Elem::AtomicUInt(_) => {
+                    gpu::Elem::AtomicInt(_)
+                    | gpu::Elem::AtomicUInt(_)
+                    | gpu::Elem::AtomicFloat(_) => {
                         panic!("Cannot use recip with atomics")
                     }
                 };
@@ -981,6 +983,13 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::FloatKind::F32 => Elem::F32,
                 gpu::FloatKind::F64 => Elem::F64,
             },
+            gpu::Elem::AtomicFloat(kind) => match kind {
+                gpu::FloatKind::F16 => Elem::Atomic(AtomicKind::F16),
+                gpu::FloatKind::BF16 => Elem::Atomic(AtomicKind::BF16),
+                gpu::FloatKind::F32 => Elem::Atomic(AtomicKind::F32),
+                gpu::FloatKind::F64 => Elem::Atomic(AtomicKind::F64),
+                kind => unimplemented!("atomic<{kind:?}> not yet supported"),
+            },
             gpu::Elem::Int(kind) => match kind {
                 gpu::IntKind::I8 => Elem::I8,
                 gpu::IntKind::I16 => Elem::I16,
@@ -989,7 +998,8 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Elem::AtomicInt(kind) => match kind {
                 gpu::IntKind::I32 => Elem::Atomic(AtomicKind::I32),
-                _ => panic!("atomic<{}> isn't supported yet", value),
+                gpu::IntKind::I64 => Elem::Atomic(AtomicKind::I64),
+                kind => panic!("atomic<{kind:?}> isn't supported yet"),
             },
             gpu::Elem::UInt(kind) => match kind {
                 gpu::UIntKind::U8 => Elem::U8,
@@ -999,6 +1009,7 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::Elem::AtomicUInt(kind) => match kind {
                 gpu::UIntKind::U32 => Elem::Atomic(AtomicKind::U32),
+                gpu::UIntKind::U64 => Elem::Atomic(AtomicKind::U64),
                 kind => unimplemented!("atomic<{kind:?}> not yet supported"),
             },
             gpu::Elem::Bool => Elem::Bool,
@@ -1017,11 +1028,14 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         gpu::Elem::Int(gpu::IntKind::I32),
         gpu::Elem::Int(gpu::IntKind::I64),
         gpu::Elem::AtomicInt(gpu::IntKind::I32),
+        gpu::Elem::AtomicInt(gpu::IntKind::I64),
         gpu::Elem::AtomicUInt(gpu::UIntKind::U32),
+        gpu::Elem::AtomicUInt(gpu::UIntKind::U64),
         gpu::Elem::Float(gpu::FloatKind::BF16),
         gpu::Elem::Float(gpu::FloatKind::F16),
         gpu::Elem::Float(gpu::FloatKind::F32),
         gpu::Elem::Float(gpu::FloatKind::Flex32),
+        gpu::Elem::AtomicFloat(gpu::FloatKind::F32),
         // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
         //gpu::Elem::Float(gpu::FloatKind::F64),
         gpu::Elem::Bool,

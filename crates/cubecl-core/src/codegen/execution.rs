@@ -316,11 +316,9 @@ fn create_scalar_handles<R: Runtime, E1: CubeElement, E2: CubeElement, E3: CubeE
 ) -> Vec<Handle> {
     // It is crucial that scalars follow this order: float, int, uint
     let element_priority = |elem: Elem| match elem {
-        Elem::Float(_) => 0,
-        Elem::Int(_) => 1,
-        Elem::AtomicInt(_) => 1,
-        Elem::UInt(_) => 2,
-        Elem::AtomicUInt(_) => 2,
+        Elem::Float(_) | Elem::AtomicFloat(_) => 0,
+        Elem::Int(_) | Elem::AtomicInt(_) => 1,
+        Elem::UInt(_) | Elem::AtomicUInt(_) => 2,
         Elem::Bool => panic!("Bool scalars are not supported"),
     };
     let scalar_priorities: [usize; 3] = [

@@ -310,6 +310,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.capabilities.insert(Capability::Float64);
                 Elem::Float(64)
             }
+            core::Elem::AtomicFloat(FloatKind::F16) => {
+                self.capabilities.insert(Capability::Float16);
+                Elem::Float(16)
+            }
+            core::Elem::AtomicFloat(FloatKind::F32) => Elem::Float(32),
+            core::Elem::AtomicFloat(FloatKind::Flex32) => Elem::Relaxed,
+            core::Elem::AtomicFloat(FloatKind::F64) => {
+                self.capabilities.insert(Capability::Float64);
+                Elem::Float(64)
+            }
+            core::Elem::AtomicFloat(core::FloatKind::BF16) => {
+                panic!("BFloat16 not supported in SPIR-V")
+            }
+            core::Elem::AtomicFloat(core::FloatKind::TF32) => {
+                panic!("TF32 not supported in SPIR-V")
+            }
             core::Elem::Int(IntKind::I8) => {
                 self.capabilities.insert(Capability::Int8);
                 Elem::Int(8, true)

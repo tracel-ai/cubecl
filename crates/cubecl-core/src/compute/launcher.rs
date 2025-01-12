@@ -160,7 +160,7 @@ impl<R: Runtime> KernelLauncher<R> {
 
         for elem in self.scalar_order.drain(..) {
             match elem {
-                Elem::Float(kind) => match kind {
+                Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
                     FloatKind::F16 => self.scalar_f16.register::<R>(client, &mut bindings),
                     FloatKind::BF16 => self.scalar_bf16.register::<R>(client, &mut bindings),
                     FloatKind::TF32 => self.scalar_f32.register::<R>(client, &mut bindings),
@@ -180,13 +180,7 @@ impl<R: Runtime> KernelLauncher<R> {
                     IntKind::I32 => self.scalar_i32.register::<R>(client, &mut bindings),
                     IntKind::I64 => self.scalar_i64.register::<R>(client, &mut bindings),
                 },
-                Elem::UInt(kind) => match kind {
-                    UIntKind::U8 => self.scalar_u8.register::<R>(client, &mut bindings),
-                    UIntKind::U16 => self.scalar_u16.register::<R>(client, &mut bindings),
-                    UIntKind::U32 => self.scalar_u32.register::<R>(client, &mut bindings),
-                    UIntKind::U64 => self.scalar_u64.register::<R>(client, &mut bindings),
-                },
-                Elem::AtomicUInt(kind) => match kind {
+                Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
                     UIntKind::U8 => self.scalar_u8.register::<R>(client, &mut bindings),
                     UIntKind::U16 => self.scalar_u16.register::<R>(client, &mut bindings),
                     UIntKind::U32 => self.scalar_u32.register::<R>(client, &mut bindings),

@@ -512,11 +512,35 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = atomicAdd({lhs}, {rhs});")
+                match rhs.elem() {
+                    Elem::I64 => {
+                        writeln!(
+                            f,
+                            "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}({rhs}));",
+                            uint = Elem::<D>::U64
+                        )
+                    }
+                    _ => writeln!(f, "{out} = atomicAdd({lhs}, {rhs});"),
+                }
             }
             Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
+                match rhs.elem() {
+                    Elem::U32 | Elem::I32 => {
+                        writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
+                    }
+                    Elem::U64 => {
+                        writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});",)
+                    }
+                    Elem::I64 => {
+                        writeln!(
+                            f,
+                            "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}(-{rhs}));",
+                            uint = Elem::<D>::U64
+                        )
+                    }
+                    _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
+                }
             }
             Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
                 let out = out.fmt_left();
