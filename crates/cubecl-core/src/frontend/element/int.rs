@@ -28,6 +28,7 @@ pub trait Int:
     + core::ops::BitXor<Output = Self>
     + core::ops::Shl<Output = Self>
     + core::ops::Shr<Output = Self>
+    + core::ops::Not<Output = Self>
     + std::ops::RemAssign
     + std::ops::AddAssign
     + std::ops::SubAssign
