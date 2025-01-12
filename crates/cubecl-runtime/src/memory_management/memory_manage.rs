@@ -54,7 +54,7 @@ impl MemoryPool for DynamicPool {
     }
 }
 
-const POOL_CANDIDATES: usize = 3;
+const POOL_CANDIDATES: usize = 2;
 const MB: u64 = 1024 * 1024;
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
@@ -145,12 +145,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                let sizes = generate_bucket_sizes(
-                    64 * 1024,
-                    properties.max_page_size,
-                    64,
-                    properties.alignment,
-                );
+                let sizes =
+                    generate_bucket_sizes(8192, properties.max_page_size, 40, properties.alignment);
 
                 // Add in one pool for all massive allocations.
                 sizes
@@ -158,7 +154,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     .map(|&s| {
                         // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
                         // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
-                        let dealloc_period = (250.0 + s as f64 / (MB as f64)).round() as u64;
+                        let dealloc_period =
+                            (1500.0 * (1.0 + s as f64 / (256.0 * MB as f64))).round() as u64;
 
                         MemoryPoolOptions {
                             page_size: s,

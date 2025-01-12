@@ -1,4 +1,6 @@
-use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle, SliceId};
+use core::usize::MAX;
+
+use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
 use crate::{
     memory_management::MemoryUsage,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
@@ -21,8 +23,8 @@ pub struct ExclusiveMemoryPool {
 }
 
 struct MemoryPage {
-    slice_id: SliceId,
     slice: Slice,
+    alloc_size: u64,
 }
 
 impl ExclusiveMemoryPool {
@@ -41,21 +43,35 @@ impl ExclusiveMemoryPool {
 
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if successful.
-    fn get_free_page(&mut self) -> Option<&mut MemoryPage> {
+    fn get_free_page(&mut self, size: u64) -> Option<&mut MemoryPage> {
         // Start iteratng from first free page index.
-        self.pages.iter_mut().find(|page| page.slice.is_free())
+        self.pages
+            .iter_mut()
+            .find(|page| page.alloc_size >= size && page.slice.is_free())
     }
 
-    fn alloc_page<Storage: ComputeStorage>(&mut self, storage: &mut Storage) -> &mut MemoryPage {
-        let storage = storage.alloc(self.page_size);
+    fn alloc_page<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> &mut MemoryPage {
+        let alloc_size = ((size as f64 * 1.35).round() as u64)
+            .next_multiple_of(self.alignment)
+            .min(self.page_size);
+        let storage = storage.alloc(alloc_size);
 
         let handle = SliceHandle::new();
         let padding = calculate_padding(self.page_size, self.alignment);
-        let slice = Slice::new(storage.clone(), handle, padding);
+        let mut slice = Slice::new(storage.clone(), handle, padding);
 
-        let slice_id = *slice.handle.id();
-        self.pages.push(MemoryPage { slice, slice_id });
+        // Return a smaller part of the slice. By construction, we only ever
+        // get a page with a big enough size, so this is ok to do.
+        slice.storage.utilization = StorageUtilization { offset: 0, size };
+        slice.padding = padding;
+
+        self.pages.push(MemoryPage { slice, alloc_size });
         let idx = self.pages.len() - 1;
+
         &mut self.pages[idx]
     }
 }
@@ -66,8 +82,8 @@ impl MemoryPool for ExclusiveMemoryPool {
         let binding_id = *binding.id();
         self.pages
             .iter()
-            .find(|p| p.slice_id == binding_id)
-            .map(|p| &p.slice.storage)
+            .find(|page| page.slice.id() == binding_id)
+            .map(|page| &page.slice.storage)
     }
 
     /// Reserves memory of specified size using the reserve algorithm, and return
@@ -77,7 +93,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
 
-        let page = self.get_free_page();
+        let page = self.get_free_page(size);
 
         if let Some(page) = page {
             // Return a smaller part of the slice. By construction, we only ever
@@ -100,12 +116,7 @@ impl MemoryPool for ExclusiveMemoryPool {
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         assert!(size <= self.page_size);
-        let padding = calculate_padding(size, self.alignment);
-        let page = self.alloc_page(storage);
-        // Return a smaller part of the slice. By construction, we only ever
-        // get a page with a big enough size, so this is ok to do.
-        page.slice.storage.utilization = StorageUtilization { offset: 0, size };
-        page.slice.padding = padding;
+        let page = self.alloc_page(storage, size);
         page.slice.handle.clone()
     }
 
@@ -118,8 +129,11 @@ impl MemoryPool for ExclusiveMemoryPool {
 
         MemoryUsage {
             number_allocs: used_slices.len() as u64,
-            bytes_in_use: used_slices.iter().map(|s| s.slice.storage.size()).sum(),
-            bytes_padding: used_slices.iter().map(|s| s.slice.padding).sum(),
+            bytes_in_use: used_slices
+                .iter()
+                .map(|page| page.slice.storage.size())
+                .sum(),
+            bytes_padding: used_slices.iter().map(|page| page.slice.padding).sum(),
             bytes_reserved: self.pages.len() as u64 * self.page_size,
         }
     }
