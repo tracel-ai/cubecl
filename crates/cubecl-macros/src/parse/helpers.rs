@@ -51,8 +51,7 @@ impl Unroll {
             pub value: Expr,
         }
 
-        let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"));
-        let attr = attr?;
+        let attr = attrs.iter().find(|attr| attr.path().is_ident("unroll"))?;
 
         match &attr.meta {
             syn::Meta::Path(_) => None,

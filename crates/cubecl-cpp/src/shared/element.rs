@@ -25,21 +25,36 @@ pub enum Elem<D: Dialect> {
     U32,
     U64,
     Bool,
-    Atomic(AtomicKind),
+    Atomic(AtomicKind<D>),
     _Dialect(std::marker::PhantomData<D>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub enum AtomicKind {
+pub enum AtomicKind<D: Dialect> {
     I32,
+    I64,
     U32,
+    U64,
+    F16,
+    BF16,
+    F32,
+    F64,
+    /// Required to construct the inner `Elem` of the atomic value
+    _Dialect(std::marker::PhantomData<D>),
 }
 
-impl Display for AtomicKind {
+impl<D: Dialect> Display for AtomicKind<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AtomicKind::I32 => f.write_str("int"),
-            AtomicKind::U32 => f.write_str("uint"),
+            Self::I32 => Elem::<D>::I32.fmt(f),
+            Self::I64 => Elem::<D>::I64.fmt(f),
+            Self::U32 => Elem::<D>::U32.fmt(f),
+            Self::U64 => Elem::<D>::U64.fmt(f),
+            Self::F16 => Elem::<D>::F16.fmt(f),
+            Self::BF16 => Elem::<D>::BF16.fmt(f),
+            Self::F32 => Elem::<D>::F32.fmt(f),
+            Self::F64 => Elem::<D>::F64.fmt(f),
+            Self::_Dialect(_) => Ok(()),
         }
     }
 }
@@ -563,7 +578,14 @@ impl<D: Dialect> Elem<D> {
             Elem::U64 => core::mem::size_of::<u64>(),
             Elem::Bool => core::mem::size_of::<bool>(),
             Elem::Atomic(AtomicKind::I32) => core::mem::size_of::<i32>(),
+            Elem::Atomic(AtomicKind::I64) => core::mem::size_of::<i64>(),
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
+            Elem::Atomic(AtomicKind::U64) => core::mem::size_of::<u64>(),
+            Elem::Atomic(AtomicKind::F16) => core::mem::size_of::<f16>(),
+            Elem::Atomic(AtomicKind::BF16) => core::mem::size_of::<bf16>(),
+            Elem::Atomic(AtomicKind::F32) => core::mem::size_of::<f32>(),
+            Elem::Atomic(AtomicKind::F64) => core::mem::size_of::<f64>(),
+            Elem::Atomic(AtomicKind::_Dialect(_)) => 0,
             Elem::_Dialect(_) => 0,
         }
     }

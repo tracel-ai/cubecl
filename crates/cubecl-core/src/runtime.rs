@@ -64,4 +64,15 @@ pub enum Feature {
     },
     CmmaWarpSize(i32),
     Type(Elem),
+    /// Features supported for floating point atomics. For integers, all methods are supported as
+    /// long as the type is.
+    AtomicFloat(AtomicFeature),
+}
+
+// Atomic features that may be supported by a [cube runtime](Runtime).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AtomicFeature {
+    LoadStore,
+    Add,
+    MinMax,
 }
