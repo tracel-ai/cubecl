@@ -2,29 +2,20 @@ use std::collections::HashMap;
 
 use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, UIntKind};
 use float_ord::FloatOrd;
-use petgraph::{
-    algo::dominators::{self, Dominators},
-    graph::NodeIndex,
-    visit::{DfsPostOrder, Walker as _},
-};
+use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
 use crate::{passes::OptimizerPass, AtomicCounter, Optimizer, PhiInstruction};
 
-use super::{convert::value_of_var, BlockSets};
+use super::{convert::value_of_var, GlobalValues};
+
+#[derive(Debug, Clone, Default)]
+pub struct GvnPass;
 
 impl OptimizerPass for GvnPass {
     fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         self.run(opt, &changes);
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct GvnPass {
-    pub values: ValueTable,
-    pub block_sets: HashMap<NodeIndex, BlockSets>,
-    pub dominators: Dominators<NodeIndex>,
-    pub post_doms: Dominators<NodeIndex>,
 }
 
 impl GvnPass {
@@ -36,26 +27,10 @@ impl GvnPass {
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
     ///     expression to `out`
     pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
-        self.build_dominators(opt);
-        self.build_sets(opt);
-        self.insert(opt, changes);
-        self.eliminate(opt, changes);
-    }
+        let analysis = opt.analysis::<GlobalValues>();
 
-    fn build_dominators(&mut self, opt: &mut Optimizer) {
-        let post_order = DfsPostOrder::new(&opt.program.graph, opt.entry())
-            .iter(&opt.program.graph)
-            .collect::<Vec<_>>();
-        for node in opt.node_ids() {
-            if !post_order.contains(&node) {
-                opt.program.remove_node(node);
-            }
-        }
-
-        self.dominators = dominators::simple_fast(&opt.program.graph, opt.entry());
-        let mut rev_graph = opt.program.graph.clone();
-        rev_graph.reverse();
-        self.post_doms = dominators::simple_fast(&rev_graph, opt.ret);
+        analysis.0.borrow_mut().insert(opt, changes);
+        analysis.0.borrow_mut().eliminate(opt, changes);
     }
 }
 

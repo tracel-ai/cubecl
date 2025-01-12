@@ -259,10 +259,4 @@ impl Optimizer {
         visit_read(self, &mut binop.lhs);
         visit_read(self, &mut binop.rhs);
     }
-
-    pub fn write_var(&mut self, var: &mut Variable) {
-        if let Some(id) = self.local_variable_id(var) {
-            self.current_block_mut().writes.insert(id);
-        }
-    }
 }

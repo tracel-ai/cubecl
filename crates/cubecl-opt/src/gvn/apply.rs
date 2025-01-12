@@ -4,14 +4,15 @@ use cubecl_core::ir::{self, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
+    analyses::dominance::Dominators,
     gvn::{convert::value_of_var, phi_translate},
     version::PhiEntry,
     AtomicCounter, Optimizer, PhiInstruction,
 };
 
-use super::GvnPass;
+use super::GvnState;
 
-impl GvnPass {
+impl GvnState {
     /// Find places where an expression is partially but not fully available, and hoist the
     /// computation into the blocks that do not currently have the value available to make the
     /// expression fully redundant
@@ -21,7 +22,7 @@ impl GvnPass {
 
         let mut new_expr = HashMap::new();
 
-        while self.insert_block(opt, self.dominators.root(), &mut new_expr, changes) {
+        while self.insert_block(opt, opt.entry(), &mut new_expr, changes) {
             loops += 1;
         }
         let inserted = changes.get() - changes_pre;
@@ -37,6 +38,7 @@ impl GvnPass {
         changes: &AtomicCounter,
     ) -> bool {
         let mut changed = false;
+        let dominators = opt.analysis::<Dominators>();
 
         let predecessors = opt.predecessors(current);
         if predecessors.len() > 1 {
@@ -81,7 +83,7 @@ impl GvnPass {
                     }
                     let leaders = &mut self.block_sets.get_mut(&pred).unwrap().leaders;
                     if !leaders.contains_key(&val) {
-                        let new_temp = *opt.allocator.create_local_restricted(expr.item());
+                        let new_temp = *opt.allocator.create_local(expr.item());
                         let new_op = ir::Instruction::new(expr.to_operation(leaders), new_temp);
                         opt.program[pred].ops.borrow_mut().push(new_op);
                         leaders.insert(val, value_of_var(&new_temp).unwrap());
@@ -100,7 +102,7 @@ impl GvnPass {
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: *opt.allocator.create_local_restricted(entries[0].value.item),
+                    out: *opt.allocator.create_local(entries[0].value.item),
                     entries,
                 })
                 .collect::<Vec<_>>();
@@ -120,8 +122,7 @@ impl GvnPass {
             opt.program[current].phi_nodes.borrow_mut().extend(new_phis);
         }
 
-        let children = self
-            .dominators
+        let children = dominators
             .immediately_dominated_by(current)
             .collect::<Vec<_>>();
         for child in children {
