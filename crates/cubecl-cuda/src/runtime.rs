@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -100,8 +100,20 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
+    if arch.version >= 60 {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
+    }
+    if arch.version >= 70 {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
+    }
+    if arch.version >= 80 {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+    }
     let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
+
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     let comp_opts = Default::default();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);

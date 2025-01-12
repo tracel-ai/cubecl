@@ -10,6 +10,7 @@ pub use device::*;
 pub use runtime::*;
 
 #[cfg(test)]
+#[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
     pub use half::{bf16, f16};

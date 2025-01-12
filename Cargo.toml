@@ -55,13 +55,13 @@ num-traits = { version = "0.2.19", default-features = false, features = [
     "libm",
 ] } # libm is for no_std
 
+cfg-if = "1.0.0"
 darling = "0.20.10"
 ident_case = "1"
 paste = "1.0.15"
 proc-macro2 = "1.0.86"
 quote = "1.0.36"
 syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
-cfg-if = "1.0.0"
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }
@@ -75,5 +75,5 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 [profile.dev]
+debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0
-debug = 0 # Speed up compilation time and not necessary.

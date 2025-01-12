@@ -6,7 +6,10 @@ use cubecl_cpp::{
     shared::{register_wmma_features, Architecture, CompilationOptions, CppCompiler, WmmaCompiler},
 };
 
-use cubecl_core::{Feature, MemoryConfiguration, Runtime};
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    AtomicFeature, Feature, MemoryConfiguration, Runtime,
+};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -112,6 +115,14 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     );
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
+    // Not sure if there's a good way to check for support on HIP
+    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
+    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
+    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
