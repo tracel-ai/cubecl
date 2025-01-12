@@ -155,7 +155,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
                         // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
                         let dealloc_period =
-                            (1500.0 * (1.0 + s as f64 / (256.0 * MB as f64))).round() as u64;
+                            (1000.0 * (1.0 + s as f64 / (256.0 * MB as f64))).round() as u64;
 
                         MemoryPoolOptions {
                             page_size: s,
