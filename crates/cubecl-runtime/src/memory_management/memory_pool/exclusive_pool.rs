@@ -115,7 +115,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             let handle = page.slice.handle.clone();
 
             // If this is the base allocation, mark page as used.
-            // Otherwise, let it go if noone else needs it.
+            // Otherwise, let it go if no one else needs it.
             self.dealloc_marked.remove(&id);
 
             return Some(handle);
