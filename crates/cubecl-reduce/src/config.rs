@@ -25,7 +25,7 @@ pub(crate) struct ReduceConfig {
 }
 
 impl ReduceConfig {
-    pub(crate) fn generate<R: Runtime>(
+    pub(crate) fn generate<R: Runtime, In: CubePrimitive>(
         client: &ComputeClient<R::Server, R::Channel>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
@@ -35,7 +35,7 @@ impl ReduceConfig {
         let reduce_count = output.size() as u32;
         ReduceConfig::new()
             .generate_line_mode(input, axis)
-            .generate_line_size(input, axis)
+            .generate_line_size::<R, In>(input, output, axis)
             .generate_cube_dim(client, strategy.use_planes)
             .generate_cube_count(reduce_count, strategy)
     }
@@ -61,19 +61,76 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_line_size<R: Runtime>(mut self, input: &TensorHandleRef<R>, axis: usize) -> Self {
-        let supported_line_sizes = R::supported_line_sizes().iter().cloned();
+    fn generate_line_size<R: Runtime, In: CubePrimitive>(
+        mut self,
+        input: &TensorHandleRef<R>,
+        output: &TensorHandleRef<R>,
+        axis: usize,
+    ) -> Self {
+        let elem = In::as_elem_native_unchecked();
+        let supported_line_sizes = R::line_size_elem(&elem);
         self.line_size = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)
                     as u32
             }
-            LineMode::Perpendicular => tensor_line_size_perpendicular(
-                supported_line_sizes,
-                input.shape,
-                input.strides,
-                axis,
-            ) as u32,
+            LineMode::Perpendicular => {
+                // To compute the maximum line size we can used,
+                // we first sort both the input and output axes by increasing strides.
+                // As example, consider
+                //    input shape = [2, 4, 6, 8]
+                //    input stride = [1, 16, 64, 2]
+                //    output shape = [2, 1, 6, 8]
+                //    output stride = [1, 1, 2, 12]
+                //    axis = 1
+                //
+                // then we have
+                //    input sorted axis = [0, 3, 1, 2]
+                //    output sorted axis = [0, 1, 2, 3]
+                //
+                // From that point, we look at all the axes before the target axis in the sorted input.
+                // That is [0, 3] in the example.
+                // In the output, we remove the target axis leading to [0, 2, 3] in the example.
+                //
+                // In order to use perpendicular line, we are limited by the number of entries that are both
+                // contiguous in the input and output. This is obtained by taking the head of each list until they are different.
+                // In the above example, only the 0 axis is contiguous in both tensor, but it output sorted axis were [0, 1, 3, 2] instead,
+                // both the 0 and 3 axes would be contiguous in the two tensors.
+                // The corresponding number of entries is the product of the shape for the contigous axes.
+                // In the example, it is simply 2.
+                //
+                // This gives us an upper bound on the line size we can used.
+                // Then, we use the regular method to find the best line size that match the device capacities.
+
+                let mut input_axis_and_strides =
+                    input.strides.iter().enumerate().collect::<Vec<_>>();
+                input_axis_and_strides.sort_by_key(|(_, stride)| *stride);
+                let input_sorted_axis = input_axis_and_strides
+                    .into_iter()
+                    .map(|(a, _)| a)
+                    .take_while(|a| *a != axis);
+
+                let mut output_axis_and_strides =
+                    output.strides.iter().enumerate().collect::<Vec<_>>();
+                output_axis_and_strides.sort_by_key(|(_, stride)| *stride);
+                let output_sorted_axis = output_axis_and_strides
+                    .into_iter()
+                    .filter_map(|(a, _)| (a != axis).then_some(a));
+
+                let max_line_size = input_sorted_axis
+                    .zip(output_sorted_axis)
+                    .filter_map(|(i, o)| (i == o).then_some(output.shape[i]))
+                    .product();
+
+                tensor_line_size_perpendicular(
+                    supported_line_sizes.filter(|size| {
+                        *size as usize <= max_line_size && max_line_size % *size as usize == 0
+                    }),
+                    input.shape,
+                    input.strides,
+                    axis,
+                ) as u32
+            }
         };
         self
     }

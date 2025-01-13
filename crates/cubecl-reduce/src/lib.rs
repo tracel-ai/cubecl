@@ -96,7 +96,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
-    let config = ReduceConfig::generate(client, &input, &output, axis, &strategy);
+    let config = ReduceConfig::generate::<R, In>(client, &input, &output, axis, &strategy);
     launch_reduce::<R, In, Out, Inst>(client, input, output, axis as u32, config, strategy);
     Ok(())
 }

@@ -43,8 +43,6 @@ impl ReduceRange {
         axis_reduce: u32,
         #[comptime] line_size: u32,
     ) -> ReduceRange {
-        let line_size = line_size.runtime();
-
         let mut start = 0;
         for axis in 0..input.rank() {
             let coordinate = output.coordinate(reduce_index, axis);
@@ -53,7 +51,7 @@ impl ReduceRange {
         start /= line_size;
 
         let end = start + input.shape(axis_reduce) / line_size;
-        let end = select(end < input.len(), end, input.len());
+        let end = select(end < input.buffer_len(), end, input.buffer_len());
 
         ReduceRange {
             start,
@@ -69,8 +67,6 @@ impl ReduceRange {
         axis_reduce: u32,
         #[comptime] line_size: u32,
     ) -> ReduceRange {
-        let line_size = line_size.runtime();
-
         let mut start = 0;
         for axis in 0..input.rank() {
             let coordinate = output.coordinate(reduce_index * line_size, axis);
@@ -81,7 +77,7 @@ impl ReduceRange {
         let step = input.stride(axis_reduce) / line_size;
 
         let end = start + input.shape(axis_reduce) * step;
-        let end = select(end < input.len(), end, input.len());
+        let end = select(end < input.buffer_len(), end, input.buffer_len());
 
         ReduceRange { start, end, step }
     }

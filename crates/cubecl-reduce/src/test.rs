@@ -107,6 +107,36 @@ macro_rules! testgen_reduce {
                     shape: [11, 12, 13],
                     stride: [156, 13, 1],
                     axis: 2,
+                },
+                {
+                    id: "parallel_rank_four_tensor",
+                    shape: [4, 4, 4, 4],
+                    stride: [1, 16, 64, 4],
+                    axis: 0,
+                },
+                {
+                    id: "perpendicular_rank_four_tensor",
+                    shape: [4, 4, 4, 4],
+                    stride: [1, 16, 64, 4],
+                    axis: 1,
+                },
+                {
+                    id: "decreasing_rank_four_tensor",
+                    shape: [4, 4, 4, 4],
+                    stride: [64, 16, 4, 1],
+                    axis: 3,
+                },
+                {
+                    id: "parallel_matrix_with_jumps",
+                    shape: [8, 8],
+                    stride: [64, 1],
+                    axis: 1,
+                },
+                {
+                    id: "perpendicular_matrix_with_jumps",
+                    shape: [8, 8],
+                    stride: [64, 1],
+                    axis: 0,
                 }
             ]
         );
@@ -176,6 +206,7 @@ macro_rules! impl_test_reduce_with_strategy {
                     };
                     test.test_argmax::<$float, TestRuntime>(&Default::default());
                 }
+
 
                 #[test]
                 pub fn [< argmin_plane_ $use_planes _shared_ $shared _ $id >]() {
@@ -247,11 +278,12 @@ impl TestCase {
     fn cpu_argmax<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::min_value(), 0_u32); self.num_output_values()];
         for (input_index, &value) in values.iter().enumerate() {
-            let output_index = self.to_output_index(input_index);
-            let (best, _) = expected[output_index];
-            if value > best {
-                let coordinate = self.to_input_coordinate(input_index);
-                expected[output_index] = (value, coordinate[self.axis] as u32);
+            if let Some(output_index) = self.to_output_index(input_index) {
+                let (best, _) = expected[output_index];
+                if value > best {
+                    let coordinate = self.to_input_coordinate(input_index).unwrap();
+                    expected[output_index] = (value, coordinate[self.axis] as u32);
+                }
             }
         }
         expected.into_iter().map(|(_, i)| i).collect()
@@ -270,11 +302,12 @@ impl TestCase {
     fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
         let mut expected = vec![(F::max_value(), 0_u32); self.num_output_values()];
         for (input_index, &value) in values.iter().enumerate() {
-            let output_index = self.to_output_index(input_index);
-            let (best, _) = expected[output_index];
-            if value < best {
-                let coordinate = self.to_input_coordinate(input_index);
-                expected[output_index] = (value, coordinate[self.axis] as u32);
+            if let Some(output_index) = self.to_output_index(input_index) {
+                let (best, _) = expected[output_index];
+                if value < best {
+                    let coordinate = self.to_input_coordinate(input_index).unwrap();
+                    expected[output_index] = (value, coordinate[self.axis] as u32);
+                }
             }
         }
         expected.into_iter().map(|(_, i)| i).collect()
@@ -311,8 +344,9 @@ impl TestCase {
         let mut expected = vec![F::new(1.0); self.num_output_values()];
 
         for (input_index, value) in values.iter().enumerate() {
-            let output_index = self.to_output_index(input_index);
-            expected[output_index] *= *value;
+            if let Some(output_index) = self.to_output_index(input_index) {
+                expected[output_index] *= *value;
+            }
         }
         expected
     }
@@ -331,8 +365,9 @@ impl TestCase {
         let mut expected = vec![F::new(0.0); self.num_output_values()];
 
         for (input_index, value) in values.iter().enumerate() {
-            let output_index = self.to_output_index(input_index);
-            expected[output_index] += *value;
+            if let Some(output_index) = self.to_output_index(input_index) {
+                expected[output_index] += *value;
+            }
         }
         expected
     }
@@ -353,7 +388,7 @@ impl TestCase {
         let input_handle = client.create(I::as_bytes(&input_values));
 
         // Zero initialize a tensor with the same shape as input
-        // except for the `self.axis_red` axis where the shape is 1.
+        // except for the `self.axis` axis where the shape is 1.
         let output_handle =
             client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
         let mut output_shape = self.shape.clone();
@@ -395,18 +430,30 @@ impl TestCase {
         self.shape.iter().product::<usize>() / self.shape[self.axis]
     }
 
-    fn to_output_index(&self, input_index: usize) -> usize {
-        let mut coordinate = self.to_input_coordinate(input_index);
+    fn to_output_index(&self, input_index: usize) -> Option<usize> {
+        let mut coordinate = self.to_input_coordinate(input_index)?;
         coordinate[self.axis] = 0;
-        self.from_output_coordinate(coordinate)
+        Some(self.from_output_coordinate(coordinate))
     }
 
-    fn to_input_coordinate(&self, index: usize) -> Vec<usize> {
-        self.stride
+    fn to_input_coordinate(&self, index: usize) -> Option<Vec<usize>> {
+        let coordinate = self
+            .stride
             .iter()
             .zip(self.shape.iter())
             .map(|(stride, shape)| (index / stride) % shape)
-            .collect()
+            .collect::<Vec<usize>>();
+        self.validate_input_index(index, &coordinate)
+            .then_some(coordinate)
+    }
+
+    fn validate_input_index(&self, index: usize, coordinate: &[usize]) -> bool {
+        coordinate
+            .iter()
+            .zip(self.stride.iter())
+            .map(|(c, s)| c * s)
+            .sum::<usize>()
+            == index
     }
 
     #[allow(clippy::wrong_self_convention)]
@@ -419,20 +466,23 @@ impl TestCase {
     }
 
     fn output_stride(&self) -> Vec<usize> {
-        let stride = self.stride[self.axis];
-        let shape = self.shape[self.axis];
-        self.stride
+        self.shape
             .iter()
-            .map(|s| match s.cmp(&stride) {
-                std::cmp::Ordering::Equal => 1,
-                std::cmp::Ordering::Greater => s / shape,
-                std::cmp::Ordering::Less => *s,
+            .enumerate()
+            .scan(1, |stride, (axis, shape)| {
+                if axis == self.axis {
+                    Some(1)
+                } else {
+                    let current = Some(*stride);
+                    *stride *= shape;
+                    current
+                }
             })
             .collect()
     }
 
     fn random_input_values<F: Float>(&self) -> Vec<F> {
-        let size = self.shape.iter().product::<usize>();
+        let size = self.input_size();
         let rng = StdRng::seed_from_u64(self.pseudo_random_seed());
         let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION);
         let factor = 1.0 / (PRECISION as f32);
@@ -441,6 +491,16 @@ impl TestCase {
             .take(size)
             .map(|r| F::new(r as f32 * factor))
             .collect()
+    }
+
+    fn input_size(&self) -> usize {
+        let (stride, shape) = self
+            .stride
+            .iter()
+            .zip(self.shape.iter())
+            .max_by_key(|(stride, _)| *stride)
+            .unwrap();
+        stride * shape
     }
 
     // We don't need a fancy crypto-secure seed as this is only for testing.
