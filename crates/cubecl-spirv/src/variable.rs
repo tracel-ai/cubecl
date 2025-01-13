@@ -443,6 +443,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::CoopMatrix(id, elem)
                 }
             }
+            core::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
         }
     }
 

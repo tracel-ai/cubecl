@@ -1,6 +1,9 @@
-use std::fmt::Display;
+use std::fmt::{write, Display};
 
-use super::{Branch, CoopMma, Item, NonSemantic, Plane, Scope, Select, Synchronization, Variable};
+use super::{
+    Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Scope, Select, Synchronization,
+    Variable,
+};
 use crate::{
     cpa,
     ir::{Elem, UIntKind},
@@ -26,6 +29,7 @@ pub enum Operation {
     Synchronization(Synchronization),
     Plane(Plane),
     CoopMma(CoopMma),
+    Pipeline(PipelineOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     NonSemantic(NonSemantic),
 }
@@ -71,6 +75,7 @@ impl Operation {
             Operation::Plane(_) => false,
             Operation::CoopMma(_) => false,
             Operation::NonSemantic(_) => false,
+            Operation::Pipeline(_) => false,
         }
     }
 }
@@ -130,6 +135,7 @@ impl Display for Operation {
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
+            Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
         }
     }
 }

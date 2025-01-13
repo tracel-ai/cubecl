@@ -45,6 +45,7 @@ impl Optimizer {
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
+            Operation::Pipeline(pipeline_ops) => todo!(),
         }
     }
 

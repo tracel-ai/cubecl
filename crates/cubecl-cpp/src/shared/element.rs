@@ -165,6 +165,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
+            Variable::Pipeline { id, item } => *item,
         }
     }
 
@@ -209,6 +210,7 @@ pub enum Variable<D: Dialect> {
     GridDimY,
     GridDimZ,
     WmmaFragment { id: Id, frag: Fragment<D> },
+    Pipeline { id: Id, item: Item<D> },
     Tmp { id: Id, item: Item<D> },
 }
 
@@ -293,7 +295,8 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "frag_{name}_{index}")
             }
             Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
-            Self::Tmp { id, .. } => write!(f, "_tmp_{id}"),
+            Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
+            Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
         }
     }
 }
@@ -422,6 +425,7 @@ impl<D: Dialect> Variable<D> {
             Variable::BlockDimGlobal => true,
             Variable::GridDimGlobal => true,
             Variable::Tmp { .. } => false,
+            Variable::Pipeline { .. } => false,
         }
     }
 
@@ -438,6 +442,24 @@ impl<D: Dialect> Variable<D> {
             " const"
         } else {
             ""
+        }
+    }
+
+    pub fn id(&self) -> Option<Id> {
+        match self {
+            Variable::GlobalInputArray(id, ..) => Some(*id),
+            Variable::GlobalOutputArray(id, ..) => Some(*id),
+            Variable::GlobalScalar(id, ..) => Some(*id),
+            Variable::ConstantArray(id, ..) => Some(*id),
+            Variable::LocalMut { id, .. } => Some(*id),
+            Variable::LocalConst { id, .. } => Some(*id),
+            Variable::Slice { id, .. } => Some(*id),
+            Variable::SharedMemory(id, ..) => Some(*id),
+            Variable::LocalArray(id, ..) => Some(*id),
+            Variable::WmmaFragment { id, .. } => Some(*id),
+            Variable::Pipeline { id, .. } => Some(*id),
+            Variable::Tmp { id, .. } => Some(*id),
+            _ => None,
         }
     }
 }

@@ -8,6 +8,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{DeviceProperties, ExecutionMode};
 
+use super::pipeline::PipelineOps;
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
     FragmentIdent, FragmentLayout, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction,
@@ -50,11 +51,13 @@ impl Default for CompilationOptions {
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<SharedMemory<D>>,
+    pipelines: Vec<PipelineOps<D>>,
     const_arrays: Vec<ConstArray<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     warp_size_checked: bool,
     wmma: bool,
+    pipeline: bool,
     bf16: bool,
     f16: bool,
     printf: bool,
@@ -119,6 +122,7 @@ impl<D: Dialect> CppCompiler<D> {
         let body = Body {
             instructions,
             shared_memories: self.shared_memories,
+            pipelines: self.pipelines,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
             warp_size_checked: self.warp_size_checked,
@@ -132,6 +136,7 @@ impl<D: Dialect> CppCompiler<D> {
             cube_dim: value.cube_dim,
             body,
             wmma_activated: self.wmma,
+            pipeline: self.pipeline,
             bf16: self.bf16,
             f16: self.f16,
             items: self.items,
@@ -299,6 +304,21 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 gpu::NonSemantic::Comment { content } => {
                     instructions.push(Instruction::Comment { content })
+                }
+            },
+            gpu::Operation::Pipeline(pipeline_ops) => match pipeline_ops {
+                gpu::PipelineOps::MemCopyAsync {
+                    pipeline,
+                    source,
+                    destination,
+                } => {
+                    instructions.push(Instruction::Pipeline(
+                        super::pipeline::PipelineOps::MemCopyAsync {
+                            pipeline: self.compile_variable(pipeline),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(destination),
+                        },
+                    ));
                 }
             },
         }
@@ -910,6 +930,17 @@ impl<D: Dialect> CppCompiler<D> {
                     id,
                     frag: self.compile_matrix(mat),
                 }
+            }
+            gpu::VariableKind::Pipeline { id, item } => {
+                self.pipeline = true;
+                let pipeline = Variable::Pipeline {
+                    id,
+                    item: self.compile_item(item),
+                };
+                if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
+                    self.pipelines.push(PipelineOps::Init { pipeline });
+                }
+                pipeline
             }
         }
     }
