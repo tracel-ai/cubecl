@@ -3,7 +3,7 @@ use crate::{
         memory_pool::{SliceBinding, SliceHandle},
         MemoryHandle, MemoryUsage,
     },
-    storage::{BindingResource, ComputeStorage, StorageHandle},
+    storage::{BindingResource, ComputeStorage},
     ExecutionMode,
 };
 use alloc::vec::Vec;
@@ -127,20 +127,6 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
-}
-
-impl Binding {
-    /// Create a storage handle with offsets adjusted for this binding.
-    pub fn adjust_storage_handle(&self, handle: StorageHandle) -> StorageHandle {
-        let handle = match self.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        match self.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        }
-    }
 }
 
 impl Handle {

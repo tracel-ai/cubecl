@@ -1,14 +1,32 @@
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use cubecl_core::MemoryConfiguration;
+use std::{future::Future, num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource};
-use cubecl_runtime::{memory_management::MemoryLock, TimestampsError, TimestampsResult};
-use wgpu::ComputePipeline;
+use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource, WgpuStorage};
+use cubecl_runtime::{
+    memory_management::{
+        self, MemoryDeviceProperties, MemoryHandle, MemoryManagement, MemoryPoolOptions,
+        SliceBinding, SliceHandle,
+    },
+    TimestampsError, TimestampsResult,
+};
+use wgpu::{util::StagingBelt, BufferDescriptor, BufferUsages, ComputePipeline};
+
+const MAX_UNIFORM_BUFFER_SIZE: u64 = 8192;
 
 #[derive(Debug)]
 pub struct WgpuStream {
-    pass: Option<wgpu::ComputePass<'static>>,
+    memory_management: MemoryManagement<WgpuStorage>,
+    memory_management_uniforms: MemoryManagement<WgpuStorage>,
+    locked_copy_handles: Vec<SliceBinding>,
+
     encoder: wgpu::CommandEncoder,
+    copy_encoder: wgpu::CommandEncoder,
+
+    staging_belt: StagingBelt,
+
+    compute_pass: Option<wgpu::ComputePass<'static>>,
+
     pub timestamps: KernelTimestamps,
     tasks_count: usize,
     tasks_max: usize,
@@ -28,11 +46,12 @@ impl WgpuStream {
     pub fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
+        memory_properties: MemoryDeviceProperties,
+        memory_config: MemoryConfiguration,
         timestamps: KernelTimestamps,
         tasks_max: usize,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
-        let encoder = create_encoder(&device);
 
         #[cfg(target_family = "wasm")]
         let sync_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
@@ -47,11 +66,46 @@ impl WgpuStream {
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
+        let memory_management_uniforms = MemoryManagement::new(
+            WgpuStorage::new(
+                device.clone(),
+                BufferUsages::STORAGE
+                    | BufferUsages::COPY_SRC
+                    | BufferUsages::COPY_DST
+                    | BufferUsages::INDIRECT
+                    | BufferUsages::UNIFORM,
+            ),
+            vec![MemoryPoolOptions {
+                pool_type: memory_management::PoolType::ExclusivePages,
+                page_size: 8192,
+                chunk_num_prealloc: 32,
+                dealloc_period: Some(1000),
+            }],
+            memory_properties.alignment,
+        );
+
+        let memory_management = MemoryManagement::from_configuration(
+            WgpuStorage::new(
+                device.clone(),
+                BufferUsages::STORAGE
+                    | BufferUsages::COPY_SRC
+                    | BufferUsages::COPY_DST
+                    | BufferUsages::INDIRECT,
+            ),
+            memory_properties,
+            memory_config,
+        );
+
         Self {
-            pass: None,
+            memory_management,
+            memory_management_uniforms,
+            locked_copy_handles: Vec::new(),
+            compute_pass: None,
             timestamps,
+            staging_belt: StagingBelt::new(MAX_UNIFORM_BUFFER_SIZE),
+            encoder: create_encoder(&device),
+            copy_encoder: create_encoder(&device),
             device,
-            encoder,
             queue,
             tasks_count: 0,
             tasks_max,
@@ -66,12 +120,11 @@ impl WgpuStream {
         pipeline: Arc<ComputePipeline>,
         resources: Vec<WgpuResource>,
         dispatch: PipelineDispatch,
-        memory_lock: &MemoryLock,
-    ) -> bool {
+    ) {
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.pass.get_or_insert_with(|| {
+        let pass = self.compute_pass.get_or_insert_with(|| {
             // Write out timestamps. The first compute pass writes both a start and end timestamp.
             // the second timestamp writes out only an end stamp.
             let timestamps =
@@ -128,19 +181,14 @@ impl WgpuStream {
             }
         }
 
-        if self.tasks_count >= self.tasks_max || memory_lock.has_reached_threshold() {
-            self.flush();
-            true
-        } else {
-            false
-        }
+        self.flush_if_needed();
     }
 
     pub fn read_buffers(
         &mut self,
         buffers: Vec<(Arc<wgpu::Buffer>, u64, u64)>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        self.pass = None;
+        self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(buffers.len());
         let mut callbacks = Vec::with_capacity(buffers.len());
 
@@ -215,14 +263,13 @@ impl WgpuStream {
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
         let fut = self.read_buffers(vec![(buffer, offset, size)]);
-
         async move { fut.await.remove(0) }
     }
 
     pub fn sync_elapsed(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
-        self.pass = None;
+        self.compute_pass = None;
 
         enum TimestampMethod {
             Buffer(wgpu::Buffer, u64),
@@ -330,19 +377,148 @@ impl WgpuStream {
         }
     }
 
+    pub fn get_resource(
+        &mut self,
+        binding: SliceBinding,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
+    ) -> WgpuResource {
+        if let Some(res) =
+            self.memory_management
+                .get_resource(binding.clone(), offset_start, offset_end)
+        {
+            res
+        } else if let Some(res) =
+            self.memory_management_uniforms
+                .get_resource(binding.clone(), offset_start, offset_end)
+        {
+            // This resource now might be used for computations, so we _cannot_ use it anymore for create() calls.
+            // This keeps the binding alive which means create() won't try to use it.
+            self.locked_copy_handles.push(binding);
+            res
+        } else {
+            panic!("Failed to find resource");
+        }
+    }
+
+    pub fn empty(&mut self, size: u64) -> SliceHandle {
+        self.memory_management.reserve(size)
+    }
+
+    pub fn create(&mut self, data: &[u8]) -> SliceHandle {
+        let num_bytes = data.len() as u64;
+
+        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+        // memory is 32 bytes aligned (see WgpuStorage).
+        let align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let aligned_len = num_bytes.div_ceil(align) * align;
+
+        // We'd like to keep operations as one long ComputePass. To do so, this tries to submit
+        // all copy operations & all execute operations in one batch. To do so, we do all copy operations
+        // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
+        // a buffer we copy to MUST not have any outstanding compute work associated with it.
+        // - For small uniform buffers, any small handles with compute work are kept
+        //   in self.locked_copy_handles which means the allocation won't try to use them.
+        // - For bigger buffers, we do break the compute stream.
+
+        let allocator = if aligned_len < MAX_UNIFORM_BUFFER_SIZE {
+            &mut self.memory_management_uniforms
+        } else {
+            &mut self.memory_management
+        };
+
+        let slice = allocator.reserve(aligned_len);
+        let resource = allocator
+            .get_resource(slice.clone().binding(), None, None)
+            .unwrap();
+
+        if let Some(size) = NonZeroU64::new(aligned_len) {
+            // Small buffers are 'locked' if they are used for compute, so we know we can
+            // safely write these with the initial copy_encoder.
+            if aligned_len < MAX_UNIFORM_BUFFER_SIZE {
+                let mut staging = self.staging_belt.write_buffer(
+                    &mut self.copy_encoder,
+                    &resource.buffer,
+                    resource.offset(),
+                    size,
+                    &self.device,
+                );
+                staging[0..data.len()].copy_from_slice(data);
+            } else {
+                // For bigger buffers, end the compute pass as we need to submit a copy operation
+                // inline with the current encoder.
+                //
+                // Note: It is possible to use the staging belt here, but, that would
+                // allocate staging buffers in the staging belt which stick around forever.
+                self.compute_pass = None;
+
+                let staging = self.device.create_buffer(&BufferDescriptor {
+                    label: Some("(wgpu internal) StagingBelt staging buffer"),
+                    size: aligned_len,
+                    usage: BufferUsages::MAP_WRITE | BufferUsages::COPY_SRC,
+                    mapped_at_creation: true,
+                });
+                staging
+                    .slice(0..data.len() as u64)
+                    .get_mapped_range_mut()
+                    .copy_from_slice(data);
+                staging.unmap();
+
+                self.encoder.copy_buffer_to_buffer(
+                    &staging,
+                    0,
+                    &resource.buffer,
+                    resource.offset(),
+                    aligned_len,
+                );
+            };
+        }
+
+        self.flush_if_needed();
+
+        slice
+    }
+
+    pub fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+        self.memory_management
+            .memory_usage()
+            .combine(self.memory_management_uniforms.memory_usage())
+    }
+
+    fn flush_if_needed(&mut self) {
+        // For now we only consider the number of handles locked, but we may consider the amount in
+        // bytes at some point.
+        if self.tasks_count >= self.tasks_max || self.locked_copy_handles.len() >= 32 {
+            self.flush();
+        }
+    }
+
     pub fn flush(&mut self) {
         // End the current compute pass.
-        self.pass = None;
+        self.compute_pass = None;
 
-        let new_encoder = create_encoder(&self.device);
-        let encoder = std::mem::replace(&mut self.encoder, new_encoder);
+        self.staging_belt.finish();
+        let copy_encoder = std::mem::replace(&mut self.copy_encoder, create_encoder(&self.device));
+        let encoder = std::mem::replace(&mut self.encoder, create_encoder(&self.device));
 
-        let index = self.queue.submit([encoder.finish()]);
+        let index = self.queue.submit([copy_encoder.finish(), encoder.finish()]);
+
+        self.staging_belt.recall();
 
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
         self.tasks_count = 0;
+        self.locked_copy_handles.clear();
+
+        // Cleanup allocations and deallocations.
+        self.memory_management.cleanup();
+        self.memory_management.storage().perform_deallocations();
+
+        self.memory_management_uniforms.cleanup();
+        self.memory_management_uniforms
+            .storage()
+            .perform_deallocations();
     }
 }
 

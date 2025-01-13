@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, num::NonZero, time::Duration};
+use std::{future::Future, marker::PhantomData, time::Duration};
 
 use super::{
     stream::{PipelineDispatch, WgpuStream},
@@ -16,29 +16,20 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
-    memory_management::{
-        self, MemoryDeviceProperties, MemoryHandle, MemoryManagement, MemoryPoolOptions,
-    },
+    memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
-    storage::{BindingResource, ComputeStorage},
+    storage::BindingResource,
     ExecutionMode, TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
-use wgpu::{BufferUsages, ComputePipeline};
-
-const MAX_UNIFORM_BUFFER_SIZE: u64 = 8192;
+use wgpu::ComputePipeline;
 
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer<C: WgpuCompiler> {
-    memory_management: MemoryManagement<WgpuStorage>,
-    memory_management_uniforms: MemoryManagement<WgpuStorage>,
-
     pub(crate) device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     logger: DebugLogger,
-    locked_copy_handles: Vec<Binding>,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
     pub compilation_options: C::CompilationOptions,
@@ -62,45 +53,18 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timestamps.enable(&device);
         }
 
-        let stream = WgpuStream::new(device.clone(), queue.clone(), timestamps, tasks_max);
-
-        let memory_management_uniforms = MemoryManagement::new(
-            WgpuStorage::new(
-                device.clone(),
-                BufferUsages::STORAGE
-                    | BufferUsages::COPY_SRC
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::UNIFORM,
-            ),
-            vec![MemoryPoolOptions {
-                pool_type: memory_management::PoolType::ExclusivePages,
-                page_size: 8192,
-                chunk_num_prealloc: 32,
-                dealloc_period: Some(1000),
-            }],
-            memory_properties.alignment,
-        );
-
-        let memory_management = MemoryManagement::from_configuration(
-            WgpuStorage::new(
-                device.clone(),
-                BufferUsages::STORAGE
-                    | BufferUsages::COPY_SRC
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::INDIRECT,
-            ),
+        let stream = WgpuStream::new(
+            device.clone(),
+            queue.clone(),
             memory_properties,
             memory_config,
+            timestamps,
+            tasks_max,
         );
 
         Self {
-            memory_management,
-            memory_management_uniforms,
-            locked_copy_handles: Vec::new(),
             compilation_options,
             device: device.clone(),
-            queue: queue.clone(),
             pipelines: HashMap::new(),
             logger,
             duration_profiled: None,
@@ -134,14 +98,6 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         pipeline
     }
-
-    fn on_flushed(&mut self) {
-        self.locked_copy_handles.clear();
-
-        // Cleanup allocations and deallocations.
-        self.memory_management.cleanup();
-        self.memory_management.storage().perform_deallocations();
-    }
 }
 
 impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
@@ -164,24 +120,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .collect();
 
         // Clear compute pass.
-        let fut = self.stream.read_buffers(resources);
-        self.on_flushed();
-
-        fut
+        self.stream.read_buffers(resources)
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
-        let resource = if let Some(handle) = self.memory_management.get(binding.memory.clone()) {
-            let handle = binding.adjust_storage_handle(handle);
-            self.memory_management.storage().get(&handle)
-        } else if let Some(handle) = self.memory_management_uniforms.get(binding.memory.clone()) {
-            self.locked_copy_handles.push(binding.clone());
-            let handle = binding.adjust_storage_handle(handle);
-            self.memory_management_uniforms.storage().get(&handle)
-        } else {
-            panic!("Failed to find resource");
-        };
-
+        let resource = self.stream.get_resource(
+            binding.clone().memory,
+            binding.offset_start,
+            binding.offset_end,
+        );
         BindingResource::new(binding, resource)
     }
 
@@ -191,61 +138,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        let num_bytes = data.len() as u64;
-
-        // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let align = wgpu::COPY_BUFFER_ALIGNMENT;
-        let aligned_len = num_bytes.div_ceil(align) * align;
-
-        // Handle small uniform buffers.
-        let (memory, resource) = if aligned_len < MAX_UNIFORM_BUFFER_SIZE {
-            // Reserve memory from the small uniforms storage. This is specially taken care
-            // off so that we know no outstanding compute work is set on it, and we
-            // can safely use write_buffer_with.
-            let memory = self.memory_management_uniforms.reserve(aligned_len);
-            let handle = self
-                .memory_management_uniforms
-                .get(memory.clone().binding())
-                .unwrap();
-            let resource = self.memory_management_uniforms.storage().get(&handle);
-            (memory, resource)
-        } else {
-            // Reserve some memory for this buffer. First flush to make sure there is no outstanding work
-            // which could accidently happen after write_buffer_with.
-            self.stream.flush();
-            let memory = self.memory_management.reserve(aligned_len);
-            let handle = self
-                .memory_management
-                .get(memory.clone().binding())
-                .unwrap();
-            let resource = self.memory_management.storage().get(&handle);
-            (memory, resource)
-        };
-
-        if let Some(len) = NonZero::new(aligned_len) {
-            // Write to the staging buffer. Next queue submission this will copy the data to the GPU.
-            self.queue
-                .write_buffer_with(&resource.buffer, resource.offset(), len)
-                .expect("Failed to write to staging buffer.")[0..data.len()]
-                .copy_from_slice(data);
-
-            // If too many handles are locked, we flush.
-            if self.storage_locked.has_reached_threshold() {
-                self.flush();
-            }
-        }
-
-        Handle::new(memory, None, None, aligned_len)
+        Handle::new(self.stream.create(data), None, None, data.len() as u64)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        server::Handle::new(
-            self.memory_management.reserve(size as u64),
-            None,
-            None,
-            size as u64,
-        )
+        Handle::new(self.stream.empty(size as u64), None, None, size as u64)
     }
 
     unsafe fn execute(
@@ -293,12 +190,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
         };
 
-        if self
-            .stream
-            .register(pipeline, resources, dispatch, &self.storage_locked)
-        {
-            self.on_flushed();
-        }
+        self.stream.register(pipeline, resources, dispatch);
 
         // If profiling, write out results.
         if let Some(level) = profile_level {
@@ -332,16 +224,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     fn flush(&mut self) {
         // End the current compute pass.
         self.stream.flush();
-        self.on_flushed();
     }
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> impl Future<Output = ()> + 'static {
         self.logger.profile_summary();
-        let fut = self.stream.sync();
-        self.on_flushed();
-
-        fut
+        self.stream.sync()
     }
 
     /// Returns the total time of GPU work this sync completes.
@@ -349,7 +237,6 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.logger.profile_summary();
 
         let fut = self.stream.sync_elapsed();
-        self.on_flushed();
 
         let profiled = self.duration_profiled;
         self.duration_profiled = None;
@@ -373,7 +260,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.memory_management.memory_usage()
+        self.stream.memory_usage()
     }
 
     fn enable_timestamps(&mut self) {

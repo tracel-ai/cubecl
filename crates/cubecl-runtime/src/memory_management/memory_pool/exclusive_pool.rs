@@ -1,12 +1,12 @@
-use core::usize::MAX;
-
-use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
 use crate::{
     memory_management::MemoryUsage,
     storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
 };
+
 use alloc::vec::Vec;
 use hashbrown::HashSet;
+
+use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///
