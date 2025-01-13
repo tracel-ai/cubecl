@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
 use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource};
-use cubecl_runtime::{TimestampsError, TimestampsResult};
+use cubecl_runtime::{memory_management::MemoryLock, TimestampsError, TimestampsResult};
 use wgpu::ComputePipeline;
 
 #[derive(Debug)]
@@ -66,6 +66,7 @@ impl WgpuStream {
         pipeline: Arc<ComputePipeline>,
         resources: Vec<WgpuResource>,
         dispatch: PipelineDispatch,
+        memory_lock: &MemoryLock,
     ) -> bool {
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
@@ -127,7 +128,7 @@ impl WgpuStream {
             }
         }
 
-        if self.tasks_count >= self.tasks_max {
+        if self.tasks_count >= self.tasks_max || memory_lock.has_reached_threshold() {
             self.flush();
             true
         } else {
