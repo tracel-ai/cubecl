@@ -66,7 +66,7 @@ impl WgpuStream {
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
-        let memory_management_uniforms = MemoryManagement::new(
+        let memory_management_uniforms = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
                 BufferUsages::STORAGE
@@ -75,13 +75,16 @@ impl WgpuStream {
                     | BufferUsages::INDIRECT
                     | BufferUsages::UNIFORM,
             ),
-            vec![MemoryPoolOptions {
-                pool_type: memory_management::PoolType::ExclusivePages,
-                page_size: 8192,
-                chunk_num_prealloc: 32,
-                dealloc_period: Some(1000),
-            }],
-            memory_properties.alignment,
+            &memory_properties,
+            MemoryConfiguration::Custom {
+                neighbour_candidates: 1,
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: memory_management::PoolType::ExclusivePages,
+                    page_size: 8192,
+                    chunk_num_prealloc: 32,
+                    dealloc_period: Some(1000),
+                }],
+            },
         );
 
         let memory_management = MemoryManagement::from_configuration(
@@ -92,7 +95,7 @@ impl WgpuStream {
                     | BufferUsages::COPY_DST
                     | BufferUsages::INDIRECT,
             ),
-            memory_properties,
+            &memory_properties,
             memory_config,
         );
 

@@ -15,7 +15,7 @@ fn main() {
         max_page_size: 2048 * MB,
         alignment: 32,
     };
-    let mut mm = MemoryManagement::from_configuration(storage, mem_props, config);
+    let mut mm = MemoryManagement::from_configuration(storage, &mem_props, config);
     let mut handles = LinkedList::new();
     for _ in 0..100 * 2048 {
         if handles.len() >= 4000 {

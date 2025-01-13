@@ -27,6 +27,13 @@ struct MemoryPage {
     alloc_size: u64,
 }
 
+// How much more to allocate (at most) than the requested allocation. This helps memory re-use, as a larger
+// future allocation might b able to re-use the previous allocation.
+//
+// The default is the golden-ratio. The science behind it is that it feels cooler than a random number,
+// and seems to work well.
+const OVER_ALLOC: f64 = 1.618;
+
 impl ExclusiveMemoryPool {
     pub(crate) fn new(page_size: u64, alignment: u64, dealloc_period: u64) -> Self {
         // Pages should be allocated to be aligned.
@@ -44,7 +51,10 @@ impl ExclusiveMemoryPool {
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if successful.
     fn get_free_page(&mut self, size: u64) -> Option<&mut MemoryPage> {
-        // Start iteratng from first free page index.
+        // Return the first free page.
+        //
+        // Alteratively, could return the smallest fitting free page, but that doesn't
+        // seem to help.
         self.pages
             .iter_mut()
             .find(|page| page.alloc_size >= size && page.slice.is_free())
@@ -55,14 +65,14 @@ impl ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> &mut MemoryPage {
-        let alloc_size = ((size as f64 * 1.35).round() as u64)
+        let alloc_size = ((size as f64 * OVER_ALLOC).round() as u64)
             .next_multiple_of(self.alignment)
             .min(self.page_size);
         let storage = storage.alloc(alloc_size);
 
         let handle = SliceHandle::new();
-        let padding = calculate_padding(self.page_size, self.alignment);
-        let mut slice = Slice::new(storage.clone(), handle, padding);
+        let padding = calculate_padding(size, self.alignment);
+        let mut slice = Slice::new(storage, handle, padding);
 
         // Return a smaller part of the slice. By construction, we only ever
         // get a page with a big enough size, so this is ok to do.

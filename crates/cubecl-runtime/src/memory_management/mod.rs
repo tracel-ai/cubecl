@@ -45,14 +45,19 @@ pub struct MemoryPoolOptions {
 /// High level configuration of memory management.
 #[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
-    /// The default preset using sub sices.
+    /// The default preset, which uses pools that allocate sub slices.
     #[cfg(not(exclusive_memory_only))]
     SubSlices,
-    /// Default preset using only exclusive pages.
-    /// This can be necessary when backends don't support sub-slices.
+    /// Default preset for using exclusive pages.
+    /// This can be necessary for backends don't support sub-slices.
     ExclusivePages,
-    /// Customize each pool individually.
-    Custom(Vec<MemoryPoolOptions>),
+    /// Custom settings.
+    Custom {
+        /// How many pools to consider when looking for free memory.
+        neighbour_candidates: usize,
+        /// Options for each pool to construct.
+        pool_options: Vec<MemoryPoolOptions>,
+    },
 }
 
 #[allow(clippy::derivable_impls)]
