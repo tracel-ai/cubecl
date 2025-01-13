@@ -232,11 +232,9 @@ impl ComputeServer for HipServer {
         let resources = bindings
             .into_iter()
             .map(|binding| {
-                ctx.memory_management.get_resource(
-                    binding.memory,
-                    binding.offset_start,
-                    binding.offset_end,
-                )
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Couldn't find resource")
             })
             .collect::<Vec<_>>();
 
