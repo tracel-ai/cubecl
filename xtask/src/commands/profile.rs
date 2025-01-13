@@ -16,9 +16,9 @@ pub(crate) enum ProfileSubCommand {
 pub(crate) struct BenchOptionsArgs {
     #[arg(long)]
     pub bench: String,
-    #[arg(long, default_value = "/usr/local/cuda/bin/ncu")]
+    #[arg(long, default_value = "ncu")]
     pub ncu_path: String,
-    #[arg(long, default_value = "/usr/local/cuda/bin/ncu-ui")]
+    #[arg(long, default_value = "ncu-ui")]
     pub ncu_ui_path: String,
 }
 
@@ -84,8 +84,8 @@ impl Profile {
             &[
                 "BENCH_NUM_SAMPLES=1",
                 &options.ncu_path,
-                "--config-file",
-                "off",
+                // "--config-file",
+                // "off",
                 "--nvtx",
                 "--set=full",
                 "--call-stack",
