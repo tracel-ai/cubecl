@@ -87,14 +87,17 @@ pub struct ComputeShader {
     pub body: Body,
     pub extensions: Vec<Extension>,
     pub kernel_name: String,
+    pub subgroup_instructions_used: bool,
 }
 
 impl Display for ComputeShader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // On wasm, writeout what extensions we're using. This is standard wgsl but not yet
         // supported by wgpu.
-        #[cfg(target_family = "wasm")]
-        f.write_str("enable subgroups;")?;
+        if self.subgroup_instructions_used {
+            #[cfg(target_family = "wasm")]
+            f.write_str("enable subgroups;")?;
+        }
 
         Self::format_bindings(f, "input", &self.inputs, 0)?;
         Self::format_bindings(f, "output", &self.outputs, self.inputs.len())?;
