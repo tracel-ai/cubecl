@@ -12,7 +12,7 @@ version.workspace = true
 
 [features]
 channel-cell = []
-channel-mpsc = ["dep:async-channel"] # Assume std
+channel-mpsc = []
 channel-mutex = []
 default = [
     "std",
@@ -27,7 +27,7 @@ std = ["cubecl-common/std"]
 storage-bytes = []
 
 [dependencies]
-async-channel = { workspace = true, optional = true }
+async-channel = { workspace = true } # Assume std
 async-lock = { version = "3.4.0" }
 cubecl-common = { path = "../cubecl-common", version = "0.4.0", default-features = false }
 derive-new = { workspace = true }
