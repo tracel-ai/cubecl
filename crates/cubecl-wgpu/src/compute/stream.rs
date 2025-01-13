@@ -128,7 +128,7 @@ impl WgpuStream {
             }
         }
 
-        if self.tasks_count >= self.tasks_max || memory_lock.should_flush() {
+        if self.tasks_count >= self.tasks_max || memory_lock.has_reached_threshold() {
             self.flush();
             true
         } else {

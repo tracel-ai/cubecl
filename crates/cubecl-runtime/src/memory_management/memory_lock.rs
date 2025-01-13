@@ -23,7 +23,7 @@ impl MemoryLock {
     }
 
     /// Whether the flushing threshold has been reached.
-    pub fn should_flush(&self) -> bool {
+    pub fn has_reached_threshold(&self) -> bool {
         // For now we only consider the number of handles locked, but we may consider the amount in
         // bytes at some point.
         self.locked.len() >= self.flush_threshold

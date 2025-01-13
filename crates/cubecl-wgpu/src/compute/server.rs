@@ -187,7 +187,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 .copy_from_slice(data);
 
             // If too many handles are locked, we flush.
-            if self.storage_locked.should_flush() {
+            if self.storage_locked.has_reached_threshold() {
                 self.flush();
             }
         }
