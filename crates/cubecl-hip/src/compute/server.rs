@@ -76,11 +76,10 @@ unsafe impl Send for HipServer {}
 impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         let mut data = uninit_vec(resource.size as usize);
         unsafe {
@@ -104,11 +103,10 @@ impl HipServer {
         let mut result = Vec::with_capacity(bindings.len());
 
         for binding in bindings {
-            let resource = ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            );
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
             let mut data = uninit_vec(resource.size as usize);
             unsafe {
