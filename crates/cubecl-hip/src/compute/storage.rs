@@ -70,27 +70,28 @@ impl ComputeStorage for HipStorage {
 
     type Resource = HipResource;
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
+    fn get(&mut self, handle: &StorageHandle) -> Option<Self::Resource> {
+        self.memory.get(&handle.id).map(|ptr| {
+            let ptr = ptr as u64;
+            let offset = handle.offset();
+            let size = handle.size();
 
-        let offset = handle.offset();
-        let size = handle.size();
+            let ptr = ptr + offset;
+            let key = ActiveResource::new(ptr);
 
-        let ptr = ptr + offset;
-        let key = ActiveResource::new(ptr);
+            self.activate_slices
+                .insert(key.clone(), ptr as cubecl_hip_sys::hipDeviceptr_t);
 
-        self.activate_slices
-            .insert(key.clone(), ptr as cubecl_hip_sys::hipDeviceptr_t);
+            // The ptr needs to stay alive until we send the task to the server.
+            let ptr = self.activate_slices.get(&key).unwrap();
 
-        // The ptr needs to stay alive until we send the task to the server.
-        let ptr = self.activate_slices.get(&key).unwrap();
-
-        HipResource::new(
-            *ptr,
-            ptr as *const cubecl_hip_sys::hipDeviceptr_t as *mut std::ffi::c_void,
-            offset,
-            size,
-        )
+            HipResource::new(
+                *ptr,
+                ptr as *const cubecl_hip_sys::hipDeviceptr_t as *mut std::ffi::c_void,
+                offset,
+                size,
+            )
+        })
     }
 
     fn alloc(&mut self, size: u64) -> StorageHandle {

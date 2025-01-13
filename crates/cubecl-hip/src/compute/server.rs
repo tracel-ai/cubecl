@@ -166,11 +166,10 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
 
         unsafe {
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
@@ -186,7 +185,7 @@ impl ComputeServer for HipServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -294,11 +293,9 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            ),
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Can't find resource"),
         )
     }
 
