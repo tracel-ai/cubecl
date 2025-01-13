@@ -125,7 +125,10 @@ impl MemoryPool for ExclusiveMemoryPool {
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
-        assert!(size <= self.page_size);
+        assert!(
+            size <= self.page_size,
+            "Allocating more memory than supported by this pool (leads to fragmentation)."
+        );
         let page = self.alloc_page(storage, size);
         page.slice.handle.clone()
     }
