@@ -149,7 +149,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
                 const MIN_BUCKET_SIZE: u64 = 16384;
-                const NUM_BUCKETS: usize = 32;
+                const NUM_BUCKETS: usize = 48;
 
                 let sizes = generate_bucket_sizes(
                     MIN_BUCKET_SIZE.min(properties.max_page_size),
@@ -165,7 +165,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
                         // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
                         let dealloc_period =
-                            (2500.0 * (1.0 + s as f64 / (512.0 * MB as f64))).round() as u64;
+                            (1000.0 * 1.5f64.powf(s as f64 / (512.0 * MB as f64))).round() as u64;
 
                         MemoryPoolOptions {
                             page_size: s,
