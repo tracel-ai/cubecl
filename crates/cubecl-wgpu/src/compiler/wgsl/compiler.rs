@@ -49,6 +49,7 @@ pub struct WgslCompiler {
     #[allow(dead_code)]
     compilation_options: CompilationOptions,
     strategy: ExecutionMode,
+    subgroup_instructions_used: bool,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -290,6 +291,7 @@ impl WgslCompiler {
             num_workgroups_no_axis: self.num_workgroup_no_axis,
             workgroup_id_no_axis: self.workgroup_id_no_axis,
             workgroup_size_no_axis: self.workgroup_size_no_axis,
+            subgroup_instructions_used: self.subgroup_instructions_used,
             kernel_name: value.kernel_name,
         }
     }
@@ -559,6 +561,8 @@ impl WgslCompiler {
         subgroup: cube::Plane,
         out: Option<cube::Variable>,
     ) {
+        self.subgroup_instructions_used = true;
+
         let out = out.unwrap();
         let op = match subgroup {
             cube::Plane::Elect => Subgroup::Elect {
