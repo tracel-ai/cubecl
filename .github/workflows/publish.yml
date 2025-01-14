@@ -46,7 +46,7 @@ jobs:
       - publish-cubecl-core
     secrets: inherit
 
-  publish-reduce:
+  publish-cubecl-reduce:
     uses: tracel-ai/cubecl/.github/workflows/publish-template.yml@main
     with:
       crate: cubecl-reduce
