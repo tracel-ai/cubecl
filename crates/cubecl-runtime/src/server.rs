@@ -195,8 +195,8 @@ impl CubeCount {
     }
 
     /// Create a new static cube count with the given x, y and z.
-    pub fn new_3d(x: u32, y: u32) -> Self {
-        CubeCount::Static(x, y, 1)
+    pub fn new_3d(x: u32, y: u32, z: u32) -> Self {
+        CubeCount::Static(x, y, z)
     }
 }
 
