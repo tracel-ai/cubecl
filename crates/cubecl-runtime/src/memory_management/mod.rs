@@ -23,6 +23,8 @@ pub enum PoolType {
     SlicedPages {
         /// The page size to allocate.
         page_size: u64,
+        /// The minimum size of a slice to allocate in the pool.
+        min_slice_size: u64,
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
     },
@@ -52,7 +54,8 @@ pub enum MemoryConfiguration {
     ExclusivePages,
     /// Custom settings.
     Custom {
-        /// Options for each pool to construct.
+        /// Options for each pool to construct. When allocating, the first
+        /// possible pool will be picked for an allocation.
         pool_options: Vec<MemoryPoolOptions>,
     },
 }

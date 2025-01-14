@@ -16,9 +16,10 @@ pub struct ExclusiveMemoryPool {
     pages: Vec<MemoryPage>,
     alignment: u64,
     dealloc_period: u64,
-    last_dealloc: u64,
+    last_dealloc_check: u64,
 
     min_alloc_size: u64,
+    biggest_alloc: u64,
 }
 
 struct MemoryPage {
@@ -29,8 +30,8 @@ struct MemoryPage {
 
 // How much more to allocate (at most) than the requested allocation. This helps memory re-use, as a larger
 // future allocation might b able to re-use the previous allocation.
-const OVER_ALLOC: f64 = 1.15;
-const ALLOC_AFTER_FREE: u32 = 8;
+const OVER_ALLOC: f64 = 1.35;
+const ALLOC_AFTER_FREE: u32 = 5;
 
 impl ExclusiveMemoryPool {
     pub(crate) fn new(min_alloc_size: u64, alignment: u64, dealloc_period: u64) -> Self {
@@ -40,21 +41,20 @@ impl ExclusiveMemoryPool {
             pages: Vec::new(),
             alignment,
             dealloc_period,
-            last_dealloc: 0,
+            last_dealloc_check: 0,
             min_alloc_size,
+            biggest_alloc: min_alloc_size,
         }
     }
 
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if successful.
     fn get_free_page(&mut self, size: u64) -> Option<&mut MemoryPage> {
-        // Return the first free page.
-        //
-        // Alteratively, could return the smallest fitting free page, but that doesn't
-        // seem to help.
+        // Return the smallest free page that fits.
         self.pages
             .iter_mut()
-            .find(|page| page.alloc_size >= size && page.slice.is_free())
+            .filter(|page| page.alloc_size >= size && page.slice.is_free())
+            .min_by_key(|page| page.alloc_size)
     }
 
     fn alloc_page<Storage: ComputeStorage>(
@@ -74,6 +74,8 @@ impl ExclusiveMemoryPool {
         // get a page with a big enough size, so this is ok to do.
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         slice.padding = padding;
+
+        self.biggest_alloc = self.biggest_alloc.max(alloc_size);
 
         self.pages.push(MemoryPage {
             slice,
@@ -101,6 +103,11 @@ impl MemoryPool for ExclusiveMemoryPool {
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+        // Definitely don't have a slice this big.
+        if size > self.biggest_alloc {
+            return None;
+        }
+
         let padding = calculate_padding(size, self.alignment);
 
         let page = self.get_free_page(size);
@@ -147,17 +154,18 @@ impl MemoryPool for ExclusiveMemoryPool {
     }
 
     fn handles_alloc(&self, size: u64) -> bool {
-        size > self.min_alloc_size
+        // Only handle slices in the range up to N times the min allocation size.
+        size >= self.min_alloc_size
     }
 
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
-        if alloc_nr - self.last_dealloc < check_period {
+        if alloc_nr - self.last_dealloc_check < check_period {
             return;
         }
 
-        self.last_dealloc = alloc_nr;
+        self.last_dealloc_check = alloc_nr;
 
         self.pages.retain_mut(|page| {
             if page.slice.is_free() {
