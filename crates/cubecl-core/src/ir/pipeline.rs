@@ -11,6 +11,18 @@ pub enum PipelineOps {
         source: Variable,
         destination: Variable,
     },
+    ProducerAcquire {
+        pipeline: Variable,
+    },
+    ProducerCommit {
+        pipeline: Variable,
+    },
+    ConsumerAwait {
+        pipeline: Variable,
+    },
+    ConsumerRelease {
+        pipeline: Variable,
+    },
 }
 
 impl Display for PipelineOps {
@@ -24,6 +36,10 @@ impl Display for PipelineOps {
                 f,
                 "mem_copy_async({pipeline}, source: {source}, destination: {destination})",
             ),
+            PipelineOps::ProducerAcquire { pipeline } => write!(f, "producer_acquire({pipeline})"),
+            PipelineOps::ProducerCommit { pipeline } => write!(f, "producer_commit({pipeline})"),
+            PipelineOps::ConsumerAwait { pipeline } => write!(f, "consumer_await({pipeline})"),
+            PipelineOps::ConsumerRelease { pipeline } => write!(f, "consumer_release({pipeline})"),
         }
     }
 }

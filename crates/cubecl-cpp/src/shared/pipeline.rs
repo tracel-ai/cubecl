@@ -12,6 +12,18 @@ pub enum PipelineOps<D: Dialect> {
         source: Variable<D>,
         destination: Variable<D>,
     },
+    ProducerAcquire {
+        pipeline: Variable<D>,
+    },
+    ProducerCommit {
+        pipeline: Variable<D>,
+    },
+    ConsumerAwait {
+        pipeline: Variable<D>,
+    },
+    ConsumerRelease {
+        pipeline: Variable<D>,
+    },
 }
 
 impl<D: Dialect> PipelineOps<D> {
@@ -19,6 +31,10 @@ impl<D: Dialect> PipelineOps<D> {
         match self {
             PipelineOps::MemCopyAsync { pipeline, .. } => pipeline.id().unwrap(),
             PipelineOps::Init { pipeline, .. } => pipeline.id().unwrap(),
+            PipelineOps::ProducerAcquire { pipeline } => pipeline.id().unwrap(),
+            PipelineOps::ProducerCommit { pipeline } => pipeline.id().unwrap(),
+            PipelineOps::ConsumerAwait { pipeline } => pipeline.id().unwrap(),
+            PipelineOps::ConsumerRelease { pipeline } => pipeline.id().unwrap(),
         }
     }
 }
@@ -44,6 +60,38 @@ cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {sour
 __shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, 2> {pipeline}_state;
 auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
                 "
+                )
+            }
+            PipelineOps::ProducerAcquire { pipeline } => {
+                write!(
+                    f,
+                    "
+{pipeline}.producer_acquire();
+                "
+                )
+            }
+            PipelineOps::ProducerCommit { pipeline } => {
+                write!(
+                    f,
+                    "
+{pipeline}.producer_commit();
+            "
+                )
+            }
+            PipelineOps::ConsumerAwait { pipeline } => {
+                write!(
+                    f,
+                    "
+{pipeline}.consumer_wait();
+            "
+                )
+            }
+            PipelineOps::ConsumerRelease { pipeline } => {
+                write!(
+                    f,
+                    "
+{pipeline}.consumer_release();
+            "
                 )
             }
         }

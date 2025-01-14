@@ -22,7 +22,7 @@ impl<C: CubePrimitive> Pipeline<C> {
         Self { _c: PhantomData }
     }
 
-    pub fn memcpy_async(&self, source: Slice<Line<C>>, destination: SliceMut<Line<C>>) {
+    pub fn memcpy_async(&self, _source: Slice<Line<C>>, _destination: SliceMut<Line<C>>) {
         unexpanded!()
     }
 
@@ -98,18 +98,31 @@ impl<C: CubePrimitive> PipelineExpand<C> {
     }
 
     pub fn __expand_producer_acquire_method(&self, context: &mut CubeContext) {
+        let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
-            operation: Operation::Pipeline(PipelineOps::ProducerAcquire(pipeline)),
+            operation: Operation::Pipeline(PipelineOps::ProducerAcquire { pipeline }),
         });
     }
     pub fn __expand_producer_commit_method(&self, context: &mut CubeContext) {
-        todo!()
+        let pipeline = *self.elem;
+        context.register(Instruction {
+            out: None,
+            operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
+        });
     }
     pub fn __expand_consumer_await_method(&self, context: &mut CubeContext) {
-        todo!()
+        let pipeline = *self.elem;
+        context.register(Instruction {
+            out: None,
+            operation: Operation::Pipeline(PipelineOps::ConsumerAwait { pipeline }),
+        });
     }
     pub fn __expand_consumer_release_method(&self, context: &mut CubeContext) {
-        todo!()
+        let pipeline = *self.elem;
+        context.register(Instruction {
+            out: None,
+            operation: Operation::Pipeline(PipelineOps::ConsumerRelease { pipeline }),
+        });
     }
 }

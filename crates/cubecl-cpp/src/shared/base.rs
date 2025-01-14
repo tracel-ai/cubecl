@@ -320,6 +320,28 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
+                gpu::PipelineOps::ProducerAcquire { pipeline } => instructions.push(
+                    Instruction::Pipeline(super::pipeline::PipelineOps::ProducerAcquire {
+                        pipeline: self.compile_variable(pipeline),
+                    }),
+                ),
+                gpu::PipelineOps::ProducerCommit { pipeline } => instructions.push(
+                    Instruction::Pipeline(super::pipeline::PipelineOps::ProducerCommit {
+                        pipeline: self.compile_variable(pipeline),
+                    }),
+                ),
+
+                gpu::PipelineOps::ConsumerAwait { pipeline } => instructions.push(
+                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerAwait {
+                        pipeline: self.compile_variable(pipeline),
+                    }),
+                ),
+
+                gpu::PipelineOps::ConsumerRelease { pipeline } => instructions.push(
+                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerRelease {
+                        pipeline: self.compile_variable(pipeline),
+                    }),
+                ),
             },
         }
     }
