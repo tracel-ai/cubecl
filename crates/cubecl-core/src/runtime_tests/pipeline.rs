@@ -10,7 +10,7 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
         let source = input.slice(2, 3);
         let destination = smem.slice_mut(0, 1);
 
-        // pipeline.producer_acquire();
+        pipeline.producer_acquire();
         pipeline.memcpy_async(source, destination);
         // pipeline.producer_commit();
 

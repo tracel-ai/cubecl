@@ -41,8 +41,8 @@ cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {sour
                 write!(
                     f,
                     "
-__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, stages_count> {pipeline}_state;
-auto {pipeline} = cuda::make_pipeline(block, &{pipeline}_state);
+__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, 2> {pipeline}_state;
+auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
                 "
                 )
             }

@@ -98,7 +98,10 @@ impl<C: CubePrimitive> PipelineExpand<C> {
     }
 
     pub fn __expand_producer_acquire_method(&self, context: &mut CubeContext) {
-        todo!()
+        context.register(Instruction {
+            out: None,
+            operation: Operation::Pipeline(PipelineOps::ProducerAcquire(pipeline)),
+        });
     }
     pub fn __expand_producer_commit_method(&self, context: &mut CubeContext) {
         todo!()
