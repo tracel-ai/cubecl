@@ -27,6 +27,7 @@ impl ReduceStrategy {
                 return Err(ReduceError::ImprecisePlaneDim);
             }
         }
+
         Ok(self)
     }
 
