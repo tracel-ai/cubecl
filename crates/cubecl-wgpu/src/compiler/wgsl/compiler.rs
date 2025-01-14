@@ -555,7 +555,9 @@ impl WgslCompiler {
             }
             // No good way to attach debug info
             cube::Operation::NonSemantic(_) => {}
-            cube::Operation::Pipeline(pipeline_ops) => todo!(),
+            cube::Operation::Pipeline(_) => {
+                panic!("Pipeline isn't supported on wgpu.")
+            }
         }
     }
 
