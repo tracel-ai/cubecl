@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, as_bytes, Feature};
 use cubecl::prelude::*;
 
 #[cube(launch)]
@@ -23,6 +23,11 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
 pub fn test_pipeline<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
+    if !client.properties().feature_enabled(Feature::Pipeline) {
+        // We can't execute the test, skip.
+        return;
+    }
+
     let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 

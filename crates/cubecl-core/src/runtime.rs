@@ -67,6 +67,8 @@ pub enum Feature {
     /// Features supported for floating point atomics. For integers, all methods are supported as
     /// long as the type is.
     AtomicFloat(AtomicFeature),
+    /// The pipeline feature enables pipelined (async) operations
+    Pipeline,
 }
 
 // Atomic features that may be supported by a [cube runtime](Runtime).
