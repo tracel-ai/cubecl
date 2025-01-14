@@ -171,12 +171,19 @@ impl ReduceConfig {
 
         // If needed, we decompose the cube count to be within runtime limitation.
         let (max_x, max_y, _) = R::max_cube_count();
-        let cube_count_x = std::cmp::min(cube_count, max_x);
-        let cube_count_y = std::cmp::min(cube_count / cube_count_x, max_y);
-        let cube_count_z = cube_count / (cube_count_x * cube_count_y);
+        let mut cube_count_x = cube_count;
+        let mut cube_count_y = 1;
+        let mut cube_count_z = 1;
+        while cube_count_x > max_x {
+            cube_count_x /= 2;
+            cube_count_y *= 2;
+        }
+        while cube_count_y > max_y {
+            cube_count_y /= 2;
+            cube_count_z *= 2;
+        }
         self.cube_count = CubeCount::new_3d(cube_count_x, cube_count_y, cube_count_z);
-
-        self.do_bound_checks_if(cube_count_x * cube_count_y * cube_count_z != cube_count);
+        self.do_bound_checks_if(cube_count_x * cube_count_y != cube_count);
 
         self
     }
