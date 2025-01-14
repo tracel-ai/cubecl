@@ -12,11 +12,11 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
 
         pipeline.producer_acquire();
         pipeline.memcpy_async(source, destination);
-        // pipeline.producer_commit();
+        pipeline.producer_commit();
 
-        // pipeline.consumer_await();
+        pipeline.consumer_await();
         output[0] = smem[0];
-        // pipeline.consumer_release();
+        pipeline.consumer_release();
     }
 }
 
