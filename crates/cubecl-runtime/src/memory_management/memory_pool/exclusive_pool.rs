@@ -1,10 +1,9 @@
 use crate::{
     memory_management::MemoryUsage,
-    storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization},
+    storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 
 use alloc::vec::Vec;
-use hashbrown::HashSet;
 
 use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
 
@@ -15,36 +14,34 @@ use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub struct ExclusiveMemoryPool {
     pages: Vec<MemoryPage>,
-    dealloc_marked: HashSet<StorageId>,
-    page_size: u64,
     alignment: u64,
     dealloc_period: u64,
     last_dealloc: u64,
+
+    min_alloc_size: u64,
 }
 
 struct MemoryPage {
     slice: Slice,
     alloc_size: u64,
+    free_count: u32,
 }
 
 // How much more to allocate (at most) than the requested allocation. This helps memory re-use, as a larger
 // future allocation might b able to re-use the previous allocation.
-//
-// The default is the golden-ratio. The science behind it is that it feels cooler than a random number,
-// and seems to work well.
-const OVER_ALLOC: f64 = 1.618;
+const OVER_ALLOC: f64 = 1.15;
+const ALLOC_AFTER_FREE: u32 = 8;
 
 impl ExclusiveMemoryPool {
-    pub(crate) fn new(page_size: u64, alignment: u64, dealloc_period: u64) -> Self {
+    pub(crate) fn new(min_alloc_size: u64, alignment: u64, dealloc_period: u64) -> Self {
         // Pages should be allocated to be aligned.
-        assert_eq!(page_size % alignment, 0);
+        assert_eq!(min_alloc_size % alignment, 0);
         Self {
             pages: Vec::new(),
-            dealloc_marked: HashSet::new(),
-            page_size,
             alignment,
             dealloc_period,
             last_dealloc: 0,
+            min_alloc_size,
         }
     }
 
@@ -65,9 +62,8 @@ impl ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> &mut MemoryPage {
-        let alloc_size = ((size as f64 * OVER_ALLOC).round() as u64)
-            .next_multiple_of(self.alignment)
-            .min(self.page_size);
+        let alloc_size =
+            ((size as f64 * OVER_ALLOC).round() as u64).next_multiple_of(self.alignment);
         let storage = storage.alloc(alloc_size);
 
         let handle = SliceHandle::new();
@@ -79,9 +75,13 @@ impl ExclusiveMemoryPool {
         slice.storage.utilization = StorageUtilization { offset: 0, size };
         slice.padding = padding;
 
-        self.pages.push(MemoryPage { slice, alloc_size });
-        let idx = self.pages.len() - 1;
+        self.pages.push(MemoryPage {
+            slice,
+            alloc_size,
+            free_count: 0,
+        });
 
+        let idx = self.pages.len() - 1;
         &mut self.pages[idx]
     }
 }
@@ -110,15 +110,9 @@ impl MemoryPool for ExclusiveMemoryPool {
             // get a page with a big enough size, so this is ok to do.
             page.slice.storage.utilization = StorageUtilization { offset: 0, size };
             page.slice.padding = padding;
+            page.free_count = page.free_count.saturating_sub(1);
 
-            let id = page.slice.storage.id;
-            let handle = page.slice.handle.clone();
-
-            // If this is the base allocation, mark page as used.
-            // Otherwise, let it go if no one else needs it.
-            self.dealloc_marked.remove(&id);
-
-            return Some(handle);
+            return Some(page.slice.handle.clone());
         }
 
         None
@@ -126,10 +120,11 @@ impl MemoryPool for ExclusiveMemoryPool {
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
         assert!(
-            size <= self.page_size,
-            "Allocating more memory than supported by this pool (leads to fragmentation)."
+            size >= self.min_alloc_size,
+            "Should allocate more than minimum size in pool!"
         );
         let page = self.alloc_page(storage, size);
+        page.free_count = ALLOC_AFTER_FREE - 1;
         page.slice.handle.clone()
     }
 
@@ -147,26 +142,32 @@ impl MemoryPool for ExclusiveMemoryPool {
                 .map(|page| page.slice.storage.size())
                 .sum(),
             bytes_padding: used_slices.iter().map(|page| page.slice.padding).sum(),
-            bytes_reserved: self.pages.len() as u64 * self.page_size,
+            bytes_reserved: self.pages.iter().map(|page| page.alloc_size).sum(),
         }
     }
 
-    fn max_alloc_size(&self) -> u64 {
-        self.page_size
+    fn handles_alloc(&self, size: u64) -> bool {
+        size > self.min_alloc_size
     }
 
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
-        if alloc_nr - self.last_dealloc < self.dealloc_period {
+        let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
+
+        if alloc_nr - self.last_dealloc < check_period {
             return;
         }
 
         self.last_dealloc = alloc_nr;
 
         self.pages.retain_mut(|page| {
-            if page.slice.is_free() && !self.dealloc_marked.insert(page.slice.storage.id) {
-                // Dealloc page.
-                storage.dealloc(page.slice.storage.id);
-                return false;
+            if page.slice.is_free() {
+                page.free_count += 1;
+
+                if page.free_count >= ALLOC_AFTER_FREE {
+                    // Dealloc page.
+                    storage.dealloc(page.slice.storage.id);
+                    return false;
+                }
             }
 
             true
