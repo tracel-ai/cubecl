@@ -17,6 +17,12 @@ pub struct PipelineExpand<C: CubePrimitive> {
     _c: PhantomData<C>,
 }
 
+impl<C: CubePrimitive> Default for Pipeline<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<C: CubePrimitive> Pipeline<C> {
     pub fn new() -> Self {
         Self { _c: PhantomData }
