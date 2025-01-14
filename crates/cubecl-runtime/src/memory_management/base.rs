@@ -4,7 +4,7 @@ use alloc::{format, string::String};
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
 /// wasted in total.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     pub number_allocs: u64,

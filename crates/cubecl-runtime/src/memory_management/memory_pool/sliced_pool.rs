@@ -83,7 +83,7 @@ impl MemoryPage {
 
 impl MemoryPool for SlicedPool {
     fn handles_alloc(&self, size: u64) -> bool {
-        size > self.min_alloc_size && size < self.max_alloc_size
+        size >= self.min_alloc_size && size <= self.max_alloc_size
     }
 
     /// Returns the resource from the storage, for the specified handle.

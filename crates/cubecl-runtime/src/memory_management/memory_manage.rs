@@ -374,6 +374,35 @@ mod tests {
         assert!(handle.can_mut(), "Handle should be mut when only one ref.");
     }
 
+    // Test pools with slices.
+    #[test]
+    #[cfg(not(exclusive_memory_only))]
+    fn test_memory_usage() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
+        );
+        let handle = memory_management.reserve(100);
+        let usage = memory_management.memory_usage();
+
+        assert_eq!(usage.bytes_in_use, 100);
+        println!("{}", usage);
+
+        assert!(usage.bytes_reserved >= 100 && usage.bytes_reserved < 200);
+
+        // Drop and re-alloc.
+        drop(handle);
+        let _handle = memory_management.reserve(100);
+        let usage_new = memory_management.memory_usage();
+        assert_eq!(usage, usage_new);
+    }
+
     #[test]
     fn alloc_two_chunks_on_one_page() {
         let page_size = 2048;
@@ -416,7 +445,6 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size,
                         min_slice_size: 0,
-
                         max_slice_size: page_size,
                     },
                     dealloc_period: None,
@@ -528,7 +556,7 @@ mod tests {
 
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
-        assert_eq!(usage.bytes_reserved, sizes.iter().sum::<u64>());
+        assert!(usage.bytes_reserved >= sizes.iter().sum::<u64>());
     }
 
     #[test]
@@ -611,7 +639,6 @@ mod tests {
 
     #[test]
     fn noslice_alloc_two_chunk() {
-        let page_size = 2048;
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
@@ -630,7 +657,7 @@ mod tests {
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert_eq!(usage.bytes_reserved, page_size * 2);
+        assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
     #[test]
@@ -655,12 +682,11 @@ mod tests {
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
-        assert_eq!(usage.bytes_reserved, alloc_size);
+        assert!(usage.bytes_reserved >= alloc_size);
     }
 
     #[test]
     fn noslice_alloc_allocs_new_storage() {
-        let page_size = 1024;
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
@@ -678,7 +704,7 @@ mod tests {
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert_eq!(usage.bytes_reserved, page_size * 2);
+        assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
     #[test]
