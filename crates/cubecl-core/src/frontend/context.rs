@@ -6,8 +6,6 @@ use cubecl_runtime::debug::DebugLogger;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use super::CubePrimitive;
-
 pub struct CubeContext {
     pub root: Rc<RefCell<Scope>>,
     pub scope: Rc<RefCell<Scope>>,

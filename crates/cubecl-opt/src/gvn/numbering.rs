@@ -122,8 +122,8 @@ impl ValueTable {
             Operation::Branch(_)
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
-            | Operation::NonSemantic(_) => Err(None),
-            Operation::Pipeline(pipeline_ops) => todo!(),
+            | Operation::NonSemantic(_)
+            | Operation::Pipeline(_) => Err(None),
         }
     }
 

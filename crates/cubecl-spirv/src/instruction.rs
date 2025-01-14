@@ -33,7 +33,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
-            Operation::Pipeline(pipeline_ops) => todo!(),
+            Operation::Pipeline(_) => panic!("Pipeline not supported in SPIR-V"),
         }
     }
 

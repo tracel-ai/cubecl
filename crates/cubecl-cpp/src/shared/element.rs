@@ -165,7 +165,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { id, item } => *item,
+            Variable::Pipeline { id: _, item } => *item,
         }
     }
 

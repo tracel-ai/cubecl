@@ -1,4 +1,4 @@
-use std::fmt::{write, Display};
+use std::fmt::Display;
 
 use super::{
     Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Scope, Select, Synchronization,

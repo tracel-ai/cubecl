@@ -90,8 +90,8 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         }
 
         if self.pipeline {
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n");
-            f.write_str("#include <cuda/pipeline>\n");
+            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
+            f.write_str("#include <cuda/pipeline>\n")?;
         }
 
         f.write_str("typedef unsigned char uint8;\n")?;
