@@ -3,6 +3,7 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
+use alloc::vec;
 use alloc::vec::Vec;
 
 pub use super::memory_pool::{SliceBinding, SliceHandle};
