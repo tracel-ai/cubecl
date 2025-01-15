@@ -84,8 +84,6 @@ impl Profile {
             &[
                 "BENCH_NUM_SAMPLES=1",
                 &options.ncu_path,
-                // "--config-file",
-                // "off",
                 "--nvtx",
                 "--set=full",
                 "--call-stack",
