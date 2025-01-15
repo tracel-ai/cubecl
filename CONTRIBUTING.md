@@ -46,12 +46,12 @@ your changes easier. You can create a new branch by using the command
 Once you have set up your local repository and created a new branch, you can start making changes.
 Be sure to follow the coding standards and guidelines used in the rest of the project.
 
-### Step 6: Run the Pre-Pull Request Script
+### Step 6: Validate changes before opening a pull request
 
 Before you open a pull request, please run the following xtask command at the root of the repository:
 
 ```sh
-cargo xtask pull-request-checks
+cargo xtask validate
 ```
 
 This will ensure that your changes are in line with our project's standards and guidelines.
