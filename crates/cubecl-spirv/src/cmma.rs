@@ -6,7 +6,8 @@ use crate::{
 };
 use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
 use rspirv::spirv::{
-    Capability, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word,
+    Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
+    StorageClass, Word,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -156,8 +157,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let ty = self.item(&mat_d).id(self);
 
+        let mut operands = CooperativeMatrixOperands::NONE_KHR;
+        if matches!(mat_a.elem, Elem::Int(_, true)) {
+            operands |= CooperativeMatrixOperands::MATRIX_A_SIGNED_COMPONENTS_KHR;
+        }
+        if matches!(mat_b.elem, Elem::Int(_, true)) {
+            operands |= CooperativeMatrixOperands::MATRIX_B_SIGNED_COMPONENTS_KHR;
+        }
+        if matches!(mat_c.elem, Elem::Int(_, true)) {
+            operands |= CooperativeMatrixOperands::MATRIX_C_SIGNED_COMPONENTS_KHR;
+        }
+        if matches!(mat_d.elem, Elem::Int(_, true)) {
+            operands |= CooperativeMatrixOperands::MATRIX_RESULT_SIGNED_COMPONENTS_KHR;
+        }
+
         let mat_d_id = self
-            .cooperative_matrix_mul_add_khr(ty, None, mat_a_id, mat_b_id, mat_c_id, None)
+            .cooperative_matrix_mul_add_khr(ty, None, mat_a_id, mat_b_id, mat_c_id, Some(operands))
             .unwrap();
 
         self.store(mat_d.id, mat_d_id, None, vec![]).unwrap();
