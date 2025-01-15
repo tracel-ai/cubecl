@@ -463,10 +463,16 @@ fn cuda_path() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         // If it is installed as part of the distribution
-        if std::fs::metadata("/usr/bin/nvcc").is_ok() {
-            return Some(PathBuf::from("/usr"));
-        }
-        return Some(PathBuf::from("/usr/local/cuda"));
+        return if std::fs::exists("/usr/local/cuda").is_ok_and(|exists| exists) {
+            Some(PathBuf::from("/usr/local/cuda"))
+        } else if std::fs::exists("/opt/cuda").is_ok_and(|exists| exists) {
+            Some(PathBuf::from("/opt/cuda"))
+        } else if std::fs::exists("/usr/bin/nvcc").is_ok_and(|exists| exists) {
+            // Maybe the compiler was installed within the user path.
+            Some(PathBuf::from("/usr"))
+        } else {
+            None
+        };
     }
 
     #[cfg(target_os = "windows")]
