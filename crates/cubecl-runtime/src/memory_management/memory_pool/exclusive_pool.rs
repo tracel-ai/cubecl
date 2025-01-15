@@ -29,7 +29,7 @@ struct MemoryPage {
 }
 
 // How much more to allocate (at most) than the requested allocation. This helps memory re-use, as a larger
-// future allocation might b able to re-use the previous allocation.
+// future allocation might be able to re-use the previous allocation.
 const OVER_ALLOC: f64 = 1.35;
 const ALLOC_AFTER_FREE: u32 = 5;
 

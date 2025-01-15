@@ -544,13 +544,13 @@ impl WgpuStream {
         let copy_uniforms_encoder = std::mem::replace(&mut self.copy_uniforms_encoder, {
             self.device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("CubeCL Tasks Encoder"),
+                    label: Some("CubeCL Uniforms Copy Encoder"),
                 })
         });
         let tasks_encoder = std::mem::replace(&mut self.tasks_encoder, {
             self.device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("CubeCL Uniforms Copy Encoder"),
+                    label: Some("CubeCL Tasks Encoder"),
                 })
         });
 
