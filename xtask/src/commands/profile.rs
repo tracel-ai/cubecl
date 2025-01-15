@@ -78,12 +78,17 @@ impl Profile {
         let bins = get_benches(&options.bench);
         let bin = bins.first().unwrap().as_path().to_str().unwrap();
         let file = format!("target/{}", options.bench);
-
+        let ncu_bin_path = std::process::Command::new("which")
+            .arg(&options.ncu_path)
+            .output()
+            .map_err(|_| ())
+            .and_then(|output| String::from_utf8(output.stdout).map_err(|_| ()))
+            .expect("Can't find ncu. Verified that it is installed.");
         run_process(
             "sudo",
             &[
                 "BENCH_NUM_SAMPLES=1",
-                &options.ncu_path,
+                ncu_bin_path.trim(),
                 "--nvtx",
                 "--set=full",
                 "--call-stack",
