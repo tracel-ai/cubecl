@@ -135,6 +135,7 @@ impl<EG: Numeric> TensorReader<EG> {
     }
 
     fn read(&self, position: u32) -> Line<EG> {
+        // self.tensor.as_slice(position, 1u32)[0u32]
         self.tensor.read(position)
     }
 }
