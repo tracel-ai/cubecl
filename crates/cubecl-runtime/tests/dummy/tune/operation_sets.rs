@@ -2,12 +2,7 @@
 use rand::{distributions::Alphanumeric, Rng};
 use std::sync::Arc;
 
-#[cfg(autotune_persistent_cache)]
-use cubecl_runtime::tune::compute_checksum;
-use cubecl_runtime::{
-    server::Binding,
-    tune::{AutotuneOperation, AutotuneOperationSet},
-};
+use cubecl_runtime::{server::Binding, tune::TunableSet};
 
 use crate::dummy::{
     CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
@@ -17,157 +12,74 @@ use crate::dummy::{
 
 use super::DummyElementwiseAdditionSlowWrong;
 
-pub struct AdditionAutotuneOperationSet {
+#[allow(clippy::ptr_arg, reason = "Needed for type inference")]
+fn clone_bindings(_key: &String, bindings: &Vec<Binding>) -> Vec<Binding> {
+    bindings.clone()
+}
+
+type TestSet = TunableSet<String, Vec<Binding>, ()>;
+
+pub fn addition_set(
     client: DummyClient,
-    key: String,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding>,
+) -> TunableSet<String, Vec<Binding>, ()> {
+    TestSet::new(
+        move |_input: &Vec<Binding>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
+        clone_bindings,
+    )
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(DummyElementwiseAddition),
+        client.clone(),
+    ))
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    ))
 }
 
-impl AdditionAutotuneOperationSet {
-    #[allow(dead_code)]
-    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
-        Self {
-            client,
-            key: format!("{}-{}", "add", log_shape_input_key(&shapes)),
-            shapes,
-            bindings,
-        }
-    }
+pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
+    TestSet::new(
+        move |_input: &Vec<Binding>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
+        clone_bindings,
+    )
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(DummyElementwiseMultiplicationSlowWrong),
+        client.clone(),
+    ))
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(DummyElementwiseMultiplication),
+        client.clone(),
+    ))
 }
 
-impl AutotuneOperationSet<String> for AdditionAutotuneOperationSet {
-    fn key(&self) -> String {
-        self.key.clone()
-    }
-
-    fn autotunables(&self) -> Vec<Box<dyn AutotuneOperation>> {
-        vec![
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(DummyElementwiseAddition),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(DummyElementwiseAdditionSlowWrong),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-        ]
-    }
-
-    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
-        self.autotunables()[fastest_index].clone()
-    }
-}
-
-pub struct MultiplicationAutotuneOperationSet {
+pub fn cache_test_set(
     client: DummyClient,
-    key: String,
     shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding>,
-}
-
-impl MultiplicationAutotuneOperationSet {
-    #[allow(dead_code)]
-    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
-        Self {
-            client,
-            key: format!("{}-{}", "mul", log_shape_input_key(&shapes)),
-            shapes,
-            bindings,
-        }
-    }
-}
-impl AutotuneOperationSet<String> for MultiplicationAutotuneOperationSet {
-    fn key(&self) -> String {
-        self.key.clone()
-    }
-
-    fn autotunables(&self) -> Vec<Box<dyn AutotuneOperation>> {
-        vec![
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(DummyElementwiseMultiplicationSlowWrong),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(DummyElementwiseMultiplication),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-        ]
-    }
-
-    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
-        self.autotunables()[fastest_index].clone()
-    }
-}
-
-pub struct CacheTestAutotuneOperationSet {
-    client: DummyClient,
-    key: String,
-    shapes: Vec<Vec<usize>>,
-    bindings: Vec<Binding>,
-    pub generate_random_checksum: bool,
-}
-
-impl CacheTestAutotuneOperationSet {
-    #[allow(dead_code)]
-    pub fn new(client: DummyClient, shapes: Vec<Vec<usize>>, bindings: Vec<Binding>) -> Self {
-        Self {
-            client,
-            key: format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
-            shapes,
-            bindings,
-            generate_random_checksum: false,
-        }
-    }
-}
-
-impl AutotuneOperationSet<String> for CacheTestAutotuneOperationSet {
-    fn key(&self) -> String {
-        self.key.clone()
-    }
-
-    fn autotunables(&self) -> Vec<Box<dyn AutotuneOperation>> {
-        vec![
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(CacheTestFastOn3),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-            Box::new(OneKernelAutotuneOperation::new(
-                Arc::new(CacheTestSlowOn3),
-                self.client.clone(),
-                self.shapes.clone(),
-                self.bindings.clone(),
-            )),
-        ]
-    }
-
-    fn fastest(self: Box<Self>, fastest_index: usize) -> Box<dyn AutotuneOperation> {
-        self.autotunables()[fastest_index].clone()
-    }
-
-    #[cfg(autotune_persistent_cache)]
-    fn compute_checksum(&self) -> String {
-        if self.generate_random_checksum {
+    generate_random_checksum: bool,
+) -> TestSet {
+    let mut set = TestSet::new(
+        move |_input: &Vec<Binding>| format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
+        clone_bindings,
+    )
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(CacheTestFastOn3),
+        client.clone(),
+    ))
+    .with_tunable(OneKernelAutotuneOperation::new(
+        Arc::new(CacheTestSlowOn3),
+        client.clone(),
+    ));
+    if generate_random_checksum {
+        set = set.with_custom_checksum(|_| {
             let rand_string: String = rand::thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(16)
                 .map(char::from)
                 .collect();
             rand_string
-        } else {
-            compute_checksum(&self.autotunables())
-        }
+        });
     }
+    set
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {

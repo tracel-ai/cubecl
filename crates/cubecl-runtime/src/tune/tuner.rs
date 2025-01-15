@@ -16,9 +16,9 @@ use cubecl_common::benchmark::BenchmarkComputations;
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use crate::tune::{AutotuneOperationSet, TuneBenchmark, TuneCache};
+use crate::tune::{TuneBenchmark, TuneCache};
 
-use super::{AutotuneKey, TuneCacheResult};
+use super::{AutotuneKey, TunableSet, TuneCacheResult};
 
 #[derive(Debug)]
 /// Executes autotune benchmarking and caching
@@ -108,20 +108,22 @@ impl<K: AutotuneKey> Tuner<K> {
     pub fn execute_autotune<
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
+        In: Clone + Send + 'static,
         Out: Send + 'static,
     >(
         &self,
-        set: &dyn AutotuneOperationSet<K, Out>,
+        key: K,
+        inputs: &In,
+        tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<S, C>,
     ) {
-        let key = set.key();
         log::info!("Tuning {key}");
 
-        let autotunables: Vec<_> = set
+        let autotunables: Vec<_> = tunables
             .autotunables()
-            .into_iter()
+            .iter()
+            .cloned()
             .enumerate()
-            .filter(|(index, _)| set.should_run(&key, *index))
             .collect();
 
         let client = client.clone();
@@ -133,7 +135,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     key,
                     fastest_index: autotunables[0].0,
                     #[cfg(autotune_persistent_cache)]
-                    checksum: set.compute_checksum(),
+                    checksum: tunables.compute_checksum(),
                 })
                 .expect("Autotune results channel closed");
             return;
@@ -144,7 +146,9 @@ impl<K: AutotuneKey> Tuner<K> {
             .expect("Autotune results channel closed");
 
         #[cfg(autotune_persistent_cache)]
-        let checksum = set.compute_checksum();
+        let checksum = tunables.compute_checksum();
+
+        let test_inputs = tunables.generate_inputs(&key, inputs);
 
         spawn_benchmark_task(async move {
             #[derive(new, Debug)]
@@ -158,7 +162,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             for (index, op) in autotunables.into_iter() {
                 let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op, client.clone());
+                let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
 
                 let sample_fut = tuner.sample_durations();
                 let sample_fut = future::catch_unwind(sample_fut);
