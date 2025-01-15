@@ -77,11 +77,10 @@ unsafe impl Send for CudaServer {}
 impl CudaServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         let mut data = uninit_vec(resource.size() as usize);
 
@@ -102,11 +101,10 @@ impl CudaServer {
         let mut result = Vec::with_capacity(bindings.len());
 
         for binding in bindings {
-            let resource = ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            );
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
             let mut data = uninit_vec(resource.size() as usize);
 
@@ -156,11 +154,10 @@ impl ComputeServer for CudaServer {
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         unsafe {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
@@ -171,7 +168,7 @@ impl ComputeServer for CudaServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -217,11 +214,9 @@ impl ComputeServer for CudaServer {
         let resources = bindings
             .into_iter()
             .map(|binding| {
-                ctx.memory_management.get_resource(
-                    binding.memory,
-                    binding.offset_start,
-                    binding.offset_end,
-                )
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource")
             })
             .collect::<Vec<_>>();
 
@@ -281,11 +276,9 @@ impl ComputeServer for CudaServer {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            ),
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource"),
         )
     }
 

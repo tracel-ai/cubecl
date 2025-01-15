@@ -1,45 +1,17 @@
-use alloc::collections::BTreeSet;
-
 use super::{
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SliceBinding, SliceHandle, SlicedPool},
-    MemoryConfiguration, MemoryDeviceProperties, MemoryLock, MemoryPoolOptions, MemoryUsage,
-    PoolType,
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool},
+    MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
+use alloc::vec;
 use alloc::vec::Vec;
+
+pub use super::memory_pool::{SliceBinding, SliceHandle};
 
 enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
 }
-
-// Bin sizes as per https://github.com/sebbbi/OffsetAllocator/blob/main/README.md
-// This guarantees that _for bins in use_, the wasted space is at most 12.5%. So as long
-// as bins have a high use rate this should be fairly efficient. That said, currently slices in
-// bins don't deallocate, so there is a chance more memory than needed is used.
-const EXP_BIN_SIZES: [u64; 200] = [
-    128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640,
-    704, 768, 832, 896, 960, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, 2304, 2560,
-    2816, 3072, 3328, 3584, 3840, 4096, 4608, 5120, 5632, 6144, 6656, 7168, 7680, 8192, 9216,
-    10240, 11264, 12288, 13312, 14336, 15360, 16384, 18432, 20480, 22528, 24576, 26624, 28672,
-    30720, 32768, 36864, 40960, 45056, 49152, 53248, 57344, 61440, 65536, 73728, 81920, 90112,
-    98304, 106496, 114688, 122880, 131072, 147456, 163840, 180224, 196608, 212992, 229376, 245760,
-    262144, 294912, 327680, 360448, 393216, 425984, 458752, 491520, 524288, 589824, 655360, 720896,
-    786432, 851968, 917504, 983040, 1048576, 1179648, 1310720, 1441792, 1572864, 1703936, 1835008,
-    1966080, 2097152, 2359296, 2621440, 2883584, 3145728, 3407872, 3670016, 3932160, 4194304,
-    4718592, 5242880, 5767168, 6291456, 6815744, 7340032, 7864320, 8388608, 9437184, 10485760,
-    11534336, 12582912, 13631488, 14680064, 15728640, 16777216, 18874368, 20971520, 23068672,
-    25165824, 27262976, 29360128, 31457280, 33554432, 37748736, 41943040, 46137344, 50331648,
-    54525952, 58720256, 62914560, 67108864, 75497472, 83886080, 92274688, 100663296, 109051904,
-    117440512, 125829120, 134217728, 150994944, 167772160, 184549376, 201326592, 218103808,
-    234881024, 251658240, 268435456, 301989888, 335544320, 369098752, 402653184, 436207616,
-    469762048, 503316480, 536870912, 603979776, 671088640, 738197504, 805306368, 872415232,
-    939524096, 1006632960, 1073741824, 1207959552, 1342177280, 1476395008, 1610612736, 1744830464,
-    1879048192, 2013265920, 2147483648, 2415919104, 2684354560, 2952790016, 3221225472, 3489660928,
-    3758096384, 4026531840,
-];
-
-const MB: usize = 1024 * 1024;
 
 impl MemoryPool for DynamicPool {
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
@@ -49,15 +21,10 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        locked: Option<&MemoryLock>,
-    ) -> SliceHandle {
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         match self {
-            DynamicPool::Sliced(m) => m.reserve(storage, size, locked),
-            DynamicPool::Exclusive(m) => m.reserve(storage, size, locked),
+            DynamicPool::Sliced(m) => m.try_reserve(size),
+            DynamicPool::Exclusive(m) => m.try_reserve(size),
         }
     }
 
@@ -75,12 +42,13 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn max_alloc_size(&self) -> u64 {
+    fn handles_alloc(&self, size: u64) -> bool {
         match self {
-            DynamicPool::Sliced(m) => m.max_alloc_size(),
-            DynamicPool::Exclusive(m) => m.max_alloc_size(),
+            DynamicPool::Sliced(m) => m.handles_alloc(size),
+            DynamicPool::Exclusive(m) => m.handles_alloc(size),
         }
     }
+
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
@@ -89,6 +57,8 @@ impl MemoryPool for DynamicPool {
     }
 }
 
+const MB: u64 = 1024 * 1024;
+
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
@@ -96,11 +66,36 @@ pub struct MemoryManagement<Storage> {
     alloc_reserve_count: u64,
 }
 
+fn generate_bucket_sizes(
+    start_size: u64,
+    end_size: u64,
+    max_buckets: usize,
+    alignment: u64,
+) -> Vec<u64> {
+    let mut buckets = Vec::with_capacity(max_buckets);
+    let log_min = (start_size as f64).ln();
+    let log_max = (end_size as f64).ln();
+    let log_range = log_max - log_min;
+
+    // Pure exponential performed best, but let's try slightly denser in lower-mid range
+    for i in 0..max_buckets {
+        let p = i as f64 / (max_buckets - 1) as f64;
+        // Slight bias toward lower-mid range with less aggressive curve than sigmoid
+        let log_size = log_min + log_range * p;
+        let size = log_size.exp() as u64;
+        let aligned_size = size.next_multiple_of(alignment);
+        buckets.push(aligned_size);
+    }
+
+    buckets.dedup();
+    buckets
+}
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
-        properties: MemoryDeviceProperties,
+        properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
         let pools = match config {
@@ -109,126 +104,133 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Round chunk size to be aligned.
                 let memory_alignment = properties.alignment;
                 let max_page = properties.max_page_size;
-
                 let mut pools = Vec::new();
-                pools.push(MemoryPoolOptions {
-                    page_size: max_page / memory_alignment * memory_alignment, // align the size to max_page.
-                    chunk_num_prealloc: 0,
-                    pool_type: PoolType::SlicedPages {
-                        max_slice_size: max_page,
-                    },
-                    dealloc_period: None,
-                });
 
                 const MB: u64 = 1024 * 1024;
 
+                // Add in a pool for allocations that are smaller than the min alignment,
+                // as they can't use offsets at all (on wgpu at least).
+                pools.push(MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                });
+
                 let mut current = max_page;
+
+                let mut max_sizes = vec![];
+                let mut page_sizes = vec![];
+
                 while current >= 32 * MB {
                     current /= 4;
                     // Make sure every pool has an aligned size.
                     current = current.next_multiple_of(memory_alignment);
 
+                    max_sizes.push(current / 2u64.pow(pools.len() as u32));
+                    page_sizes.push(current);
+                }
+
+                max_sizes.reverse();
+                page_sizes.reverse();
+
+                for i in 0..max_sizes.len() {
+                    let min = if i == 0 {
+                        properties.alignment
+                    } else {
+                        max_sizes[i - 1]
+                    };
+
+                    let max = max_sizes[i];
+                    let page_size = page_sizes[i];
+
                     pools.push(MemoryPoolOptions {
-                        page_size: current,
-                        chunk_num_prealloc: 0,
                         // Creating max slices lower than the chunk size reduces fragmentation.
                         pool_type: PoolType::SlicedPages {
-                            max_slice_size: current / 2u64.pow(pools.len() as u32),
+                            page_size,
+                            min_slice_size: min,
+                            max_slice_size: max,
                         },
                         dealloc_period: None,
                     });
                 }
-                // Add in a pool for allocations that are smaller than the min alignment,
-                // as they can't use offsets at all (on wgpu at least).
+
+                // Add pools from big to small.
                 pools.push(MemoryPoolOptions {
-                    page_size: memory_alignment,
-                    chunk_num_prealloc: 0,
-                    pool_type: PoolType::ExclusivePages,
+                    pool_type: PoolType::SlicedPages {
+                        page_size: max_page / memory_alignment * memory_alignment,
+                        min_slice_size: *max_sizes.last().unwrap(),
+                        max_slice_size: max_page / memory_alignment * memory_alignment,
+                    },
                     dealloc_period: None,
                 });
                 pools
             }
             MemoryConfiguration::ExclusivePages => {
-                // Round chunk size to be aligned.
-                let memory_alignment = properties.alignment;
-
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                let sizes: BTreeSet<_> = EXP_BIN_SIZES
-                    .iter()
-                    .copied()
-                    .map(|size| size.next_multiple_of(memory_alignment))
-                    .take_while(|&size| size < properties.max_page_size)
-                    .collect();
+                const MIN_BUCKET_SIZE: u64 = 1024 * 32;
+                const NUM_POOLS: usize = 24;
 
-                // Add in one pool for all massive allocations.
-                sizes
+                // always include one bucket for smallest slices.
+                let mut sizes = vec![0];
+
+                // Add in other pools. Biggest pool does slices which are bigger than some fraction of the max page size.
+                sizes.extend(generate_bucket_sizes(
+                    MIN_BUCKET_SIZE,
+                    properties.max_page_size / 2,
+                    NUM_POOLS,
+                    properties.alignment,
+                ));
+
+                let pools = sizes
                     .iter()
                     .map(|&s| {
-                        // Bigger buckets will logically have less slices, and are a bigger win
-                        // to deallocate, so make the deallocation period roughly proportional to
-                        // alloc size.
-                        //
-                        // This also +- follows zipfs law https://en.wikipedia.org/wiki/Zipf%27s_law
-                        // which is an ok assumption for the distribution of allocations.
-                        //
-                        // This ranges from:
-                        //   128 bytes, 8389608 allocations (aka almost never)
-                        //   10kb, 105857 allocations
-                        //   1MB, 2024 allocations
-                        //   100MB+, 1000-1011 allocations
-                        let base_period = 1000;
-                        let dealloc_period = base_period + 1024 * MB as u64 / s;
+                        // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
+                        // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
+                        let dealloc_period =
+                            (5000.0 * 1.5f64.powf(s as f64 / (1024.0 * MB as f64))).round() as u64;
 
                         MemoryPoolOptions {
-                            page_size: s,
-                            chunk_num_prealloc: 0,
-                            pool_type: PoolType::ExclusivePages,
+                            pool_type: PoolType::ExclusivePages { min_alloc_size: s },
                             dealloc_period: Some(dealloc_period),
                         }
                     })
-                    .collect()
+                    .collect();
+
+                // Return pools from small to big.
+                pools
             }
-            MemoryConfiguration::Custom(pool_settings) => pool_settings,
+            MemoryConfiguration::Custom { pool_options } => pool_options,
         };
 
         for pool in pools.iter() {
             log::trace!("Using memory pool: \n {pool:?}");
         }
 
-        Self::new(storage, pools, properties.alignment)
-    }
+        let storage = storage;
 
-    /// Creates a new instance using the given storage, merging_strategy strategy and slice strategy.
-    pub fn new(mut storage: Storage, pools: Vec<MemoryPoolOptions>, memory_alignment: u64) -> Self {
-        let mut pools: Vec<_> = pools
+        let pools: Vec<_> = pools
             .iter()
-            .map(|options| {
-                let mut pool = match options.pool_type {
-                    PoolType::SlicedPages {
-                        max_slice_size: max_slice,
-                    } => DynamicPool::Sliced(SlicedPool::new(
-                        options.page_size,
-                        max_slice,
-                        memory_alignment,
-                    )),
-                    PoolType::ExclusivePages => DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                        options.page_size,
-                        memory_alignment,
+            .map(|options| match options.pool_type {
+                PoolType::SlicedPages {
+                    page_size,
+                    min_slice_size,
+                    max_slice_size,
+                } => DynamicPool::Sliced(SlicedPool::new(
+                    page_size,
+                    min_slice_size,
+                    max_slice_size,
+                    properties.alignment,
+                )),
+                PoolType::ExclusivePages { min_alloc_size } => {
+                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                        min_alloc_size,
+                        properties.alignment,
                         options.dealloc_period.unwrap_or(u64::MAX),
-                    )),
-                };
-
-                for _ in 0..options.chunk_num_prealloc {
-                    pool.alloc(&mut storage, options.page_size);
+                    ))
                 }
-
-                pool
             })
             .collect();
-
-        pools.sort_by(|pool1, pool2| u64::cmp(&pool1.max_alloc_size(), &pool2.max_alloc_size()));
 
         Self {
             pools,
@@ -245,12 +247,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the storage from the specified binding
-    pub fn get(&mut self, binding: SliceBinding) -> StorageHandle {
-        self.pools
-            .iter()
-            .find_map(|p| p.get(&binding))
-            .expect("No handle found in memory pools")
-            .clone()
+    pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+        self.pools.iter().find_map(|p| p.get(&binding)).cloned()
     }
 
     /// Returns the resource from the storage at the specified handle
@@ -259,63 +257,49 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         binding: SliceBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Storage::Resource {
+    ) -> Option<Storage::Resource> {
         let handle = self.get(binding);
-        let handle = match offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        self.storage().get(&handle)
+
+        handle.map(|handle| {
+            let handle = match offset_start {
+                Some(offset) => handle.offset_start(offset),
+                None => handle,
+            };
+            let handle = match offset_end {
+                Some(offset) => handle.offset_end(offset),
+                None => handle,
+            };
+            self.storage().get(&handle)
+        })
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
-    pub fn reserve(&mut self, size: u64, exclude: Option<&MemoryLock>) -> SliceHandle {
+    pub fn reserve(&mut self, size: u64) -> SliceHandle {
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        // Find first pool where size <= p.max_alloc with a binary search.
-        let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
+        let mut last_pool = None;
 
-        // Ensure the pool index is in bounds, otherwise there isn't any pool that can fit the
-        // requested allocation
-        if pool_ind >= self.pools.len() {
-            panic!("Unable to find valid pool partition point: No memory pool big enough to reserve {size} bytes.");
+        for pool in self.pools.iter_mut() {
+            if pool.handles_alloc(size) {
+                if let Some(slice) = pool.try_reserve(size) {
+                    return slice;
+                }
+
+                last_pool = Some(pool);
+            }
         }
+        // // Find last pool that can handle this allocation.
+        // let pool = self.pools.iter_mut().rev().find(|p| p.handles_alloc(size));
 
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
-            panic!("No memory pool big enough to reserve {size} bytes.");
-        }
-        pool.reserve(&mut self.storage, size, exclude)
-    }
+        // let Some(pool) = pool else {
+        //     panic!("No pool can handle alloc of size {size}.");
+        // };
 
-    /// Bypass the memory allocation algorithm to allocate data directly.
-    ///
-    /// # Notes
-    ///
-    /// Can be useful for servers that want specific control over memory.
-    pub fn alloc(&mut self, size: u64) -> SliceHandle {
-        // Find first pool where size <= p.max_alloc with a binary search.
-        let pool_ind = self.pools.partition_point(|p| size > p.max_alloc_size());
-        let pool = &mut self.pools[pool_ind];
-        if pool.max_alloc_size() < size {
-            panic!("No memory pool big enough to alloc {size} bytes.");
-        }
-        pool.alloc(&mut self.storage, size)
-    }
-
-    /// Bypass the memory allocation algorithm to deallocate data directly.
-    ///
-    /// # Notes
-    ///
-    /// Can be useful for servers that want specific control over memory.
-    pub fn dealloc(&mut self, _binding: SliceBinding) {
-        // Can't dealloc slices.
+        last_pool
+            .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"))
+            .alloc(&mut self.storage, size)
     }
 
     /// Fetch the storage used by the memory manager.
@@ -369,45 +353,78 @@ mod tests {
     use super::*;
     use crate::{memory_management::MemoryManagement, storage::BytesStorage};
 
+    const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
+        max_page_size: 128 * 1024 * 1024,
+        alignment: 32,
+    };
+
     // Test pools with slices.
     #[test]
     #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            MemoryDeviceProperties {
-                max_page_size: 128 * 1024 * 1024,
-                alignment: 32,
-            },
+            &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10);
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
         assert!(handle.can_mut(), "Handle should be mut when only one ref.");
     }
 
+    // Test pools with slices.
+    #[test]
+    #[cfg(not(exclusive_memory_only))]
+    fn test_memory_usage() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
+        );
+        let handle = memory_management.reserve(100);
+        let usage = memory_management.memory_usage();
+
+        assert_eq!(usage.bytes_in_use, 100);
+        println!("{}", usage);
+
+        assert!(usage.bytes_reserved >= 100 && usage.bytes_reserved < 200);
+
+        // Drop and re-alloc.
+        drop(handle);
+        let _handle = memory_management.reserve(100);
+        let usage_new = memory_management.memory_usage();
+        assert_eq!(usage, usage_new);
+    }
+
     #[test]
     fn alloc_two_chunks_on_one_page() {
         let page_size = 2048;
 
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::SlicedPages {
-                    max_slice_size: page_size,
-                },
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size,
+                        min_slice_size: 0,
+                        max_slice_size: page_size,
+                    },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -420,23 +437,25 @@ mod tests {
         // If no storage is re-used, this will allocate two pages.
         let page_size = 512;
 
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::SlicedPages {
-                    max_slice_size: page_size,
-                },
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size,
+                        min_slice_size: 0,
+                        max_slice_size: page_size,
+                    },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
@@ -448,22 +467,25 @@ mod tests {
     fn alloc_allocs_new_storage() {
         let page_size = 1024;
 
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::SlicedPages {
-                    max_slice_size: page_size,
-                },
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size,
+                        min_slice_size: 0,
+
+                        max_slice_size: page_size,
+                    },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
@@ -474,23 +496,29 @@ mod tests {
     #[test]
     fn alloc_respects_alignment_size() {
         let page_size = 500;
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::SlicedPages {
-                    max_slice_size: page_size,
-                },
-                dealloc_period: None,
-            }],
-            50,
+            &MemoryDeviceProperties {
+                max_page_size: page_size,
+                alignment: 50,
+            },
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size,
+                        min_slice_size: 0,
+
+                        max_slice_size: page_size,
+                    },
+                    dealloc_period: None,
+                }],
+            },
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
-        // Each slice should be aligned to 60 bytes, so 20 padding bytes.
+        // Each slice should be aligned to 50 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
     }
 
@@ -500,25 +528,35 @@ mod tests {
 
         let pools = sizes
             .iter()
-            .map(|&size| MemoryPoolOptions {
-                page_size: size,
-                chunk_num_prealloc: 0,
+            .map(|size| MemoryPoolOptions {
                 pool_type: PoolType::SlicedPages {
-                    max_slice_size: size,
+                    page_size: *size,
+                    min_slice_size: 0,
+
+                    max_slice_size: *size,
                 },
                 dealloc_period: None,
             })
             .collect();
-        let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &MemoryDeviceProperties {
+                max_page_size: 128 * 1024 * 1024,
+                alignment: 10,
+            },
+            MemoryConfiguration::Custom {
+                pool_options: pools,
+            },
+        );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
+        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
 
         let usage = memory_management.memory_usage();
 
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
-        assert_eq!(usage.bytes_reserved, sizes.iter().sum::<u64>());
+        assert!(usage.bytes_reserved >= sizes.iter().sum::<u64>());
     }
 
     #[test]
@@ -526,7 +564,7 @@ mod tests {
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            MemoryDeviceProperties {
+            &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
@@ -534,14 +572,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
@@ -555,7 +593,7 @@ mod tests {
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            MemoryDeviceProperties {
+            &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
@@ -565,7 +603,7 @@ mod tests {
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
         let handles: Vec<_> = sizes
             .iter()
-            .map(|&size| memory_management.reserve(size, None))
+            .map(|&size| memory_management.reserve(size))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate every other allocation
@@ -574,7 +612,7 @@ mod tests {
         }
         // Reallocate similar sizes
         for &size in &sizes[0..sizes.len() / 2] {
-            memory_management.reserve(size, None);
+            memory_management.reserve(size);
         }
         let usage_after = memory_management.memory_usage();
         // Check that we haven't increased our memory usage significantly
@@ -584,16 +622,15 @@ mod tests {
     // Test pools without slices. More or less same as tests above.
     #[test]
     fn noslice_test_handle_mutability() {
-        let mem_props = MemoryDeviceProperties {
-            max_page_size: 128 * 1024 * 1024,
-            alignment: 32,
-        };
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            mem_props,
+            &(MemoryDeviceProperties {
+                max_page_size: 128 * 1024 * 1024,
+                alignment: 32,
+            }),
             MemoryConfiguration::ExclusivePages,
         );
-        let handle = memory_management.reserve(10, None);
+        let handle = memory_management.reserve(10);
         let other_ref = handle.clone();
         assert!(!handle.can_mut(), "Handle can't be mut when multiple ref.");
         drop(other_ref);
@@ -602,93 +639,92 @@ mod tests {
 
     #[test]
     fn noslice_alloc_two_chunk() {
-        let page_size = 2048;
-
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::ExclusivePages,
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert_eq!(usage.bytes_reserved, page_size * 2);
+        assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
     #[test]
     fn noslice_alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size: 512,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::ExclusivePages,
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 512;
-        let _handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
         drop(_handle);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _new_handle = memory_management.reserve(alloc_size);
 
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 1);
         assert_eq!(usage.bytes_in_use, alloc_size);
-        assert_eq!(usage.bytes_reserved, alloc_size);
+        assert!(usage.bytes_reserved >= alloc_size);
     }
 
     #[test]
     fn noslice_alloc_allocs_new_storage() {
-        let page_size = 1024;
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::ExclusivePages,
-                dealloc_period: None,
-            }],
-            32,
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
         );
 
         let alloc_size = 768;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
         assert_eq!(usage.number_allocs, 2);
         assert_eq!(usage.bytes_in_use, alloc_size * 2);
-        assert_eq!(usage.bytes_reserved, page_size * 2);
+        assert!(usage.bytes_reserved >= alloc_size * 2);
     }
 
     #[test]
     fn noslice_alloc_respects_alignment_size() {
-        let page_size = 500;
-        let mut memory_management = MemoryManagement::new(
+        let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            vec![MemoryPoolOptions {
-                page_size,
-                chunk_num_prealloc: 0,
-                pool_type: PoolType::ExclusivePages,
-                dealloc_period: None,
-            }],
-            50,
+            &MemoryDeviceProperties {
+                max_page_size: DUMMY_MEM_PROPS.max_page_size,
+                alignment: 50,
+            },
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages { min_alloc_size: 0 },
+                    dealloc_period: None,
+                }],
+            },
         );
         let alloc_size = 40;
-        let _handle = memory_management.reserve(alloc_size, None);
-        let _new_handle = memory_management.reserve(alloc_size, None);
+        let _handle = memory_management.reserve(alloc_size);
+        let _new_handle = memory_management.reserve(alloc_size);
         let usage = memory_management.memory_usage();
         // Each slice should be aligned to 60 bytes, so 20 padding bytes.
         assert_eq!(usage.bytes_padding, 10 * 2);
@@ -699,18 +735,27 @@ mod tests {
         let pools = [100, 200, 300, 400]
             .iter()
             .map(|&size| MemoryPoolOptions {
-                page_size: size,
-                chunk_num_prealloc: 0,
                 pool_type: PoolType::SlicedPages {
+                    page_size: size,
+                    min_slice_size: 0,
                     max_slice_size: size,
                 },
                 dealloc_period: None,
             })
             .collect();
-        let mut memory_management = MemoryManagement::new(BytesStorage::default(), pools, 10);
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &MemoryDeviceProperties {
+                max_page_size: DUMMY_MEM_PROPS.max_page_size,
+                alignment: 10,
+            },
+            MemoryConfiguration::Custom {
+                pool_options: pools,
+            },
+        );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
-        let _handles = alloc_sizes.map(|s| memory_management.reserve(s, None));
+        let _handles = alloc_sizes.map(|s| memory_management.reserve(s));
         let usage = memory_management.memory_usage();
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
@@ -720,7 +765,7 @@ mod tests {
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
-            MemoryDeviceProperties {
+            &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
             },
@@ -728,14 +773,14 @@ mod tests {
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_before = memory_management.memory_usage();
         // Deallocate
         drop(handles);
         // Reallocate
         let _new_handles: Vec<_> = (0..5)
-            .map(|i| memory_management.reserve(1000 * (i + 1), None))
+            .map(|i| memory_management.reserve(1000 * (i + 1)))
             .collect();
         let usage_after = memory_management.memory_usage();
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);

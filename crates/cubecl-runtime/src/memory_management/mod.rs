@@ -1,10 +1,8 @@
 pub(crate) mod memory_pool;
 
 mod base;
-mod memory_lock;
 
 pub use base::*;
-pub use memory_lock::*;
 
 /// Dynamic memory management strategy.
 mod memory_manage;
@@ -17,9 +15,16 @@ use alloc::vec::Vec;
 #[derive(Debug, Clone)]
 pub enum PoolType {
     /// Use a memory where every allocation is a separate page.
-    ExclusivePages,
+    ExclusivePages {
+        /// The minimum number of bytes to allocate in this pool.
+        min_alloc_size: u64,
+    },
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
+        /// The page size to allocate.
+        page_size: u64,
+        /// The minimum size of a slice to allocate in the pool.
+        min_slice_size: u64,
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
     },
@@ -30,12 +35,6 @@ pub enum PoolType {
 pub struct MemoryPoolOptions {
     /// What kind of pool to use.
     pub pool_type: PoolType,
-    /// The amount of bytes used for each chunk in the memory pool.
-    pub page_size: u64,
-    /// The number of chunks allocated directly at creation.
-    ///
-    /// Useful when you know in advance how much memory you'll need.
-    pub chunk_num_prealloc: u64,
     /// Period after which allocations are deemed unused and deallocated.
     ///
     /// This period is measured in the number of allocations in the parent allocator. If a page
@@ -47,14 +46,18 @@ pub struct MemoryPoolOptions {
 /// High level configuration of memory management.
 #[derive(Clone, Debug)]
 pub enum MemoryConfiguration {
-    /// The default preset using sub sices.
+    /// The default preset, which uses pools that allocate sub slices.
     #[cfg(not(exclusive_memory_only))]
     SubSlices,
-    /// Default preset using only exclusive pages.
-    /// This can be necessary when backends don't support sub-slices.
+    /// Default preset for using exclusive pages.
+    /// This can be necessary for backends don't support sub-slices.
     ExclusivePages,
-    /// Customize each pool individually.
-    Custom(Vec<MemoryPoolOptions>),
+    /// Custom settings.
+    Custom {
+        /// Options for each pool to construct. When allocating, the first
+        /// possible pool will be picked for an allocation.
+        pool_options: Vec<MemoryPoolOptions>,
+    },
 }
 
 #[allow(clippy::derivable_impls)]

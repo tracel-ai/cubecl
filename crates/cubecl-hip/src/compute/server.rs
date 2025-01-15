@@ -76,11 +76,10 @@ unsafe impl Send for HipServer {}
 impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         let mut data = uninit_vec(resource.size as usize);
         unsafe {
@@ -104,11 +103,10 @@ impl HipServer {
         let mut result = Vec::with_capacity(bindings.len());
 
         for binding in bindings {
-            let resource = ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            );
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
             let mut data = uninit_vec(resource.size as usize);
             unsafe {
@@ -166,11 +164,10 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
 
         unsafe {
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
@@ -186,7 +183,7 @@ impl ComputeServer for HipServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -232,11 +229,9 @@ impl ComputeServer for HipServer {
         let resources = bindings
             .into_iter()
             .map(|binding| {
-                ctx.memory_management.get_resource(
-                    binding.memory,
-                    binding.offset_start,
-                    binding.offset_end,
-                )
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Couldn't find resource")
             })
             .collect::<Vec<_>>();
 
@@ -296,11 +291,9 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            ),
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Can't find resource"),
         )
     }
 

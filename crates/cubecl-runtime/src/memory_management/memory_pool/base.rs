@@ -1,5 +1,4 @@
 use super::{SliceBinding, SliceHandle, SliceId};
-use crate::memory_management::MemoryLock;
 use crate::{
     memory_management::MemoryUsage,
     storage::{ComputeStorage, StorageHandle},
@@ -36,16 +35,11 @@ pub(crate) fn calculate_padding(size: u64, buffer_alignment: u64) -> u64 {
 }
 
 pub trait MemoryPool {
-    fn max_alloc_size(&self) -> u64;
+    fn handles_alloc(&self, size: u64) -> bool;
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        locked: Option<&MemoryLock>,
-    ) -> SliceHandle;
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle;
 
