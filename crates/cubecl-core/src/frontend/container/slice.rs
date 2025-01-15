@@ -52,6 +52,13 @@ mod metadata {
         {
             unexpanded!()
         }
+        pub fn fake_cast<T>(&self) -> Slice<T>
+        where
+            E: CubePrimitive,
+            T: CubePrimitive,
+        {
+            unexpanded!()
+        }
     }
 
     impl<E> SliceMut<E> {
@@ -85,6 +92,21 @@ mod metadata {
         where
             C: CubePrimitive,
         {
+            self.expand.into()
+        }
+
+        pub fn __expand_fake_cast_method<T>(
+            self,
+            _context: &mut CubeContext,
+        ) -> ExpandElementTyped<Slice<T>>
+        where
+            C: CubePrimitive,
+            T: CubePrimitive,
+        {
+            if core::any::TypeId::of::<T>() != core::any::TypeId::of::<C>() {
+                panic!("Fake cast should only be used to satisfy rust type system.")
+            }
+
             self.expand.into()
         }
 
