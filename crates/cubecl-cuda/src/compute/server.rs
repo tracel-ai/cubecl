@@ -473,10 +473,10 @@ fn cuda_path() -> Option<PathBuf> {
         return if std::fs::exists("/usr/local/cuda").is_ok_and(|exists| exists) {
             Some(PathBuf::from("/usr/local/cuda"))
         } else if std::fs::exists("/opt/cuda").is_ok_and(|exists| exists) {
-            Some(PathBuf::from("/opt/cuda")) 
+            Some(PathBuf::from("/opt/cuda"))
         } else if std::fs::exists("/usr/bin/nvcc").is_ok_and(|exists| exists) {
             // Maybe the compiler was installed within the user path.
-            Some(PathBuf::from("/usr")) 
+            Some(PathBuf::from("/usr"))
         } else {
             None
         };
