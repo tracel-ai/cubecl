@@ -119,19 +119,22 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
                 let mut max_sizes = vec![];
                 let mut page_sizes = vec![];
+                let mut base = pools.len() as u32;
 
                 while current >= 32 * MB {
                     current /= 4;
                     // Make sure every pool has an aligned size.
                     current = current.next_multiple_of(memory_alignment);
 
-                    max_sizes.push(current / 2u64.pow(pools.len() as u32));
+                    max_sizes.push(current / 2u64.pow(base));
+                    base += 1;
                     page_sizes.push(current);
                 }
 
                 max_sizes.reverse();
                 page_sizes.reverse();
 
+                let mut big_pools = Vec::new();
                 for i in 0..max_sizes.len() {
                     let min = if i == 0 {
                         properties.alignment
@@ -142,7 +145,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     let max = max_sizes[i];
                     let page_size = page_sizes[i];
 
-                    pools.push(MemoryPoolOptions {
+                    big_pools.push(MemoryPoolOptions {
                         // Creating max slices lower than the chunk size reduces fragmentation.
                         pool_type: PoolType::SlicedPages {
                             page_size,
@@ -151,6 +154,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         },
                         dealloc_period: None,
                     });
+                }
+                for p in big_pools.into_iter().rev() {
+                    pools.push(p)
                 }
 
                 // Add pools from big to small.
@@ -290,12 +296,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 last_pool = Some(pool);
             }
         }
-        // // Find last pool that can handle this allocation.
-        // let pool = self.pools.iter_mut().rev().find(|p| p.handles_alloc(size));
-
-        // let Some(pool) = pool else {
-        //     panic!("No pool can handle alloc of size {size}.");
-        // };
 
         last_pool
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"))
