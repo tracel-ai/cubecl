@@ -44,7 +44,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
     }
 
     /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
-    pub fn execute<S, C, In: Send + Sync + Clone + 'static, Out: Send + Sync + 'static>(
+    pub fn execute<S, C, In: Send + Clone + 'static, Out: Send + 'static>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
