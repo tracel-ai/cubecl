@@ -1,3 +1,5 @@
+mod input_generator;
+mod key_generator;
 mod local;
 mod operation;
 mod tune_benchmark;
