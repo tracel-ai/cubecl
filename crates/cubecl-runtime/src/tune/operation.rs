@@ -136,6 +136,7 @@ pub trait IntoTunable<In, Out, Marker> {
 }
 
 /// Dummy marker for [`IntoTunable`] on [`Tunable`]s
+#[doc(hidden)]
 pub struct IsIdentity;
 
 impl<T: Tunable> IntoTunable<T::Inputs, T::Output, IsIdentity> for T {
@@ -169,6 +170,7 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> Tunable for FunctionTu
 }
 
 /// Dummy marker for function tunables
+#[doc(hidden)]
 pub struct IsFunction;
 
 impl<F: AsFunctionTunableResult<Marker>, Marker: 'static>
@@ -259,8 +261,9 @@ pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
 }
 
 macro_rules! impl_tunable {
-    ($($params:ident),*) => {
+    ($(#[$meta:meta])* $($params:ident),*) => {
         #[allow(unused_parens)]
+        $(#[$meta])*
         impl<Out: 'static, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunable<fn($($params),*) -> Out> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Out
@@ -284,8 +287,9 @@ macro_rules! impl_tunable {
 }
 
 macro_rules! impl_tunable_result {
-    ($($params:ident),*) => {
+    ($(#[$meta:meta])* $($params:ident),*) => {
         #[allow(unused_parens)]
+        $(#[$meta])*
         impl<Out: 'static, Err, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
             where Func: Send + Sync + 'static,
             for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
@@ -309,8 +313,8 @@ macro_rules! impl_tunable_result {
     };
 }
 
-all_tuples!(impl_tunable, 0, 16, I);
-all_tuples!(impl_tunable_result, 0, 16, I);
+all_tuples!(impl_tunable, 0, 12, I);
+all_tuples!(impl_tunable_result, 0, 12, I);
 
 #[cfg(autotune_persistent_cache)]
 /// Trait alias with support for persistent caching

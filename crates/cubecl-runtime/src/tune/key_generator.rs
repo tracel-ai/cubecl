@@ -66,4 +66,4 @@ macro_rules! impl_keygen {
     };
 }
 
-all_tuples!(impl_keygen, 0, 16, I);
+all_tuples!(impl_keygen, 0, 12, I);

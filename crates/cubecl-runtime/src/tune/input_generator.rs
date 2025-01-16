@@ -67,4 +67,4 @@ macro_rules! impl_input_gen {
     };
 }
 
-all_tuples!(impl_input_gen, 0, 16, I);
+all_tuples!(impl_input_gen, 0, 13, I);
