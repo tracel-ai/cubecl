@@ -1,3 +1,47 @@
+//! This module exposes pipeling utilities for multi-stage asynchronous data copies
+//! with latency hiding.
+//!
+//! # Example
+//!
+//! ```rust, ignore
+//! #[cube(launch)]
+//! pub fn example(lhs: &Array<F16>, rhs: &Array<F16>, out: &mut Array<F32>) {
+//!     let a = cmma::Matrix::<F16>::new(
+//!         cmma::MatrixIdent::A,
+//!         16,
+//!         16,
+//!         16,
+//!         cmma::MatrixLayout::RowMajor,
+//!     );
+//!     let b = cmma::Matrix::<F16>::new(
+//!         cmma::MatrixIdent::B,
+//!         16,
+//!         16,
+//!         16,
+//!         cmma::MatrixLayout::ColMajor,
+//!     );
+//!     let c = cmma::Matrix::<F32>::new(
+//!         cmma::MatrixIdent::Accumulator,
+//!         16,
+//!         16,
+//!         16,
+//!         cmma::MatrixLayout::Undefined,
+//!     );
+//!     cmma::fill::<F32>(&c, F32::new(0.0));
+//!     cmma::load::<F16>(&a, lhs.as_slice(), u32::new(16));
+//!     cmma::load::<F16>(&b, rhs.as_slice(), u32::new(16));
+//!
+//!     cmma::execute::<F16, F16, F32, F32>(&a, &b, &c, &c);
+//!
+//!     cmma::store::<F32>(
+//!         out.as_slice_mut(),
+//!         &c,
+//!         u32::new(16),
+//!         cmma::MatrixLayout::RowMajor,
+//!     );
+//! }
+//! ```
+
 use std::marker::PhantomData;
 
 use crate::{

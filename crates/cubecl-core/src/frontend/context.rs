@@ -100,7 +100,7 @@ impl CubeContext {
         matrix
     }
 
-    /// Create a new matrix element.
+    /// Create a new pipeline element.
     pub fn create_pipeline(&mut self, item: Item) -> ExpandElement {
         let pipeline = self.scope.borrow().allocator.create_pipeline(item);
         self.scope.borrow_mut().add_pipeline(*pipeline);
