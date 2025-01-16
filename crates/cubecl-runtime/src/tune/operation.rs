@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::hash::Hash;
@@ -27,12 +26,13 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
 }
 
 /// Groups operations of the same type for autotune
+#[derive(Clone)]
 pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
-    key_gen: Box<dyn KeyGenerator<K, Inputs>>,
-    input_gen: Box<dyn InputGenerator<K, Inputs>>,
+    key_gen: Arc<dyn KeyGenerator<K, Inputs>>,
+    input_gen: Arc<dyn InputGenerator<K, Inputs>>,
     #[allow(clippy::type_complexity)]
-    checksum_override: Option<Box<dyn Fn(&Self) -> String + Send + Sync>>,
+    checksum_override: Option<Arc<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
@@ -45,8 +45,8 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     ) -> Self {
         Self {
             tunables: Default::default(),
-            input_gen: Box::new(input_gen.into_input_gen()),
-            key_gen: Box::new(key_gen.into_key_gen()),
+            input_gen: Arc::new(input_gen.into_input_gen()),
+            key_gen: Arc::new(key_gen.into_key_gen()),
             checksum_override: None,
         }
     }
@@ -65,7 +65,7 @@ impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
         mut self,
         checksum: impl Fn(&Self) -> String + Send + Sync + 'static,
     ) -> Self {
-        self.checksum_override = Some(Box::new(checksum));
+        self.checksum_override = Some(Arc::new(checksum));
         self
     }
 
