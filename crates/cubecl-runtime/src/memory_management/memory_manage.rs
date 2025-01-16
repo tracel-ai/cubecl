@@ -116,17 +116,19 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 });
 
                 let mut current = max_page;
-
                 let mut max_sizes = vec![];
                 let mut page_sizes = vec![];
+                let mut base = pools.len() as u32;
 
                 while current >= 32 * MB {
                     current /= 4;
+
                     // Make sure every pool has an aligned size.
                     current = current.next_multiple_of(memory_alignment);
 
-                    max_sizes.push(current / 2u64.pow(pools.len() as u32));
+                    max_sizes.push(current / 2u64.pow(base));
                     page_sizes.push(current);
+                    base += 1;
                 }
 
                 max_sizes.reverse();
@@ -290,12 +292,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 last_pool = Some(pool);
             }
         }
-        // // Find last pool that can handle this allocation.
-        // let pool = self.pools.iter_mut().rev().find(|p| p.handles_alloc(size));
-
-        // let Some(pool) = pool else {
-        //     panic!("No pool can handle alloc of size {size}.");
-        // };
 
         last_pool
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"))
