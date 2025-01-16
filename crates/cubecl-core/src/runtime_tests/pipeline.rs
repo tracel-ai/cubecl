@@ -3,7 +3,7 @@ use cubecl::prelude::*;
 use pipeline::Pipeline;
 
 #[cube(launch)]
-fn pipelined_computation<F: Float>(
+fn pipelined_sum<F: Float>(
     input: &Array<Line<F>>,
     output: &mut Array<Line<F>>,
     #[comptime] batch_len: u32,
@@ -34,16 +34,20 @@ fn pipelined_computation<F: Float>(
         pipeline.producer_commit();
 
         pipeline.consumer_await();
-        let compute_slice = input.slice(batch_len * compute_index, batch_len * (compute_index + 1));
-        for i in 0..compute_slice.len() {
+        let compute_slice =
+            shared_memory.slice(batch_len * compute_index, batch_len * (compute_index + 1));
+        for i in 0..batch_len {
             sum += compute_slice[i];
         }
         pipeline.consumer_release();
     }
 
     pipeline.consumer_await();
-    let compute_slice = input.slice(batch_len * 1, batch_len * 2);
-    for i in 0..compute_slice.len() {
+    let compute_slice = shared_memory.slice(
+        batch_len * ((num_batches + 1) % 2),
+        batch_len * ((num_batches + 1) % 2 + 1),
+    );
+    for i in 0..batch_len {
         sum += compute_slice[i];
     }
     pipeline.consumer_release();
@@ -97,7 +101,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual[0], F::new(2.0));
 }
 
-pub fn test_pipelined_computation<R: Runtime, F: Float + CubeElement>(
+pub fn test_pipelined_sum<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     if !client.properties().feature_enabled(Feature::Pipeline) {
@@ -105,24 +109,24 @@ pub fn test_pipelined_computation<R: Runtime, F: Float + CubeElement>(
         return;
     }
 
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create(as_bytes![F: 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
-        pipelined_computation::launch::<F, R>(
+        pipelined_sum::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
-            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 8, 1),
             ArrayArg::from_raw_parts::<F>(&output, 1, 1),
-            5,
+            2,
         )
     };
 
     let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], F::new(10.0));
+    assert_eq!(actual[0], F::new(36.0));
 }
 
 #[allow(missing_docs)]
@@ -138,12 +142,11 @@ macro_rules! testgen_pipeline {
         }
 
         #[test]
-        fn test_pipeline_computation() {
+        fn test_pipeline_sum() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::pipeline::test_pipelined_computation::<
-                TestRuntime,
-                FloatType,
-            >(client);
+            cubecl_core::runtime_tests::pipeline::test_pipelined_sum::<TestRuntime, FloatType>(
+                client,
+            );
         }
     };
 }
