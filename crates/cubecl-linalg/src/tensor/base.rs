@@ -165,42 +165,6 @@ where
 
         output
     }
-
-    /// Create a tensor handle containing identity matrix of dim x dim.
-    pub fn eye(client: &ComputeClient<R::Server, R::Channel>, dim: u32) -> Self {
-        let shape = vec![dim as usize, dim as usize];
-        let rank = shape.len();
-        let num_elements: usize = shape.iter().product();
-        let output = Self::empty(client, shape);
-
-        let vectorization_factor = tensor_line_size_parallel(
-            R::supported_line_sizes().iter().cloned(),
-            &output.shape,
-            &output.strides,
-            rank - 1,
-        );
-
-        let cube_dim = CubeDim::default();
-        let cube_count =
-            calculate_cube_count_elemwise(num_elements / vectorization_factor as usize, cube_dim);
-
-        unsafe {
-            init::eye_array_line::launch_unchecked::<E, R>(
-                client,
-                cube_count,
-                cube_dim,
-                TensorArg::from_raw_parts::<E>(
-                    &output.handle,
-                    &output.strides,
-                    &output.shape,
-                    vectorization_factor,
-                ),
-                ScalarArg::new(dim + 1),
-            )
-        };
-
-        output
-    }
 }
 
 pub(crate) mod init {
@@ -211,26 +175,6 @@ pub(crate) mod init {
     pub fn zeros_array<C: Numeric>(output: &mut Array<C>) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = C::from_int(0);
-        }
-    }
-
-    #[cube(launch_unchecked)]
-    pub fn eye_array_line<C: Numeric>(output: &mut Tensor<Line<C>>, dim: u32) {
-        if ABSOLUTE_POS < output.len() {
-            let mut line = Line::empty(output.line_size()).fill(C::from_int(0));
-
-            let start_pos = ABSOLUTE_POS * output.line_size();
-            let mut offset = 0;
-            while offset < output.line_size() {
-                let remainder = (start_pos + offset) % dim;
-                if remainder % dim == 0 {
-                    line[offset] = C::from_int(1);
-                    offset += dim;
-                } else {
-                    offset += dim - remainder;
-                }
-            }
-            output[ABSOLUTE_POS] = line;
         }
     }
 }

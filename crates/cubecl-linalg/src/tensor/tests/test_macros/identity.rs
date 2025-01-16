@@ -1,10 +1,10 @@
 #![allow(missing_docs)]
 
 #[macro_export]
-macro_rules! testgen_tensor_eye {
+macro_rules! testgen_tensor_identity {
     () => {
-        mod eye {
-            $crate::testgen_tensor_eye!(f32);
+        mod identity {
+            $crate::testgen_tensor_identity!(f32);
         }
     };
     ($numeric:ident) => {
@@ -16,32 +16,32 @@ macro_rules! testgen_tensor_eye {
 
             #[test]
             pub fn test_tiny() {
-                cubecl_linalg::tensor::tests::eye::test_eye::<TestRuntime, NumericT>(&Default::default(), 3);
+                cubecl_linalg::tensor::tests::identity::test_identity::<TestRuntime, NumericT>(&Default::default(), 3);
             }
 
             #[test]
             pub fn test_small() {
-                cubecl_linalg::tensor::tests::eye::test_eye::<TestRuntime, NumericT>(&Default::default(), 16);
+                cubecl_linalg::tensor::tests::identity::test_identity::<TestRuntime, NumericT>(&Default::default(), 16);
             }
 
             #[test]
             pub fn test_normal() {
-                cubecl_linalg::tensor::tests::eye::test_eye::<TestRuntime, NumericT>(&Default::default(), 256)
+                cubecl_linalg::tensor::tests::identity::test_identity::<TestRuntime, NumericT>(&Default::default(), 256)
             }
 
             #[test]
             pub fn test_large() {
-                cubecl_linalg::tensor::tests::eye::test_eye::<TestRuntime, NumericT>(&Default::default(), 4096)
+                cubecl_linalg::tensor::tests::identity::test_identity::<TestRuntime, NumericT>(&Default::default(), 4096)
             }
     };
     ([$($numeric:ident),*]) => {
-        mod eye {
+        mod identity {
             use super::*;
             ::paste::paste! {
                 $(mod [<$numeric _ty>] {
                     use super::*;
 
-                    $crate::testgen_tensor_eye!($numeric);
+                    $crate::testgen_tensor_identity!($numeric);
                 })*
             }
         }
