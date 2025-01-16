@@ -16,7 +16,7 @@ use super::{
 
 /// Default checksum for an operation set
 #[cfg(autotune_persistent_cache)]
-pub fn compute_checksum<In: Clone + Send + 'static, Out: Send + 'static>(
+pub fn compute_checksum<In: Clone + Send + 'static, Out: 'static>(
     autotunables: &[Arc<dyn Tunable<Inputs = In, Output = Out>>],
 ) -> String {
     let mut checksum = String::new();
@@ -27,7 +27,7 @@ pub fn compute_checksum<In: Clone + Send + 'static, Out: Send + 'static>(
 }
 
 /// Groups operations of the same type for autotune
-pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: Send + 'static> {
+pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
     tunables: Vec<Arc<dyn Tunable<Inputs = Inputs, Output = Output>>>,
     key_gen: Box<dyn KeyGenerator<K, Inputs>>,
     input_gen: Box<dyn InputGenerator<K, Inputs>>,
@@ -35,7 +35,7 @@ pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: Send + 'st
     checksum_override: Option<Box<dyn Fn(&Self) -> String + Send + Sync>>,
 }
 
-impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: Send + 'static>
+impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
 {
     /// Create a tunable set from a key generator and an input generator
@@ -151,14 +151,15 @@ impl<T: Tunable> IntoTunable<T::Inputs, T::Output, IsIdentity> for T {
 /// # Marker
 /// The marker generic is used to work around limitations in the trait resolver that causes
 /// conflicting implementation errors.
-pub struct FunctionTunable<F: AsFunctionTunable<Marker>, Marker: Send + Sync + 'static> {
+pub struct FunctionTunable<F: AsFunctionTunableResult<Marker>, Marker> {
     func: F,
     _marker: PhantomData<Marker>,
 }
 
-impl<F: AsFunctionTunable<Marker>, Marker: Send + Sync + 'static> Tunable
-    for FunctionTunable<F, Marker>
-{
+unsafe impl<F: AsFunctionTunableResult<Marker> + Send, Marker> Send for FunctionTunable<F, Marker> {}
+unsafe impl<F: AsFunctionTunableResult<Marker> + Sync, Marker> Sync for FunctionTunable<F, Marker> {}
+
+impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> Tunable for FunctionTunable<F, Marker> {
     type Inputs = F::Inputs;
     type Output = F::Output;
 
@@ -167,9 +168,10 @@ impl<F: AsFunctionTunable<Marker>, Marker: Send + Sync + 'static> Tunable
     }
 }
 
-struct IsFunction;
+/// Dummy marker for function tunables
+pub struct IsFunction;
 
-impl<F: AsFunctionTunable<Marker>, Marker: Send + Sync + 'static>
+impl<F: AsFunctionTunableResult<Marker>, Marker: 'static>
     IntoTunable<F::Inputs, F::Output, (Marker, IsFunction)> for F
 {
     type Tunable = FunctionTunable<F, Marker>;
@@ -182,12 +184,66 @@ impl<F: AsFunctionTunable<Marker>, Marker: Send + Sync + 'static>
     }
 }
 
+/// An infallible tunable that maps to `Ok(out)`
+pub struct FunctionTunableResultMap<F: AsFunctionTunable<Marker>, Marker> {
+    func: F,
+    _marker: PhantomData<Marker>,
+}
+
+unsafe impl<F: AsFunctionTunable<Marker> + Send, Marker> Send
+    for FunctionTunableResultMap<F, Marker>
+{
+}
+unsafe impl<F: AsFunctionTunable<Marker> + Sync, Marker> Sync
+    for FunctionTunableResultMap<F, Marker>
+{
+}
+
+impl<F: AsFunctionTunable<Marker>, Marker: 'static> Tunable
+    for FunctionTunableResultMap<F, Marker>
+{
+    type Inputs = F::Inputs;
+    type Output = F::Output;
+
+    fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
+        Ok(self.func.execute(inputs))
+    }
+}
+
 /// A function that can be turned into a tunable.
 ///
 /// # Marker
 /// The marker generic is used to work around limitations in the trait resolver that causes
 /// conflicting implementation errors.
-pub trait AsFunctionTunable<Marker>: Send + Sync + 'static {
+pub trait AsFunctionTunable<Marker>: Sized + Send + Sync + 'static {
+    /// Function inputs
+    type Inputs: Clone;
+    /// Function output
+    type Output;
+
+    /// Run a tuneable function
+    fn execute(&self, inputs: Self::Inputs) -> Self::Output;
+
+    /// Wrap infallible tunable with `Ok`
+    fn ok(self) -> FunctionTunableResultMap<Self, Marker> {
+        FunctionTunableResultMap {
+            func: self,
+            _marker: PhantomData,
+        }
+    }
+
+    /// The name of the tuneable function
+    fn name(&self) -> &str {
+        core::any::type_name::<Self>()
+    }
+}
+
+/// A function that can be turned into a tunable.
+///
+/// # Marker
+/// The marker generic is used to work around limitations in the trait resolver that causes
+/// conflicting implementation errors.
+pub trait AsFunctionTunableResult<Marker>: Send + Sync + 'static {
     /// Function inputs
     type Inputs: Clone;
     /// Function output
@@ -205,18 +261,21 @@ pub trait AsFunctionTunable<Marker>: Send + Sync + 'static {
 macro_rules! impl_tunable {
     ($($params:ident),*) => {
         #[allow(unused_parens)]
-        impl<Out: 'static, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunable<fn($($params),*) -> Out> for Func where Func: Send + Sync + 'static, for<'a> &'a Func: Fn($($params),*) -> Out {
+        impl<Out: 'static, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunable<fn($($params),*) -> Out> for Func
+            where Func: Send + Sync + 'static,
+            for<'a> &'a Func: Fn($($params),*) -> Out
+        {
             type Inputs = ($($params),*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
-            fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, AutotuneError> {
+            fn execute(&self, ($($params),*): ($($params),*)) -> Out {
                 fn call_inner<Out, $($params,)*>(
                     f: impl Fn($($params,)*) -> Out,
                     $($params: $params,)*
-                ) -> Result<Out, AutotuneError> {
-                    Ok(f($($params,)*))
+                ) -> Out {
+                    f($($params,)*)
                 }
                 call_inner(self, $($params),*)
             }
@@ -224,28 +283,27 @@ macro_rules! impl_tunable {
     };
 }
 
-struct IsResult;
-
 macro_rules! impl_tunable_result {
     ($($params:ident),*) => {
         #[allow(unused_parens)]
-        impl<Out: 'static, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunable<(IsResult, fn($($params),*) -> Result<Out, AutotuneError>)> for Func
+        impl<Out: 'static, Err, Func, $($params: Clone + Send + 'static,)*> AsFunctionTunableResult<fn($($params),*) -> Result<Out, Err>> for Func
             where Func: Send + Sync + 'static,
-            for<'a> &'a Func: Fn($($params),*) -> Result<Out, AutotuneError>
-            {
+            for<'a> &'a Func: Fn($($params),*) -> Result<Out, Err>,
+            Err: Into<AutotuneError>
+        {
             type Inputs = ($($params),*);
             type Output = Out;
 
             #[allow(non_snake_case, clippy::too_many_arguments)]
             #[inline]
             fn execute(&self, ($($params),*): ($($params),*)) -> Result<Out, AutotuneError> {
-                fn call_inner<Out, $($params,)*>(
-                    f: impl Fn($($params,)*) -> Result<Out, AutotuneError>,
+                fn call_inner<Out, Err, $($params,)*>(
+                    f: impl Fn($($params,)*) -> Result<Out, Err>,
                     $($params: $params,)*
-                ) -> Result<Out, AutotuneError> {
+                ) -> Result<Out, Err> {
                     f($($params,)*)
                 }
-                call_inner(self, $($params),*)
+                call_inner(self, $($params),*).map_err(Into::into)
             }
         }
     };

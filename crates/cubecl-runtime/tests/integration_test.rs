@@ -96,202 +96,198 @@ fn autotune_basic_multiplication_execution() {
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
 
-// TODO: Find a way to port cache tests
+#[test]
+#[serial]
+#[cfg(feature = "std")]
+fn autotune_cache_same_key_return_a_cache_hit() {
+    TEST_TUNER.clear();
+    let runtime = Runtime::new();
 
-// #[test]
-// #[serial]
-// #[cfg(feature = "std")]
-// fn autotune_cache_same_key_return_a_cache_hit() {
-//     TEST_TUNER.clear();
-//     let runtime = Runtime::new();
+    let client = runtime.client(&DummyDevice, dummy::init_client);
 
-//     let client = runtime.client(&DummyDevice, dummy::init_client);
+    // note: the key name depends on the shapes of the operation set
+    // see log_shape_input_key for more info.
 
-//     // note: the key name depends on the shapes of the operation set
-//     // see log_shape_input_key for more info.
+    // in this test both shapes [1,3] and [1,4] end up with the same key name
+    // which is 'cache_test-1,4'
+    let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let lhs_1 = client.create(&[0, 1, 2]);
+    let rhs_1 = client.create(&[4, 4, 4]);
+    let out_1 = client.empty(3);
+    let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
 
-//     // in this test both shapes [1,3] and [1,4] end up with the same key name
-//     // which is 'cache_test-1,4'
-//     let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-//     let lhs_1 = client.create(&[0, 1, 2]);
-//     let rhs_1 = client.create(&[4, 4, 4]);
-//     let out_1 = client.empty(3);
-//     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
+    let shapes_2 = vec![vec![1, 4], vec![1, 4], vec![1, 4]];
+    let lhs_2 = client.create(&[0, 1, 2, 3]);
+    let rhs_2 = client.create(&[5, 6, 7, 8]);
+    let out_2 = client.empty(4);
+    let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
-//     let shapes_2 = vec![vec![1, 4], vec![1, 4], vec![1, 4]];
-//     let lhs_2 = client.create(&[0, 1, 2, 3]);
-//     let rhs_2 = client.create(&[5, 6, 7, 8]);
-//     let out_2 = client.empty(4);
-//     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
+    let cache_test_autotune_kernel_1 =
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
+    let cache_test_autotune_kernel_2 =
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
-//     let cache_test_autotune_kernel_1 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-//     let cache_test_autotune_kernel_2 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    let obtained_resource = client.read_one(out_2.binding());
 
-//     let obtained_resource = client.read_one(out_2.binding());
+    // Cache should be hit, so CacheTestFastOn3 should be used, returning lhs
+    assert_eq!(obtained_resource, Vec::from([0, 1, 2, 3]));
+}
 
-//     // Cache should be hit, so CacheTestFastOn3 should be used, returning lhs
-//     assert_eq!(obtained_resource, Vec::from([0, 1, 2, 3]));
-// }
+#[test]
+#[serial]
+#[cfg(autotune_persistent_cache)]
+fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
+    TEST_TUNER.clear();
 
-// #[test]
-// #[serial]
-// #[cfg(autotune_persistent_cache)]
-// fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
-//     TEST_TUNER.clear();
+    // delete the cache file
+    let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
+        "{}/{}",
+        TUNER_PREFIX, TUNER_DEVICE_ID
+    ));
+    let _ = std::fs::remove_file(file_path);
 
-//     // delete the cache file
-//     let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
-//         "{}/{}",
-//         TUNER_PREFIX, TUNER_DEVICE_ID
-//     ));
-//     let _ = std::fs::remove_file(file_path);
+    let compute = Runtime::new();
 
-//     let compute = Runtime::new();
+    let client = compute.client(&DummyDevice, dummy::init_client);
 
-//     let client = compute.client(&DummyDevice, dummy::init_client);
+    // in this test shapes [1,3] and [1,5] ends up with different key names
+    // which are 'cache_test-1,4' and 'cache_test-1,8'
+    let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let lhs_1 = client.create(&[0, 1, 2]);
+    let rhs_1 = client.create(&[4, 4, 4]);
+    let out_1 = client.empty(3);
+    let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
 
-//     // in this test shapes [1,3] and [1,5] ends up with different key names
-//     // which are 'cache_test-1,4' and 'cache_test-1,8'
-//     let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-//     let lhs_1 = client.create(&[0, 1, 2]);
-//     let rhs_1 = client.create(&[4, 4, 4]);
-//     let out_1 = client.empty(3);
-//     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
+    let shapes_2 = vec![vec![1, 5], vec![1, 5], vec![1, 5]];
+    let lhs_2 = client.create(&[0, 1, 2, 3, 4]);
+    let rhs_2 = client.create(&[5, 6, 7, 8, 9]);
+    let out_2 = client.empty(5);
+    let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
-//     let shapes_2 = vec![vec![1, 5], vec![1, 5], vec![1, 5]];
-//     let lhs_2 = client.create(&[0, 1, 2, 3, 4]);
-//     let rhs_2 = client.create(&[5, 6, 7, 8, 9]);
-//     let out_2 = client.empty(5);
-//     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
+    let cache_test_autotune_kernel_1 =
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
+    let cache_test_autotune_kernel_2 =
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
-//     let cache_test_autotune_kernel_1 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-//     let cache_test_autotune_kernel_2 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    // read the resource which should update the cache on disk
+    let obtained_resource = client.read_one(out_2.binding());
 
-//     // read the resource which should update the cache on disk
-//     let obtained_resource = client.read_one(out_2.binding());
+    // Cache should be missed, so CacheTestSlowOn3 (but faster on 5) should be used, returning rhs
+    assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8, 9]));
+}
 
-//     // Cache should be missed, so CacheTestSlowOn3 (but faster on 5) should be used, returning rhs
-//     assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8, 9]));
-// }
+#[test]
+#[serial]
+#[cfg(autotune_persistent_cache)]
+fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
+    TEST_TUNER.clear();
+    // delete the cache file
 
-// #[test]
-// #[serial]
-// #[cfg(autotune_persistent_cache)]
-// fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
-//     TEST_TUNER.clear();
-//     // delete the cache file
+    let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
+        "{}/{}",
+        TUNER_PREFIX, TUNER_DEVICE_ID
+    ));
+    let parent_dir = file_path
+        .parent()
+        .expect("Cache file should have a parent directory");
+    // Delete the cache file's parent directory
+    let _ = std::fs::remove_dir_all(parent_dir);
 
-//     let file_path = cubecl_runtime::tune::get_persistent_cache_file_path(&format!(
-//         "{}/{}",
-//         TUNER_PREFIX, TUNER_DEVICE_ID
-//     ));
-//     let parent_dir = file_path
-//         .parent()
-//         .expect("Cache file should have a parent directory");
-//     // Delete the cache file's parent directory
-//     let _ = std::fs::remove_dir_all(parent_dir);
+    let runtime = Runtime::new();
+    let client = runtime.client(&DummyDevice, dummy::init_client);
 
-//     let runtime = Runtime::new();
-//     let client = runtime.client(&DummyDevice, dummy::init_client);
+    // in this test shapes [1,3] and [1,5] ends up with different key names
+    // which are 'cache_test-1,4' and 'cache_test-1,8'
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let lhs = client.create(&[0, 1, 2]);
+    let rhs = client.create(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 
-//     // in this test shapes [1,3] and [1,5] ends up with different key names
-//     // which are 'cache_test-1,4' and 'cache_test-1,8'
-//     let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-//     let lhs = client.create(&[0, 1, 2]);
-//     let rhs = client.create(&[4, 4, 4]);
-//     let out = client.empty(3);
-//     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
+    let cache_test_autotune_kernel = dummy::cache_test_set(client.clone(), shapes, handles, false);
+    autotune_execute(&client, &cache_test_autotune_kernel, vec![]);
 
-//     let cache_test_autotune_kernel =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes, handles);
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel));
+    assert!(
+        parent_dir.exists(),
+        "Parent directory of the cache file should exist"
+    );
+    assert!(file_path.exists(), "Cache file should exist");
+}
 
-//     assert!(
-//         parent_dir.exists(),
-//         "Parent directory of the cache file should exist"
-//     );
-//     assert!(file_path.exists(), "Cache file should exist");
-// }
+#[test]
+#[serial]
+#[cfg(feature = "std")]
+fn autotune_cache_different_keys_return_a_cache_miss() {
+    TEST_TUNER.clear();
+    let client = client(&DummyDevice);
 
-// #[test]
-// #[serial]
-// #[cfg(feature = "std")]
-// fn autotune_cache_different_keys_return_a_cache_miss() {
-//     TEST_TUNER.clear();
-//     let client = client(&DummyDevice);
+    // in this test shapes [1,3] and [1,5] ends up with different key names
+    // which are 'cache_test-1,4' and 'cache_test-1,8'
+    let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let lhs_1 = client.create(&[0, 1, 2]);
+    let rhs_1 = client.create(&[4, 4, 4]);
+    let out_1 = client.empty(3);
+    let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
 
-//     // in this test shapes [1,3] and [1,5] ends up with different key names
-//     // which are 'cache_test-1,4' and 'cache_test-1,8'
-//     let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-//     let lhs_1 = client.create(&[0, 1, 2]);
-//     let rhs_1 = client.create(&[4, 4, 4]);
-//     let out_1 = client.empty(3);
-//     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
+    let shapes_2 = vec![vec![1, 5], vec![1, 5], vec![1, 5]];
+    let lhs_2 = client.create(&[0, 1, 2, 3, 4]);
+    let rhs_2 = client.create(&[5, 6, 7, 8, 9]);
+    let out_2 = client.empty(5);
+    let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
-//     let shapes_2 = vec![vec![1, 5], vec![1, 5], vec![1, 5]];
-//     let lhs_2 = client.create(&[0, 1, 2, 3, 4]);
-//     let rhs_2 = client.create(&[5, 6, 7, 8, 9]);
-//     let out_2 = client.empty(5);
-//     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
+    let cache_test_autotune_kernel_1 =
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
+    let cache_test_autotune_kernel_2 =
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
-//     let cache_test_autotune_kernel_1 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-//     let cache_test_autotune_kernel_2 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    let obtained_resource = client.read_one(out_2.binding());
 
-//     let obtained_resource = client.read_one(out_2.binding());
+    // Cache should be missed, so CacheTestSlowOn3 (but faster on 5) should be used, returning rhs
+    assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8, 9]));
+}
 
-//     // Cache should be missed, so CacheTestSlowOn3 (but faster on 5) should be used, returning rhs
-//     assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8, 9]));
-// }
+#[test]
+#[serial]
+#[cfg(feature = "std")]
+fn autotune_cache_different_checksums_return_a_cache_miss() {
+    TEST_TUNER.clear();
 
-// #[test]
-// #[serial]
-// #[cfg(feature = "std")]
-// fn autotune_cache_different_checksums_return_a_cache_miss() {
-//     TEST_TUNER.clear();
+    let runtime = Runtime::new();
+    let client = runtime.client(&DummyDevice, dummy::init_client);
 
-//     let runtime = Runtime::new();
-//     let client = runtime.client(&DummyDevice, dummy::init_client);
+    // in this test both shapes [1,3] and [1,4] end up with the same key name
+    // which is 'cache_test-1,4'
+    let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let lhs_1 = client.create(&[0, 1, 2]);
+    let rhs_1 = client.create(&[4, 4, 4]);
+    let out_1 = client.empty(3);
+    let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
+    let cache_test_autotune_kernel_1 =
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
 
-//     // in this test both shapes [1,3] and [1,4] end up with the same key name
-//     // which is 'cache_test-1,4'
-//     let shapes_1 = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
-//     let lhs_1 = client.create(&[0, 1, 2]);
-//     let rhs_1 = client.create(&[4, 4, 4]);
-//     let out_1 = client.empty(3);
-//     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
-//     let cache_test_autotune_kernel_1 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
+    TEST_TUNER.clear();
 
-//     TEST_TUNER.clear();
+    let shapes_2 = vec![vec![1, 4], vec![1, 4], vec![1, 4]];
+    let lhs_2 = client.create(&[0, 1, 2, 3]);
+    let rhs_2 = client.create(&[5, 6, 7, 8]);
+    let out_2 = client.empty(4);
+    let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
-//     let shapes_2 = vec![vec![1, 4], vec![1, 4], vec![1, 4]];
-//     let lhs_2 = client.create(&[0, 1, 2, 3]);
-//     let rhs_2 = client.create(&[5, 6, 7, 8]);
-//     let out_2 = client.empty(4);
-//     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
+    let cache_test_autotune_kernel_2 =
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, true);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
-//     let mut cache_test_autotune_kernel_2 =
-//         dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-//     cache_test_autotune_kernel_2.generate_random_checksum = true;
-//     autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    let obtained_resource = client.read_one(out_2.binding());
 
-//     let obtained_resource = client.read_one(out_2.binding());
-
-//     // Cache should be missed because the checksum on 4 is generated randomly
-//     // and thus is always different,
-//     // so CacheTestSlowOn3 (but faster on 4) should be used, returning rhs
-//     assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8]));
-// }
+    // Cache should be missed because the checksum on 4 is generated randomly
+    // and thus is always different,
+    // so CacheTestSlowOn3 (but faster on 4) should be used, returning rhs
+    assert_eq!(obtained_resource, Vec::from([5, 6, 7, 8]));
+}

@@ -2,12 +2,18 @@
 use rand::{distributions::Alphanumeric, Rng};
 use std::sync::Arc;
 
-use cubecl_runtime::{server::Binding, tune::TunableSet};
+use cubecl_runtime::{
+    server::{Binding, CubeCount},
+    tune::{AsFunctionTunable, TunableSet},
+};
 
-use crate::dummy::{
-    CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
-    DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong,
-    OneKernelAutotuneOperation,
+use crate::{
+    dummy::{
+        CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
+        DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong,
+        OneKernelAutotuneOperation,
+    },
+    DummyKernel,
 };
 
 use super::DummyElementwiseAdditionSlowWrong;
@@ -55,20 +61,25 @@ pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestS
 pub fn cache_test_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
+    bindings: Vec<Binding>,
     generate_random_checksum: bool,
 ) -> TestSet {
+    fn tunable(
+        client: DummyClient,
+        kernel: impl DummyKernel,
+        bindings: Vec<Binding>,
+    ) -> impl Fn(Vec<Binding>) {
+        let kernel = Arc::new(kernel);
+        move |_| {
+            client.execute(kernel.clone(), CubeCount::Static(1, 1, 1), bindings.clone());
+        }
+    }
     let mut set = TestSet::new(
         move |_input: &Vec<Binding>| format!("{}-{}", "cache_test", log_shape_input_key(&shapes)),
         clone_bindings,
     )
-    .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(CacheTestFastOn3),
-        client.clone(),
-    ))
-    .with_tunable(OneKernelAutotuneOperation::new(
-        Arc::new(CacheTestSlowOn3),
-        client.clone(),
-    ));
+    .with_tunable(tunable(client.clone(), CacheTestFastOn3, bindings.clone()).ok())
+    .with_tunable(tunable(client.clone(), CacheTestSlowOn3, bindings.clone()).ok());
     if generate_random_checksum {
         set = set.with_custom_checksum(|_| {
             let rand_string: String = rand::thread_rng()
