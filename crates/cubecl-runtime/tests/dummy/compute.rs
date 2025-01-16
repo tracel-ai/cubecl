@@ -40,7 +40,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,
-        mem_properties.clone(),
+        &mem_properties,
         MemoryConfiguration::default(),
     );
     let server = DummyServer::new(memory_management);

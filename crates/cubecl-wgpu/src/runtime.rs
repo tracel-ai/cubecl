@@ -16,10 +16,7 @@ use cubecl_runtime::{
     ComputeRuntime,
 };
 use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
-use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
-    storage::ComputeStorage,
-};
+use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -181,16 +178,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_bindings: limits.max_storage_buffers_per_shader_stage,
     };
 
-    let memory_management = {
-        let device = setup.device.clone();
-        let mem_props = mem_props.clone();
-        let config = options.memory_config;
-        let storage = WgpuStorage::new(device.clone());
-        MemoryManagement::from_configuration(storage, mem_props, config)
-    };
     let compilation_options = Default::default();
     let server = WgpuServer::new(
-        memory_management,
+        mem_props.clone(),
+        options.memory_config,
         compilation_options,
         setup.device.clone(),
         setup.queue,

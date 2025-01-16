@@ -4,6 +4,7 @@ use alloc::{format, string::String};
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
 /// wasted in total.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     pub number_allocs: u64,
@@ -24,7 +25,8 @@ pub struct MemoryUsage {
 }
 
 impl MemoryUsage {
-    pub(crate) fn combine(&self, other: MemoryUsage) -> MemoryUsage {
+    /// Calculate the combined memory usage of two reports (summing them).
+    pub fn combine(&self, other: MemoryUsage) -> MemoryUsage {
         MemoryUsage {
             number_allocs: self.number_allocs + other.number_allocs,
             bytes_in_use: self.bytes_in_use + other.bytes_in_use,

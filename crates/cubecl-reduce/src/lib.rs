@@ -97,6 +97,14 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
     let config = ReduceConfig::generate::<R, In>(client, &input, &output, axis, &strategy);
+
+    if let CubeCount::Static(x, y, z) = config.cube_count {
+        let (max_x, max_y, max_z) = R::max_cube_count();
+        if x > max_x || y > max_y || z > max_z {
+            return Err(ReduceError::CubeCountTooLarge);
+        }
+    }
+
     launch_reduce::<R, In, Out, Inst>(client, input, output, axis as u32, config, strategy);
     Ok(())
 }

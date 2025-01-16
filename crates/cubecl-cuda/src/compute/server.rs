@@ -77,11 +77,10 @@ unsafe impl Send for CudaServer {}
 impl CudaServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         let mut data = uninit_vec(resource.size() as usize);
 
@@ -102,11 +101,10 @@ impl CudaServer {
         let mut result = Vec::with_capacity(bindings.len());
 
         for binding in bindings {
-            let resource = ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            );
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
             let mut data = uninit_vec(resource.size() as usize);
 
@@ -156,11 +154,10 @@ impl ComputeServer for CudaServer {
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         unsafe {
             cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream).unwrap();
@@ -171,7 +168,7 @@ impl ComputeServer for CudaServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -217,11 +214,9 @@ impl ComputeServer for CudaServer {
         let resources = bindings
             .into_iter()
             .map(|binding| {
-                ctx.memory_management.get_resource(
-                    binding.memory,
-                    binding.offset_start,
-                    binding.offset_end,
-                )
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource")
             })
             .collect::<Vec<_>>();
 
@@ -281,11 +276,9 @@ impl ComputeServer for CudaServer {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            ),
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource"),
         )
     }
 
@@ -470,10 +463,16 @@ fn cuda_path() -> Option<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         // If it is installed as part of the distribution
-        if std::fs::metadata("/usr/bin/nvcc").is_ok() {
-            return Some(PathBuf::from("/usr"));
-        }
-        return Some(PathBuf::from("/usr/local/cuda"));
+        return if std::fs::exists("/usr/local/cuda").is_ok_and(|exists| exists) {
+            Some(PathBuf::from("/usr/local/cuda"))
+        } else if std::fs::exists("/opt/cuda").is_ok_and(|exists| exists) {
+            Some(PathBuf::from("/opt/cuda"))
+        } else if std::fs::exists("/usr/bin/nvcc").is_ok_and(|exists| exists) {
+            // Maybe the compiler was installed within the user path.
+            Some(PathBuf::from("/usr"))
+        } else {
+            None
+        };
     }
 
     #[cfg(target_os = "windows")]

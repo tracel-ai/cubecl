@@ -91,11 +91,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         max_bindings: crate::device::CUDA_MAX_BINDINGS,
     };
 
-    let memory_management = MemoryManagement::from_configuration(
-        storage,
-        mem_properties.clone(),
-        options.memory_config,
-    );
+    let memory_management =
+        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);

@@ -53,7 +53,7 @@ impl ComputeServer for DummyServer {
         let bytes: Vec<_> = bindings
             .into_iter()
             .map(|b| {
-                let bytes_handle = self.memory_management.get(b.memory);
+                let bytes_handle = self.memory_management.get(b.memory).unwrap();
                 self.memory_management.storage().get(&bytes_handle)
             })
             .collect();
@@ -62,7 +62,7 @@ impl ComputeServer for DummyServer {
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
-        let handle = self.memory_management.get(binding.clone().memory);
+        let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
 
@@ -79,7 +79,7 @@ impl ComputeServer for DummyServer {
 
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
-            self.memory_management.reserve(size as u64, None),
+            self.memory_management.reserve(size as u64),
             None,
             None,
             size as u64,
