@@ -83,6 +83,56 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
+    pub fn load_window_coalesced<G: global::GlobalConfig>(
+        &self,
+        tile_x: u32,
+        tile_y: u32,
+        unit_id: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Slice<Line<EG>> {
+        let line_size = config.global_line_size(ident);
+        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
+        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+
+        let view_tile_x = tile_x * tile_size_x + self.x_offset;
+        let view_tile_y = tile_y * tile_size_y + self.y_offset;
+
+        let (load_x, load_y) = match config.layout(ident) {
+            MatrixLayout::RowMajor => (unit_id / tile_size_y, unit_id % tile_size_y),
+            MatrixLayout::ColMajor => (unit_id % tile_size_x, unit_id / tile_size_x),
+        };
+
+        let view_x = view_tile_x + load_x;
+        let view_y = view_tile_y + load_y;
+
+        let read_pos =
+            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
+
+        let (check_x_bounds, check_y_bounds) = match ident.as_input() {
+            InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
+            InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
+        };
+
+        let size = match comptime!((check_x_bounds, check_y_bounds)) {
+            (true, true) => u32::cast_from(view_x < self.shape_x && view_y < self.shape_y),
+            (true, false) => u32::cast_from(view_x < self.shape_x),
+            (false, true) => u32::cast_from(view_y < self.shape_y),
+            (false, false) => 1u32,
+        };
+
+        self.tensor.as_slice(read_pos, size)
+    }
+
+    /// Reads data from the tensor view at the specified tile coordinates (tile_x, tile_y).
+    ///
+    /// Each unit loads one line in a coalesced manner for improved efficiency.
+    /// For row-major tensors, subsequent units read lines horizontally within the tile,
+    /// while for column-major tensors, they read lines vertically.
+    ///
+    /// # Note
+    ///
+    /// Out-of-bounds reads will be translated to zeros.
     pub fn load_coalesced<G: global::GlobalConfig>(
         &self,
         tile_x: u32,
