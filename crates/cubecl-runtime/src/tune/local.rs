@@ -43,7 +43,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         *state = None;
     }
 
-    /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
+    /// Execute the best operation in the provided [tunable set](TunableSet)
     pub fn execute<S, C, In: Send + Clone + 'static, Out: Send + 'static>(
         &self,
         id: &ID,

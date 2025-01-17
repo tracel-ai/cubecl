@@ -19,7 +19,7 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
     }
 }
 
-/// Same as [select] but with lines instead.
+/// Same as [select()] but with lines instead.
 #[allow(unused_variables)]
 pub fn select_many<C: CubePrimitive>(
     condition: Line<bool>,

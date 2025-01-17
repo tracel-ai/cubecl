@@ -6,7 +6,7 @@
 //! This is often also called folding.
 //!
 //! This crate provides a main entrypoint as the [`reduce`] function which allows to automatically
-//! perform a reduction for a given instruction implementing the [`ReduceInstruction`] trait and a given [`StrategyStrategy`].
+//! perform a reduction for a given instruction implementing the [`ReduceInstruction`] trait and a given [`ReduceStrategy`].
 //! It also provides implementation of the [`ReduceInstruction`] trait for common operations in the [`instructions`] module.
 //! Finally, it provides many reusable primitives to perform different general reduction algorithms in the [`primitives`] module.
 
@@ -33,7 +33,7 @@ use cubecl_core::prelude::*;
 
 /// Reduce the given `axis` of the `input` tensor using the instruction `Inst` and write the result into `output`.
 ///
-/// An optional [`Strategy`] can be provided to force the reduction to use a specific algorithm. If omitted, a best effort
+/// An optional [`ReduceStrategy`] can be provided to force the reduction to use a specific algorithm. If omitted, a best effort
 /// is done to try and pick the best strategy supported for the provided `client`.
 ///
 /// Return an error if `strategy` is `Some(strategy)` and the specified strategy is not supported by the `client`.

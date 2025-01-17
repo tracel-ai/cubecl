@@ -1,11 +1,11 @@
-//! # Autotune types and traits
+//! # Autotuning
 //!
 //! Autotuning allows running different kernels or comptime parameters to find the fastest one
-//! for any given input. Kernels must implement [`Tunable`] (see below).
+//! for any given input. Kernels must implement [`Tunable`](crate::tune::Tunable) (see below).
 //!
 //! # Example
 //!
-//! ```no_run
+//! ```ignore
 //! #[derive(AutotuneKey)]
 //! struct KernelKey {
 //!     size: u32
@@ -25,9 +25,10 @@
 //!
 //! # Tunable
 //!
-//! [`Tunable`] is implemented automatically for all functions and closures that take a set of
-//! clonable inputs, and return a `Result<Out, impl Into<AutotuneError>>`. If the kernel does not
-//! return a [`Result`], use `kernel_fn.ok()` to wrap it in `Ok` and turn it into a tunable.
+//! [`Tunable`](crate::tune::Tunable) is implemented automatically for all functions and closures
+//! that take a set of clonable inputs, and return a `Result<Out, impl Into<AutotuneError>>`. If the
+//! kernel does not return a [`Result`], use `kernel_fn.ok()` to wrap it in `Ok` and turn it into a
+//! tunable.
 //!
 //! ## Implementation details
 //!
@@ -40,14 +41,17 @@
 //! signature (which is a type, not a trait), allowing the trait resolver to correctly identify
 //! the implementations as distinct. However, since different kinds of `Tunable` will have different
 //! `Marker` generics, the `IntoTunable` trait is needed to erase the marker.
-//! This way, only [`TunableSet::with_tunable`] requires the marker as a generic, which it then
-//! erases by calling [`IntoTunable::into_tunable`].
-//! The same technique is used for [`KeyGenerator`] and [`InputGenerator`].
+//! This way, only [`TunableSet::with_tunable`](crate::tune::TunableSet::with_tunable) requires the
+//! marker as a generic, which it then erases by calling
+//! [`IntoTunable::into_tunable`](crate::tune::IntoTunable::into_tunable).
+//! The same technique is used for [`KeyGenerator`](crate::tune::KeyGenerator) and
+//! [`InputGenerator`](crate::tune::InputGenerator).
 //!
-//! The last set of traits are [`AsFunctionTunable`] and [`AsFunctionTunableResult`]. These traits
-//! are directly implemented by all tunable functions and allow us to annotate function-like
+//! The last set of traits are [`AsFunctionTunable`](crate::tune::AsFunctionTunable) and
+//! [`AsFunctionTunableResult`](crate::tune::AsFunctionTunableResult). These traits are directly
+//! implemented by all tunable functions and allow us to annotate function-like
 //! tunables specifically, to allow things like overriding the name, wrapping the return type in
-//! `Ok` ([`AsFunctionTunable::ok`]), and other things. They also help with error messages. This is
+//! `Ok` ([`AsFunctionTunable::ok`](crate::tune::AsFunctionTunable::ok)), and other things. They also help with error messages. This is
 //! done by using [`#[diagnostic::on_unimplemented(...)]`](https://doc.rust-lang.org/reference/attributes/diagnostics.html#the-diagnosticon_unimplemented-attribute).
 
 mod function_tunable;
