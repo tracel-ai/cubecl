@@ -98,6 +98,10 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_shader_atomic_float_min_max");
         }
 
+        if caps.contains(&Capability::FloatControls2) {
+            b.extension("SPV_KHR_float_controls2");
+        }
+
         if b.debug_symbols {
             b.extension("SPV_KHR_non_semantic_info");
         }
@@ -110,6 +114,10 @@ impl SpirvTarget for GLCompute {
             interface,
         );
         b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
+
+        if caps.contains(&Capability::FloatControls2) {
+            b.declare_float_execution_modes(main);
+        }
     }
 
     fn generate_binding(

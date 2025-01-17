@@ -1,12 +1,14 @@
 use std::{ffi::CStr, ptr::null_mut};
 
 use ash::vk::{
-    DeviceCreateInfo, PhysicalDevice16BitStorageFeatures, PhysicalDevice8BitStorageFeatures,
+    DeviceCreateInfo, ExtendsDeviceCreateInfo, ExtendsPhysicalDeviceFeatures2,
+    PhysicalDevice16BitStorageFeatures, PhysicalDevice8BitStorageFeatures,
     PhysicalDeviceCooperativeMatrixFeaturesKHR, PhysicalDeviceFeatures2,
     PhysicalDeviceShaderAtomicFloat2FeaturesEXT, PhysicalDeviceShaderAtomicFloatFeaturesEXT,
-    PhysicalDeviceShaderFloat16Int8Features, PhysicalDeviceShaderSubgroupExtendedTypesFeatures,
-    PhysicalDeviceVulkanMemoryModelFeatures, EXT_SHADER_ATOMIC_FLOAT2_NAME,
-    EXT_SHADER_ATOMIC_FLOAT_NAME, KHR_COOPERATIVE_MATRIX_NAME,
+    PhysicalDeviceShaderFloat16Int8Features, PhysicalDeviceShaderFloatControls2FeaturesKHR,
+    PhysicalDeviceShaderSubgroupExtendedTypesFeatures, PhysicalDeviceVulkanMemoryModelFeatures,
+    EXT_SHADER_ATOMIC_FLOAT2_NAME, EXT_SHADER_ATOMIC_FLOAT_NAME, KHR_COOPERATIVE_MATRIX_NAME,
+    KHR_SHADER_FLOAT_CONTROLS2_NAME,
 };
 use wgpu::{hal::vulkan, Features};
 
@@ -22,6 +24,7 @@ pub struct ExtendedFeatures<'a> {
     pub cmma: Option<PhysicalDeviceCooperativeMatrixFeaturesKHR<'a>>,
     pub atomic_float: Option<PhysicalDeviceShaderAtomicFloatFeaturesEXT<'a>>,
     pub atomic_float2: Option<PhysicalDeviceShaderAtomicFloat2FeaturesEXT<'a>>,
+    pub float_controls2: Option<PhysicalDeviceShaderFloatControls2FeaturesKHR<'a>>,
 
     pub extensions: Vec<&'static CStr>,
 }
@@ -56,6 +59,11 @@ impl<'a> ExtendedFeatures<'a> {
             self.extensions.push(EXT_SHADER_ATOMIC_FLOAT2_NAME);
             self.atomic_float2 = Some(PhysicalDeviceShaderAtomicFloat2FeaturesEXT::default());
         }
+
+        if phys_caps.supports_extension(KHR_SHADER_FLOAT_CONTROLS2_NAME) {
+            self.extensions.push(KHR_SHADER_FLOAT_CONTROLS2_NAME);
+            self.float_controls2 = Some(PhysicalDeviceShaderFloatControls2FeaturesKHR::default());
+        }
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
@@ -66,15 +74,21 @@ impl<'a> ExtendedFeatures<'a> {
             .push_next(&mut self.buf_8)
             .push_next(&mut self.subgroup_extended);
 
-        if let Some(cmma) = &mut self.cmma {
-            info = info.push_next(cmma);
+        fn push_opt<'a, T: ExtendsDeviceCreateInfo>(
+            mut info: DeviceCreateInfo<'a>,
+            feat: &'a mut Option<T>,
+        ) -> DeviceCreateInfo<'a> {
+            if let Some(feat) = feat {
+                info = info.push_next(feat);
+            }
+            info
         }
-        if let Some(atomic_float) = &mut self.atomic_float {
-            info = info.push_next(atomic_float);
-        }
-        if let Some(atomic_float2) = &mut self.atomic_float2 {
-            info = info.push_next(atomic_float2);
-        }
+
+        info = push_opt(info, &mut self.cmma);
+        info = push_opt(info, &mut self.atomic_float);
+        info = push_opt(info, &mut self.atomic_float2);
+        info = push_opt(info, &mut self.float_controls2);
+
         info
     }
 
@@ -86,15 +100,21 @@ impl<'a> ExtendedFeatures<'a> {
             .push_next(&mut self.buf_8)
             .push_next(&mut self.subgroup_extended);
 
-        if let Some(cmma) = &mut self.cmma {
-            features = features.push_next(cmma);
+        fn push_opt<'a, T: ExtendsPhysicalDeviceFeatures2>(
+            mut features: PhysicalDeviceFeatures2<'a>,
+            feat: &'a mut Option<T>,
+        ) -> PhysicalDeviceFeatures2<'a> {
+            if let Some(feat) = feat {
+                features = features.push_next(feat);
+            }
+            features
         }
-        if let Some(atomic_float) = &mut self.atomic_float {
-            features = features.push_next(atomic_float);
-        }
-        if let Some(atomic_float2) = &mut self.atomic_float2 {
-            features = features.push_next(atomic_float2);
-        }
+
+        features = push_opt(features, &mut self.cmma);
+        features = push_opt(features, &mut self.atomic_float);
+        features = push_opt(features, &mut self.atomic_float2);
+        features = push_opt(features, &mut self.float_controls2);
+
         unsafe {
             ash.get_physical_device_features2(adapter.raw_physical_device(), &mut features);
         }
@@ -118,6 +138,9 @@ impl<'a> ExtendedFeatures<'a> {
         }
         if let Some(atomic_float2) = &mut self.atomic_float2 {
             atomic_float2.p_next = null_mut();
+        }
+        if let Some(float_controls2) = &mut self.float_controls2 {
+            float_controls2.p_next = null_mut();
         }
     }
 }

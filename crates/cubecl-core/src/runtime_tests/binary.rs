@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{self as cubecl, as_type};
+use crate::{self as cubecl, as_type, FPMathMode};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
@@ -58,7 +58,7 @@ macro_rules! test_binary_impl {
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked)]
+            #[cube(launch_unchecked, fp_math_mode = FPMathMode::all())]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);

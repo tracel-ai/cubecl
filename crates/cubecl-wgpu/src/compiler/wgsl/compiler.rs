@@ -202,6 +202,7 @@ impl WgpuCompiler for WgslCompiler {
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut DeviceProperties<Feature>,
+        _comp_options: &mut Self::CompilationOptions,
     ) {
         register_types(props);
     }

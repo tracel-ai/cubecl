@@ -11,7 +11,7 @@ use std::{
 use cubecl_core::{ir::KernelDefinition, Compiler, ExecutionMode};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
+    spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
@@ -23,7 +23,9 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct CompilationOptions {}
+pub struct CompilationOptions {
+    pub supports_fp_fast_math: bool,
+}
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
@@ -175,7 +177,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let options = kernel.options.clone();
 
         self.debug_symbols = DebugLogger::default().is_activated() || options.debug_symbols;
-        self.fp_math_mode = convert_math_mode(options.fp_math_mode);
+        self.fp_math_mode = match self.compilation_options.supports_fp_fast_math {
+            true => convert_math_mode(options.fp_math_mode),
+            false => FPFastMathMode::NONE,
+        };
+
+        if self.fp_math_mode != FPFastMathMode::NONE {
+            self.capabilities.insert(Capability::FloatControls2);
+        }
 
         self.set_version(1, 6);
 
@@ -346,24 +355,24 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.name(var, name);
         }
     }
+
+    pub fn declare_float_execution_modes(&mut self, main: Word) {
+        let mode = self.const_u32(self.fp_math_mode.bits());
+
+        let types = self.builder.module_ref().types_global_values.clone();
+        let scalars = types
+            .iter()
+            .filter(|inst| inst.class.opcode == Op::TypeFloat)
+            .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
+            .collect::<Vec<_>>();
+        for ty in scalars {
+            self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+        }
+    }
 }
 
 fn convert_math_mode(math_mode: FPMathMode) -> FPFastMathMode {
-    // Currently missing from rspirv generated output
-    let contract = FPFastMathMode::from_bits_retain(0x10000);
-    let reassoc = FPFastMathMode::from_bits_retain(0x20000);
-    let transform = FPFastMathMode::from_bits_retain(0x40000);
-
     let mut flags = FPFastMathMode::NONE;
-
-    if math_mode.contains(
-        FPMathMode::NotNaN
-            | FPMathMode::NotInf
-            | FPMathMode::UnsignedZero
-            | FPMathMode::AllowReciprocal,
-    ) {
-        flags |= FPFastMathMode::FAST
-    }
 
     for mode in math_mode.iter() {
         match mode {
@@ -371,9 +380,13 @@ fn convert_math_mode(math_mode: FPMathMode) -> FPFastMathMode {
             FPMathMode::NotInf => flags |= FPFastMathMode::NOT_INF,
             FPMathMode::UnsignedZero => flags |= FPFastMathMode::NSZ,
             FPMathMode::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FPMathMode::AllowContraction => flags |= contract,
-            FPMathMode::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC_INTEL,
-            FPMathMode::AllowTransform => flags |= contract | reassoc | transform,
+            FPMathMode::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+            FPMathMode::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            FPMathMode::AllowTransform => {
+                flags |= FPFastMathMode::ALLOW_CONTRACT
+                    | FPFastMathMode::ALLOW_REASSOC
+                    | FPFastMathMode::ALLOW_TRANSFORM
+            }
             _ => {}
         }
     }
