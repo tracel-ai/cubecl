@@ -394,7 +394,8 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::LocalArray { .. }
         | VariableKind::ConstantArray { .. }
         | VariableKind::Slice { .. }
-        | VariableKind::Matrix { .. } => elem,
+        | VariableKind::Matrix { .. }
+        | VariableKind::Pipeline { .. } => elem,
     }
 }
 
