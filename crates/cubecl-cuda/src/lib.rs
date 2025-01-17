@@ -19,5 +19,6 @@ mod tests {
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_linalg::testgen_matmul_simple!([f16, bf16, f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, bf16, f32]);
+    cubecl_linalg::testgen_tensor_identity!([f16, bf16, f32, u32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
 }
