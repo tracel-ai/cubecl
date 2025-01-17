@@ -211,11 +211,13 @@ impl KernelSettings {
         self
     }
 
+    /// Activate debug symbols
     pub fn debug_symbols(mut self) -> Self {
         self.options.debug_symbols = true;
         self
     }
 
+    /// Set FP math mode
     pub fn fp_math_mode(mut self, mode: FPMathMode) -> Self {
         self.options.fp_math_mode = mode;
         self
