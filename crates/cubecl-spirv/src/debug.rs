@@ -113,7 +113,7 @@ struct Definitions {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_debug(&mut self, kernel_name: String, opt: &Optimizer) {
-        if self.debug {
+        if self.debug_symbols {
             let name = self.string(&kernel_name);
 
             let flags = self.const_u32(DebugInfoFlags::None.0);
@@ -208,7 +208,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let voidf = self.type_function(void, vec![]);
 
         let definition = self
-            .debug
+            .debug_symbols
             .then(|| self.definitions().functions[kernel_name]);
 
         if let Some(definition) = definition {
@@ -245,7 +245,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn compile_debug(&mut self, debug: core::NonSemantic) {
-        if self.debug {
+        if self.debug_symbols {
             match debug {
                 core::NonSemantic::Source {
                     name,
@@ -504,7 +504,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn debug_scope(&mut self) {
-        if self.debug {
+        if self.debug_symbols {
             let func = *self.current_function_def();
             let line = self.stack_top().line;
             let col = self.stack_top().col;

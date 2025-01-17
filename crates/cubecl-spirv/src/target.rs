@@ -98,7 +98,7 @@ impl SpirvTarget for GLCompute {
             b.extension("SPV_EXT_shader_atomic_float_min_max");
         }
 
-        if b.debug {
+        if b.debug_symbols {
             b.extension("SPV_KHR_non_semantic_info");
         }
 
@@ -155,7 +155,7 @@ impl SpirvTarget for GLCompute {
             glcompute::STD_NAME.to_string(),
             b.ext_inst_import(glcompute::STD_NAME),
         );
-        if b.debug {
+        if b.debug_symbols {
             extensions.insert(
                 debug::DEBUG_EXT_NAME.to_string(),
                 b.ext_inst_import(debug::DEBUG_EXT_NAME),

@@ -1,5 +1,5 @@
 use super::{ConstantScalarValue, Scope, Variable, VariableKind};
-use crate::PLANE_DIM_APPROX;
+use crate::{KernelOptions, PLANE_DIM_APPROX};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::num::NonZero;
@@ -12,7 +12,7 @@ pub struct KernelDefinition {
     pub named: Vec<(String, Binding)>,
     pub cube_dim: CubeDim,
     pub body: Scope,
-    pub kernel_name: String,
+    pub options: KernelOptions,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

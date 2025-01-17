@@ -324,6 +324,13 @@ impl Launch {
             let info = param_names.clone().into_iter().chain(args.clone());
 
             let kernel_source_name = self.kernel_entrypoint_name();
+            let mut settings = quote![settings.kernel_name(#kernel_source_name)];
+            if self.args.debug_symbols.is_present() {
+                settings.extend(quote![.debug_symbols()]);
+            }
+            if let Some(mode) = &self.args.fp_math_mode {
+                settings.extend(quote![.fp_math_mode(#mode)]);
+            }
 
             quote! {
                 #[doc = #kernel_doc]
@@ -338,7 +345,7 @@ impl Launch {
                 impl #generics #kernel_name #generic_names #where_clause {
                     pub fn new(settings: #kernel_settings, #(#compilation_args,)* #(#const_params),*) -> Self {
                         Self {
-                            settings: settings.kernel_name(#kernel_source_name),
+                            settings: #settings,
                             #(#args,)*
                             #(#param_names,)*
                             #phantom_data_init

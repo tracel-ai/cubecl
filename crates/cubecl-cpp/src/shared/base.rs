@@ -135,7 +135,7 @@ impl<D: Dialect> CppCompiler<D> {
             bf16: self.bf16,
             f16: self.f16,
             items: self.items,
-            kernel_name: value.kernel_name,
+            kernel_name: value.options.kernel_name,
         }
     }
 

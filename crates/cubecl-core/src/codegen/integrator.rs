@@ -1,5 +1,7 @@
 use std::num::NonZero;
 
+use serde::{Deserialize, Serialize};
+
 use super::Compiler;
 use crate::{
     ir::{
@@ -25,7 +27,6 @@ pub struct KernelExpansion {
     pub inputs: Vec<InputInfo>,
     pub outputs: Vec<OutputInfo>,
     pub scope: Scope,
-    pub kernel_name: String,
 }
 
 /// Simply indicate the output that can be replaced by the input.
@@ -55,7 +56,28 @@ pub struct KernelSettings {
     vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
     pub reading_strategy: Vec<(Id, ReadingStrategy)>,
+    pub options: KernelOptions,
+}
+
+#[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KernelOptions {
     pub kernel_name: String,
+    pub debug_symbols: bool,
+    pub fp_math_mode: FPMathMode,
+}
+
+bitflags::bitflags! {
+    #[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct FPMathMode: u32 {
+        const None = 0;
+        const NotNaN = 1;
+        const NotInf = 1 << 1;
+        const UnsignedZero = 1 << 2;
+        const AllowReciprocal = 1 << 3;
+        const AllowContraction = 1 << 4;
+        const AllowReassociation = 1 << 5;
+        const AllowTransform = 1 << 6;
+    }
 }
 
 impl core::fmt::Display for KernelSettings {
@@ -198,7 +220,17 @@ impl KernelSettings {
     /// Set kernel name.
     #[allow(dead_code)]
     pub fn kernel_name<S: AsRef<str>>(mut self, name: S) -> Self {
-        self.kernel_name = name.as_ref().to_string();
+        self.options.kernel_name = name.as_ref().to_string();
+        self
+    }
+
+    pub fn debug_symbols(mut self) -> Self {
+        self.options.debug_symbols = true;
+        self
+    }
+
+    pub fn fp_math_mode(mut self, mode: FPMathMode) -> Self {
+        self.options.fp_math_mode = mode;
         self
     }
 }
@@ -339,7 +371,7 @@ impl KernelIntegrator {
             named,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
-            kernel_name: self.expansion.kernel_name,
+            options: settings.options,
         }
     }
 

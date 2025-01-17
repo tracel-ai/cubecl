@@ -1,4 +1,4 @@
-use cubecl_core::{ir as core, Metadata};
+use cubecl_core::{ir as core, FPMathMode, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 use cubecl_core::{ir::KernelDefinition, Compiler, ExecutionMode};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, Op, StorageClass, Word},
+    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
@@ -30,7 +30,8 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     builder: Builder,
 
     pub mode: ExecutionMode,
-    pub debug: bool,
+    pub debug_symbols: bool,
+    pub fp_math_mode: FPFastMathMode,
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
@@ -63,7 +64,8 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
-            debug: self.debug,
+            debug_symbols: self.debug_symbols,
+            fp_math_mode: self.fp_math_mode,
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
             debug_info: self.debug_info.clone(),
@@ -86,7 +88,8 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
-            debug: DebugLogger::default().is_activated(),
+            debug_symbols: DebugLogger::default().is_activated(),
+            fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
             debug_info: Default::default(),
@@ -169,6 +172,11 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
+        let options = kernel.options.clone();
+
+        self.debug_symbols = DebugLogger::default().is_activated() || options.debug_symbols;
+        self.fp_math_mode = convert_math_mode(options.fp_math_mode);
+
         self.set_version(1, 6);
 
         let mut target = self.target.clone();
@@ -178,14 +186,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.init_state(kernel.clone());
 
         let opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
-        self.init_debug(kernel.kernel_name.clone(), &opt);
+        self.init_debug(options.kernel_name.clone(), &opt);
         self.opt = opt;
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
-        target.set_kernel_name(kernel.kernel_name.clone());
+        target.set_kernel_name(options.kernel_name.clone());
 
-        let (main, debug_setup) = self.declare_main(&kernel.kernel_name);
+        let (main, debug_setup) = self.declare_main(&options.kernel_name);
 
         let setup = self.id();
         self.debug_name(setup, "setup");
@@ -334,8 +342,41 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
-        if self.debug {
+        if self.debug_symbols {
             self.name(var, name);
         }
     }
+}
+
+fn convert_math_mode(math_mode: FPMathMode) -> FPFastMathMode {
+    // Currently missing from rspirv generated output
+    let contract = FPFastMathMode::from_bits_retain(0x10000);
+    let reassoc = FPFastMathMode::from_bits_retain(0x20000);
+    let transform = FPFastMathMode::from_bits_retain(0x40000);
+
+    let mut flags = FPFastMathMode::NONE;
+
+    if math_mode.contains(
+        FPMathMode::NotNaN
+            | FPMathMode::NotInf
+            | FPMathMode::UnsignedZero
+            | FPMathMode::AllowReciprocal,
+    ) {
+        flags |= FPFastMathMode::FAST
+    }
+
+    for mode in math_mode.iter() {
+        match mode {
+            FPMathMode::NotNaN => flags |= FPFastMathMode::NOT_NAN,
+            FPMathMode::NotInf => flags |= FPFastMathMode::NOT_INF,
+            FPMathMode::UnsignedZero => flags |= FPFastMathMode::NSZ,
+            FPMathMode::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
+            FPMathMode::AllowContraction => flags |= contract,
+            FPMathMode::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC_INTEL,
+            FPMathMode::AllowTransform => flags |= contract | reassoc | transform,
+            _ => {}
+        }
+    }
+
+    flags
 }

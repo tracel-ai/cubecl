@@ -112,7 +112,6 @@ impl KernelBuilder {
             scope: self.context.into_scope(),
             inputs: self.inputs,
             outputs: self.outputs,
-            kernel_name: settings.kernel_name.clone(),
         })
         .integrate(settings)
     }
