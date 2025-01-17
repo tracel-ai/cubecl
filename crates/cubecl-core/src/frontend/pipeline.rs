@@ -74,12 +74,32 @@ use crate::{
     unexpanded,
 };
 
-use super::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped, Line, Slice, SliceMut};
+use super::{
+    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, IntoRuntime,
+    Line, Slice, SliceMut,
+};
 
 /// A mechanism for managing a sequence of `memcpy_async`
 /// For now, it only works at the Cube scope
+#[derive(Clone, Copy)]
 pub struct Pipeline<C: CubePrimitive> {
     _c: PhantomData<C>,
+}
+
+impl<C: CubePrimitive> IntoRuntime for Pipeline<C> {
+    fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+        panic!("Doesn't exist at runtime")
+    }
+}
+
+impl<C: CubePrimitive> CubeType for Pipeline<C> {
+    type ExpandType = PipelineExpand<C>;
+}
+
+impl<C: CubePrimitive> Init for PipelineExpand<C> {
+    fn init(self, _context: &mut CubeContext) -> Self {
+        self
+    }
 }
 
 #[derive(Clone)]

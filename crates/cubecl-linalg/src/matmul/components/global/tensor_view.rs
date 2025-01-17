@@ -118,10 +118,10 @@ impl<EG: Numeric> TensorReader<EG> {
             (true, true) => u32::cast_from(view_x < self.shape_x && view_y < self.shape_y),
             (true, false) => u32::cast_from(view_x < self.shape_x),
             (false, true) => u32::cast_from(view_y < self.shape_y),
-            (false, false) => 1u32,
+            (false, false) => 1u32.runtime(),
         };
 
-        self.tensor.as_slice(read_pos, size)
+        self.tensor.as_slice(read_pos, read_pos + size)
     }
 
     /// Reads data from the tensor view at the specified tile coordinates (tile_x, tile_y).

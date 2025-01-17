@@ -12,6 +12,7 @@ use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use pipeline::Pipeline;
 
 #[derive(CubeType)]
 pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
@@ -45,6 +46,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
             Ident::Lhs,
             config,
         );
+    }
+    fn fill_stage_window(
+        this: &mut Self,
+        pipeline: Pipeline<ES>,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
@@ -96,6 +103,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
             Ident::Rhs,
             config,
         );
+    }
+    fn fill_stage_window(
+        this: &mut Self,
+        pipeline: Pipeline<ES>,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {

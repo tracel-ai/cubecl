@@ -49,6 +49,7 @@ impl<D: Dialect> Display for PipelineOps<D> {
             } => {
                 let item = source.item();
                 let size = item.elem().size() * item.vectorization;
+                println!("{item}");
                 write!(f, "
 cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
                 ")

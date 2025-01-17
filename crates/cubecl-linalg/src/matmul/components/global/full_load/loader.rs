@@ -9,6 +9,7 @@ use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use pipeline::Pipeline;
 
 #[derive(CubeType)]
 pub struct LhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> {
@@ -36,6 +37,20 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
         L::load_to_slice::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
+            Ident::Lhs,
+            config,
+        );
+    }
+
+    fn fill_stage_window(
+        this: &mut Self,
+        pipeline: Pipeline<ES>,
+        #[comptime] config: full_load::Config<S>,
+    ) {
+        L::load_window::<EG, ES, full_load::Config<S>>(
+            &this.tensor_view,
+            &mut this.stage.as_slice_mut(),
+            pipeline,
             Ident::Lhs,
             config,
         );
@@ -86,6 +101,20 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
         );
     }
 
+    fn fill_stage_window(
+        this: &mut Self,
+        pipeline: Pipeline<ES>,
+        #[comptime] config: full_load::Config<S>,
+    ) {
+        L::load_window::<EG, ES, full_load::Config<S>>(
+            &this.tensor_view,
+            &mut this.stage.as_slice_mut(),
+            pipeline,
+            Ident::Rhs,
+            config,
+        );
+    }
+
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
     }
@@ -121,6 +150,14 @@ pub trait LoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     fn load_to_slice<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    );
+
+    fn load_window<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
+        read_view: &TensorReader<EG>,
+        slice: &mut SliceMut<Line<ES>>,
+        pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );

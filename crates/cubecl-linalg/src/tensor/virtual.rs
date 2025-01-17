@@ -34,7 +34,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
         unexpanded!();
     }
     /// TODO
-    pub fn as_slice(&self, index: u32, size: u32) -> Slice<Line<E>> {
+    pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
         unexpanded!();
     }
     /// Get the shape of the tensor at the given axis.
@@ -59,10 +59,10 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_slice(
         context: &mut CubeContext,
         this: <Self as CubeType>::ExpandType,
-        index: <u32 as CubeType>::ExpandType,
-        size: u32,
+        start: <u32 as CubeType>::ExpandType,
+        end: <u32 as CubeType>::ExpandType,
     ) -> <Slice<Line<E>> as CubeType>::ExpandType {
-        this.__expand_as_slice_method(context, index, size)
+        this.__expand_as_slice_method(context, start, end)
     }
     pub fn __expand_shape(
         context: &mut CubeContext,
@@ -101,12 +101,12 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_slice_method(
         self,
         context: &mut CubeContext,
-        index: <u32 as CubeType>::ExpandType,
-        size: u32,
+        start: <u32 as CubeType>::ExpandType,
+        end: <u32 as CubeType>::ExpandType,
     ) -> <Slice<Line<E>> as CubeType>::ExpandType {
         self.state
             .clone()
-            .__expand_read_window_method(context, index, size)
+            .__expand_read_window_method(context, start, end)
     }
 
     pub fn __expand_shape_method(
@@ -293,8 +293,8 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
     fn __expand_read_window_method(
         &self,
         context: &mut CubeContext,
-        index: ExpandElementTyped<u32>,
-        size: u32,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<Line<E>>>;
     fn __expand_write_method(
         &self,
@@ -352,11 +352,11 @@ mod __tensor {
         fn __expand_read_window_method(
             &self,
             context: &mut CubeContext,
-            index: ExpandElementTyped<u32>,
-            size: u32,
+            start: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<Slice<Line<E>>> {
-            self.clone()
-                .__expand_slice_method(context, index, size.into())
+            println!("AAAAAAAAAAAAAAAAAAAAAAa");
+            self.clone().__expand_slice_method(context, start, end)
         }
 
         fn __expand_write_method(
