@@ -331,8 +331,8 @@ impl<D: Dialect> CppCompiler<D> {
                     }),
                 ),
 
-                gpu::PipelineOps::ConsumerAwait { pipeline } => instructions.push(
-                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerAwait {
+                gpu::PipelineOps::ConsumerWait { pipeline } => instructions.push(
+                    Instruction::Pipeline(super::pipeline::PipelineOps::ConsumerWait {
                         pipeline: self.compile_variable(pipeline),
                     }),
                 ),

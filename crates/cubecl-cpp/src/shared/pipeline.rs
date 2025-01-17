@@ -18,7 +18,7 @@ pub enum PipelineOps<D: Dialect> {
     ProducerCommit {
         pipeline: Variable<D>,
     },
-    ConsumerAwait {
+    ConsumerWait {
         pipeline: Variable<D>,
     },
     ConsumerRelease {
@@ -33,7 +33,7 @@ impl<D: Dialect> PipelineOps<D> {
             PipelineOps::Init { pipeline, .. } => pipeline.id().unwrap(),
             PipelineOps::ProducerAcquire { pipeline } => pipeline.id().unwrap(),
             PipelineOps::ProducerCommit { pipeline } => pipeline.id().unwrap(),
-            PipelineOps::ConsumerAwait { pipeline } => pipeline.id().unwrap(),
+            PipelineOps::ConsumerWait { pipeline } => pipeline.id().unwrap(),
             PipelineOps::ConsumerRelease { pipeline } => pipeline.id().unwrap(),
         }
     }
@@ -78,7 +78,7 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &
             "
                 )
             }
-            PipelineOps::ConsumerAwait { pipeline } => {
+            PipelineOps::ConsumerWait { pipeline } => {
                 write!(
                     f,
                     "

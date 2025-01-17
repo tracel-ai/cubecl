@@ -3,6 +3,7 @@ use cubecl::prelude::*;
 use pipeline::Pipeline;
 
 #[cube(launch)]
+/// Calculate the sum of an array, using pipelining
 fn pipelined_sum<F: Float>(
     input: &Array<Line<F>>,
     output: &mut Array<Line<F>>,
@@ -15,6 +16,7 @@ fn pipelined_sum<F: Float>(
 
     let mut sum = Line::<F>::empty(input.line_size()).fill(F::new(0.));
 
+    // Copy the first batch to shared memory
     pipeline.producer_acquire();
     pipeline.memcpy_async(
         input.slice(0, batch_len),
@@ -22,18 +24,21 @@ fn pipelined_sum<F: Float>(
     );
     pipeline.producer_commit();
 
-    for batch in 1..num_batches {
-        let copy_index = batch % 2;
-        let compute_index = (batch + 1) % 2;
+    for input_batch in 1..num_batches {
+        // Copy and compute index always alternate
+        let copy_index = input_batch % 2;
+        let compute_index = (input_batch + 1) % 2;
 
+        // Copy the next batch to shared memory
         pipeline.producer_acquire();
         pipeline.memcpy_async(
-            input.slice(batch_len * batch, batch_len * (batch + 1)),
+            input.slice(batch_len * input_batch, batch_len * (input_batch + 1)),
             shared_memory.slice_mut(batch_len * copy_index, batch_len * (copy_index + 1)),
         );
         pipeline.producer_commit();
 
-        pipeline.consumer_await();
+        // Compute the batch that is ready
+        pipeline.consumer_wait();
         let compute_slice =
             shared_memory.slice(batch_len * compute_index, batch_len * (compute_index + 1));
         for i in 0..batch_len {
@@ -42,7 +47,8 @@ fn pipelined_sum<F: Float>(
         pipeline.consumer_release();
     }
 
-    pipeline.consumer_await();
+    // Compute the last batch
+    pipeline.consumer_wait();
     let compute_slice = shared_memory.slice(
         batch_len * ((num_batches + 1) % 2),
         batch_len * ((num_batches + 1) % 2 + 1),
@@ -68,7 +74,7 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
         pipeline.memcpy_async(source, destination);
         pipeline.producer_commit();
 
-        pipeline.consumer_await();
+        pipeline.consumer_wait();
         output[0] = smem[0];
         pipeline.consumer_release();
     }

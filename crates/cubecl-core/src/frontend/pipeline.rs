@@ -1,44 +1,69 @@
 //! This module exposes pipeling utilities for multi-stage asynchronous data copies
 //! with latency hiding.
+//! We call producers all threads that call producer_acquire and producer_commit,
+//! and consumers threads that call consumer_wait and consumer_release.
 //!
 //! # Example
+//! In this example, threads play both the role of producer and consumer
 //!
 //! ```rust, ignore
 //! #[cube(launch)]
-//! pub fn example(lhs: &Array<F16>, rhs: &Array<F16>, out: &mut Array<F32>) {
-//!     let a = cmma::Matrix::<F16>::new(
-//!         cmma::MatrixIdent::A,
-//!         16,
-//!         16,
-//!         16,
-//!         cmma::MatrixLayout::RowMajor,
-//!     );
-//!     let b = cmma::Matrix::<F16>::new(
-//!         cmma::MatrixIdent::B,
-//!         16,
-//!         16,
-//!         16,
-//!         cmma::MatrixLayout::ColMajor,
-//!     );
-//!     let c = cmma::Matrix::<F32>::new(
-//!         cmma::MatrixIdent::Accumulator,
-//!         16,
-//!         16,
-//!         16,
-//!         cmma::MatrixLayout::Undefined,
-//!     );
-//!     cmma::fill::<F32>(&c, F32::new(0.0));
-//!     cmma::load::<F16>(&a, lhs.as_slice(), u32::new(16));
-//!     cmma::load::<F16>(&b, rhs.as_slice(), u32::new(16));
+//! /// Calculate the sum of an array, using pipelining
+//! fn pipelined_sum<F: Float>(
+//!     input: &Array<Line<F>>,
+//!     output: &mut Array<Line<F>>,
+//!     #[comptime] batch_len: u32,
+//! ) {
+//!     let smem_size = 2 * batch_len;
+//!     let num_batches = input.len() / batch_len;
+//!     let mut shared_memory = SharedMemory::<F>::new_lined(smem_size, input.line_size());
+//!     let pipeline = Pipeline::new();
 //!
-//!     cmma::execute::<F16, F16, F32, F32>(&a, &b, &c, &c);
+//!     let mut sum = Line::<F>::empty(input.line_size()).fill(F::new(0.));
 //!
-//!     cmma::store::<F32>(
-//!         out.as_slice_mut(),
-//!         &c,
-//!         u32::new(16),
-//!         cmma::MatrixLayout::RowMajor,
+//!     // Copy the first batch to shared memory
+//!     pipeline.producer_acquire();
+//!     pipeline.memcpy_async(
+//!         input.slice(0, batch_len),
+//!         shared_memory.slice_mut(0, batch_len),
 //!     );
+//!     pipeline.producer_commit();
+//!
+//!     for input_batch in 1..num_batches {
+//!         // Copy and compute index always alternate
+//!         let copy_index = input_batch % 2;
+//!         let compute_index = (input_batch + 1) % 2;
+//!
+//!         // Copy the next batch to shared memory
+//!         pipeline.producer_acquire();
+//!         pipeline.memcpy_async(
+//!             input.slice(batch_len * input_batch, batch_len * (input_batch + 1)),
+//!             shared_memory.slice_mut(batch_len * copy_index, batch_len * (copy_index + 1)),
+//!         );
+//!         pipeline.producer_commit();
+//!
+//!         // Compute the batch that is ready
+//!         pipeline.consumer_wait();
+//!         let compute_slice =
+//!             shared_memory.slice(batch_len * compute_index, batch_len * (compute_index + 1));
+//!         for i in 0..batch_len {
+//!             sum += compute_slice[i];
+//!         }
+//!         pipeline.consumer_release();
+//!     }
+//!
+//!     // Compute the last batch
+//!     pipeline.consumer_wait();
+//!     let compute_slice = shared_memory.slice(
+//!         batch_len * ((num_batches + 1) % 2),
+//!         batch_len * ((num_batches + 1) % 2 + 1),
+//!     );
+//!     for i in 0..batch_len {
+//!         sum += compute_slice[i];
+//!     }
+//!     pipeline.consumer_release();
+//!
+//!     output[0] = sum;
 //! }
 //! ```
 
@@ -51,11 +76,14 @@ use crate::{
 
 use super::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped, Line, Slice, SliceMut};
 
+/// A mechanism for managing a sequence of `memcpy_async`
+/// For now, it only works at the Cube scope
 pub struct Pipeline<C: CubePrimitive> {
     _c: PhantomData<C>,
 }
 
 #[derive(Clone)]
+/// Expand type of [Pipeline]
 pub struct PipelineExpand<C: CubePrimitive> {
     elem: ExpandElement,
     _c: PhantomData<C>,
@@ -68,23 +96,37 @@ impl<C: CubePrimitive> Default for Pipeline<C> {
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
+    /// Create a pipeline instance
     pub fn new() -> Self {
         Self { _c: PhantomData }
     }
 
+    /// Copy the source slice to destination
+    ///
+    /// # Safety
+    ///
+    /// This will try to copy the whole source slice, so
+    /// make sure source length <= destination length
     pub fn memcpy_async(&self, _source: Slice<Line<C>>, _destination: SliceMut<Line<C>>) {
         unexpanded!()
     }
 
+    /// Reserves a specific stage for the producer to work on.
     pub fn producer_acquire(&self) {
         unexpanded!()
     }
+
+    /// Signals that the producer is done and the stage is ready for the consumer.
     pub fn producer_commit(&self) {
         unexpanded!()
     }
-    pub fn consumer_await(&self) {
+
+    /// Waits until the producer has finished with the stage.
+    pub fn consumer_wait(&self) {
         unexpanded!()
     }
+
+    /// Frees the stage after the consumer is done using it.
     pub fn consumer_release(&self) {
         unexpanded!()
     }
@@ -115,8 +157,8 @@ impl<C: CubePrimitive> Pipeline<C> {
         expand.__expand_producer_commit_method(context);
     }
 
-    pub fn __expand_consumer_await(context: &mut CubeContext, expand: PipelineExpand<C>) {
-        expand.__expand_consumer_await_method(context);
+    pub fn __expand_consumer_wait(context: &mut CubeContext, expand: PipelineExpand<C>) {
+        expand.__expand_consumer_wait_method(context);
     }
 
     pub fn __expand_consumer_release(context: &mut CubeContext, expand: PipelineExpand<C>) {
@@ -161,11 +203,11 @@ impl<C: CubePrimitive> PipelineExpand<C> {
             operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
         });
     }
-    pub fn __expand_consumer_await_method(&self, context: &mut CubeContext) {
+    pub fn __expand_consumer_wait_method(&self, context: &mut CubeContext) {
         let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
-            operation: Operation::Pipeline(PipelineOps::ConsumerAwait { pipeline }),
+            operation: Operation::Pipeline(PipelineOps::ConsumerWait { pipeline }),
         });
     }
     pub fn __expand_consumer_release_method(&self, context: &mut CubeContext) {

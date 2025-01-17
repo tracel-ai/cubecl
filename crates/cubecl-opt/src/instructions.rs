@@ -261,7 +261,7 @@ impl Optimizer {
             }
             PipelineOps::ProducerAcquire { pipeline } => visit_read(self, pipeline),
             PipelineOps::ProducerCommit { pipeline } => visit_read(self, pipeline),
-            PipelineOps::ConsumerAwait { pipeline } => visit_read(self, pipeline),
+            PipelineOps::ConsumerWait { pipeline } => visit_read(self, pipeline),
             PipelineOps::ConsumerRelease { pipeline } => visit_read(self, pipeline),
         }
     }

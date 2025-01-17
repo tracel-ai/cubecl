@@ -5,24 +5,22 @@ use serde::{Deserialize, Serialize};
 use super::Variable;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+/// Operations available on a pipeline
 pub enum PipelineOps {
+    /// Copy source to destination
     MemCopyAsync {
         pipeline: Variable,
         source: Variable,
         destination: Variable,
     },
-    ProducerAcquire {
-        pipeline: Variable,
-    },
-    ProducerCommit {
-        pipeline: Variable,
-    },
-    ConsumerAwait {
-        pipeline: Variable,
-    },
-    ConsumerRelease {
-        pipeline: Variable,
-    },
+    /// Reserves a specific stage for the producer to work on.
+    ProducerAcquire { pipeline: Variable },
+    /// Signals that the producer is done and the stage is ready for the consumer.
+    ProducerCommit { pipeline: Variable },
+    /// Waits until the producer has finished with the stage.
+    ConsumerWait { pipeline: Variable },
+    /// Frees the stage after the consumer is done using it.
+    ConsumerRelease { pipeline: Variable },
 }
 
 impl Display for PipelineOps {
@@ -38,7 +36,7 @@ impl Display for PipelineOps {
             ),
             PipelineOps::ProducerAcquire { pipeline } => write!(f, "producer_acquire({pipeline})"),
             PipelineOps::ProducerCommit { pipeline } => write!(f, "producer_commit({pipeline})"),
-            PipelineOps::ConsumerAwait { pipeline } => write!(f, "consumer_await({pipeline})"),
+            PipelineOps::ConsumerWait { pipeline } => write!(f, "consumer_wait({pipeline})"),
             PipelineOps::ConsumerRelease { pipeline } => write!(f, "consumer_release({pipeline})"),
         }
     }
