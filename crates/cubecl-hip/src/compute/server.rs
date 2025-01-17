@@ -76,11 +76,10 @@ unsafe impl Send for HipServer {}
 impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
 
         let mut data = uninit_vec(resource.size as usize);
         unsafe {
@@ -104,11 +103,10 @@ impl HipServer {
         let mut result = Vec::with_capacity(bindings.len());
 
         for binding in bindings {
-            let resource = ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            );
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
 
             let mut data = uninit_vec(resource.size as usize);
             unsafe {
@@ -166,11 +164,10 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
-        let resource = ctx.memory_management.get_resource(
-            binding.memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .unwrap();
 
         unsafe {
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
@@ -186,7 +183,7 @@ impl ComputeServer for HipServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64, None);
+        let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -232,11 +229,9 @@ impl ComputeServer for HipServer {
         let resources = bindings
             .into_iter()
             .map(|binding| {
-                ctx.memory_management.get_resource(
-                    binding.memory,
-                    binding.offset_start,
-                    binding.offset_end,
-                )
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Couldn't find resource")
             })
             .collect::<Vec<_>>();
 
@@ -296,11 +291,9 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management.get_resource(
-                binding.memory,
-                binding.offset_start,
-                binding.offset_end,
-            ),
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Can't find resource"),
         )
     }
 
@@ -399,8 +392,7 @@ impl HipContext {
         let include_option_cstr = CString::new(include_option).unwrap();
         // needed for rocWMMA extension to compile
         let cpp_std_option_cstr = CString::new("--std=c++17").unwrap();
-        let mut options: Vec<*const i8> =
-            vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
+        let mut options = vec![cpp_std_option_cstr.as_ptr(), include_option_cstr.as_ptr()];
         unsafe {
             let options_ptr = options.as_mut_ptr();
             let status =
@@ -413,7 +405,7 @@ impl HipContext {
                     status, hiprtcResult_HIPRTC_SUCCESS,
                     "Should retrieve the compilation log size"
                 );
-                let mut log_buffer = vec![0i8; log_size];
+                let mut log_buffer = vec![0; log_size];
                 let status = cubecl_hip_sys::hiprtcGetProgramLog(program, log_buffer.as_mut_ptr());
                 assert_eq!(
                     status, hiprtcResult_HIPRTC_SUCCESS,
@@ -446,7 +438,7 @@ impl HipContext {
                 "Should get size of compiled code"
             );
         }
-        let mut code = vec![0i8; code_size];
+        let mut code = vec![0; code_size];
         unsafe {
             let status = cubecl_hip_sys::hiprtcGetCode(program, code.as_mut_ptr());
             assert_eq!(

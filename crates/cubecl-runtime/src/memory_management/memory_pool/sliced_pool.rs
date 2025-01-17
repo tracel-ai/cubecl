@@ -1,7 +1,7 @@
 use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::memory_pool::calculate_padding;
-use crate::memory_management::{MemoryLock, MemoryUsage};
+use crate::memory_management::MemoryUsage;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
@@ -19,6 +19,7 @@ pub(crate) struct SlicedPool {
     recently_allocated_size: u64,
     page_size: u64,
     max_alloc_size: u64,
+    min_alloc_size: u64,
     alignment: u64,
 }
 
@@ -81,8 +82,8 @@ impl MemoryPage {
 }
 
 impl MemoryPool for SlicedPool {
-    fn max_alloc_size(&self) -> u64 {
-        self.max_alloc_size
+    fn handles_alloc(&self, size: u64) -> bool {
+        size >= self.min_alloc_size && size <= self.max_alloc_size
     }
 
     /// Returns the resource from the storage, for the specified handle.
@@ -94,22 +95,12 @@ impl MemoryPool for SlicedPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn reserve<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-        locked: Option<&MemoryLock>,
-    ) -> SliceHandle {
-        let slice = self.get_free_slice(size, locked);
-
-        match slice {
-            Some(slice) => slice.clone(),
-            None => self.alloc(storage, size),
-        }
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+        self.get_free_slice(size)
     }
 
     fn alloc<Storage: ComputeStorage>(&mut self, storage: &mut Storage, size: u64) -> SliceHandle {
-        let storage_id = self.create_page(storage, self.page_size);
+        let storage_id = self.create_page(storage);
         self.recently_added_pages.push(storage_id);
         self.recently_allocated_size += self.page_size;
 
@@ -153,7 +144,7 @@ impl MemoryPool for SlicedPool {
             number_allocs: used_slices.len() as u64,
             bytes_in_use: used_slices.iter().map(|s| s.storage.size()).sum(),
             bytes_padding: used_slices.iter().map(|s| s.padding).sum(),
-            bytes_reserved: self.slices.iter().map(|s| s.1.storage.size()).sum(),
+            bytes_reserved: (self.pages.len() as u64) * self.page_size,
         }
     }
 
@@ -163,7 +154,12 @@ impl MemoryPool for SlicedPool {
 }
 
 impl SlicedPool {
-    pub(crate) fn new(page_size: u64, max_alloc_size: u64, alignment: u64) -> Self {
+    pub(crate) fn new(
+        page_size: u64,
+        min_alloc_size: u64,
+        max_alloc_size: u64,
+        alignment: u64,
+    ) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);
         Self {
@@ -175,18 +171,19 @@ impl SlicedPool {
             recently_allocated_size: 0,
             alignment,
             page_size,
+            min_alloc_size,
             max_alloc_size,
         }
     }
 
     /// Finds a free slice that can contain the given size
-    fn get_free_slice(&mut self, size: u64, locked: Option<&MemoryLock>) -> Option<SliceHandle> {
+    fn get_free_slice(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
         let slice_id =
             self.ring
-                .find_free_slice(effective_size, &mut self.pages, &mut self.slices, locked)?;
+                .find_free_slice(effective_size, &mut self.pages, &mut self.slices)?;
 
         let slice = self.slices.get_mut(&slice_id).unwrap();
         let old_slice_size = slice.effective_size();
@@ -224,18 +221,14 @@ impl SlicedPool {
     }
 
     /// Creates a page of given size by allocating on the storage.
-    fn create_page<Storage: ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-        size: u64,
-    ) -> StorageId {
+    fn create_page<Storage: ComputeStorage>(&mut self, storage: &mut Storage) -> StorageId {
         let storage = storage.alloc(self.page_size);
 
         let id = storage.id;
         self.ring.push_page(id);
 
         self.pages.insert(id, MemoryPage::new(HashMap::new()));
-        self.storage_index.insert(id, size);
+        self.storage_index.insert(id, self.page_size);
 
         id
     }

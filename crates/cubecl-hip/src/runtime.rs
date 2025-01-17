@@ -108,11 +108,8 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
         // but it's dubious it's more than this.
         max_bindings: 1024,
     };
-    let memory_management = MemoryManagement::from_configuration(
-        storage,
-        mem_properties.clone(),
-        options.memory_config,
-    );
+    let memory_management =
+        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, topology);
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP

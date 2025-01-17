@@ -11,6 +11,7 @@ pub mod index;
 pub mod launch;
 pub mod line;
 pub mod metadata;
+pub mod pipeline;
 pub mod plane;
 pub mod sequence;
 pub mod slice;
@@ -81,6 +82,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_index!();
         cubecl_core::testgen_launch!();
         cubecl_core::testgen_line!();
+        cubecl_core::testgen_pipeline!();
         cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();

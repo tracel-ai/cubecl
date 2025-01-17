@@ -1,7 +1,8 @@
 use crate::shared::FmtLeft;
 
 use super::{
-    binary::*, unary::*, Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
+    binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem, Item, Variable,
+    WarpInstruction, WmmaInstruction,
 };
 use std::{fmt::Display, marker::PhantomData};
 
@@ -189,6 +190,7 @@ pub enum Instruction<D: Dialect> {
     Comment {
         content: String,
     },
+    Pipeline(PipelineOps<D>),
 }
 
 impl<D: Dialect> Display for Instruction<D> {
@@ -606,6 +608,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
+            Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
         }
     }
 }

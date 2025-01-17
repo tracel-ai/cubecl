@@ -37,7 +37,7 @@ impl ReduceConfig {
             .generate_line_mode(input, axis)
             .generate_line_size::<R, In>(input, output, axis)
             .generate_cube_dim(client, strategy.use_planes)
-            .generate_cube_count(reduce_count, strategy)
+            .generate_cube_count::<R>(reduce_count, strategy)
     }
 
     fn new() -> Self {
@@ -149,7 +149,11 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_cube_count(mut self, reduce_count: u32, strategy: &ReduceStrategy) -> Self {
+    fn generate_cube_count<R: Runtime>(
+        mut self,
+        reduce_count: u32,
+        strategy: &ReduceStrategy,
+    ) -> Self {
         let agent_count_per_cube =  // An agent is either a unit, a plane or a whole cube depending on the strategy.
             match strategy {
                 ReduceStrategy { shared: true, .. } => 1,
@@ -164,7 +168,22 @@ impl ReduceConfig {
         let cube_count = reduce_count.div_ceil(reduce_count_per_cube);
 
         self.do_bound_checks_if(reduce_count_per_cube * cube_count > reduce_count);
-        self.cube_count = CubeCount::new_1d(cube_count);
+
+        // If needed, we decompose the cube count to be within runtime limitation.
+        let (max_x, max_y, _) = R::max_cube_count();
+        let mut cube_count_x = cube_count;
+        let mut cube_count_y = 1;
+        let mut cube_count_z = 1;
+        while cube_count_x > max_x {
+            cube_count_x /= 2;
+            cube_count_y *= 2;
+        }
+        while cube_count_y > max_y {
+            cube_count_y /= 2;
+            cube_count_z *= 2;
+        }
+        self.cube_count = CubeCount::new_3d(cube_count_x, cube_count_y, cube_count_z);
+        self.do_bound_checks_if(cube_count_x * cube_count_y != cube_count);
 
         self
     }

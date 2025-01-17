@@ -16,9 +16,9 @@ pub(crate) enum ProfileSubCommand {
 pub(crate) struct BenchOptionsArgs {
     #[arg(long)]
     pub bench: String,
-    #[arg(long, default_value = "/usr/local/cuda/bin/ncu")]
+    #[arg(long, default_value = "ncu")]
     pub ncu_path: String,
-    #[arg(long, default_value = "/usr/local/cuda/bin/ncu-ui")]
+    #[arg(long, default_value = "ncu-ui")]
     pub ncu_ui_path: String,
 }
 
@@ -79,13 +79,18 @@ impl Profile {
         let bin = bins.first().unwrap().as_path().to_str().unwrap();
         let file = format!("target/{}", options.bench);
 
+        let ncu_bin_path = std::process::Command::new("which")
+            .arg(&options.ncu_path)
+            .output()
+            .map_err(|_| ())
+            .and_then(|output| String::from_utf8(output.stdout).map_err(|_| ()))
+            .expect("Can't find ncu. Make sure it is installed and in your PATH.");
+
         run_process(
             "sudo",
             &[
                 "BENCH_NUM_SAMPLES=1",
-                &options.ncu_path,
-                "--config-file",
-                "off",
+                ncu_bin_path.trim(),
                 "--nvtx",
                 "--set=full",
                 "--call-stack",

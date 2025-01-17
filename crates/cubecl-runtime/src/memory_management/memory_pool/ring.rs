@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-use crate::{memory_management::MemoryLock, storage::StorageId};
+use crate::storage::StorageId;
 
 use super::{MemoryPage, Slice, SliceId};
 
@@ -36,11 +36,9 @@ impl RingBuffer {
         size: u64,
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
-        locked: Option<&MemoryLock>,
     ) -> Option<SliceId> {
         let max_second = self.cursor_chunk;
-        let result =
-            self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len(), locked);
+        let result = self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len());
 
         if result.is_some() {
             return result;
@@ -48,7 +46,7 @@ impl RingBuffer {
 
         self.cursor_chunk = 0;
         self.cursor_slice = 0;
-        self.find_free_slice_in_all_chunks(size, pages, slices, max_second, locked)
+        self.find_free_slice_in_all_chunks(size, pages, slices, max_second)
     }
 
     fn find_free_slice_in_chunk(
@@ -101,7 +99,6 @@ impl RingBuffer {
         pages: &mut HashMap<StorageId, MemoryPage>,
         slices: &mut HashMap<SliceId, Slice>,
         max_cursor_position: usize,
-        locked: Option<&MemoryLock>,
     ) -> Option<SliceId> {
         let start = self.cursor_chunk;
         let end = usize::min(self.queue.len(), max_cursor_position);
@@ -113,12 +110,6 @@ impl RingBuffer {
             }
 
             if let Some(id) = self.queue.get(chunk_index) {
-                if let Some(locked) = locked.as_ref() {
-                    if locked.is_locked(id) {
-                        continue;
-                    }
-                }
-
                 let chunk = pages.get_mut(id).unwrap();
                 let result = self.find_free_slice_in_chunk(size, chunk, slices, slice_index);
 
@@ -155,9 +146,7 @@ mod tests {
         ring.push_page(storage_id);
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
-        let slice = ring
-            .find_free_slice(50, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(50, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[0]);
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 50);
@@ -174,9 +163,7 @@ mod tests {
         ring.push_page(storage_id);
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
-        let slice = ring
-            .find_free_slice(150, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(150, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[0]);
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 150);
@@ -203,15 +190,11 @@ mod tests {
         let _slice_1 = slices.get(&slice_ids[1]).unwrap().handle.clone();
         let _slice_3 = slices.get(&slice_ids[3]).unwrap().handle.clone();
 
-        let slice = ring
-            .find_free_slice(200, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(200, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[2]);
 
-        let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(100, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[0]);
     }
@@ -228,9 +211,7 @@ mod tests {
         // Clone reference to control what slice is free:
         let _slice_1 = slices.get(&slice_ids[0]).unwrap().handle.clone();
 
-        let slice = ring
-            .find_free_slice(200, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(200, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[1]);
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 200);
@@ -247,9 +228,7 @@ mod tests {
         ring.push_page(storage_id);
         let mut chunks = HashMap::from([(storage_id, chunk)]);
 
-        let slice = ring
-            .find_free_slice(250, &mut chunks, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(250, &mut chunks, &mut slices).unwrap();
 
         assert_eq!(slice, slice_ids[0]);
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 250);
@@ -271,42 +250,11 @@ mod tests {
 
         let mut pages = HashMap::from([(storage_id_1, page_1), (storage_id_2, page_2)]);
 
-        let slice = ring
-            .find_free_slice(150, &mut pages, &mut slices, None)
-            .unwrap();
+        let slice = ring.find_free_slice(150, &mut pages, &mut slices).unwrap();
 
         assert_eq!(slices.get(&slice).unwrap().effective_size(), 150);
         assert_eq!(slices.len(), 2);
         assert_eq!(pages.values().last().unwrap().slices.len(), 1);
-    }
-
-    #[test]
-    fn excludes_locked_storage() {
-        let mut ring = RingBuffer::new(1);
-
-        let (storage_id_1, mut slice_ids, mut slices, chunk_1) = new_chunk(&[100, 100]);
-        let (storage_id_2, slice_ids_2, slices_2, chunk_2) = new_chunk(&[100, 100]);
-
-        ring.push_page(storage_id_1);
-        ring.push_page(storage_id_2);
-
-        let mut chunks = HashMap::from([(storage_id_1, chunk_1), (storage_id_2, chunk_2)]);
-
-        slice_ids.extend(slice_ids_2);
-        slices.extend(slices_2);
-
-        let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, None)
-            .unwrap();
-        assert_eq!(slice, slice_ids[0]);
-
-        let mut locked = MemoryLock::new(32);
-        locked.add_locked(storage_id_1);
-
-        let slice = ring
-            .find_free_slice(100, &mut chunks, &mut slices, Some(&locked))
-            .unwrap();
-        assert_eq!(slice, slice_ids[2]);
     }
 
     fn new_chunk(

@@ -274,6 +274,8 @@ fn register_features(
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
 
+    log::debug!("Supported Vulkan features: {extended_feat:#?}");
+
     register_types(props, &extended_feat);
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
@@ -371,6 +373,7 @@ fn register_cmma(
             })
         })
         .collect::<Vec<_>>();
+    log::debug!("Supported CMMA sizes: {sizes:#?}");
     for size in sizes {
         props.register_feature(size);
     }

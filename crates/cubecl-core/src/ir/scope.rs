@@ -21,6 +21,7 @@ pub struct Scope {
     pub operations: Vec<Instruction>,
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
+    pipelines: Vec<Variable>,
     slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
@@ -54,6 +55,7 @@ impl Scope {
             operations: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
+            pipelines: Vec::new(),
             slices: Vec::new(),
             local_arrays: Vec::new(),
             shared_memories: Vec::new(),
@@ -102,6 +104,10 @@ impl Scope {
 
     pub fn add_matrix(&mut self, variable: Variable) {
         self.matrices.push(variable);
+    }
+
+    pub fn add_pipeline(&mut self, variable: Variable) {
+        self.pipelines.push(variable);
     }
 
     pub fn add_slice(&mut self, slice: Variable) {
@@ -227,6 +233,7 @@ impl Scope {
             operations: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
+            pipelines: Vec::new(),
             slices: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),

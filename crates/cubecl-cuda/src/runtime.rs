@@ -91,11 +91,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         max_bindings: crate::device::CUDA_MAX_BINDINGS,
     };
 
-    let memory_management = MemoryManagement::from_configuration(
-        storage,
-        mem_properties.clone(),
-        options.memory_config,
-    );
+    let memory_management =
+        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
     let mut device_props = DeviceProperties::new(&[Feature::Plane], mem_properties, hardware_props);
     register_supported_types(&mut device_props);
@@ -105,6 +102,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     }
     if arch.version >= 70 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
+        device_props.register_feature(Feature::Pipeline);
     }
     if arch.version >= 80 {
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));

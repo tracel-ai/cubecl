@@ -20,12 +20,12 @@ default = [
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.4.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.4.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.4.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.5.0", default-features = false, features = [
   "cuda",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.4.0", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false, features = [
   "channel-mutex",
 ] }
 
@@ -41,13 +41,13 @@ half = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
-cubecl-core = { path = "../cubecl-core", version = "0.4.0", features = [
+cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [
   "export_tests",
 ] }
-cubecl-linalg = { path = "../cubecl-linalg", version = "0.4.0", features = [
+cubecl-linalg = { path = "../cubecl-linalg", version = "0.5.0", features = [
   "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.4.0", features = [
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.5.0", features = [
   "export_tests",
 ] }
 paste = { workspace = true }

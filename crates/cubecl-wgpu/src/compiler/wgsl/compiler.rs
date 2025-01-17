@@ -482,6 +482,9 @@ impl WgslCompiler {
             cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
+            cube::VariableKind::Pipeline { .. } => {
+                panic!("Pipeline not supported.")
+            }
         }
     }
 
@@ -552,6 +555,9 @@ impl WgslCompiler {
             }
             // No good way to attach debug info
             cube::Operation::NonSemantic(_) => {}
+            cube::Operation::Pipeline(_) => {
+                panic!("Pipeline isn't supported on wgpu.")
+            }
         }
     }
 

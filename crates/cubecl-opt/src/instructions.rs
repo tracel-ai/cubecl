@@ -1,6 +1,6 @@
 use cubecl_core::ir::{
-    AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, Plane,
-    UnaryOperator, Variable,
+    AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, PipelineOps,
+    Plane, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -45,6 +45,7 @@ impl Optimizer {
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
+            Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
         }
     }
 
@@ -240,6 +241,28 @@ impl Optimizer {
             CoopMma::Cast { input } => {
                 visit_read(self, input);
             }
+        }
+    }
+
+    fn visit_pipeline(
+        &mut self,
+        pipeline_ops: &mut PipelineOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match pipeline_ops {
+            PipelineOps::MemCopyAsync {
+                pipeline,
+                source,
+                destination,
+            } => {
+                visit_read(self, pipeline);
+                visit_read(self, source);
+                visit_read(self, destination);
+            }
+            PipelineOps::ProducerAcquire { pipeline } => visit_read(self, pipeline),
+            PipelineOps::ProducerCommit { pipeline } => visit_read(self, pipeline),
+            PipelineOps::ConsumerWait { pipeline } => visit_read(self, pipeline),
+            PipelineOps::ConsumerRelease { pipeline } => visit_read(self, pipeline),
         }
     }
 
