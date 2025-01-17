@@ -349,17 +349,21 @@ impl CudaContext {
 
         let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
         let cube_dim = kernel_compiled.cube_dim;
+        let fast_math = kernel_compiled.repr.as_ref().unwrap().fast_math;
         let arch = format!("--gpu-architecture=sm_{}", self.arch);
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
-        let options = &[arch.as_str(), include_option.as_str(), "-lineinfo"];
+        let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
+        if fast_math {
+            options.push("--use_fast_math");
+        }
 
         let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
             let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
-            if cudarc::nvrtc::result::compile_program(program, options).is_err() {
+            if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();
                 let log = CStr::from_ptr(log_ptr).to_str().unwrap();

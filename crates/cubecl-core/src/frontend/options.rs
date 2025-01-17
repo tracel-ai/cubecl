@@ -24,5 +24,7 @@ bitflags::bitflags! {
         /// Allow all mathematical transformations for float operations, including contraction and
         /// reassociation, even if the precision could change.
         const AllowTransform = 1 << 6;
+        /// Allow using slightly lower precision intrinsics (CUDA `--use_fast_math`)
+        const ReducedPrecision = 1 << 7;
     }
 }
