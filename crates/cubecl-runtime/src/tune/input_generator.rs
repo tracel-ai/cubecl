@@ -2,16 +2,22 @@ use core::marker::PhantomData;
 
 use variadics_please::all_tuples;
 
+/// A function that generates the input for autotuning passes
 pub trait InputGenerator<K, Inputs>: 'static {
+    /// Generate a set of inputs for a given key and reference inputs
     fn generate(&self, key: &K, inputs: &Inputs) -> Inputs;
 }
 
+/// Something that can be turned into an input generator
 pub trait IntoInputGenerator<K, Inputs, Marker> {
+    /// The concrete type of the input generator
     type Generator: InputGenerator<K, Inputs>;
 
+    /// Convert this type into a concrete input generator
     fn into_input_gen(self) -> Self::Generator;
 }
 
+/// An input generator implemented by an `Fn`
 pub struct FunctionInputGenerator<F, Marker> {
     func: F,
     _marker: PhantomData<Marker>,
@@ -26,7 +32,13 @@ where
     }
 }
 
+/// A function that can be turned into an input generator for `Inputs`
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid input generator",
+    label = "invalid input generator"
+)]
 pub trait FunctionInputGen<K, Inputs, Marker>: 'static {
+    /// Execute the function and generate a set of inputs
     fn execute(&self, key: &K, inputs: &Inputs) -> Inputs;
 }
 

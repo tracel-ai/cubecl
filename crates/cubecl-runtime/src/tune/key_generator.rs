@@ -2,16 +2,22 @@ use core::marker::PhantomData;
 
 use variadics_please::all_tuples;
 
+/// A generator that creates a key for a given set of inputs
 pub trait KeyGenerator<K, Inputs>: 'static {
+    /// Generate a key from a set of inputs
     fn generate(&self, inputs: &Inputs) -> K;
 }
 
+/// Something that can be turned into a key generator
 pub trait IntoKeyGenerator<K, Inputs, Marker> {
+    /// The concrete key generator type
     type Generator: KeyGenerator<K, Inputs>;
 
+    /// Turn this type into a concrete key generator
     fn into_key_gen(self) -> Self::Generator;
 }
 
+/// A key generator implemented by an `Fn`
 pub struct FunctionKeyGenerator<F, Marker> {
     func: F,
     _marker: PhantomData<Marker>,
@@ -26,7 +32,13 @@ where
     }
 }
 
+/// An `Fn` that can act as a key generator
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid key generator",
+    label = "invalid key generator"
+)]
 pub trait FunctionKeygen<K, Inputs, Marker>: 'static {
+    /// Execute this function and generate a key
     fn execute(&self, inputs: &Inputs) -> K;
 }
 
