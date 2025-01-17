@@ -1,4 +1,4 @@
-use cubecl_core::{ir as core, FPMathMode, Metadata};
+use cubecl_core::{ir as core, prelude::FPMathMode, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{

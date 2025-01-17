@@ -11,6 +11,7 @@ mod debug;
 mod element;
 mod indexation;
 mod operation;
+mod options;
 mod plane;
 mod topology;
 
@@ -23,5 +24,6 @@ pub use debug::*;
 pub use element::*;
 pub use indexation::*;
 pub use operation::*;
+pub use options::*;
 pub use plane::*;
 pub use topology::*;

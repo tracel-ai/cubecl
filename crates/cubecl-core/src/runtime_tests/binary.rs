@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{self as cubecl, as_type, FPMathMode};
+use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
