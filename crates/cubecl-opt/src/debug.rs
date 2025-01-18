@@ -299,6 +299,7 @@ impl Display for Instruction {
             OpId::Sub => write!(f, "{} - {}", args[0], args[1]),
             OpId::Mul => write!(f, "{} * {}", args[0], args[1]),
             OpId::Div => write!(f, "{} / {}", args[0], args[1]),
+            OpId::MulHi => write!(f, "{}.mul_hi({})", args[0], args[1]),
             OpId::Abs => write!(f, "{}.abs()", args[0]),
             OpId::Exp => write!(f, "{}.exp()", args[0]),
             OpId::Log => write!(f, "{}.log()", args[0]),

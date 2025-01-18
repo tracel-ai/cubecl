@@ -275,6 +275,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
+            Operator::MulHi(op) => {
+                self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    let struct_ty = b.type_struct([ty, ty]);
+                    let result = match out_ty.elem() {
+                        Elem::Int(_, false) => b.u_mul_extended(struct_ty, None, lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_mul_extended(struct_ty, None, lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                    b.composite_extract(ty, Some(out), result, [1]).unwrap();
+                });
+            }
             Operator::Remainder(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {

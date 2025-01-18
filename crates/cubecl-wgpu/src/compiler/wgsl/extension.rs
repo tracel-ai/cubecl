@@ -1,3 +1,5 @@
+use hi_mul::*;
+
 use super::base::Item;
 use std::fmt::Display;
 
@@ -8,6 +10,9 @@ pub enum Extension {
     PowfPrimitive(Item),
     Powf(Item),
     Erf(Item),
+    HiMul(Item),
+    HiMul64(Item),
+    HiMulSim(Item),
     #[cfg(target_os = "macos")]
     SafeTanh(Item),
 }
@@ -19,8 +24,124 @@ impl Display for Extension {
             Extension::PowfPrimitive(elem) => format_powf_primitive(f, elem),
             Extension::Powf(elem) => format_powf(f, elem),
             Extension::Erf(elem) => format_erf(f, elem),
+            Extension::HiMul(elem) => format_hi_mul(f, elem),
+            Extension::HiMul64(elem) => format_hi_mul_64(f, elem),
+            Extension::HiMulSim(elem) => format_hi_mul_sim(f, elem),
             #[cfg(target_os = "macos")]
             Extension::SafeTanh(elem) => format_safe_tanh(f, elem),
+        }
+    }
+}
+
+mod hi_mul {
+    use cubecl_core::ir::{ConstantScalarValue, IntKind, UIntKind};
+
+    use crate::compiler::wgsl::Elem;
+
+    use super::*;
+
+    pub(crate) fn format_hi_mul_64(
+        f: &mut std::fmt::Formatter<'_>,
+        item: &Item,
+    ) -> Result<(), std::fmt::Error> {
+        let elem = item.elem();
+        let elem64 = match elem {
+            Elem::I32 => Elem::I64,
+            Elem::U32 => Elem::U64,
+            _ => unimplemented!("Hi mul only supports 32 bit ints"),
+        };
+        write!(
+            f,
+            "
+    fn hi_mul_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
+        {elem}(({elem64}(lhs) * {elem64}(rhs)) >> 32)
+    }}
+    "
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn format_hi_mul_sim(
+        f: &mut std::fmt::Formatter<'_>,
+        item: &Item,
+    ) -> Result<(), std::fmt::Error> {
+        let elem = item.elem();
+        let low_mask = match elem {
+            Elem::U32 => ConstantScalarValue::UInt(0xffff, UIntKind::U32),
+            Elem::I32 => ConstantScalarValue::Int(0xffff, IntKind::I32),
+            _ => unimplemented!("Hi mul only supports 32 bit ints"),
+        };
+        write!(
+            f,
+            "
+fn hi_mul_primitive(lhs: {elem}, rhs: {elem}) -> {elem} {{
+    let lhs_low = lhs & {low_mask};
+    let lhs_hi = (lhs >> 16) & {low_mask};
+    let rhs_low = rhs & {low_mask};
+    let rhs_hi = (rhs >> 16) & {low_mask};
+
+    let low_low = lhs_low * rhs_low;
+    let high_low = lhs_hi * rhs_low;
+    let low_high = lhs_low * rhs_hi;
+    let high_high = lhs_hi * rhs_hi;
+
+    let mid = ((low_low >> 16) & {low_mask}) + (high_low & {low_mask}) + (low_high & {low_mask});
+    return high_high + ((high_low >> 16) & {low_mask}) + ((low_high >> 16) & {low_mask}) + ((mid >> 16) & {low_mask});
+}}
+    "
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn format_hi_mul(
+        f: &mut core::fmt::Formatter<'_>,
+        item: &Item,
+    ) -> core::fmt::Result {
+        match item {
+            Item::Vec4(_) => write!(
+                f,
+                "
+fn hi_mul(lhs: {item}, rhs: {item}) -> {item} {{
+    return vec4(
+        hi_mul_primitive(lhs[0], rhs[0]),
+        hi_mul_primitive(lhs[1], rhs[1]),
+        hi_mul_primitive(lhs[2], rhs[2]),
+        hi_mul_primitive(lhs[3], rhs[3]),
+    );
+}}
+    "
+            ),
+            Item::Vec3(_) => write!(
+                f,
+                "
+fn hi_mul(lhs: {item}, rhs: {item}) -> {item} {{
+    return vec3(
+        hi_mul_primitive(lhs[0], rhs[0]),
+        hi_mul_primitive(lhs[1], rhs[1]),
+        hi_mul_primitive(lhs[2], rhs[2]),
+    );
+}}
+    "
+            ),
+            Item::Vec2(_) => write!(
+                f,
+                "
+fn hi_mul(lhs: {item}, rhs: {item}) -> {item} {{
+    return vec2(
+        hi_mul_primitive(lhs[0], rhs[0]),
+        hi_mul_primitive(lhs[1], rhs[1]),
+    );
+}}
+    "
+            ),
+            Item::Scalar(elem) => write!(
+                f,
+                "
+fn hi_mul(lhs: {elem}, rhs: {elem}) -> {elem} {{
+    return hi_mul_primitive(lhs, rhs);
+}}
+    "
+            ),
         }
     }
 }

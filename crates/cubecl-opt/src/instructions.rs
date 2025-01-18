@@ -65,6 +65,7 @@ impl Optimizer {
             Operator::Add(binary_operator)
             | Operator::Sub(binary_operator)
             | Operator::Mul(binary_operator)
+            | Operator::MulHi(binary_operator)
             | Operator::Div(binary_operator)
             | Operator::Powf(binary_operator)
             | Operator::Equal(binary_operator)

@@ -174,6 +174,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+        _comp_options: &mut Self::CompilationOptions,
     ) {
         let features = adapter.features();
         unsafe {

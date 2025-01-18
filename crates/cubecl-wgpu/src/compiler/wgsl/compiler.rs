@@ -23,7 +23,9 @@ use wgpu::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct CompilationOptions {}
+pub struct CompilationOptions {
+    supports_u64: bool,
+}
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -46,7 +48,6 @@ pub struct WgslCompiler {
     shared_memories: Vec<SharedMemory>,
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
-    #[allow(dead_code)]
     compilation_options: CompilationOptions,
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
@@ -199,11 +200,20 @@ impl WgpuCompiler for WgslCompiler {
     }
 
     fn register_features(
-        _adapter: &wgpu::Adapter,
+        adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut DeviceProperties<Feature>,
+        comp_options: &mut Self::CompilationOptions,
     ) {
+        use cubecl_core::ir::{Elem, IntKind, UIntKind};
+
         register_types(props);
+
+        if adapter.features().contains(wgpu::Features::SHADER_INT64) {
+            props.register_feature(Feature::Type(Elem::Int(IntKind::I64)));
+            props.register_feature(Feature::Type(Elem::UInt(UIntKind::U64)));
+            comp_options.supports_u64 = true;
+        }
     }
 }
 
@@ -250,7 +260,7 @@ impl WgslCompiler {
         self.metadata = Metadata::new(num_meta as u32, num_ext);
 
         let instructions = self.compile_scope(&mut value.body);
-        let extensions = register_extensions(&instructions);
+        let extensions = self.register_extensions(&instructions);
         let body = wgsl::Body {
             instructions,
             id: self.id,
@@ -319,10 +329,12 @@ impl WgslCompiler {
             },
             cube::Elem::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
+                cube::IntKind::I64 => wgsl::Elem::I64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::UInt(kind) => match kind {
                 cube::UIntKind::U32 => wgsl::Elem::U32,
+                cube::UIntKind::U64 => wgsl::Elem::U64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::Bool => wgsl::Elem::Bool,
@@ -768,6 +780,11 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::MulHi(op) => instructions.push(wgsl::Instruction::HiMul {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
             cube::Operator::Fma(op) => instructions.push(wgsl::Instruction::Fma {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
@@ -1144,6 +1161,77 @@ impl WgslCompiler {
         }
     }
 
+    fn register_extensions(&self, instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extension> {
+        let mut extensions = Vec::new();
+
+        let mut register_extension = |extension: wgsl::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+
+        // Since not all instructions are native to WGSL, we need to add the custom ones.
+        for instruction in instructions {
+            match instruction {
+                wgsl::Instruction::HiMul { out, .. } => {
+                    register_extension(wgsl::Extension::HiMul(out.item()));
+
+                    if self.compilation_options.supports_u64 {
+                        register_extension(wgsl::Extension::HiMul64(out.item()));
+                    } else {
+                        register_extension(wgsl::Extension::HiMulSim(out.item()));
+                    }
+                }
+                wgsl::Instruction::Powf { lhs: _, rhs, out } => {
+                    register_extension(wgsl::Extension::PowfPrimitive(out.item()));
+
+                    if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
+                        register_extension(wgsl::Extension::PowfScalar(out.item()));
+                    } else {
+                        register_extension(wgsl::Extension::Powf(out.item()));
+                    }
+                }
+                wgsl::Instruction::Erf { input, out: _ } => {
+                    register_extension(wgsl::Extension::Erf(input.item()));
+                }
+                #[cfg(target_os = "macos")]
+                wgsl::Instruction::Tanh { input, out: _ } => {
+                    register_extension(wgsl::Extension::SafeTanh(input.item()))
+                }
+                wgsl::Instruction::If { instructions, .. } => {
+                    for extension in self.register_extensions(instructions) {
+                        register_extension(extension);
+                    }
+                }
+                wgsl::Instruction::IfElse {
+                    instructions_if,
+                    instructions_else,
+                    ..
+                } => {
+                    for extension in self.register_extensions(instructions_if) {
+                        register_extension(extension);
+                    }
+                    for extension in self.register_extensions(instructions_else) {
+                        register_extension(extension);
+                    }
+                }
+                wgsl::Instruction::Loop { instructions } => {
+                    for extension in self.register_extensions(instructions) {
+                        register_extension(extension);
+                    }
+                }
+                wgsl::Instruction::RangeLoop { instructions, .. } => {
+                    for extension in self.register_extensions(instructions) {
+                        register_extension(extension);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        extensions
+    }
+
     fn compile_location(value: cube::Location) -> wgsl::Location {
         match value {
             cube::Location::Storage => wgsl::Location::Storage,
@@ -1166,66 +1254,4 @@ impl WgslCompiler {
             size: value.size,
         }
     }
-}
-
-fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extension> {
-    let mut extensions = Vec::new();
-
-    let mut register_extension = |extension: wgsl::Extension| {
-        if !extensions.contains(&extension) {
-            extensions.push(extension);
-        }
-    };
-
-    // Since not all instructions are native to WGSL, we need to add the custom ones.
-    for instruction in instructions {
-        match instruction {
-            wgsl::Instruction::Powf { lhs: _, rhs, out } => {
-                register_extension(wgsl::Extension::PowfPrimitive(out.item()));
-
-                if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
-                    register_extension(wgsl::Extension::PowfScalar(out.item()));
-                } else {
-                    register_extension(wgsl::Extension::Powf(out.item()));
-                }
-            }
-            wgsl::Instruction::Erf { input, out: _ } => {
-                register_extension(wgsl::Extension::Erf(input.item()));
-            }
-            #[cfg(target_os = "macos")]
-            wgsl::Instruction::Tanh { input, out: _ } => {
-                register_extension(wgsl::Extension::SafeTanh(input.item()))
-            }
-            wgsl::Instruction::If { instructions, .. } => {
-                for extension in register_extensions(instructions) {
-                    register_extension(extension);
-                }
-            }
-            wgsl::Instruction::IfElse {
-                instructions_if,
-                instructions_else,
-                ..
-            } => {
-                for extension in register_extensions(instructions_if) {
-                    register_extension(extension);
-                }
-                for extension in register_extensions(instructions_else) {
-                    register_extension(extension);
-                }
-            }
-            wgsl::Instruction::Loop { instructions } => {
-                for extension in register_extensions(instructions) {
-                    register_extension(extension);
-                }
-            }
-            wgsl::Instruction::RangeLoop { instructions, .. } => {
-                for extension in register_extensions(instructions) {
-                    register_extension(extension);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    extensions
 }
