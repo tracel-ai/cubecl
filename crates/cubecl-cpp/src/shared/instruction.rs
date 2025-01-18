@@ -30,6 +30,10 @@ pub enum Instruction<D: Dialect> {
         dim: Variable<D>,
         out: Variable<D>,
     },
+    ConstLength {
+        length: u32,
+        out: Variable<D>,
+    },
     SliceLength {
         input: Variable<D>,
         out: Variable<D>,
@@ -213,7 +217,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
-                writeln!(f, "const uint {out}_length = {end};")?;
+                writeln!(f, "const uint {out}_length = {end} - {start};")?;
                 writeln!(f, "{item} *{out} = {input} + {start};")
             }
             Instruction::CheckedSlice {
@@ -448,6 +452,11 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {input}_length;")
             }
+            Instruction::ConstLength { length, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {length};")
+            }
+
             Instruction::Wrap(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),

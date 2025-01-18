@@ -21,7 +21,7 @@ use super::Line;
 /// # Safety
 ///
 /// Since data can't be deallocated during kernel execution, this is safe.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Slice<E> {
     _e: PhantomData<E>,
 }
@@ -31,6 +31,7 @@ pub struct Slice<E> {
 /// # Safety
 ///
 /// Since data can be accessed by any unit during kernel execution, this can never be safe.
+#[derive(Clone, Copy)]
 pub struct SliceMut<E> {
     _e: PhantomData<E>,
 }

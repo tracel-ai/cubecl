@@ -144,13 +144,13 @@ fn main() {
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Pipelined);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Pipelined);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Standard);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
     }
 }

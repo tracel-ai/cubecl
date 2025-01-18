@@ -433,6 +433,9 @@ impl<D: Dialect> CppCompiler<D> {
 
                 match input {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
+                    Variable::SharedMemory(_id, _item, length) => {
+                        Instruction::ConstLength { length, out }
+                    }
                     _ => {
                         let id = match input {
                             Variable::GlobalInputArray(id, _) => id,

@@ -48,8 +48,7 @@ impl<D: Dialect> Display for PipelineOps<D> {
                 destination,
             } => {
                 let item = source.item();
-                let size = item.elem().size() * item.vectorization;
-                println!("{item}");
+                let size = format!("sizeof({item})");
                 write!(f, "
 cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
                 ")
@@ -58,7 +57,7 @@ cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {sour
                 write!(
                     f,
                     "
-__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, 2> {pipeline}_state;
+__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, 1> {pipeline}_state;
 auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
                 "
                 )
