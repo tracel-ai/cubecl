@@ -2,6 +2,7 @@ mod allocator;
 mod atomic;
 mod branch;
 mod cmma;
+mod element;
 mod item;
 mod macros;
 mod non_semantic;
@@ -12,7 +13,6 @@ mod processing;
 mod scope;
 mod synchronization;
 mod variable;
-mod element;
 
 pub use allocator::*;
 pub use atomic::*;
