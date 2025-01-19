@@ -7,7 +7,10 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::future;
-use cubecl_core::{AtomicFeature, Feature, Runtime};
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    AtomicFeature, Feature, Runtime,
+};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
