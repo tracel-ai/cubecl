@@ -112,7 +112,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 // indexing are instead checked by cube. The WebGPU specification only makes
                 // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
                 // can opt in/out per operation whether checks should be performed which can be faster.
-                let checks = ShaderRuntimeChecks {
+                let checks = wgpu::ShaderRuntimeChecks {
                     bounds_checks: false,
                     // Loop bounds are only checked in checked mode.
                     force_loop_bounding: mode == ExecutionMode::Checked,
@@ -122,7 +122,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 // is only available through the use of unsafe code.
                 let module = unsafe {
                     server.device.create_shader_module_trusted(
-                        ShaderModuleDescriptor {
+                        wgpu::ShaderModuleDescriptor {
                             label: None,
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
                         },
@@ -421,9 +421,7 @@ fn is_robust(device: &wgpu::Device) -> bool {
             .contains(&EXT_ROBUSTNESS2_NAME)
     }
     unsafe {
-        device
-            .as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
-            .unwrap_or(false)
+        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
     }
 }
 
