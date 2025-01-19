@@ -207,6 +207,21 @@ impl<D: Dialect> Unary<D> for ReverseBits {
     }
 }
 
+pub struct BitwiseNot;
+
+impl<D: Dialect> Unary<D> for BitwiseNot {
+    fn format_scalar<Input>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result
+    where
+        Input: Component<D>,
+    {
+        write!(f, "~{input}")
+    }
+}
+
 pub struct Not;
 
 impl<D: Dialect> Unary<D> for Not {

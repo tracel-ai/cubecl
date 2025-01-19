@@ -252,6 +252,10 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    BitwiseNot {
+        input: Variable,
+        out: Variable,
+    },
     Round {
         input: Variable,
         out: Variable,
@@ -844,6 +848,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::ShiftRight { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} >> {rhs};")
+            }
+            Instruction::BitwiseNot { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = ~{input};")
             }
             Instruction::Round { input, out } => {
                 let out = out.fmt_left();

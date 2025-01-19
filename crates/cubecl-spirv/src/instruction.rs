@@ -433,6 +433,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
                 })
             }
+            Operator::BitwiseNot(op) => {
+                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                    b.not(ty, Some(out), input).unwrap();
+                });
+            }
             Operator::CountOnes(op) => {
                 // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
                 self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {

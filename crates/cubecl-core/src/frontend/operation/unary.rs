@@ -309,11 +309,12 @@ impl_unary_func!(
     u64,
     i64
 );
+
 impl_unary_func!(
-    Not,
-    not,
-    __expand_not,
-    Operator::Not,
+    BitwiseNot,
+    bitwise_not,
+    __expand_bitwise_not,
+    Operator::BitwiseNot,
     u8,
     i8,
     u16,
