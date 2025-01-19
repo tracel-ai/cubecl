@@ -1,8 +1,7 @@
 use crate::prelude::AtomicOp;
 
 use super::{
-    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
-    VariableKind,
+    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable, VariableKind
 };
 
 /// Information necessary when compiling a scope.
@@ -200,6 +199,9 @@ impl ScopeProcessing {
                     Operator::ShiftRight(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::BitwiseNot(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
                     Operator::Remainder(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());

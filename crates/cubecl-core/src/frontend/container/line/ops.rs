@@ -6,7 +6,7 @@ use crate::{
         ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip, Remainder, Round, Sin, Sqrt,
         Tanh,
     },
-    prelude::{CountOnes, Not, ReverseBits},
+    prelude::{BitwiseNot, CountOnes, ReverseBits},
     unexpanded,
 };
 
@@ -156,17 +156,6 @@ where
     }
 }
 
-impl<P> core::ops::Not for Line<P>
-where
-    P: CubePrimitive,
-    P: core::ops::Not<Output = P>,
-{
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        Self::new(!self.val)
-    }
-}
 
 impl<P> core::ops::Shl<Self> for Line<P>
 where
@@ -262,7 +251,7 @@ impl<P: CubePrimitive + Floor> Floor for Line<P> {}
 impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
 impl<P: CubePrimitive + CountOnes> CountOnes for Line<P> {}
 impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
-impl<P: CubePrimitive + Not> Not for Line<P> {}
+impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 
 impl<P: CubePrimitive + NumCast> NumCast for Line<P> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {

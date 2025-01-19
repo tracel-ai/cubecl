@@ -121,6 +121,7 @@ pub enum Instruction<D: Dialect> {
     ReverseBits(UnaryInstruction<D>),
     ShiftLeft(BinaryInstruction<D>),
     ShiftRight(BinaryInstruction<D>),
+    BitwiseNot(UnaryInstruction<D>),
     Abs(UnaryInstruction<D>),
     Exp(UnaryInstruction<D>),
     Log(UnaryInstruction<D>),
@@ -429,6 +430,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Max(it) => Max::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Min(it) => Min::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Not(it) => Not::format(f, &it.input, &it.out),
+            Instruction::BitwiseNot(it) => BitwiseNot::format(f, &it.input, &it.out),
             Instruction::Or(it) => Or::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::And(it) => And::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Clamp {
