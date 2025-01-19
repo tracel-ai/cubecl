@@ -1,4 +1,4 @@
-use cubecl_core::{ir as core, Metadata};
+use cubecl_core::{ir as core, prelude::FastMath, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 use cubecl_core::{compute::KernelDefinition, Compiler, ExecutionMode};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, Op, StorageClass, Word},
+    spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
@@ -23,14 +23,17 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct CompilationOptions {}
+pub struct CompilationOptions {
+    pub supports_fp_fast_math: bool,
+}
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     builder: Builder,
 
     pub mode: ExecutionMode,
-    pub debug: bool,
+    pub debug_symbols: bool,
+    pub fp_math_mode: FPFastMathMode,
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
@@ -63,7 +66,8 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
-            debug: self.debug,
+            debug_symbols: self.debug_symbols,
+            fp_math_mode: self.fp_math_mode,
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
             debug_info: self.debug_info.clone(),
@@ -86,7 +90,8 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             setup_block: Default::default(),
             opt: Default::default(),
             current_block: Default::default(),
-            debug: DebugLogger::default().is_activated(),
+            debug_symbols: DebugLogger::default().is_activated(),
+            fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
             debug_info: Default::default(),
@@ -169,6 +174,18 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer) {
+        let options = kernel.options.clone();
+
+        self.debug_symbols = DebugLogger::default().is_activated() || options.debug_symbols;
+        self.fp_math_mode = match self.compilation_options.supports_fp_fast_math {
+            true => convert_math_mode(options.fp_math_mode),
+            false => FPFastMathMode::NONE,
+        };
+
+        if self.fp_math_mode != FPFastMathMode::NONE {
+            self.capabilities.insert(Capability::FloatControls2);
+        }
+
         self.set_version(1, 6);
 
         let mut target = self.target.clone();
@@ -178,14 +195,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.init_state(kernel.clone());
 
         let opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
-        self.init_debug(kernel.kernel_name.clone(), &opt);
+        self.init_debug(options.kernel_name.clone(), &opt);
         self.opt = opt;
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
-        target.set_kernel_name(kernel.kernel_name.clone());
+        target.set_kernel_name(options.kernel_name.clone());
 
-        let (main, debug_setup) = self.declare_main(&kernel.kernel_name);
+        let (main, debug_setup) = self.declare_main(&options.kernel_name);
 
         let setup = self.id();
         self.debug_name(setup, "setup");
@@ -334,8 +351,45 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
-        if self.debug {
+        if self.debug_symbols {
             self.name(var, name);
         }
     }
+
+    pub fn declare_float_execution_modes(&mut self, main: Word) {
+        let mode = self.const_u32(self.fp_math_mode.bits());
+
+        let types = self.builder.module_ref().types_global_values.clone();
+        let scalars = types
+            .iter()
+            .filter(|inst| inst.class.opcode == Op::TypeFloat)
+            .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
+            .collect::<Vec<_>>();
+        for ty in scalars {
+            self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+        }
+    }
+}
+
+fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
+    let mut flags = FPFastMathMode::NONE;
+
+    for mode in math_mode.iter() {
+        match mode {
+            FastMath::NotNaN => flags |= FPFastMathMode::NOT_NAN,
+            FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
+            FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
+            FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
+            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            FastMath::AllowTransform => {
+                flags |= FPFastMathMode::ALLOW_CONTRACT
+                    | FPFastMathMode::ALLOW_REASSOC
+                    | FPFastMathMode::ALLOW_TRANSFORM
+            }
+            _ => {}
+        }
+    }
+
+    flags
 }

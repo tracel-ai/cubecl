@@ -203,6 +203,7 @@ impl WgpuCompiler for WgslCompiler {
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut DeviceProperties<Feature>,
+        _comp_options: &mut Self::CompilationOptions,
     ) {
         register_types(props);
     }
@@ -293,7 +294,7 @@ impl WgslCompiler {
             workgroup_id_no_axis: self.workgroup_id_no_axis,
             workgroup_size_no_axis: self.workgroup_size_no_axis,
             subgroup_instructions_used: self.subgroup_instructions_used,
-            kernel_name: value.kernel_name,
+            kernel_name: value.options.kernel_name,
         }
     }
 

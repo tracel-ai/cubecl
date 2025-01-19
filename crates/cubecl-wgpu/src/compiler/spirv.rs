@@ -17,6 +17,7 @@ use cubecl_core::{
     AtomicFeature, ExecutionMode, Feature, Runtime,
 };
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
+use cubecl_spirv::CompilationOptions;
 use features::ExtendedFeatures;
 use wgpu::{
     hal::{
@@ -174,12 +175,13 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+        comp_options: &mut Self::CompilationOptions,
     ) {
         let features = adapter.features();
         unsafe {
             adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
                 if let Some(adapter) = hal_adapter {
-                    register_features(adapter, props, features);
+                    register_features(adapter, props, features, comp_options);
                 }
             })
         }
@@ -270,6 +272,7 @@ fn register_features(
     adapter: &vulkan::Adapter,
     props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     features: Features,
+    comp_options: &mut CompilationOptions,
 ) {
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
@@ -289,6 +292,12 @@ fn register_features(
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
+        }
+    }
+
+    if let Some(float_controls2) = &extended_feat.float_controls2 {
+        if float_controls2.shader_float_controls2 == TRUE {
+            comp_options.supports_fp_fast_math = true;
         }
     }
 
