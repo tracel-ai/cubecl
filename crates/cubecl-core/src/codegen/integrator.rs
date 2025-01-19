@@ -8,7 +8,7 @@ use crate::{
         Binding, CubeDim, Elem, Id, Item, KernelDefinition, Location, ReadingStrategy, Scope,
         UIntKind, Variable, VariableKind, Vectorization, Visibility,
     },
-    prelude::FPMathMode,
+    prelude::FastMath,
     Runtime,
 };
 
@@ -64,7 +64,7 @@ pub struct KernelSettings {
 pub struct KernelOptions {
     pub kernel_name: String,
     pub debug_symbols: bool,
-    pub fp_math_mode: FPMathMode,
+    pub fp_math_mode: FastMath,
 }
 
 impl core::fmt::Display for KernelSettings {
@@ -218,7 +218,7 @@ impl KernelSettings {
     }
 
     /// Set FP math mode
-    pub fn fp_math_mode(mut self, mode: FPMathMode) -> Self {
+    pub fn fp_math_mode(mut self, mode: FastMath) -> Self {
         self.options.fp_math_mode = mode;
         self
     }

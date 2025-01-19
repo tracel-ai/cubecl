@@ -1,4 +1,4 @@
-use cubecl_core::{ir as core, prelude::FPMathMode, Metadata};
+use cubecl_core::{ir as core, prelude::FastMath, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -371,18 +371,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 }
 
-fn convert_math_mode(math_mode: FPMathMode) -> FPFastMathMode {
+fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
     let mut flags = FPFastMathMode::NONE;
 
     for mode in math_mode.iter() {
         match mode {
-            FPMathMode::NotNaN => flags |= FPFastMathMode::NOT_NAN,
-            FPMathMode::NotInf => flags |= FPFastMathMode::NOT_INF,
-            FPMathMode::UnsignedZero => flags |= FPFastMathMode::NSZ,
-            FPMathMode::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FPMathMode::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
-            FPMathMode::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
-            FPMathMode::AllowTransform => {
+            FastMath::NotNaN => flags |= FPFastMathMode::NOT_NAN,
+            FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
+            FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
+            FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
+            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+            FastMath::AllowTransform => {
                 flags |= FPFastMathMode::ALLOW_CONTRACT
                     | FPFastMathMode::ALLOW_REASSOC
                     | FPFastMathMode::ALLOW_TRANSFORM

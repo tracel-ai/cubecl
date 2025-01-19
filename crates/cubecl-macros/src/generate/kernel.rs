@@ -328,7 +328,7 @@ impl Launch {
             if self.args.debug_symbols.is_present() {
                 settings.extend(quote![.debug_symbols()]);
             }
-            if let Some(mode) = &self.args.fp_math_mode {
+            if let Some(mode) = &self.args.fast_math {
                 settings.extend(quote![.fp_math_mode(#mode)]);
             }
 

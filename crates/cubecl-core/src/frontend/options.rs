@@ -4,7 +4,7 @@ bitflags::bitflags! {
     /// Unchecked optimizations for float operations. May cause precision differences, or undefined
     /// behaviour if the relevant conditions are not followed.
     #[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct FPMathMode: u32 {
+    pub struct FastMath: u32 {
         /// Disable unsafe optimizations
         const None = 0;
         /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.

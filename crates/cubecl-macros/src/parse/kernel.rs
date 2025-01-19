@@ -15,7 +15,7 @@ pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
     pub debug_symbols: Flag,
-    pub fp_math_mode: Option<Expr>,
+    pub fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
 }

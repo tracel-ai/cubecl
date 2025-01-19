@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::{ir::expand_checked_index_assign, prelude::FPMathMode};
+use cubecl_core::{ir::expand_checked_index_assign, prelude::FastMath};
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -127,7 +127,7 @@ impl<D: Dialect> CppCompiler<D> {
         let fast_math = value
             .options
             .fp_math_mode
-            .contains(FPMathMode::ReducedPrecision);
+            .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
             inputs,
