@@ -212,12 +212,11 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     );
     let channel = MutexComputeChannel::new(server);
 
-    // The wgpu float32-atomic feature guarantees both add and min/max. It does only guarantee float32 support,
-    // but since f16 and others aren't supported anyway there is not much to it.
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
     }
 
     ComputeClient::new(channel, device_props)
