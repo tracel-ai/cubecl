@@ -1,7 +1,8 @@
 use crate::prelude::AtomicOp;
 
 use super::{
-    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable, VariableKind
+    Branch, CoopMma, Elem, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
+    VariableKind,
 };
 
 /// Information necessary when compiling a scope.
