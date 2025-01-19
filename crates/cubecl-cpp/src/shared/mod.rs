@@ -7,6 +7,7 @@ mod element;
 mod instruction;
 mod kernel;
 mod mma;
+mod pipeline;
 mod warp;
 
 pub use base::*;

@@ -1,4 +1,4 @@
-use super::{Dialect, Instruction, Variable};
+use super::{pipeline::PipelineOps, Dialect, Instruction, Variable};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
@@ -6,6 +6,7 @@ use std::fmt::Display;
 pub struct Body<D: Dialect> {
     pub instructions: Vec<Instruction<D>>,
     pub shared_memories: Vec<super::SharedMemory<D>>,
+    pub pipelines: Vec<PipelineOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
     pub warp_size_checked: bool,
@@ -94,6 +95,10 @@ impl<D: Dialect> Display for Body<D> {
                 "__shared__ {} shared_memory_{}[{}];",
                 shared.item, shared.index, shared.size
             )?;
+        }
+
+        for pipeline in self.pipelines.iter() {
+            writeln!(f, "{pipeline}")?;
         }
 
         for const_array in self.const_arrays.iter() {

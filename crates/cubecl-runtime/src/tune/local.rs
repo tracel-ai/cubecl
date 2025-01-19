@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOperationSet, Tuner};
+use super::{AutotuneKey, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
@@ -43,25 +43,28 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         *state = None;
     }
 
-    /// Execute the best operation in the provided [autotune operation set](AutotuneOperationSet)
-    pub fn execute<S, C, Out: Send + 'static>(
+    /// Execute the best operation in the provided [tunable set](TunableSet)
+    pub fn execute<S, C, In: Send + Clone + 'static, Out: Send + 'static>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
-        autotune_operation_set: Box<dyn AutotuneOperationSet<AK, Out>>,
+        operations: &TunableSet<AK, In, Out>,
+        inputs: In,
     ) -> Out
     where
         S: ComputeServer + 'static,
         C: ComputeChannel<S> + 'static,
     {
-        let key = autotune_operation_set.key();
+        let key = operations.generate_key(&inputs);
 
         // If this is cached and ready, use the operation.
         if let Some(map) = self.state.read().as_ref() {
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-                    let op = autotune_operation_set.fastest(fastest_index);
-                    return op.execute().expect("Should run when selected by autotune.");
+                    let op = operations.fastest(fastest_index);
+                    return op
+                        .execute(inputs)
+                        .expect("Should run when selected by autotune.");
                 }
             }
         }
@@ -82,7 +85,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             // If the cache checksum hasn't been checked, do so now, and retry.
             #[cfg(autotune_persistent_cache)]
             if matches!(fastest, TuneCacheResult::Unchecked) {
-                let checksum = autotune_operation_set.compute_checksum();
+                let checksum = operations.compute_checksum();
                 tuner.validate_checksum(&key, &checksum);
                 fastest = tuner.fastest(&key);
             }
@@ -91,9 +94,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
-                return autotune_operation_set
+                return operations
                     .fastest(fastest_index)
-                    .execute()
+                    .execute(inputs)
                     .expect("Should run when selected by autotune.");
             }
             TuneCacheResult::Miss => {
@@ -114,7 +117,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 let state = state.as_ref().expect("Should be initialized");
                 let tuner = state.get(id).expect("Should be initialized");
 
-                tuner.execute_autotune(autotune_operation_set.as_ref(), client);
+                tuner.execute_autotune(key.clone(), &inputs, operations, client);
             }
             TuneCacheResult::Pending => {
                 // We're waiting for results to come in.
@@ -150,9 +153,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             }
         };
 
-        autotune_operation_set
+        operations
             .fastest(fastest)
-            .execute()
+            .execute(inputs)
             .expect("Should run when selected by autotune.")
     }
 }

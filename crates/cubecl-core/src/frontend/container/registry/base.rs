@@ -13,7 +13,7 @@ pub struct Registry<K, V> {
 ///
 /// # Example
 ///
-/// If you use [u32] as key that may become [ExpandElementTyped<u32>] during the expansion, both types
+/// If you use [u32] as key that may become [`ExpandElementTyped<u32>`] during the expansion, both types
 /// need to implement [RegistryQuery].
 pub trait RegistryQuery<K>: Into<K> {}
 

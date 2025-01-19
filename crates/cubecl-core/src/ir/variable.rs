@@ -51,6 +51,7 @@ pub enum VariableKind {
     Matrix { id: Id, mat: Matrix },
     Slice { id: Id },
     Builtin(Builtin),
+    Pipeline { id: Id, item: Item },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -97,6 +98,7 @@ impl Variable {
             VariableKind::ConstantScalar(_) => true,
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
+            VariableKind::Pipeline { .. } => false,
         }
     }
 
@@ -413,6 +415,7 @@ impl Display for Variable {
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
             VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
+            VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
         }
     }
 }

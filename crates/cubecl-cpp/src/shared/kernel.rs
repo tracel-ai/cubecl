@@ -54,6 +54,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub cube_dim: CubeDim,
     pub body: Body<D>,
     pub wmma_activated: bool,
+    pub pipeline: bool,
     pub bf16: bool,
     pub f16: bool,
     pub fast_math: bool,
@@ -87,6 +88,11 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 
         if self.wmma_activated {
             D::wmma_includes(f)?;
+        }
+
+        if self.pipeline {
+            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
+            f.write_str("#include <cuda/pipeline>\n")?;
         }
 
         f.write_str("typedef unsigned char uint8;\n")?;

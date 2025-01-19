@@ -34,7 +34,7 @@ pub enum WgpuDevice {
     /// so for example CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1) or CUBECL_WGPU_DEFAULT_DEVICE=Cpu
     DefaultDevice,
 
-    /// Deprecated, use [`DefaultDevice`].
+    /// Deprecated, use [`DefaultDevice`](WgpuDevice::DefaultDevice).
     #[deprecated]
     BestAvailable,
 
