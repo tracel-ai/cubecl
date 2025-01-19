@@ -156,7 +156,6 @@ where
     }
 }
 
-
 impl<P> core::ops::Shl<Self> for Line<P>
 where
     P: CubePrimitive,
