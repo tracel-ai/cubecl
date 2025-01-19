@@ -322,6 +322,5 @@ impl_unary_func!(
     u32,
     i32,
     u64,
-    i64,
-    bool
+    i64
 );
