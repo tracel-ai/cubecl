@@ -1,13 +1,12 @@
 use std::{sync::Arc, thread};
 
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
-    ExecutionMode,
 };
 
 /// Create a channel using a [multi-producer, single-consumer channel to communicate with

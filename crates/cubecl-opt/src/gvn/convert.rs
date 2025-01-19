@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{
+use cubecl_ir::{
     BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, Item, LineInitOperator,
     Metadata, Operation, Operator, Select, UnaryOperator, Variable, VariableKind,
 };

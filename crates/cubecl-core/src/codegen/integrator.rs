@@ -1,5 +1,6 @@
 use std::num::NonZero;
 
+use cubecl_common::CubeDim;
 use cubecl_ir::{
     Elem, Id, Item, ReadingStrategy, Scope, UIntKind, Variable, VariableKind, Vectorization,
 };
@@ -7,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Compiler;
 use crate::{
-    compute::{Binding, CubeDim, KernelDefinition, Location, Visibility},
+    compute::{Binding, KernelDefinition, Location, Visibility},
     prelude::FastMath,
     Runtime,
 };

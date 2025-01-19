@@ -8,6 +8,7 @@ use crate::{
     WgpuServer,
 };
 
+use cubecl_common::ExecutionMode;
 use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
     compute,
@@ -16,7 +17,7 @@ use cubecl_core::{
     server::ComputeServer,
     Feature, Metadata,
 };
-use cubecl_runtime::{DeviceProperties, ExecutionMode};
+use cubecl_runtime::DeviceProperties;
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, DeviceDescriptor, PipelineLayoutDescriptor, ShaderModuleDescriptor,

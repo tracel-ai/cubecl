@@ -9,17 +9,16 @@ use derive_more::derive::{
     Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
-use serde::Serialize;
 
 /// A floating point type with relaxed precision, minimum [`f16`], max [`f32`].
 ///
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(
     Clone,
     Copy,
     Default,
-    Serialize,
     Zeroable,
     Pod,
     PartialEq,

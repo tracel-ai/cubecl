@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use cubecl_core::ir::Id;
+use cubecl_ir::Id;
 use petgraph::graph::NodeIndex;
 
 use crate::{analyses::post_order::PostOrder, Optimizer};

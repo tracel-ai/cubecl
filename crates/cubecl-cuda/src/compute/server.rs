@@ -15,7 +15,7 @@ use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
-use cubecl_runtime::{ExecutionMode, TimestampsError, TimestampsResult};
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cudarc::driver::sys::CUctx_st;
 use cudarc::driver::sys::CUfunc_st;
 use std::collections::HashMap;

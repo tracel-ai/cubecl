@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use cubecl_core::ir::{Instruction, Variable};
+use cubecl_ir::{Instruction, Variable};
 use stable_vec::StableVec;
 
 use crate::{version::PhiInstruction, ControlFlow, Optimizer};

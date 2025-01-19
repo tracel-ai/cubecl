@@ -1,6 +1,6 @@
 use std::mem::take;
 
-use cubecl_core::ir::{BinaryOperator, Elem, Instruction, Operation, Operator, UIntKind, Variable};
+use cubecl_ir::{BinaryOperator, Elem, Instruction, Operation, Operator, UIntKind, Variable};
 
 use crate::{AtomicCounter, Optimizer};
 

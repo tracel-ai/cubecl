@@ -31,13 +31,9 @@ use std::{
 };
 
 use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
-use cubecl_core::{
-    ir::{self as core, Allocator, Branch, Id, Operation, Operator, Variable, VariableKind},
-    CubeDim,
-};
-use cubecl_core::{
-    ir::{Item, Scope},
-    ExecutionMode,
+use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_ir::{
+    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable, VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
@@ -402,13 +398,10 @@ pub fn visit_noop(_opt: &mut Optimizer, _var: &mut Variable) {}
 
 #[cfg(test)]
 mod test {
-    use cubecl::prelude::*;
-    use cubecl_core::{
-        self as cubecl,
-        ir::{Elem, ExpandElement, Item, UIntKind, Variable, VariableKind},
-        prelude::{Array, CubeContext},
-    };
-    use cubecl_core::{cube, CubeDim, ExecutionMode};
+    use cubecl_core as cubecl;
+    use cubecl_core::cube;
+    use cubecl_core::prelude::*;
+    use cubecl_ir::{Elem, ExpandElement, Item, UIntKind, Variable, VariableKind};
 
     use crate::Optimizer;
 

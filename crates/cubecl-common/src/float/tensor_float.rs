@@ -5,7 +5,6 @@ use bytemuck::{Pod, Zeroable};
 use core::mem::transmute;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num_traits::{NumCast, ToPrimitive};
-use serde::Serialize;
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
 ///
@@ -16,7 +15,8 @@ use serde::Serialize;
 /// [`tfloat32`]: https://en.wikipedia.org/wiki/TensorFloat-32
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
-#[derive(Clone, Copy, Default, Serialize, Zeroable, Pod, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy, Default, Zeroable, Pod, PartialEq, PartialOrd)]
 pub struct tf32(f32);
 
 impl tf32 {

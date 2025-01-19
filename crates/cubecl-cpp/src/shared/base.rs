@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
+use cubecl_common::ExecutionMode;
 use cubecl_core::{
     ir::expand_checked_index_assign,
     prelude::{FastMath, KernelDefinition},
@@ -9,7 +10,7 @@ use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
 };
-use cubecl_runtime::{DeviceProperties, ExecutionMode};
+use cubecl_runtime::DeviceProperties;
 
 use super::pipeline::PipelineOps;
 use super::{

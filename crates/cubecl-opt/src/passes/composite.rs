@@ -1,6 +1,6 @@
 use std::{collections::HashMap, mem::take};
 
-use cubecl_core::ir::{
+use cubecl_ir::{
     BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
     VariableKind,
 };

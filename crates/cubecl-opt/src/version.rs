@@ -3,7 +3,7 @@ use std::{
     mem::take,
 };
 
-use cubecl_core::ir::{Id, Instruction, Item, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Item, Variable, VariableKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{ControlFlow, EdgeIndex, NodeIndex};

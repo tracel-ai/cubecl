@@ -1,11 +1,9 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use crate::{
-    codegen::CompilerRepresentation, Compiler, Kernel, KernelId, KernelOptions, PLANE_DIM_APPROX,
-};
+use crate::{codegen::CompilerRepresentation, Compiler, Kernel, KernelId, KernelOptions};
 use alloc::sync::Arc;
+use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{Item, Scope};
-use cubecl_runtime::ExecutionMode;
 use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
@@ -232,51 +230,6 @@ pub enum Location {
 pub enum Visibility {
     Read,
     ReadWrite,
-}
-
-#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
-#[allow(missing_docs)]
-pub struct CubeDim {
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
-}
-
-impl CubeDim {
-    /// Create a new cube dim with x = y = z = 1.
-    pub const fn new_single() -> Self {
-        Self { x: 1, y: 1, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x, and y = z = 1.
-    pub const fn new_1d(x: u32) -> Self {
-        Self { x, y: 1, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x and y, and z = 1.
-    pub const fn new_2d(x: u32, y: u32) -> Self {
-        Self { x, y, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x, y and z.
-    /// This is equivalent to the [new](CubeDim::new) function.
-    pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub const fn num_elems(&self) -> u32 {
-        self.x * self.y * self.z
-    }
-}
-
-impl Default for CubeDim {
-    fn default() -> Self {
-        Self {
-            x: PLANE_DIM_APPROX as u32,
-            y: PLANE_DIM_APPROX as u32,
-            z: 1,
-        }
-    }
 }
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the

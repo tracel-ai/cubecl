@@ -1,3 +1,4 @@
+use cubecl_common::ExecutionMode;
 use cubecl_core::{ir as core, prelude::FastMath, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
@@ -8,7 +9,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_core::{compute::KernelDefinition, Compiler, ExecutionMode};
+use cubecl_core::{compute::KernelDefinition, Compiler};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},

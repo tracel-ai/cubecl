@@ -1,5 +1,6 @@
+use cubecl_common::ExecutionMode;
+
 use crate::{compute::KernelDefinition, ir::Elem};
-use cubecl_runtime::ExecutionMode;
 use std::fmt::Display;
 
 /// Trait for compiled code representation

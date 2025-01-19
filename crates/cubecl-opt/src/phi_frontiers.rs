@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Id, Item, Variable, VariableKind};
+use cubecl_ir::{Id, Item, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{

@@ -30,9 +30,6 @@ pub use cubecl_macros::*;
 pub use cubecl_runtime::benchmark;
 pub use cubecl_runtime::memory_management::MemoryUsage;
 
-/// An approximation of the plane dimension.
-pub const PLANE_DIM_APPROX: usize = 16;
-
 use crate::compute::KernelDefinition;
 use frontend::LaunchArg;
 
