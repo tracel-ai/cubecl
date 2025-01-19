@@ -28,7 +28,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default)]
 pub struct Allocator {
-    #[serde(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
     local_mut_pool: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
     next_id: Rc<AtomicU32>,
 }
