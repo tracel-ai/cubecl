@@ -1,37 +1,36 @@
+use std::sync::Arc;
+
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
 #[cfg(feature = "std")]
 use cubecl_common::benchmark::{BenchmarkDurations, TimingMethod};
 
-use super::AutotuneError;
-use super::AutotuneOperation;
-use alloc::boxed::Box;
+use super::{AutotuneError, Tunable};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<S: ComputeServer, C, Out = ()> {
-    operation: Box<dyn AutotuneOperation<Out>>,
+pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: Send + 'static> {
+    operation: Arc<dyn Tunable<Inputs = In, Output = Out>>,
+    inputs: In,
     client: ComputeClient<S, C>,
 }
 
-impl<Out: Send + 'static> Clone for Box<dyn AutotuneOperation<Out>> {
-    fn clone(&self) -> Self {
-        self.as_ref().clone()
-    }
-}
-
-impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'static>
-    TuneBenchmark<S, C, Out>
+impl<
+        S: ComputeServer + 'static,
+        C: ComputeChannel<S> + 'static,
+        In: Clone + Send + 'static,
+        Out: Send + 'static,
+    > TuneBenchmark<S, C, In, Out>
 {
     /// Benchmark how long this operation takes for a number of samples.
     #[cfg(feature = "std")]
     pub async fn sample_durations(self) -> Result<BenchmarkDurations, AutotuneError> {
-        let operation = self.operation.clone();
+        let operation = self.operation;
 
         // If the inner operation need autotuning as well, we need to call it before.
         let _ = self.client.sync().await;
-        operation.clone().execute()?;
+        operation.clone().execute(self.inputs.clone())?;
 
         let _ = self.client.sync().await;
 
@@ -46,7 +45,7 @@ impl<S: ComputeServer + 'static, C: ComputeChannel<S> + 'static, Out: Send + 'st
                 for _ in 0..num_samples {
                     operation
                         .clone()
-                        .execute()
+                        .execute(self.inputs.clone())
                         .expect("Should not fail when previsously tried during the warmup.");
                     // For benchmarks - we need to wait for all tasks to complete before returning.
                     let duration = match client.sync_elapsed().await {

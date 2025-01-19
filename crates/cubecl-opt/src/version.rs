@@ -28,7 +28,7 @@ pub struct PhiEntry {
 }
 
 /// A phi node that picks its value based on the `BasicBlock` that came immediately before.
-/// For more information, see https://en.wikipedia.org/wiki/Static_single-assignment_form
+/// For more information, see <https://en.wikipedia.org/wiki/Static_single-assignment_form>
 ///
 /// # Example
 /// ```ignore

@@ -1,7 +1,7 @@
 use crate::memory_management::{HardwareProperties, MemoryDeviceProperties};
 use alloc::collections::BTreeSet;
 
-/// Properties of what the device can do, like what [features](Feature) are
+/// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
 #[derive(Debug)]
 pub struct DeviceProperties<Feature: Ord + Copy> {
@@ -29,14 +29,14 @@ impl<Feature: Ord + Copy> DeviceProperties<Feature> {
         }
     }
 
-    /// Check if the provided [feature](Feature) is supported by the runtime.
+    /// Check if the provided `Feature` is supported by the runtime.
     pub fn feature_enabled(&self, feature: Feature) -> bool {
         self.set.contains(&feature)
     }
 
-    /// Register a [feature](Feature) supported by the compute server.
+    /// Register a `Feature` supported by the compute server.
     ///
-    /// This should only be used by a [runtime](Runtime) when initializing a device.
+    /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
     pub fn register_feature(&mut self, feature: Feature) -> bool {
         self.set.insert(feature)
     }

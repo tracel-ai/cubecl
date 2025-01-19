@@ -52,14 +52,14 @@ impl Float for tf32 {
 
     const MANTISSA_DIGITS: u32 = 10;
 
-    /// Maximum possible [`tf32`] power of 10 exponent
+    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 10 exponent
     const MAX_10_EXP: i32 = 38;
-    /// Maximum possible [`tf32`] power of 2 exponent
+    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 2 exponent
     const MAX_EXP: i32 = 128;
 
-    /// Minimum possible normal [`tf32`] power of 10 exponent
+    /// Minimum possible normal [`tf32`](crate::frontend::tf32) power of 10 exponent
     const MIN_10_EXP: i32 = -37;
-    /// One greater than the minimum possible normal [`v`] power of 2 exponent
+    /// One greater than the minimum possible normal [`tf32`](crate::frontend::tf32) power of 2 exponent
     const MIN_EXP: i32 = -125;
 
     /// `MIN_POSITIVE` is defined by precision, so use `f16` as reference

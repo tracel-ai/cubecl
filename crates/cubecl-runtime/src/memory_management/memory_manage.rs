@@ -304,7 +304,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     ///
     /// The storage should probably not be used for allocations since the handles won't be
     /// compatible with the ones provided by the current trait. Prefer using the
-    /// [alloc](MemoryManagement::alloc) and [dealloc](MemoryManagement::dealloc) functions.
+    /// [alloc](ComputeStorage::alloc) and [dealloc](ComputeStorage::dealloc) functions.
     ///
     /// This is useful if you need to time the deallocations based on async computation, or to
     /// change the mode of storage for different reasons.
