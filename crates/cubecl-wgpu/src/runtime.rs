@@ -20,7 +20,7 @@ use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::Compute
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
-/// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
+/// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
 #[derive(Debug)]
 pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);

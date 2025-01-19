@@ -1,11 +1,12 @@
 use super::DummyServer;
-use cubecl_runtime::client::ComputeClient;
-use cubecl_runtime::memory_management::{
-    MemoryConfiguration, MemoryDeviceProperties, MemoryManagement,
-};
 use cubecl_runtime::storage::BytesStorage;
-use cubecl_runtime::tune::{AutotuneOperationSet, LocalTuner};
+use cubecl_runtime::tune::LocalTuner;
 use cubecl_runtime::{channel::MutexComputeChannel, memory_management::HardwareProperties};
+use cubecl_runtime::{client::ComputeClient, tune::TunableSet};
+use cubecl_runtime::{
+    memory_management::{MemoryConfiguration, MemoryDeviceProperties, MemoryManagement},
+    server::Binding,
+};
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 
 /// The dummy device.
@@ -22,9 +23,10 @@ pub static TEST_TUNER: LocalTuner<String, String> = LocalTuner::new(TUNER_PREFIX
 
 pub fn autotune_execute(
     client: &ComputeClient<DummyServer, MutexComputeChannel<DummyServer>>,
-    set: Box<dyn AutotuneOperationSet<String>>,
+    set: &TunableSet<String, Vec<Binding>, ()>,
+    inputs: Vec<Binding>,
 ) {
-    TEST_TUNER.execute(&TUNER_DEVICE_ID.to_string(), client, set)
+    TEST_TUNER.execute(&TUNER_DEVICE_ID.to_string(), client, set, inputs)
 }
 
 pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServer>> {

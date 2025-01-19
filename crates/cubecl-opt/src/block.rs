@@ -12,7 +12,7 @@ pub enum BlockUse {
 }
 
 /// A basic block of instructions interrupted by control flow. Phi nodes are assumed to come before
-/// any instructions. See https://en.wikipedia.org/wiki/Basic_block
+/// any instructions. See <https://en.wikipedia.org/wiki/Basic_block>
 #[derive(Default, Debug, Clone)]
 pub struct BasicBlock {
     pub(crate) block_use: Vec<BlockUse>,

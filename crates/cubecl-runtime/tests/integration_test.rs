@@ -2,15 +2,11 @@ mod dummy;
 
 use std::sync::Arc;
 
-use crate::dummy::autotune_execute;
-use crate::dummy::TEST_TUNER;
 use crate::dummy::{client, DummyDevice, DummyElementwiseAddition};
-
-#[cfg(autotune_persistent_cache)]
-use crate::dummy::{TUNER_DEVICE_ID, TUNER_PREFIX};
 
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::ComputeRuntime;
+use dummy::*;
 
 #[allow(unused)]
 use serial_test::serial;
@@ -69,9 +65,8 @@ fn autotune_basic_addition_execution() {
     let out = client.empty(3);
     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 
-    let addition_autotune_kernel =
-        dummy::AdditionAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(addition_autotune_kernel));
+    let test_set = dummy::addition_set(client.clone(), shapes);
+    autotune_execute(&client, &test_set, handles);
 
     let obtained_resource = client.read_one(out.binding());
 
@@ -92,9 +87,8 @@ fn autotune_basic_multiplication_execution() {
     let out = client.empty(3);
     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 
-    let multiplication_autotune_kernel =
-        dummy::MultiplicationAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(multiplication_autotune_kernel));
+    let test_set = dummy::multiplication_set(client.clone(), shapes);
+    autotune_execute(&client, &test_set, handles);
 
     let obtained_resource = client.read_one(out.binding());
 
@@ -129,11 +123,11 @@ fn autotune_cache_same_key_return_a_cache_hit() {
     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
     let cache_test_autotune_kernel_1 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
     let cache_test_autotune_kernel_2 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
     let obtained_resource = client.read_one(out_2.binding());
 
@@ -173,11 +167,11 @@ fn autotune_cache_no_cache_on_disk_return_a_cache_miss() {
     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
     let cache_test_autotune_kernel_1 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
     let cache_test_autotune_kernel_2 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
     // read the resource which should update the cache on disk
     let obtained_resource = client.read_one(out_2.binding());
@@ -214,9 +208,8 @@ fn autotune_cache_file_path_creation_works_when_path_does_not_exist_yet() {
     let out = client.empty(3);
     let handles = vec![lhs.binding(), rhs.binding(), out.clone().binding()];
 
-    let cache_test_autotune_kernel =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes, handles);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel));
+    let cache_test_autotune_kernel = dummy::cache_test_set(client.clone(), shapes, handles, false);
+    autotune_execute(&client, &cache_test_autotune_kernel, vec![]);
 
     assert!(
         parent_dir.exists(),
@@ -247,11 +240,11 @@ fn autotune_cache_different_keys_return_a_cache_miss() {
     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
     let cache_test_autotune_kernel_1 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
     let cache_test_autotune_kernel_2 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
     let obtained_resource = client.read_one(out_2.binding());
 
@@ -276,8 +269,8 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
     let out_1 = client.empty(3);
     let handles_1 = vec![lhs_1.binding(), rhs_1.binding(), out_1.binding()];
     let cache_test_autotune_kernel_1 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_1, handles_1);
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_1));
+        dummy::cache_test_set(client.clone(), shapes_1, handles_1, false);
+    autotune_execute(&client, &cache_test_autotune_kernel_1, vec![]);
 
     TEST_TUNER.clear();
 
@@ -287,10 +280,9 @@ fn autotune_cache_different_checksums_return_a_cache_miss() {
     let out_2 = client.empty(4);
     let handles_2 = vec![lhs_2.binding(), rhs_2.binding(), out_2.clone().binding()];
 
-    let mut cache_test_autotune_kernel_2 =
-        dummy::CacheTestAutotuneOperationSet::new(client.clone(), shapes_2, handles_2);
-    cache_test_autotune_kernel_2.generate_random_checksum = true;
-    autotune_execute(&client, Box::new(cache_test_autotune_kernel_2));
+    let cache_test_autotune_kernel_2 =
+        dummy::cache_test_set(client.clone(), shapes_2, handles_2, true);
+    autotune_execute(&client, &cache_test_autotune_kernel_2, vec![]);
 
     let obtained_resource = client.read_one(out_2.binding());
 

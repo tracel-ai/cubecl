@@ -28,7 +28,7 @@ pub mod copy_bulk {
 
     use super::*;
 
-    /// The expand function for [`copy_bulk`]
+    /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubeType>(
         context: &mut CubeContext,
         from: ExpandElementTyped<Slice<C>>,

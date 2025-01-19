@@ -27,12 +27,13 @@ std = ["cubecl-common/std"]
 storage-bytes = []
 
 [dependencies]
-async-channel = { workspace = true } # Assume std
+async-channel = { workspace = true }                                                       # Assume std
 async-lock = { version = "3.4.0" }
 cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
+variadics_please = "1"
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
