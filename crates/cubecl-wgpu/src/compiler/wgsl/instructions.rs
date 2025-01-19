@@ -26,6 +26,11 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
+    HiMul {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     Fma {
         a: Variable,
         b: Variable,
@@ -621,6 +626,9 @@ impl Display for Instruction {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = powf({lhs}, {rhs});")
                 }
+            }
+            Instruction::HiMul { lhs, rhs, out } => {
+                writeln!(f, "{out} = hi_mul({lhs}, {rhs});")
             }
             Instruction::Sqrt { input, out } => {
                 let out = out.fmt_left();

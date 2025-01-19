@@ -22,5 +22,10 @@ pub trait WgpuCompiler: Compiler {
 
     #[allow(async_fn_in_trait)]
     async fn request_device(adapter: &Adapter) -> (Device, Queue);
-    fn register_features(adapter: &Adapter, device: &Device, props: &mut DeviceProperties<Feature>);
+    fn register_features(
+        adapter: &Adapter,
+        device: &Device,
+        props: &mut DeviceProperties<Feature>,
+        comp_options: &mut Self::CompilationOptions,
+    );
 }

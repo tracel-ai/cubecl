@@ -576,6 +576,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
             }
+            gpu::Operator::MulHi(op) => {
+                instructions.push(Instruction::HiMul(self.compile_binary(op, out)))
+            }
             gpu::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;

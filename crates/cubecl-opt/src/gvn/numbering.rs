@@ -136,6 +136,7 @@ impl ValueTable {
             // Commutative binop
             Operator::Add(op)
             | Operator::Mul(op)
+            | Operator::MulHi(op)
             | Operator::And(op)
             | Operator::Or(op)
             | Operator::Equal(op)

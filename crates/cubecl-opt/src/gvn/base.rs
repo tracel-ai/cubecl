@@ -193,6 +193,7 @@ pub enum OpId {
     Sub,
     Mul,
     Div,
+    MulHi,
     Abs,
     Exp,
     Log,

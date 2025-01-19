@@ -323,6 +323,21 @@ impl_binary_func!(
     u32,
     u64
 );
+impl_binary_func!(
+    MulHi,
+    mul_hi,
+    __expand_mul_hi,
+    __expand_mul_hi_method,
+    Operator::MulHi,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64
+);
 impl_binary_func_fixed_output_vectorization!(
     Dot,
     dot,

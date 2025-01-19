@@ -211,6 +211,8 @@ pub enum Operator {
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
     Dot(BinaryOperator),
+    /// Wide multiplication returning the high bits
+    MulHi(BinaryOperator),
     // A select statement/ternary
     Select(Select),
 }
@@ -294,6 +296,7 @@ impl Display for Operator {
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
+            Operator::MulHi(op) => write!(f, "mul_hi({}, {})", op.lhs, op.rhs),
         }
     }
 }

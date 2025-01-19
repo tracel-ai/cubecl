@@ -121,6 +121,50 @@ operator!(BitwiseXor, "^");
 operator!(Or, "||");
 operator!(And, "&&");
 
+pub struct HiMul;
+
+impl<D: Dialect> Binary<D> for HiMul {
+    // Powf doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let elem = item.elem;
+        match elem {
+            Elem::I32 => write!(f, "__mulhi({lhs}, {rhs})"),
+            Elem::U32 => write!(f, "__umulhi({lhs}, {rhs})"),
+            Elem::I64 => write!(f, "__mul64hi({lhs}, {rhs})"),
+            Elem::U64 => write!(f, "__umul64hi({lhs}, {rhs})"),
+            _ => unimplemented!("HiMul only supports 32 and 64 bit ints"),
+        }
+    }
+
+    // Powf doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
+
 pub struct Powf;
 
 impl<D: Dialect> Binary<D> for Powf {

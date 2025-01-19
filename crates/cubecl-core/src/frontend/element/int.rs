@@ -1,13 +1,16 @@
-use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    Numeric,
-};
 use crate::ir::{Elem, IntKind};
 use crate::prelude::Not;
 use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
+};
+use crate::{
+    frontend::{
+        CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit,
+        ExpandElementTyped, Numeric,
+    },
+    prelude::MulHi,
 };
 
 use super::{
@@ -20,6 +23,7 @@ pub trait Int:
     + CountOnes
     + ReverseBits
     + Not
+    + MulHi
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

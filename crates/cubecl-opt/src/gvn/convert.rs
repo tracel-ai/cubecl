@@ -52,6 +52,11 @@ impl Expression {
                         rhs: args[1],
                     })
                     .into(),
+                    OpId::MulHi => Operator::MulHi(BinaryOperator {
+                        lhs: args[0],
+                        rhs: args[1],
+                    })
+                    .into(),
                     OpId::Abs => Operator::Abs(UnaryOperator { input: args[0] }).into(),
                     OpId::Exp => Operator::Exp(UnaryOperator { input: args[0] }).into(),
                     OpId::Log => Operator::Log(UnaryOperator { input: args[0] }).into(),
@@ -278,6 +283,7 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::Sub(_) => OpId::Sub,
         Operator::Mul(_) => OpId::Mul,
         Operator::Div(_) => OpId::Div,
+        Operator::MulHi(_) => OpId::MulHi,
         Operator::Abs(_) => OpId::Abs,
         Operator::Exp(_) => OpId::Exp,
         Operator::Log(_) => OpId::Log,
