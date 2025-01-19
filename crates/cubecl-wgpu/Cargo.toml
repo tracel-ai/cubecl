@@ -46,11 +46,14 @@ cfg-if = { workspace = true }
 
 # wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-wgpu = { version = "23.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "24.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 # On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
-wgpu = { version = "23.0.0", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "24.0.0", features = [
+    "vulkan-portability",
+    "fragile-send-sync-non-atomic-wasm",
+] }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [

@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::future;
-use cubecl_core::{Feature, Runtime};
+use cubecl_core::{AtomicFeature, Feature, Runtime};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -212,6 +212,16 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     );
     let channel = MutexComputeChannel::new(server);
 
+
+    // The wgpu float32-atomic feature guarantees both add and min/max. It does only guarantee float32 support,
+    // but since f16 and others aren't supported anyway there is not much to it.
+    if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
+    }
+
+    C::register_features(&setup.adapter, &setup.device, &mut device_props);
     ComputeClient::new(channel, device_props)
 }
 
@@ -244,7 +254,7 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
         (_, false) => InstanceFlags::default(),
     };
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: G::backend().into(),
         flags: instance_flags,
         ..Default::default()

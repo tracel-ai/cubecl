@@ -52,6 +52,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let (module, layout) = kernel
             .repr
@@ -111,17 +112,24 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                 // indexing are instead checked by cube. The WebGPU specification only makes
                 // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
                 // can opt in/out per operation whether checks should be performed which can be faster.
-                //
+                let checks = ShaderRuntimeChecks {
+                    bounds_checks: false,
+                    // Loop bounds are only checked in checked mode.
+                    force_loop_bounding: mode == ExecutionMode::Checked,
+                };
+
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 let module = unsafe {
-                    server
-                        .device
-                        .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                            label: Some(&kernel.entrypoint_name),
+                    server.device.create_shader_module_trusted(
+                        ShaderModuleDescriptor {
+                            label: None,
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                        })
+                        },
+                        checks,
+                    )
                 };
+
                 (module, None)
             });
 
