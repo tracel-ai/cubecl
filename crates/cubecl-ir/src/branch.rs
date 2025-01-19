@@ -1,21 +1,28 @@
 use std::fmt::Display;
 
 use super::{Elem, Item, Scope, UIntKind, Variable};
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
 /// All branching types.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub enum Branch {
     /// An if statement.
+    #[cfg_attr(feature = "bitcode", bitcode(with_serde))]
     If(Box<If>),
     /// An if else statement.
+    #[cfg_attr(feature = "bitcode", bitcode(with_serde))]
     IfElse(Box<IfElse>),
     /// A switch statement
+    #[cfg_attr(feature = "bitcode", bitcode(with_serde))]
     Switch(Box<Switch>),
     /// A range loop.
+    #[cfg_attr(feature = "bitcode", bitcode(with_serde))]
     RangeLoop(Box<RangeLoop>),
     /// A loop.
+    #[cfg_attr(feature = "bitcode", bitcode(with_serde))]
     Loop(Box<Loop>),
     /// A return statement.
     Return,
@@ -53,14 +60,18 @@ impl Display for Branch {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct If {
     pub cond: Variable,
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct IfElse {
     pub cond: Variable,
@@ -68,7 +79,9 @@ pub struct IfElse {
     pub scope_else: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Select {
     pub cond: Variable,
@@ -76,7 +89,9 @@ pub struct Select {
     pub or_else: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Switch {
     pub value: Variable,
@@ -84,7 +99,9 @@ pub struct Switch {
     pub cases: Vec<(Variable, Scope)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct RangeLoop {
     pub i: Variable,
@@ -95,7 +112,9 @@ pub struct RangeLoop {
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Loop {
     pub scope: Scope,

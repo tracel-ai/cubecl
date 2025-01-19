@@ -1,10 +1,11 @@
-use super::{flex32, tf32, CubePrimitive, Numeric};
+use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantScalarValue, Operation, Variable, VariableKind},
     prelude::{init_expand, CubeContext, KernelBuilder, KernelLauncher},
     Runtime,
 };
-use alloc::rc::Rc;
+use cubecl_common::{flex32, tf32};
+use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
 use std::marker::PhantomData;
 
@@ -162,15 +163,6 @@ pub trait ArgSettings<R: Runtime>: Send + Sync {
     fn register(&self, launcher: &mut KernelLauncher<R>);
 }
 
-/// Reference to a JIT variable
-#[derive(Clone, Debug)]
-pub enum ExpandElement {
-    /// Variable kept in the variable pool.
-    Managed(Rc<Variable>),
-    /// Variable not kept in the variable pool.
-    Plain(Variable),
-}
-
 /// Expand type associated with a type.
 #[derive(new)]
 pub struct ExpandElementTyped<T: CubeType> {
@@ -320,47 +312,6 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
         match self.expand.kind {
             VariableKind::ConstantScalar(val) => Some(val),
             _ => None,
-        }
-    }
-}
-
-impl ExpandElement {
-    /// If the element can be mutated inplace, potentially reusing the register.
-    pub fn can_mut(&self) -> bool {
-        match self {
-            ExpandElement::Managed(var) => {
-                if let VariableKind::LocalMut { .. } = var.as_ref().kind {
-                    Rc::strong_count(var) <= 2
-                } else {
-                    false
-                }
-            }
-            ExpandElement::Plain(_) => false,
-        }
-    }
-
-    /// Explicitly consume the element, freeing it for reuse if no other copies exist.
-    pub fn consume(self) -> Variable {
-        *self
-    }
-}
-
-impl core::ops::Deref for ExpandElement {
-    type Target = Variable;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            ExpandElement::Managed(var) => var.as_ref(),
-            ExpandElement::Plain(var) => var,
-        }
-    }
-}
-
-impl From<ExpandElement> for Variable {
-    fn from(value: ExpandElement) -> Self {
-        match value {
-            ExpandElement::Managed(var) => *var,
-            ExpandElement::Plain(var) => var,
         }
     }
 }

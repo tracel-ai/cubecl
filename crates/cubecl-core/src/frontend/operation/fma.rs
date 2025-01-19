@@ -1,6 +1,6 @@
 use crate::{
-    ir::{FmaOperator, Instruction, Operator},
-    prelude::{CubeContext, CubePrimitive, ExpandElement},
+    ir::{ExpandElement, FmaOperator, Instruction, Operator},
+    prelude::{CubeContext, CubePrimitive},
     unexpanded,
 };
 

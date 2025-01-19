@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use cubecl_core::ir::{ConstantScalarValue, Instruction, Operation, VariableKind};
+use cubecl_ir::{ConstantScalarValue, Instruction, Operation, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{

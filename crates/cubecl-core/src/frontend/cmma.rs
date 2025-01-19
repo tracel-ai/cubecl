@@ -49,15 +49,15 @@
 use std::marker::PhantomData;
 
 use crate::{
-    ir::{self, Instruction, Operation},
+    ir::{self, Instruction},
     unexpanded,
 };
 
 use super::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, IntoRuntime,
-    Slice, SliceMut,
+    CubeContext, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut,
 };
 
+use cubecl_ir::ExpandElement;
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -458,8 +458,12 @@ pub mod cast {
     }
 }
 
-impl From<ir::CoopMma> for Operation {
-    fn from(value: ir::CoopMma) -> Self {
-        Operation::CoopMma(value)
+impl CubeType for MatrixLayout {
+    type ExpandType = Self;
+}
+
+impl Init for MatrixLayout {
+    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+        self
     }
 }

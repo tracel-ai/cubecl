@@ -3,7 +3,7 @@ use std::{
     ops::Deref,
 };
 
-use cubecl_core::ir::Id;
+use cubecl_ir::Id;
 
 use crate::{NodeIndex, Optimizer};
 

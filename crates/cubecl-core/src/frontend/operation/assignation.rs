@@ -1,7 +1,8 @@
+use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
 
 use crate::{
-    frontend::{Array, CubeContext, ExpandElement, SharedMemory, Tensor},
+    frontend::{Array, CubeContext, SharedMemory, Tensor},
     prelude::{CubeIndex, CubeIndexMut, CubeType},
 };
 use crate::{ir, prelude::Index};

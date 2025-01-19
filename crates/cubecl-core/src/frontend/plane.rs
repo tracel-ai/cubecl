@@ -1,5 +1,7 @@
-use super::{CubeContext, CubePrimitive, ExpandElement};
-use crate::{ir::Operation, prelude::ExpandElementTyped};
+use cubecl_ir::ExpandElement;
+
+use super::{CubeContext, CubePrimitive};
+use crate::prelude::ExpandElementTyped;
 use crate::{
     ir::{Elem, Instruction, Item, Plane, UnaryOperator},
     unexpanded,
@@ -214,11 +216,5 @@ pub mod plane_any {
         context.register(Instruction::new(Plane::Any(UnaryOperator { input }), out));
 
         output.into()
-    }
-}
-
-impl From<Plane> for Operation {
-    fn from(value: Plane) -> Self {
-        Operation::Plane(value)
     }
 }

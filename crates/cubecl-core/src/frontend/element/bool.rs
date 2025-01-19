@@ -1,11 +1,10 @@
+use cubecl_ir::ExpandElement;
+
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::Elem;
 use crate::prelude::CubeContext;
 
-use super::{
-    init_expand_element, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, Init,
-    IntoRuntime,
-};
+use super::{init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime};
 
 /// Extension trait for [bool].
 pub trait BoolOps {

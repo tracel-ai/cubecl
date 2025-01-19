@@ -1,10 +1,9 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
-use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///

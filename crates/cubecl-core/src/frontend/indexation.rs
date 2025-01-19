@@ -1,4 +1,6 @@
-use super::{CubeType, ExpandElement, ExpandElementTyped};
+use cubecl_ir::ExpandElement;
+
+use super::{CubeType, ExpandElementTyped};
 use crate::{
     ir::{IntKind, UIntKind, Variable},
     unexpanded,

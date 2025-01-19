@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
 /// All synchronization types.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub enum Synchronization {
     // Synchronizize units in a cube.

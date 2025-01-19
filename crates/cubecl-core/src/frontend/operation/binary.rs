@@ -1,7 +1,7 @@
-use crate::ir::Operator;
+use crate::ir::{ExpandElement, Operator};
 use crate::{
     flex32,
-    frontend::{CubeContext, CubePrimitive, ExpandElement, ExpandElementTyped},
+    frontend::{CubeContext, CubePrimitive, ExpandElementTyped},
 };
 use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},

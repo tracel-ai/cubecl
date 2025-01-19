@@ -17,6 +17,7 @@ use std::{
 };
 
 use bytemuck::{Pod, Zeroable};
+use cubecl_ir::ExpandElement;
 use derive_more::derive::{
     Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
@@ -30,10 +31,10 @@ use crate::{
 
 use super::{
     init_expand_element, Abs, Ceil, Clamp, Cos, CubeContext, CubeIndex, CubeIndexMut,
-    CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElement, ExpandElementBaseInit,
-    ExpandElementTyped, Float, Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher,
-    LaunchArgExpand, Log, Log1p, Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round,
-    Runtime, ScalarArgSettings, Sin, Sqrt, Tanh,
+    CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElementBaseInit, ExpandElementTyped, Float,
+    Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log, Log1p,
+    Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round, Runtime, ScalarArgSettings, Sin,
+    Sqrt, Tanh,
 };
 
 #[allow(non_camel_case_types)]

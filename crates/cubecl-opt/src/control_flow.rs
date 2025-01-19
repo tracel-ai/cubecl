@@ -1,7 +1,7 @@
 use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
-use cubecl_core::ir::{
+use cubecl_ir::{
     BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
     Operation, Operator, RangeLoop, Switch, Variable, VariableKind,
 };

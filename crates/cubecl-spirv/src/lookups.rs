@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use cubecl_core::ir::{self, Id, KernelDefinition};
+use cubecl_core::{
+    ir::{self, Id},
+    prelude::KernelDefinition,
+};
 use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};

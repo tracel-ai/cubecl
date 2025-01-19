@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use cubecl_core::{
-    prelude::CompiledKernel, server::ComputeServer, Compiler, ExecutionMode, Feature,
-};
+use cubecl_common::ExecutionMode;
+use cubecl_core::{prelude::CompiledKernel, server::ComputeServer, Compiler, Feature};
 use cubecl_runtime::DeviceProperties;
 use wgpu::{Adapter, ComputePipeline, Device, Queue};
 

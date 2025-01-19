@@ -26,3 +26,11 @@ pub mod reader;
 pub mod future;
 
 extern crate alloc;
+
+/// Custom float implementations
+mod float;
+/// Common kernel types
+mod kernel;
+
+pub use float::*;
+pub use kernel::*;

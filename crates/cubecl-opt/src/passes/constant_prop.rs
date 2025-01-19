@@ -1,4 +1,4 @@
-use cubecl_core::ir::{
+use cubecl_ir::{
     ConstantScalarValue, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
     VariableKind,
 };

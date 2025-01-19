@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, num::NonZero};
 
-use crate::frontend::{
-    CubePrimitive, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
-};
+use cubecl_ir::ExpandElement;
+
+use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 use crate::prelude::SizedContainer;
 use crate::{
     frontend::CubeType,

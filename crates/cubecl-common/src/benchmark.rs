@@ -3,12 +3,12 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
-use serde::{Deserialize, Serialize};
 
 use super::stub::Duration;
 
 /// How a benchmark's execution times are measured.
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum TimingMethod {
     /// Time measurements come from full timing of execution + sync
     /// calls.
@@ -43,7 +43,8 @@ pub enum TimestampsError {
 pub type TimestampsResult = Result<Duration, TimestampsError>;
 
 /// Results of a benchmark run.
-#[derive(new, Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(new, Debug, Default, Clone)]
 pub struct BenchmarkDurations {
     /// How these durations were measured.
     pub timing_method: TimingMethod,
@@ -114,7 +115,8 @@ impl Display for BenchmarkDurations {
 }
 
 /// Computed values from benchmark durations.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default, Clone)]
 pub struct BenchmarkComputations {
     /// Mean of all the durations.
     pub mean: Duration,

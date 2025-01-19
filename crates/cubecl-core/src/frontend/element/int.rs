@@ -1,7 +1,6 @@
-use crate::frontend::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementBaseInit, ExpandElementTyped,
-    Numeric,
-};
+use cubecl_ir::ExpandElement;
+
+use crate::frontend::{CubeContext, CubeType, Numeric};
 use crate::ir::{Elem, IntKind};
 use crate::prelude::Not;
 use crate::Runtime;
@@ -11,7 +10,8 @@ use crate::{
 };
 
 use super::{
-    init_expand_element, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
+    init_expand_element, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init,
+    IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
 };
 
 /// Signed or unsigned integer. Used as input in int kernels

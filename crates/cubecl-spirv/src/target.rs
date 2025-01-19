@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Binding, Location, Visibility};
+use cubecl_core::compute::{Binding, Location, Visibility};
 use hashbrown::HashMap;
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,

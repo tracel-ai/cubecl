@@ -1,11 +1,12 @@
-use crate::ir::{Elem, Id, Item, Visibility};
+use cubecl_ir::ExpandElement;
+
+use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
 use crate::KernelSettings;
-use crate::{
-    frontend::{CubeContext, ExpandElement},
-    InputInfo, KernelExpansion, KernelIntegrator, OutputInfo,
-};
+use crate::{frontend::CubeContext, InputInfo, KernelExpansion, KernelIntegrator, OutputInfo};
 use std::collections::HashMap;
+
+use super::Visibility;
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {

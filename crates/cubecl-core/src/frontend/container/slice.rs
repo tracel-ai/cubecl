@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use cubecl_ir::ExpandElement;
+
 use crate::{
     frontend::{indexation::Index, Tensor},
     ir::{self, Operator},
@@ -8,8 +10,7 @@ use crate::{
 };
 use crate::{
     frontend::{
-        Array, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, SharedMemory,
-        SizedContainer,
+        Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory, SizedContainer,
     },
     ir::Instruction,
 };

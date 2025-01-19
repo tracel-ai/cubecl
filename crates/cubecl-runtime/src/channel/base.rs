@@ -1,10 +1,9 @@
 use core::future::Future;
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 
 use crate::{
     server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
-    ExecutionMode,
 };
 use alloc::vec::Vec;
 

@@ -12,14 +12,3 @@ pub fn anchor(x: usize, max: Option<usize>) -> usize {
         power_of_2
     }
 }
-
-/// Tune the operation set with these benchmark inputs
-#[macro_export]
-macro_rules! tune_with {
-    ($($args:expr),*) => {
-        ($($args),*)
-    };
-    ($($args:expr,)*) => {
-        ($($args),*)
-    };
-}

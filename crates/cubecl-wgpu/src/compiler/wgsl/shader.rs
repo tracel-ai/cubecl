@@ -1,8 +1,5 @@
 use super::{Body, Extension, Item, Variable};
-use cubecl_core::{
-    ir::{CubeDim, Id},
-    CompilerRepresentation,
-};
+use cubecl_core::{ir::Id, CompilerRepresentation, CubeDim};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

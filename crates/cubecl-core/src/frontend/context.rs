@@ -1,7 +1,8 @@
+use crate::ir::Id;
 use crate::ir::{self, Elem, Instruction, Item, Scope, Variable, VariableKind};
-use crate::{frontend::ExpandElement, ir::Id};
 use alloc::rc::Rc;
 use core::cell::RefCell;
+use cubecl_ir::ExpandElement;
 use cubecl_runtime::debug::DebugLogger;
 use std::any::TypeId;
 use std::collections::HashMap;

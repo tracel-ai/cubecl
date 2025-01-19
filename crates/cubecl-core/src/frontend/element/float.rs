@@ -1,7 +1,7 @@
 use half::{bf16, f16};
 
 use crate::{
-    ir::{Elem, FloatKind},
+    ir::{Elem, ExpandElement, FloatKind},
     prelude::*,
 };
 
@@ -11,8 +11,6 @@ mod relaxed;
 mod tensor_float;
 mod typemap;
 
-pub use relaxed::*;
-pub use tensor_float::*;
 pub use typemap::*;
 
 /// Floating point numbers. Used as input in float kernels

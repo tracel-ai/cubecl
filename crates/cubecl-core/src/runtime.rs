@@ -5,7 +5,6 @@ pub use cubecl_runtime::channel;
 pub use cubecl_runtime::client;
 pub use cubecl_runtime::server;
 pub use cubecl_runtime::tune;
-pub use cubecl_runtime::ExecutionMode;
 
 /// Runtime for the CubeCL.
 pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {

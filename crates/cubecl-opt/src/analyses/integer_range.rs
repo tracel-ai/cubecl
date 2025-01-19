@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Mul, Sub},
 };
 
-use cubecl_core::ir::{
+use cubecl_ir::{
     Builtin, ConstantScalarValue, Elem, Id, Operation, Operator, Variable, VariableKind,
 };
 

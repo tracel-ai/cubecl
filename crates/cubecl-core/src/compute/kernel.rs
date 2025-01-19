@@ -1,8 +1,10 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel, KernelId};
+use crate::{codegen::CompilerRepresentation, Compiler, Kernel, KernelId, KernelOptions};
 use alloc::sync::Arc;
-use cubecl_runtime::ExecutionMode;
+use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_ir::{Item, Scope};
+use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
@@ -193,6 +195,41 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
     }
 
     result
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct KernelDefinition {
+    pub inputs: Vec<Binding>,
+    pub outputs: Vec<Binding>,
+    pub named: Vec<(String, Binding)>,
+    pub cube_dim: CubeDim,
+    pub body: Scope,
+    pub options: KernelOptions,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct Binding {
+    pub location: Location,
+    pub visibility: Visibility,
+    pub item: Item,
+    pub size: Option<usize>,
+    pub has_extended_meta: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum Location {
+    Storage,
+    Cube,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum Visibility {
+    Read,
+    ReadWrite,
 }
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the

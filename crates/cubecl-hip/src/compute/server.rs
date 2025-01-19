@@ -7,7 +7,6 @@ use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{uninit_vec, HipResource};
 use cubecl_core::compute::DebugInformation;
-use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_hip_sys::{hiprtcResult_HIPRTC_SUCCESS, HIP_SUCCESS};
@@ -18,7 +17,7 @@ use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
-use cubecl_runtime::{ExecutionMode, TimestampsError, TimestampsResult};
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;

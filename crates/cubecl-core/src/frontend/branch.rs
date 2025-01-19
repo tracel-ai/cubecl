@@ -1,10 +1,8 @@
+use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
 use crate::ir::{Branch, If, IfElse, Item, Loop, RangeLoop};
-use crate::{
-    frontend::{CubeContext, ExpandElement},
-    ir::Switch,
-};
+use crate::{frontend::CubeContext, ir::Switch};
 
 use super::{assign, CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric};
 

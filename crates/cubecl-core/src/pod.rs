@@ -1,7 +1,6 @@
-use crate::{
-    flex32,
-    ir::{Elem, FloatKind, IntKind, UIntKind},
-};
+use cubecl_common::flex32;
+
+use crate::ir::{Elem, FloatKind, IntKind, UIntKind};
 
 /// The base element trait for the jit backend.
 pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemuck::Pod {

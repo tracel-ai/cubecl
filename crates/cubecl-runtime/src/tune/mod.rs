@@ -65,7 +65,6 @@ mod tune_cache;
 mod tuner;
 mod util;
 
-pub use crate::tune_with;
 pub use function_tunable::*;
 pub use input_generator::*;
 pub use key_generator::*;

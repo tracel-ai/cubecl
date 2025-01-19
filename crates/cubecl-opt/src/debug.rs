@@ -1,6 +1,6 @@
 use std::{fmt::Display, rc::Rc};
 
-use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
+use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{

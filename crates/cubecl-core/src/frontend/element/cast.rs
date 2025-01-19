@@ -1,5 +1,7 @@
+use cubecl_ir::ExpandElement;
+
 use crate::ir::{Instruction, Item, UnaryOperator, Variable};
-use crate::{frontend::ExpandElement, unexpanded};
+use crate::unexpanded;
 use crate::{
     frontend::{cast, CubeContext, CubePrimitive, CubeType},
     ir::Operator,

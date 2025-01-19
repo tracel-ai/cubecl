@@ -5,10 +5,8 @@ use crate::{
     lookups::Array,
     SpirvCompiler, SpirvTarget,
 };
-use cubecl_core::{
-    ir::{self as core, ConstantScalarValue, FloatKind, Id},
-    ExecutionMode,
-};
+use cubecl_common::ExecutionMode;
+use cubecl_core::ir::{self as core, ConstantScalarValue, FloatKind, Id};
 use rspirv::{
     dr::Builder,
     spirv::{StorageClass, Word},

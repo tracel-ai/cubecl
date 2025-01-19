@@ -1,4 +1,4 @@
-use cubecl_core::ir::{
+use cubecl_ir::{
     AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, PipelineOps,
     Plane, UnaryOperator, Variable,
 };
