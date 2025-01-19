@@ -14,7 +14,8 @@ pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]
     Checked,
-    /// Unchecked kernels are unsafe.
+    /// Unchecked kernels are unsafe - it's up to the user to uphold indexing & infinite loop invariants
+    /// in their kernel.
     Unchecked,
 }
 

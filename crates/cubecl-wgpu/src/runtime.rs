@@ -7,7 +7,10 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::future;
-use cubecl_core::{Feature, Runtime};
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    AtomicFeature, Feature, Runtime,
+};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -212,6 +215,13 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     );
     let channel = MutexComputeChannel::new(server);
 
+    if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    }
+
     ComputeClient::new(channel, device_props)
 }
 
@@ -244,7 +254,7 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
         (_, false) => InstanceFlags::default(),
     };
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: G::backend().into(),
         flags: instance_flags,
         ..Default::default()

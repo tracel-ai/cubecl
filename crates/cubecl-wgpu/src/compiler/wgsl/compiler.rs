@@ -19,7 +19,7 @@ use cubecl_runtime::{DeviceProperties, ExecutionMode};
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, DeviceDescriptor, PipelineLayoutDescriptor, ShaderModuleDescriptor,
-    ShaderStages,
+    ShaderRuntimeChecks, ShaderStages,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -87,22 +87,29 @@ impl WgpuCompiler for WgslCompiler {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let source = &kernel.source;
         // Cube always in principle uses unchecked modules. Certain operations like
         // indexing are instead checked by cube. The WebGPU specification only makes
         // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
         // can opt in/out per operation whether checks should be performed which can be faster.
-        //
+        let checks = ShaderRuntimeChecks {
+            bounds_checks: false,
+            // Loop bounds are only checked in checked mode.
+            force_loop_bounding: mode == ExecutionMode::Checked,
+        };
+
         // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
         // is only available through the use of unsafe code.
         let module = unsafe {
-            server
-                .device
-                .create_shader_module_unchecked(ShaderModuleDescriptor {
+            server.device.create_shader_module_trusted(
+                ShaderModuleDescriptor {
                     label: None,
                     source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                })
+                },
+                checks,
+            )
         };
 
         let layout = kernel.repr.map(|repr| {

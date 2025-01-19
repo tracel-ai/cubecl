@@ -133,7 +133,10 @@ impl<R: Runtime> KernelLauncher<R> {
     ///
     /// # Safety
     ///
-    /// Out-of-bounds reads and writes can happen.
+    /// The kernel must not:
+    /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
+    /// - Contain any loops that never terminate. These may be optimized away entirely or cause
+    ///   other unpredictable behaviour.
     pub unsafe fn launch_unchecked<K: Kernel>(
         self,
         cube_count: CubeCount,

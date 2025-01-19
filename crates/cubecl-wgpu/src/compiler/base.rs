@@ -18,6 +18,7 @@ pub trait WgpuCompiler: Compiler {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline>;
 
     #[allow(async_fn_in_trait)]
