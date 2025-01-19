@@ -1,35 +1,11 @@
-use super::{ConstantScalarValue, Scope, Variable, VariableKind};
-use crate::PLANE_DIM_APPROX;
-use serde::{Deserialize, Serialize};
+use super::{ConstantScalarValue, Variable, VariableKind};
 use std::fmt::Display;
 use std::num::NonZero;
+use type_hash::TypeHash;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub struct KernelDefinition {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
-    pub named: Vec<(String, Binding)>,
-    pub cube_dim: CubeDim,
-    pub body: Scope,
-    pub kernel_name: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub enum Location {
-    Storage,
-    Cube,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub enum Visibility {
-    Read,
-    ReadWrite,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum FloatKind {
     F16,
@@ -40,7 +16,9 @@ pub enum FloatKind {
     F64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum IntKind {
     I8,
@@ -49,7 +27,9 @@ pub enum IntKind {
     I64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum UIntKind {
     U8,
@@ -58,7 +38,9 @@ pub enum UIntKind {
     U64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum Elem {
     Float(FloatKind),
@@ -285,15 +267,15 @@ impl Display for Elem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Item {
     pub elem: Elem,
     pub vectorization: Vectorization,
 }
 
 pub type Vectorization = Option<NonZero<u8>>;
-
-impl Item {}
 
 impl Item {
     /// Fetch the elem of the item.
@@ -317,7 +299,7 @@ impl Item {
         }
     }
 
-    pub(crate) fn vectorize(&self, vectorization: Vectorization) -> Item {
+    pub fn vectorize(&self, vectorization: Vectorization) -> Item {
         Item {
             elem: self.elem,
             vectorization,
@@ -332,61 +314,6 @@ impl Display for Item {
                 write!(f, "vector{}<{}>", vec.get(), self.elem)
             }
             _ => write!(f, "{}", self.elem),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[allow(missing_docs)]
-pub struct Binding {
-    pub location: Location,
-    pub visibility: Visibility,
-    pub item: Item,
-    pub size: Option<usize>,
-    pub has_extended_meta: bool,
-}
-
-#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
-#[allow(missing_docs)]
-pub struct CubeDim {
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
-}
-
-impl CubeDim {
-    /// Create a new cube dim with x = y = z = 1.
-    pub const fn new_single() -> Self {
-        Self { x: 1, y: 1, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x, and y = z = 1.
-    pub const fn new_1d(x: u32) -> Self {
-        Self { x, y: 1, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x and y, and z = 1.
-    pub const fn new_2d(x: u32, y: u32) -> Self {
-        Self { x, y, z: 1 }
-    }
-
-    /// Create a new cube dim with the given x, y and z.
-    /// This is equivalent to the [new](CubeDim::new) function.
-    pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub const fn num_elems(&self) -> u32 {
-        self.x * self.y * self.z
-    }
-}
-
-impl Default for CubeDim {
-    fn default() -> Self {
-        Self {
-            x: PLANE_DIM_APPROX as u32,
-            y: PLANE_DIM_APPROX as u32,
-            z: 1,
         }
     }
 }

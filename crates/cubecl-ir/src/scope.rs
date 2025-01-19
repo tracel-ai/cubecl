@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
-use crate::ir::ConstantScalarValue;
+use crate::ConstantScalarValue;
 
 use super::{
     cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -14,7 +14,9 @@ use super::{
 ///
 /// This type isn't responsible for creating [shader bindings](super::Binding) and figuring out which
 /// variable can be written to.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 #[allow(missing_docs)]
 pub struct Scope {
     pub depth: u8,
@@ -32,10 +34,33 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     #[serde(skip)]
+    #[type_hash(skip)]
     pub allocator: Allocator,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, Serialize, Deserialize)]
+impl core::hash::Hash for Scope {
+    fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
+        self.depth.hash(ra_expand_state);
+        self.operations.hash(ra_expand_state);
+        self.locals.hash(ra_expand_state);
+        self.matrices.hash(ra_expand_state);
+        self.pipelines.hash(ra_expand_state);
+        self.slices.hash(ra_expand_state);
+        self.shared_memories.hash(ra_expand_state);
+        self.const_arrays.hash(ra_expand_state);
+        self.local_arrays.hash(ra_expand_state);
+        self.reads_global.hash(ra_expand_state);
+        self.index_offset_with_output_layout_position
+            .hash(ra_expand_state);
+        self.writes_global.hash(ra_expand_state);
+        self.reads_scalar.hash(ra_expand_state);
+        self.layout_ref.hash(ra_expand_state);
+    }
+}
+
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash)]
 #[allow(missing_docs)]
 pub enum ReadingStrategy {
     /// Each element will be read in a way to be compatible with the output layout.
@@ -200,7 +225,7 @@ impl Scope {
     /// Notes:
     ///
     /// This should only be used when doing compilation.
-    pub(crate) fn update_read(&mut self, index: Id, strategy: ReadingStrategy) {
+    pub fn update_read(&mut self, index: Id, strategy: ReadingStrategy) {
         if let Some((_, strategy_old, _, _position)) = self
             .reads_global
             .iter_mut()

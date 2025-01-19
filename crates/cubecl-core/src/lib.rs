@@ -13,7 +13,7 @@ pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
 
 /// Cube Language Internal Representation.
-pub mod ir;
+pub use cubecl_ir as ir;
 
 pub mod codegen;
 pub mod compute;
@@ -33,12 +33,12 @@ pub use cubecl_runtime::memory_management::MemoryUsage;
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
 
-use crate::ir::KernelDefinition;
+use crate::compute::KernelDefinition;
 use frontend::LaunchArg;
 
+pub use cubecl_common::{flex32, tf32};
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;
-pub use prelude::{flex32, tf32};
 
 mod id;
 pub use id::*;

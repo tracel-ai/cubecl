@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
-use crate::ir::fmt_vararg;
+use crate::fmt_vararg;
 
 use super::Variable;
 
@@ -10,7 +10,9 @@ use super::Variable;
 /// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
 ///
 /// Can be safely removed or ignored without changing the kernel result.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub enum NonSemantic {
     Source {
         name: String,

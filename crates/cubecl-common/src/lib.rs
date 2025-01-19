@@ -26,3 +26,7 @@ pub mod reader;
 pub mod future;
 
 extern crate alloc;
+
+mod float;
+
+pub use float::*;

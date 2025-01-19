@@ -1,7 +1,8 @@
 mod allocator;
+mod atomic;
 mod branch;
 mod cmma;
-mod kernel;
+mod item;
 mod macros;
 mod non_semantic;
 mod operation;
@@ -11,12 +12,13 @@ mod processing;
 mod scope;
 mod synchronization;
 mod variable;
+mod element;
 
-pub use super::frontend::AtomicOp;
 pub use allocator::*;
+pub use atomic::*;
 pub use branch::*;
 pub use cmma::*;
-pub use kernel::*;
+pub use item::*;
 pub use non_semantic::*;
 pub use operation::*;
 pub use pipeline::*;
@@ -24,5 +26,3 @@ pub use plane::*;
 pub use scope::*;
 pub use synchronization::*;
 pub use variable::*;
-
-pub(crate) use macros::cpa;

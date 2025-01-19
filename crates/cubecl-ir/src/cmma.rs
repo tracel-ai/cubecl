@@ -1,12 +1,14 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
-use crate::prelude::{CubeType, Init};
+use crate::Operation;
 
 use super::{Elem, Variable};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum MatrixIdent {
     A,
@@ -14,7 +16,9 @@ pub enum MatrixIdent {
     Accumulator,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub enum MatrixLayout {
     ColMajor,
@@ -22,17 +26,9 @@ pub enum MatrixLayout {
     Undefined,
 }
 
-impl CubeType for MatrixLayout {
-    type ExpandType = Self;
-}
-
-impl Init for MatrixLayout {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
-        self
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub struct Matrix {
     pub ident: MatrixIdent,
@@ -44,7 +40,9 @@ pub struct Matrix {
 }
 
 /// Cooperative Matrix-Multiply and Accumulate Instruction.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
@@ -105,5 +103,11 @@ impl Display for CoopMma {
                 write!(f, "matrix_cast(input: {})", input)
             }
         }
+    }
+}
+
+impl From<CoopMma> for Operation {
+    fn from(value: CoopMma) -> Self {
+        Operation::CoopMma(value)
     }
 }

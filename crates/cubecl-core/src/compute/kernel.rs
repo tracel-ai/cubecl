@@ -1,8 +1,10 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use crate::{codegen::CompilerRepresentation, ir::CubeDim, Compiler, Kernel, KernelId};
+use crate::{codegen::CompilerRepresentation, Compiler, Kernel, KernelId, PLANE_DIM_APPROX};
 use alloc::sync::Arc;
+use cubecl_ir::{Item, Scope};
 use cubecl_runtime::ExecutionMode;
+use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
 pub struct CompiledKernel<C: Compiler> {
@@ -193,6 +195,86 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
     }
 
     result
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct KernelDefinition {
+    pub inputs: Vec<Binding>,
+    pub outputs: Vec<Binding>,
+    pub named: Vec<(String, Binding)>,
+    pub cube_dim: CubeDim,
+    pub body: Scope,
+    pub kernel_name: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub struct Binding {
+    pub location: Location,
+    pub visibility: Visibility,
+    pub item: Item,
+    pub size: Option<usize>,
+    pub has_extended_meta: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum Location {
+    Storage,
+    Cube,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum Visibility {
+    Read,
+    ReadWrite,
+}
+
+#[derive(new, Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
+#[allow(missing_docs)]
+pub struct CubeDim {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+}
+
+impl CubeDim {
+    /// Create a new cube dim with x = y = z = 1.
+    pub const fn new_single() -> Self {
+        Self { x: 1, y: 1, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x, and y = z = 1.
+    pub const fn new_1d(x: u32) -> Self {
+        Self { x, y: 1, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x and y, and z = 1.
+    pub const fn new_2d(x: u32, y: u32) -> Self {
+        Self { x, y, z: 1 }
+    }
+
+    /// Create a new cube dim with the given x, y and z.
+    /// This is equivalent to the [new](CubeDim::new) function.
+    pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
+        Self { x, y, z }
+    }
+
+    pub const fn num_elems(&self) -> u32 {
+        self.x * self.y * self.z
+    }
+}
+
+impl Default for CubeDim {
+    fn default() -> Self {
+        Self {
+            x: PLANE_DIM_APPROX as u32,
+            y: PLANE_DIM_APPROX as u32,
+            z: 1,
+        }
+    }
 }
 
 /// Kernel trait with the ComputeShader that will be compiled and cached based on the

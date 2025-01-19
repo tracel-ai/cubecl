@@ -1,4 +1,4 @@
-use crate::ir::{Elem, KernelDefinition};
+use crate::{compute::KernelDefinition, ir::Elem};
 use cubecl_runtime::ExecutionMode;
 use std::fmt::Display;
 

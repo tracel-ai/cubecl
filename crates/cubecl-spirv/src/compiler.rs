@@ -8,7 +8,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_core::{ir::KernelDefinition, Compiler, ExecutionMode};
+use cubecl_core::{compute::KernelDefinition, Compiler, ExecutionMode};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{BuiltIn, Capability, Decoration, Op, StorageClass, Word},

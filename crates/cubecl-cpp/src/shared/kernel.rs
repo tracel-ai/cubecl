@@ -1,8 +1,5 @@
 use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{
-    ir::{CubeDim, Id, Visibility},
-    CompilerRepresentation,
-};
+use cubecl_core::{compute::Visibility, ir::Id, CompilerRepresentation, CubeDim};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -69,7 +69,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                             ty: BufferBindingType::Storage {
                                 read_only: matches!(
                                     _binding.visibility,
-                                    cubecl_core::ir::Visibility::Read
+                                    cubecl_core::compute::Visibility::Read
                                 ),
                             },
                             has_dynamic_offset: false,

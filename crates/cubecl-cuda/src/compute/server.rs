@@ -6,7 +6,6 @@ use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
 use cubecl_core::compute::DebugInformation;
-use cubecl_core::ir::CubeDim;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};

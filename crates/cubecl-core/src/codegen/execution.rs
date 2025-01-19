@@ -1,8 +1,8 @@
-use crate::compute::KernelTask;
+use crate::compute::{CubeDim, KernelTask};
 use crate::frontend::TensorHandleRef;
 use crate::ir::Elem;
 use crate::pod::CubeElement;
-use crate::{calculate_cube_count_elemwise, CubeDim, Kernel, Runtime};
+use crate::{calculate_cube_count_elemwise, Kernel, Runtime};
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount, Handle};
 

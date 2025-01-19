@@ -405,8 +405,8 @@ mod test {
     use cubecl::prelude::*;
     use cubecl_core::{
         self as cubecl,
-        ir::{Elem, Item, UIntKind, Variable, VariableKind},
-        prelude::{Array, CubeContext, ExpandElement},
+        ir::{Elem, ExpandElement, Item, UIntKind, Variable, VariableKind},
+        prelude::{Array, CubeContext},
     };
     use cubecl_core::{cube, CubeDim, ExecutionMode};
 

@@ -1,8 +1,10 @@
 use std::num::NonZero;
 
+use cubecl_ir::ExpandElement;
+
 use crate::{
     ir::{BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Operator},
-    prelude::{binary_expand_fixed_output, CubeContext, Dot, ExpandElement, Numeric},
+    prelude::{binary_expand_fixed_output, CubeContext, Dot, Numeric},
     unexpanded,
 };
 

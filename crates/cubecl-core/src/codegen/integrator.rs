@@ -2,10 +2,8 @@ use std::num::NonZero;
 
 use super::Compiler;
 use crate::{
-    ir::{
-        Binding, CubeDim, Elem, Id, Item, KernelDefinition, Location, ReadingStrategy, Scope,
-        UIntKind, Variable, VariableKind, Vectorization, Visibility,
-    },
+    compute::{Binding, CubeDim, KernelDefinition, Location, Visibility},
+    ir::{Elem, Id, Item, ReadingStrategy, Scope, UIntKind, Variable, VariableKind, Vectorization},
     Runtime,
 };
 

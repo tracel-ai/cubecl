@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::expand_checked_index_assign;
+use cubecl_core::{ir::expand_checked_index_assign, prelude::KernelDefinition};
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -75,7 +75,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     type CompilationOptions = CompilationOptions;
 
     fn compile(
-        kernel: cubecl_core::ir::KernelDefinition,
+        kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
@@ -99,7 +99,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, mut value: gpu::KernelDefinition) -> ComputeKernel<D> {
+    fn compile_ir(mut self, mut value: KernelDefinition) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
@@ -144,7 +144,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn build_metadata(&mut self, value: &gpu::KernelDefinition) {
+    fn build_metadata(&mut self, value: &KernelDefinition) {
         self.num_inputs = value.inputs.len();
         self.num_outputs = value.outputs.len();
 
@@ -994,7 +994,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(&mut self, binding: gpu::Binding) -> Binding<D> {
+    fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
             item: self.compile_item(binding.item),
             size: binding.size,

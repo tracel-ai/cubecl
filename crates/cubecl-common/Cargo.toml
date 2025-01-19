@@ -23,15 +23,28 @@ web-time = { workspace = true }
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
+bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
+derive_more = { workspace = true, features = [
+    "not",
+    "add",
+    "mul",
+    "add_assign",
+    "mul_assign",
+    "display",
+] }
+half = { workspace = true }
+log = { workspace = true }
+num-traits = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
-spin = { workspace = true }         # using in place of use std::sync::Mutex;
-log = { workspace = true }
+spin = { workspace = true } # using in place of use std::sync::Mutex;
 
 # Only activate futures for std env
-futures-lite = { workspace = true, features = ["std"], default-features = false, optional = true }
 embassy-futures = { version = "0.1.1" }
+futures-lite = { workspace = true, features = [
+    "std",
+], default-features = false, optional = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
