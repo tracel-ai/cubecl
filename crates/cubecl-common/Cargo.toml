@@ -24,6 +24,7 @@ web-time = { workspace = true }
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
+bitcode = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
