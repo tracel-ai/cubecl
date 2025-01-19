@@ -62,11 +62,11 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
+        //(1, 6144, 6144, 6144),
+        // (1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
-        (16, 6144, 2048, 513),
-        (32, 256, 256, 256),
+        // (16, 6144, 2048, 513),
+        // (32, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, E> {
             b,
@@ -144,13 +144,13 @@ fn main() {
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Pipelined);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Pipelined);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Standard);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Pipelined);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Standard);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Pipelined);
     }
 }

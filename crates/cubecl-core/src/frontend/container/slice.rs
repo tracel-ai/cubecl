@@ -21,7 +21,7 @@ use super::Line;
 /// # Safety
 ///
 /// Since data can't be deallocated during kernel execution, this is safe.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Slice<E> {
     _e: PhantomData<E>,
 }
@@ -31,6 +31,7 @@ pub struct Slice<E> {
 /// # Safety
 ///
 /// Since data can be accessed by any unit during kernel execution, this can never be safe.
+#[derive(Clone, Copy)]
 pub struct SliceMut<E> {
     _e: PhantomData<E>,
 }
@@ -49,6 +50,17 @@ mod metadata {
         pub fn to_aligned(&self) -> Slice<Line<E>>
         where
             E: CubePrimitive,
+        {
+            unexpanded!()
+        }
+        /// Try to cast the slice to the given type and panic if the type isn't the same.
+        ///
+        /// This function should only be used to satify the Rust type system, when two generic
+        /// types are supposed to be the same.
+        pub fn try_cast_unchecked<T>(&self) -> Slice<T>
+        where
+            E: CubePrimitive,
+            T: CubePrimitive,
         {
             unexpanded!()
         }
@@ -71,13 +83,13 @@ mod metadata {
     }
 
     impl<C: CubeType> ExpandElementTyped<Slice<C>> {
-        // Expand method of [len](Slice::len).
+        /// Expand method of [len](Slice::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(context)
         }
 
-        // Expand method of [len](Slice::to_aligned).
+        /// Expand method of [len](Slice::to_aligned).
         pub fn __expand_to_aligned_method(
             self,
             _context: &mut CubeContext,
@@ -88,7 +100,23 @@ mod metadata {
             self.expand.into()
         }
 
-        // Expand method of [clone](Clone::clone).
+        /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
+        pub fn __expand_try_cast_unchecked_method<T>(
+            self,
+            context: &mut CubeContext,
+        ) -> ExpandElementTyped<Slice<T>>
+        where
+            C: CubePrimitive,
+            T: CubePrimitive,
+        {
+            if T::as_elem(context) != C::as_elem(context) {
+                panic!("Try cast unchecked should only be used to satisfy the rust type system.")
+            }
+
+            self.expand.into()
+        }
+
+        /// Expand method of [clone](Clone::clone).
         pub fn __expand_clone_method(
             self,
             _context: &mut CubeContext,
@@ -101,13 +129,13 @@ mod metadata {
     }
 
     impl<C: CubeType> ExpandElementTyped<SliceMut<C>> {
-        // Expand method of [len](SliceMut::len).
+        /// Expand method of [len](SliceMut::len).
         pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(context)
         }
 
-        // Expand method of [len](SliceMut::into_aligned).
+        /// Expand method of [len](SliceMut::into_aligned).
         pub fn __expand_into_aligned_method(
             self,
             _context: &mut CubeContext,

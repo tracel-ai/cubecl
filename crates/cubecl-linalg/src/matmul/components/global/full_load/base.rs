@@ -18,6 +18,7 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use pipeline::Pipeline;
 use std::marker::PhantomData;
 
 use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
@@ -136,18 +137,23 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
+        let pipeline = Pipeline::<MP::ES>::new();
+
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
-            sync_units();
+            pipeline.producer_acquire();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
+            Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
+
+            pipeline.producer_commit();
+
+            pipeline.consumer_wait();
+
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
-
-            sync_units();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -157,6 +163,8 @@ where
                 acc,
                 config.to_smm_config(),
             );
+
+            pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
