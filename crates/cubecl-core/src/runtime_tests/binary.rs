@@ -58,7 +58,7 @@ macro_rules! test_binary_impl {
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked)]
+            #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);

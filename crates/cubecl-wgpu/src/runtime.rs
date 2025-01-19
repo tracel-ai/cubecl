@@ -178,19 +178,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_bindings: limits.max_storage_buffers_per_shader_stage,
     };
 
-    let compilation_options = Default::default();
-    let server = WgpuServer::new(
-        mem_props.clone(),
-        options.memory_config,
-        compilation_options,
-        setup.device.clone(),
-        setup.queue,
-        options.tasks_max,
-    );
-    let channel = MutexComputeChannel::new(server);
+    let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props, hardware_props);
+    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -204,7 +195,23 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     {
         device_props.register_feature(Feature::Plane);
     }
-    C::register_features(&setup.adapter, &setup.device, &mut device_props);
+    C::register_features(
+        &setup.adapter,
+        &setup.device,
+        &mut device_props,
+        &mut compilation_options,
+    );
+
+    let server = WgpuServer::new(
+        mem_props,
+        options.memory_config,
+        compilation_options,
+        setup.device.clone(),
+        setup.queue,
+        options.tasks_max,
+    );
+    let channel = MutexComputeChannel::new(server);
+
     ComputeClient::new(channel, device_props)
 }
 

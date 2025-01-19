@@ -1,11 +1,14 @@
 use std::num::NonZero;
 
+use serde::{Deserialize, Serialize};
+
 use super::Compiler;
 use crate::{
     ir::{
         Binding, CubeDim, Elem, Id, Item, KernelDefinition, Location, ReadingStrategy, Scope,
         UIntKind, Variable, VariableKind, Vectorization, Visibility,
     },
+    prelude::FastMath,
     Runtime,
 };
 
@@ -25,7 +28,6 @@ pub struct KernelExpansion {
     pub inputs: Vec<InputInfo>,
     pub outputs: Vec<OutputInfo>,
     pub scope: Scope,
-    pub kernel_name: String,
 }
 
 /// Simply indicate the output that can be replaced by the input.
@@ -55,7 +57,14 @@ pub struct KernelSettings {
     vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
     pub reading_strategy: Vec<(Id, ReadingStrategy)>,
+    pub options: KernelOptions,
+}
+
+#[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KernelOptions {
     pub kernel_name: String,
+    pub debug_symbols: bool,
+    pub fp_math_mode: FastMath,
 }
 
 impl core::fmt::Display for KernelSettings {
@@ -198,7 +207,19 @@ impl KernelSettings {
     /// Set kernel name.
     #[allow(dead_code)]
     pub fn kernel_name<S: AsRef<str>>(mut self, name: S) -> Self {
-        self.kernel_name = name.as_ref().to_string();
+        self.options.kernel_name = name.as_ref().to_string();
+        self
+    }
+
+    /// Activate debug symbols
+    pub fn debug_symbols(mut self) -> Self {
+        self.options.debug_symbols = true;
+        self
+    }
+
+    /// Set FP math mode
+    pub fn fp_math_mode(mut self, mode: FastMath) -> Self {
+        self.options.fp_math_mode = mode;
         self
     }
 }
@@ -339,7 +360,7 @@ impl KernelIntegrator {
             named,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
-            kernel_name: self.expansion.kernel_name,
+            options: settings.options,
         }
     }
 
