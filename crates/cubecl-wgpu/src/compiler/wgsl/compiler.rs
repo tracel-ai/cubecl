@@ -8,14 +8,16 @@ use crate::{
     WgpuServer,
 };
 
+use cubecl_common::ExecutionMode;
 use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
+    compute,
     ir::{self as cube, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
     Feature, Metadata,
 };
-use cubecl_runtime::{DeviceProperties, ExecutionMode};
+use cubecl_runtime::DeviceProperties;
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
     ComputePipeline, DeviceDescriptor, PipelineLayoutDescriptor, ShaderModuleDescriptor,
@@ -63,7 +65,7 @@ impl cubecl_core::Compiler for WgslCompiler {
     type CompilationOptions = CompilationOptions;
 
     fn compile(
-        shader: cube::KernelDefinition,
+        shader: compute::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
@@ -236,7 +238,7 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
 impl WgslCompiler {
     fn compile_shader(
         &mut self,
-        mut value: cube::KernelDefinition,
+        mut value: compute::KernelDefinition,
         mode: ExecutionMode,
     ) -> wgsl::ComputeShader {
         self.strategy = mode;
@@ -1156,21 +1158,21 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: cube::Location) -> wgsl::Location {
+    fn compile_location(value: compute::Location) -> wgsl::Location {
         match value {
-            cube::Location::Storage => wgsl::Location::Storage,
-            cube::Location::Cube => wgsl::Location::Workgroup,
+            compute::Location::Storage => wgsl::Location::Storage,
+            compute::Location::Cube => wgsl::Location::Workgroup,
         }
     }
 
-    fn compile_visibility(value: cube::Visibility) -> wgsl::Visibility {
+    fn compile_visibility(value: compute::Visibility) -> wgsl::Visibility {
         match value {
-            cube::Visibility::Read => wgsl::Visibility::Read,
-            cube::Visibility::ReadWrite => wgsl::Visibility::ReadWrite,
+            compute::Visibility::Read => wgsl::Visibility::Read,
+            compute::Visibility::ReadWrite => wgsl::Visibility::ReadWrite,
         }
     }
 
-    fn compile_binding(value: cube::Binding) -> wgsl::Binding {
+    fn compile_binding(value: compute::Binding) -> wgsl::Binding {
         wgsl::Binding {
             visibility: Self::compile_visibility(value.visibility),
             location: Self::compile_location(value.location),

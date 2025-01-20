@@ -2,8 +2,8 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    ir::{ClampOperator, Operator},
-    prelude::{CubeContext, CubePrimitive, ExpandElement},
+    ir::{ClampOperator, ExpandElement, Operator},
+    prelude::{CubeContext, CubePrimitive},
     tf32, unexpanded,
 };
 

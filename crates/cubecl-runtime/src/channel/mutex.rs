@@ -1,10 +1,9 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
 use crate::storage::BindingResource;
-use crate::ExecutionMode;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server

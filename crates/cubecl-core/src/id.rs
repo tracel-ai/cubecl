@@ -1,7 +1,8 @@
-use cubecl_runtime::ExecutionMode;
 use std::any::{Any, TypeId};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+
+use cubecl_common::ExecutionMode;
 
 /// Kernel unique identifier.
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]

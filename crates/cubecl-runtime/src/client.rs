@@ -5,11 +5,11 @@ use crate::{
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
     storage::BindingResource,
-    DeviceProperties, ExecutionMode,
+    DeviceProperties,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.

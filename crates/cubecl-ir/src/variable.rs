@@ -1,10 +1,12 @@
-use std::fmt::Display;
 use std::num::NonZero;
+use std::{fmt::Display, hash::Hash};
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
-use serde::{Deserialize, Serialize};
+use float_ord::FloatOrd;
+use type_hash::TypeHash;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Variable {
     pub kind: VariableKind,
@@ -36,7 +38,8 @@ impl Variable {
 
 pub type Id = u32;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
@@ -54,7 +57,8 @@ pub enum VariableKind {
     Pipeline { id: Id, item: Item },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
 pub enum Builtin {
     UnitPos,
     UnitPosX,
@@ -162,13 +166,38 @@ impl Variable {
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
 /// compilation.
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd)]
 #[allow(missing_docs)]
 pub enum ConstantScalarValue {
     Int(i64, IntKind),
     Float(f64, FloatKind),
     UInt(u64, UIntKind),
     Bool(bool),
+}
+
+impl Eq for ConstantScalarValue {}
+impl Hash for ConstantScalarValue {
+    fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
+        core::mem::discriminant(self).hash(ra_expand_state);
+        match self {
+            ConstantScalarValue::Int(f0, f1) => {
+                f0.hash(ra_expand_state);
+                f1.hash(ra_expand_state);
+            }
+            ConstantScalarValue::Float(f0, f1) => {
+                FloatOrd(*f0).hash(ra_expand_state);
+                f1.hash(ra_expand_state);
+            }
+            ConstantScalarValue::UInt(f0, f1) => {
+                f0.hash(ra_expand_state);
+                f1.hash(ra_expand_state);
+            }
+            ConstantScalarValue::Bool(f0) => {
+                f0.hash(ra_expand_state);
+            }
+        }
+    }
 }
 
 impl ConstantScalarValue {

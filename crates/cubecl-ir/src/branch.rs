@@ -1,11 +1,12 @@
 use std::fmt::Display;
 
 use super::{Elem, Item, Scope, UIntKind, Variable};
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
 /// All branching types.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub enum Branch {
     /// An if statement.
     If(Box<If>),
@@ -53,14 +54,16 @@ impl Display for Branch {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct If {
     pub cond: Variable,
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct IfElse {
     pub cond: Variable,
@@ -68,7 +71,8 @@ pub struct IfElse {
     pub scope_else: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Select {
     pub cond: Variable,
@@ -76,7 +80,8 @@ pub struct Select {
     pub or_else: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Switch {
     pub value: Variable,
@@ -84,7 +89,8 @@ pub struct Switch {
     pub cases: Vec<(Variable, Scope)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct RangeLoop {
     pub i: Variable,
@@ -95,7 +101,8 @@ pub struct RangeLoop {
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Loop {
     pub scope: Scope,

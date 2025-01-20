@@ -1,10 +1,10 @@
 use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
 use super::Variable;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 /// Operations available on a pipeline
 pub enum PipelineOps {
     /// Copy source to destination

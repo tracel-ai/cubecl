@@ -5,8 +5,6 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::prelude::ExpandElement;
-
 use super::{Item, Matrix, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
@@ -27,8 +25,10 @@ use super::{Item, Matrix, Variable, VariableKind};
 /// That is, each variable must be declared and used exactly once.
 ///
 /// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default)]
 pub struct Allocator {
+    #[cfg_attr(feature = "serde", serde(skip))]
     local_mut_pool: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
     next_id: Rc<AtomicU32>,
 }
@@ -39,6 +39,7 @@ impl PartialEq for Allocator {
             && Rc::ptr_eq(&self.next_id, &other.next_id)
     }
 }
+impl Eq for Allocator {}
 
 impl Allocator {
     /// Create a new immutable local variable of type specified by `item`.
@@ -129,4 +130,89 @@ impl Allocator {
     pub fn new_local_index(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::Release)
     }
+}
+
+pub use expand_element::*;
+
+mod expand_element {
+    use cubecl_common::{flex32, tf32};
+    use half::{bf16, f16};
+
+    use super::*;
+
+    /// Reference to a JIT variable
+    #[derive(Clone, Debug)]
+    pub enum ExpandElement {
+        /// Variable kept in the variable pool.
+        Managed(Rc<Variable>),
+        /// Variable not kept in the variable pool.
+        Plain(Variable),
+    }
+
+    impl core::ops::Deref for ExpandElement {
+        type Target = Variable;
+
+        fn deref(&self) -> &Self::Target {
+            match self {
+                ExpandElement::Managed(var) => var.as_ref(),
+                ExpandElement::Plain(var) => var,
+            }
+        }
+    }
+
+    impl From<ExpandElement> for Variable {
+        fn from(value: ExpandElement) -> Self {
+            match value {
+                ExpandElement::Managed(var) => *var,
+                ExpandElement::Plain(var) => var,
+            }
+        }
+    }
+
+    impl ExpandElement {
+        /// If the element can be mutated inplace, potentially reusing the register.
+        pub fn can_mut(&self) -> bool {
+            match self {
+                ExpandElement::Managed(var) => {
+                    if let VariableKind::LocalMut { .. } = var.as_ref().kind {
+                        Rc::strong_count(var) <= 2
+                    } else {
+                        false
+                    }
+                }
+                ExpandElement::Plain(_) => false,
+            }
+        }
+
+        /// Explicitly consume the element, freeing it for reuse if no other copies exist.
+        pub fn consume(self) -> Variable {
+            *self
+        }
+    }
+
+    macro_rules! impl_into_expand_element {
+        ($type:ty) => {
+            impl From<$type> for ExpandElement {
+                fn from(value: $type) -> Self {
+                    ExpandElement::Plain(Variable::from(value))
+                }
+            }
+        };
+    }
+
+    impl_into_expand_element!(u8);
+    impl_into_expand_element!(u16);
+    impl_into_expand_element!(u32);
+    impl_into_expand_element!(u64);
+    impl_into_expand_element!(usize);
+    impl_into_expand_element!(bool);
+    impl_into_expand_element!(flex32);
+    impl_into_expand_element!(f16);
+    impl_into_expand_element!(bf16);
+    impl_into_expand_element!(tf32);
+    impl_into_expand_element!(f32);
+    impl_into_expand_element!(i8);
+    impl_into_expand_element!(i16);
+    impl_into_expand_element!(i32);
+    impl_into_expand_element!(i64);
 }

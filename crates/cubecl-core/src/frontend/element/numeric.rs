@@ -1,5 +1,6 @@
 use std::num::NonZero;
 
+use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
 use crate::compute::KernelLauncher;
@@ -15,10 +16,7 @@ use crate::{
     prelude::CubeIndexMut,
 };
 
-use super::{
-    ArgSettings, ExpandElement, ExpandElementBaseInit, ExpandElementTyped, LaunchArg,
-    LaunchArgExpand,
-};
+use super::{ArgSettings, ExpandElementBaseInit, ExpandElementTyped, LaunchArg, LaunchArgExpand};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.

@@ -1,3 +1,4 @@
+use cubecl_common::ExecutionMode;
 use cubecl_runtime::{TimestampsError, TimestampsResult};
 use std::future::Future;
 use std::sync::Arc;
@@ -11,7 +12,6 @@ use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{Binding, ComputeServer, Handle},
     storage::BytesStorage,
-    ExecutionMode,
 };
 
 /// The dummy server is used to test the cubecl-runtime infrastructure.

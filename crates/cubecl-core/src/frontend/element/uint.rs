@@ -1,8 +1,10 @@
+use cubecl_ir::ExpandElement;
+
 use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 use crate::Runtime;
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement, Numeric},
+    frontend::{CubeContext, CubePrimitive, CubeType, Numeric},
     ir::UIntKind,
 };
 

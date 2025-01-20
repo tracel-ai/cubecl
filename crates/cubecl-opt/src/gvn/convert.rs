@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{
+use cubecl_ir::{
     BinaryOperator, ClampOperator, ConstantScalarValue, FmaOperator, Item, LineInitOperator,
     Metadata, Operation, Operator, Select, UnaryOperator, Variable, VariableKind,
 };
@@ -131,6 +131,9 @@ impl Expression {
                     })
                     .into(),
                     OpId::Not => Operator::Not(UnaryOperator { input: args[0] }).into(),
+                    OpId::BitwiseNot => {
+                        Operator::BitwiseNot(UnaryOperator { input: args[0] }).into()
+                    }
                     OpId::Neg => Operator::Neg(UnaryOperator { input: args[0] }).into(),
                     OpId::Max => Operator::Max(BinaryOperator {
                         lhs: args[0],
@@ -309,6 +312,7 @@ pub fn id_of_op(op: &Operator) -> OpId {
         Operator::Neg(_) => OpId::Neg,
         Operator::Max(_) => OpId::Max,
         Operator::Min(_) => OpId::Min,
+        Operator::BitwiseNot(_) => OpId::BitwiseNot,
         Operator::BitwiseAnd(_) => OpId::BitwiseAnd,
         Operator::BitwiseOr(_) => OpId::BitwiseOr,
         Operator::BitwiseXor(_) => OpId::BitwiseXor,

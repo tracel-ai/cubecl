@@ -7,13 +7,13 @@ publish = false
 version.workspace = true
 
 [features]
+cuda = ["cubecl/cuda"]
 default = []
 wgpu = ["cubecl/wgpu"]
-cuda = ["cubecl/cuda"]
 
 [dependencies]
 cubecl = { path = "../../crates/cubecl", version = "0.5.0" }
 half = { workspace = true }
 
 sum_things = { path = "../sum_things" }
-wgpu = { version = "23.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "24.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
