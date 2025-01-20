@@ -7,7 +7,7 @@ pub trait Reduce: Send + Sync + 'static + std::fmt::Debug {
 
 /// An instruction for a reduce algorithm that works with [`Line`].
 ///
-/// See a provided implementation, such as [`Sum`] or [`ArgMax`] for an example how to implement
+/// See a provided implementation, such as [`Sum`](super::Sum) or [`ArgMax`](super::ArgMax) for an example how to implement
 /// this trait for a custom instruction.
 ///
 /// A reduction works at three levels. First, it takes input data of type `In` and reduce them
@@ -91,7 +91,7 @@ impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
     }
 }
 
-/// A pair of shared memory used for [`ArgMax`] and [`ArgMin`].
+/// A pair of shared memory used for [`ArgMax`](super::ArgMax) and [`ArgMin`](super::ArgMin).
 #[derive(CubeType)]
 pub struct ArgAccumulator<N: Numeric> {
     pub elements: SharedMemory<Line<N>>,

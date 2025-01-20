@@ -18,9 +18,15 @@ pub trait WgpuCompiler: Compiler {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline>;
 
     #[allow(async_fn_in_trait)]
     async fn request_device(adapter: &Adapter) -> (Device, Queue);
-    fn register_features(adapter: &Adapter, device: &Device, props: &mut DeviceProperties<Feature>);
+    fn register_features(
+        adapter: &Adapter,
+        device: &Device,
+        props: &mut DeviceProperties<Feature>,
+        comp_options: &mut Self::CompilationOptions,
+    );
 }

@@ -57,6 +57,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub pipeline: bool,
     pub bf16: bool,
     pub f16: bool,
+    pub fast_math: bool,
     pub items: HashSet<super::Item<D>>,
     pub kernel_name: String,
 }

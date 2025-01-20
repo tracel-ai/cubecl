@@ -71,7 +71,7 @@ impl Item {
                 b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, usage)
             }
         };
-        if b.debug && !b.state.debug_types.contains(&id) {
+        if b.debug_symbols && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
             b.state.debug_types.insert(id);
         }
@@ -259,10 +259,10 @@ impl Elem {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => b.type_float(*width),
-            Elem::Relaxed => b.type_float(32),
+            Elem::Float(width) => b.type_float(*width, None),
+            Elem::Relaxed => b.type_float(32, None),
         };
-        if b.debug && !b.state.debug_types.contains(&id) {
+        if b.debug_symbols && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
             b.state.debug_types.insert(id);
         }

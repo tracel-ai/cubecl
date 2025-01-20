@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
-use cubecl_core::ir::expand_checked_index_assign;
+use cubecl_core::{ir::expand_checked_index_assign, prelude::FastMath};
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -128,6 +128,10 @@ impl<D: Dialect> CppCompiler<D> {
             warp_size_checked: self.warp_size_checked,
             settings: self.settings,
         };
+        let fast_math = value
+            .options
+            .fp_math_mode
+            .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
             inputs,
@@ -139,8 +143,9 @@ impl<D: Dialect> CppCompiler<D> {
             pipeline: self.pipeline,
             bf16: self.bf16,
             f16: self.f16,
+            fast_math,
             items: self.items,
-            kernel_name: value.kernel_name,
+            kernel_name: value.options.kernel_name,
         }
     }
 
@@ -735,6 +740,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::ShiftRight(op) => {
                 instructions.push(Instruction::ShiftRight(self.compile_binary(op, out)))
+            }
+            gpu::Operator::BitwiseNot(op) => {
+                instructions.push(Instruction::BitwiseNot(self.compile_unary(op, out)))
             }
             gpu::Operator::Clamp(op) => instructions.push(Instruction::Clamp {
                 input: self.compile_variable(op.input),

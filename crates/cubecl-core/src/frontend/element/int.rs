@@ -3,7 +3,7 @@ use crate::frontend::{
     Numeric,
 };
 use crate::ir::{Elem, IntKind};
-use crate::prelude::Not;
+use crate::prelude::BitwiseNot;
 use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -19,7 +19,7 @@ pub trait Int:
     Numeric
     + CountOnes
     + ReverseBits
-    + Not
+    + BitwiseNot
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

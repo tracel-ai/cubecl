@@ -77,7 +77,7 @@ where
     fn disable_timestamps(&mut self);
 }
 
-/// Server handle containing the [memory handle](MemoryManagement::Handle).
+/// Server handle containing the [memory handle](crate::server::Handle).
 #[derive(new, Debug)]
 pub struct Handle {
     /// Memory handle.

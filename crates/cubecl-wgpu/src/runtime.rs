@@ -7,7 +7,10 @@ use crate::{
 };
 use alloc::sync::Arc;
 use cubecl_common::future;
-use cubecl_core::{Feature, Runtime};
+use cubecl_core::{
+    ir::{Elem, FloatKind},
+    AtomicFeature, Feature, Runtime,
+};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -20,7 +23,7 @@ use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::Compute
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
-/// For advanced configuration, use [`init_sync`] to pass in runtime options or to select a
+/// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
 #[derive(Debug)]
 pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);
@@ -178,19 +181,10 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         max_bindings: limits.max_storage_buffers_per_shader_stage,
     };
 
-    let compilation_options = Default::default();
-    let server = WgpuServer::new(
-        mem_props.clone(),
-        options.memory_config,
-        compilation_options,
-        setup.device.clone(),
-        setup.queue,
-        options.tasks_max,
-    );
-    let channel = MutexComputeChannel::new(server);
+    let mut compilation_options = Default::default();
 
     let features = setup.adapter.features();
-    let mut device_props = DeviceProperties::new(&[], mem_props, hardware_props);
+    let mut device_props = DeviceProperties::new(&[], mem_props.clone(), hardware_props);
 
     // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
     // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
@@ -204,7 +198,30 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     {
         device_props.register_feature(Feature::Plane);
     }
-    C::register_features(&setup.adapter, &setup.device, &mut device_props);
+    C::register_features(
+        &setup.adapter,
+        &setup.device,
+        &mut device_props,
+        &mut compilation_options,
+    );
+
+    let server = WgpuServer::new(
+        mem_props,
+        options.memory_config,
+        compilation_options,
+        setup.device.clone(),
+        setup.queue,
+        options.tasks_max,
+    );
+    let channel = MutexComputeChannel::new(server);
+
+    if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
+        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+    }
+
     ComputeClient::new(channel, device_props)
 }
 
@@ -237,7 +254,7 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
         (_, false) => InstanceFlags::default(),
     };
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: G::backend().into(),
         flags: instance_flags,
         ..Default::default()

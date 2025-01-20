@@ -19,13 +19,15 @@ use super::{
     KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
-/// A 19-bit floating point type implementing the [`tfloat32`] format.
+/// A 19-bit floating point type implementing the
+/// [`tfloat32`](https://en.wikipedia.org/wiki/TensorFloat-32) format.
 ///
-/// The [`tfloat32`] floating point format is a truncated 19-bit version of the IEEE 754 standard
-/// `binary32`, a.k.a [`f32`]. [`bf16`] has approximately the same dynamic range as [`f32`] but a
-/// a lower precision equal to [`f16`][half::f16].
+/// The [`tfloat32`](https://en.wikipedia.org/wiki/TensorFloat-32) floating point format is a
+/// truncated 19-bit version of the IEEE 754 standard `binary32`, a.k.a [`prim@f32`].
+/// [`bf16`](half::bf16) has approximately the same dynamic range as [`prim@f32`] but a lower precision
+/// equal to [`f16`][half::f16].
 ///
-/// [`tfloat32`]: https://en.wikipedia.org/wiki/TensorFloat-32
+/// [`tfloat32`](https://en.wikipedia.org/wiki/TensorFloat-32)
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
 #[derive(Clone, Copy, Default, Serialize, Zeroable, Pod, PartialEq, PartialOrd)]
@@ -218,14 +220,14 @@ impl Float for tf32 {
 
     const MANTISSA_DIGITS: u32 = 10;
 
-    /// Maximum possible [`tf32`] power of 10 exponent
+    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 10 exponent
     const MAX_10_EXP: i32 = 38;
-    /// Maximum possible [`tf32`] power of 2 exponent
+    /// Maximum possible [`tf32`](crate::frontend::tf32) power of 2 exponent
     const MAX_EXP: i32 = 128;
 
-    /// Minimum possible normal [`tf32`] power of 10 exponent
+    /// Minimum possible normal [`tf32`](crate::frontend::tf32) power of 10 exponent
     const MIN_10_EXP: i32 = -37;
-    /// One greater than the minimum possible normal [`v`] power of 2 exponent
+    /// One greater than the minimum possible normal [`tf32`](crate::frontend::tf32) power of 2 exponent
     const MIN_EXP: i32 = -125;
 
     /// `MIN_POSITIVE` is defined by precision, so use `f16` as reference

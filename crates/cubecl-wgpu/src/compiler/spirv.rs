@@ -17,6 +17,7 @@ use cubecl_core::{
     AtomicFeature, ExecutionMode, Feature, Runtime,
 };
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
+use cubecl_spirv::CompilationOptions;
 use features::ExtendedFeatures;
 use wgpu::{
     hal::{
@@ -51,6 +52,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let (module, layout) = kernel
             .repr
@@ -106,21 +108,28 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             })
             .unwrap_or_else(|| {
                 let source = &kernel.source;
-                // Cube always in principle uses unchecked modules. Certain operations like
-                // indexing are instead checked by cube. The WebGPU specification only makes
-                // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
-                // can opt in/out per operation whether checks should be performed which can be faster.
-                //
+
+                let checks = wgpu::ShaderRuntimeChecks {
+                    // Cube does not need wgpu bounds checks - OOB behaviour is instead
+                    // checked by cube (if enabled).
+                    // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
+                    bounds_checks: false,
+                    // Loop bounds are only checked in checked mode.
+                    force_loop_bounding: mode == ExecutionMode::Checked,
+                };
+
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 let module = unsafe {
-                    server
-                        .device
-                        .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                            label: Some(&kernel.entrypoint_name),
+                    server.device.create_shader_module_trusted(
+                        wgpu::ShaderModuleDescriptor {
+                            label: None,
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                        })
+                        },
+                        checks,
+                    )
                 };
+
                 (module, None)
             });
 
@@ -174,12 +183,13 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
         adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+        comp_options: &mut Self::CompilationOptions,
     ) {
         let features = adapter.features();
         unsafe {
             adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
                 if let Some(adapter) = hal_adapter {
-                    register_features(adapter, props, features);
+                    register_features(adapter, props, features, comp_options);
                 }
             })
         }
@@ -270,6 +280,7 @@ fn register_features(
     adapter: &vulkan::Adapter,
     props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     features: Features,
+    comp_options: &mut CompilationOptions,
 ) {
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
@@ -289,6 +300,12 @@ fn register_features(
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
+        }
+    }
+
+    if let Some(float_controls2) = &extended_feat.float_controls2 {
+        if float_controls2.shader_float_controls2 == TRUE {
+            comp_options.supports_fp_fast_math = true;
         }
     }
 
@@ -404,9 +421,7 @@ fn is_robust(device: &wgpu::Device) -> bool {
             .contains(&EXT_ROBUSTNESS2_NAME)
     }
     unsafe {
-        device
-            .as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
-            .unwrap_or(false)
+        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
     }
 }
 
