@@ -233,7 +233,7 @@ impl Elem {
     }
 
     pub fn is_atomic(&self) -> bool {
-        matches!(self, Self::AtomicI32 | Self::AtomicU32)
+        matches!(self, Self::AtomicI32 | Self::AtomicU32 | Self::AtomicF32)
     }
 }
 
