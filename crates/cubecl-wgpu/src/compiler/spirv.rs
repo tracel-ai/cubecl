@@ -108,11 +108,11 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             })
             .unwrap_or_else(|| {
                 let source = &kernel.source;
-                // Cube always in principle uses unchecked modules. Certain operations like
-                // indexing are instead checked by cube. The WebGPU specification only makes
-                // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
-                // can opt in/out per operation whether checks should be performed which can be faster.
+
                 let checks = wgpu::ShaderRuntimeChecks {
+                    // Cube does not need wgpu bounds checks - OOB behaviour is instead
+                    // checked by cube (if enabled).
+                    // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
                     bounds_checks: false,
                     // Loop bounds are only checked in checked mode.
                     force_loop_bounding: mode == ExecutionMode::Checked,
