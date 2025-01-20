@@ -1,5 +1,5 @@
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::sync::Arc;
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
