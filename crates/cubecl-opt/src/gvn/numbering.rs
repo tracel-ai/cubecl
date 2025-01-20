@@ -212,6 +212,7 @@ impl ValueTable {
             | Operator::Magnitude(op)
             | Operator::Normalize(op)
             | Operator::CountOnes(op)
+            | Operator::BitwiseNot(op)
             | Operator::ReverseBits(op) => {
                 let input = self.lookup_or_add_var(&op.input)?;
                 let item = out.item;

@@ -997,6 +997,10 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::BitwiseNot(op) => instructions.push(wgsl::Instruction::BitwiseNot {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Operator::Remainder(op) => instructions.push(wgsl::Instruction::Remainder {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),

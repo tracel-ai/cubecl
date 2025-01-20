@@ -112,6 +112,7 @@ impl Optimizer {
             | Operator::Magnitude(unary_operator)
             | Operator::Normalize(unary_operator)
             | Operator::CountOnes(unary_operator)
+            | Operator::BitwiseNot(unary_operator)
             | Operator::ReverseBits(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
             Operator::Clamp(clamp_operator) => {

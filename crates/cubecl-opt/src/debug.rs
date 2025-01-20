@@ -356,6 +356,7 @@ impl Display for Instruction {
             OpId::Shape => write!(f, "{}.shape[{}]", args[0], args[1]),
             OpId::Stride => write!(f, "{}.stride[{}]", args[0], args[1]),
             OpId::Cast => write!(f, "cast<{}>({})", self.item, args[0]),
+            OpId::BitwiseNot => write!(f, "!{}", args[0]),
         }
     }
 }

@@ -742,6 +742,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::ShiftRight(op) => {
                 instructions.push(Instruction::ShiftRight(self.compile_binary(op, out)))
             }
+            gpu::Operator::BitwiseNot(op) => {
+                instructions.push(Instruction::BitwiseNot(self.compile_unary(op, out)))
+            }
             gpu::Operator::Clamp(op) => instructions.push(Instruction::Clamp {
                 input: self.compile_variable(op.input),
                 min_value: self.compile_variable(op.min_value),

@@ -223,6 +223,7 @@ pub enum OpId {
     Neg,
     Max,
     Min,
+    BitwiseNot,
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
