@@ -1,9 +1,9 @@
+use alloc::vec::Vec;
 use std::sync::Arc;
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-#[cfg(feature = "std")]
 use cubecl_common::benchmark::{BenchmarkDurations, TimingMethod};
 
 use super::{AutotuneError, Tunable};
@@ -24,7 +24,6 @@ impl<
     > TuneBenchmark<S, C, In, Out>
 {
     /// Benchmark how long this operation takes for a number of samples.
-    #[cfg(feature = "std")]
     pub async fn sample_durations(self) -> Result<BenchmarkDurations, AutotuneError> {
         let operation = self.operation;
 

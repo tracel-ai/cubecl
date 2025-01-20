@@ -9,7 +9,8 @@ use cubecl_common::stub::Duration;
 #[cfg(all(not(target_family = "wasm"), feature = "std"))]
 use std::panic::resume_unwind;
 
-use alloc::string::ToString;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use cubecl_common::benchmark::BenchmarkComputations;
 
