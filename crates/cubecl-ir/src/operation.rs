@@ -14,7 +14,6 @@ use type_hash::TypeHash;
 /// [Operator] can be vectorized, but other operations can't.
 /// Therefore, during tracing, only operators can be registered.
 ///
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
@@ -33,7 +32,6 @@ pub enum Operation {
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
 pub struct Instruction {
@@ -154,7 +152,6 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 }
 
 /// All operators that can be used in a GPU compute shader.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
@@ -303,7 +300,6 @@ impl Display for Operator {
 }
 
 /// All metadata that can be accessed in a shader.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -332,7 +328,6 @@ impl Display for Metadata {
     }
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -341,7 +336,6 @@ pub struct BinaryOperator {
     pub rhs: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -349,7 +343,6 @@ pub struct UnaryOperator {
     pub input: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -357,7 +350,6 @@ pub struct LineInitOperator {
     pub inputs: Vec<Variable>,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -367,7 +359,6 @@ pub struct CopyMemoryOperator {
     pub in_index: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -378,7 +369,6 @@ pub struct CopyMemoryBulkOperator {
     pub len: u32,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -388,7 +378,6 @@ pub struct ClampOperator {
     pub max_value: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -398,7 +387,6 @@ pub struct SliceOperator {
     pub end: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -408,7 +396,6 @@ pub struct CompareAndSwapOperator {
     pub val: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -416,7 +403,6 @@ pub struct ReadGlobalOperator {
     pub variable: Variable,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -426,7 +412,6 @@ pub struct ReadGlobalWithLayoutOperator {
     pub tensor_layout_pos: usize,
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]

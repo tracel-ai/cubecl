@@ -14,7 +14,6 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-common
 version.workspace = true
 
 [features]
-bitcode = ["dep:bitcode"]
 default = ["std", "serde"]
 serde = ["dep:serde"]
 std = ["rand/std", "futures-lite"]
@@ -25,7 +24,6 @@ web-time = { workspace = true }
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
-bitcode = { workspace = true, optional = true }
 bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [

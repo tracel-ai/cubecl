@@ -6,15 +6,13 @@ readme.workspace = true
 version.workspace = true
 
 [features]
-default = ["bitcode"]
+default = ["serde"]
 
-bitcode = ["dep:bitcode", "serde"]
 serde = ["dep:serde"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5" }
 
-bitcode = { workspace = true, optional = true, features = ["serde"] }
 float-ord = "0.3"
 half = { workspace = true }
 num-traits = { workspace = true }

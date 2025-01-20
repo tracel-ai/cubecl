@@ -4,7 +4,6 @@ use type_hash::TypeHash;
 
 use crate::{BinaryOperator, CompareAndSwapOperator, Operation, UnaryOperator};
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub enum AtomicOp {

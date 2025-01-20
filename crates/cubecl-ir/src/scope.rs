@@ -14,7 +14,6 @@ use super::{
 ///
 /// This type isn't responsible for creating [shader bindings](super::Binding) and figuring out which
 /// variable can be written to.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 #[allow(missing_docs)]
@@ -58,7 +57,6 @@ impl core::hash::Hash for Scope {
     }
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash)]
 #[allow(missing_docs)]

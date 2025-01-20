@@ -1,7 +1,6 @@
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 #[allow(missing_docs)]

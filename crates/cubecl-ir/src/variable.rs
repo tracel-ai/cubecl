@@ -5,7 +5,6 @@ use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
 use type_hash::TypeHash;
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
@@ -39,7 +38,6 @@ impl Variable {
 
 pub type Id = u32;
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 pub enum VariableKind {
@@ -59,7 +57,6 @@ pub enum VariableKind {
     Pipeline { id: Id, item: Item },
 }
 
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
 pub enum Builtin {
@@ -169,7 +166,6 @@ impl Variable {
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
 /// compilation.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, PartialOrd)]
 #[allow(missing_docs)]

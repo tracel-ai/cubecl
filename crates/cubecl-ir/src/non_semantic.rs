@@ -10,7 +10,6 @@ use super::Variable;
 /// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
 ///
 /// Can be safely removed or ignored without changing the kernel result.
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub enum NonSemantic {

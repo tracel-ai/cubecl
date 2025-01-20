@@ -19,7 +19,6 @@ derive-new = { version = "0.6.0", default-features = false }
 derive_more = { version = "1", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
-bitcode = "0.5" # 0.6 lacks support for recursive types, 0.5 allows using serde as a fallback
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
     "alloc",

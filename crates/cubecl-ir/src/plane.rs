@@ -8,7 +8,6 @@ use type_hash::TypeHash;
 /// All plane operations.
 ///
 /// Note that not all backends support plane (warp/subgroup) operations. Use the [runtime flag](crate::Feature::Plane).
-#[cfg_attr(feature = "bitcode", derive(bitcode::Encode, bitcode::Decode))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
