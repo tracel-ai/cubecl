@@ -36,7 +36,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
         if !removed_phi.is_empty() {
             let mut phi_assigns = removed_phi
                 .into_iter()
-                .map(|phi| Instruction::new(Operation::Copy(phi.entries[0].value), phi.out))
+                .map(|phi| Instruction::new(Operation::Copy(phi.entries[0].value.into()), phi.out))
                 .collect::<StableVec<_>>();
 
             let ops = take(&mut *opt.program[node].ops.borrow_mut());
@@ -57,7 +57,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                     opt.visit_all(
                         |_, var| {
                             if *var == op.out() {
-                                *var = input
+                                *var = *input
                             }
                         },
                         visit_noop,
@@ -135,7 +135,7 @@ fn check_op(
     }
     for rhs_idx in indices.iter().skip(i + 1) {
         if op.operation == ops.borrow()[*rhs_idx].operation {
-            ops.borrow_mut()[*rhs_idx].operation = Operation::Copy(out);
+            ops.borrow_mut()[*rhs_idx].operation = Operation::Copy(out.into());
             changes.inc();
         }
     }

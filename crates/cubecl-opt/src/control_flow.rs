@@ -2,8 +2,8 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
-    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
-    Operation, Operator, RangeLoop, Switch, Variable, VariableKind,
+    BinaryOperator, Branch, ConstantScalarValue, CopyOp, Elem, If, IfElse, Instruction, Item, Loop,
+    Operator, RangeLoop, Switch, Variable, VariableKind,
 };
 use petgraph::visit::EdgeRef;
 
@@ -259,7 +259,7 @@ impl Optimizer {
         let i = range_loop.i;
         self.program.variables.insert(i_id, i.item);
 
-        let assign = Instruction::new(Operation::Copy(range_loop.start), i);
+        let assign = Instruction::new(CopyOp(range_loop.start), i);
         self.current_block_mut().ops.borrow_mut().push(assign);
 
         let current_block = self.current_block.unwrap();

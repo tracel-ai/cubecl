@@ -31,6 +31,7 @@ pub mod cast {
 }
 
 pub mod assign {
+    use cubecl_ir::CopyOp;
     use ir::{Instruction, Operation};
 
     use crate::prelude::ExpandElementTyped;
@@ -43,7 +44,7 @@ pub mod assign {
         output: ExpandElementTyped<C>,
     ) {
         context.register(Instruction::new(
-            Operation::Copy(*input.expand),
+            Operation::Copy(CopyOp(*input.expand)),
             *output.expand,
         ));
     }

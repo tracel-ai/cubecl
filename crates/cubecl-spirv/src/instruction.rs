@@ -14,7 +14,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
         match inst.operation {
             Operation::Copy(var) => {
-                let input = self.compile_variable(var);
+                let input = self.compile_variable(*var);
                 let out = self.compile_variable(inst.out());
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
@@ -718,10 +718,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
                 let out_index = self.compile_variable(op.out_index);
+                let len = op.len.as_const().unwrap().as_u32();
 
                 let source = self.index_ptr(&input, &in_index);
                 let target = self.index_ptr(&out, &out_index);
-                let size = self.const_u32(op.len * out.item().size());
+                let size = self.const_u32(len * out.item().size());
                 let checked =
                     matches!(self.mode, ExecutionMode::Checked) && input.has_len() && out.has_len();
                 if checked {

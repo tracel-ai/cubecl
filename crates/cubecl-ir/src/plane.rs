@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::Operation;
+use crate::{Operation, OperationCore};
 
 use super::{BinaryOperator, UnaryOperator};
 use type_hash::TypeHash;
@@ -9,7 +9,8 @@ use type_hash::TypeHash;
 ///
 /// Note that not all backends support plane (warp/subgroup) operations. Use the [runtime flag](crate::Feature::Plane).
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
+#[operation(opcode_name = PlaneOpCode)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Plane {
     Elect,

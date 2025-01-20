@@ -3,7 +3,9 @@ use core::panic;
 use darling::FromDeriveInput;
 use error::error_into_token_stream;
 use generate::{
-    autotune::generate_autotune_key, op_args::generate_op_args, operation::generate_operation,
+    autotune::generate_autotune_key,
+    op_args::generate_op_args,
+    operation::{generate_opcode, generate_operation},
 };
 use parse::{
     cube_impl::CubeImpl,
@@ -200,6 +202,7 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     }
 }
 
+#[doc(hidden)]
 #[proc_macro_derive(OperationArgs, attributes(args))]
 pub fn derive_operation_args(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
@@ -209,10 +212,21 @@ pub fn derive_operation_args(input: TokenStream) -> TokenStream {
     }
 }
 
+#[doc(hidden)]
 #[proc_macro_derive(OperationCore, attributes(operation))]
 pub fn derive_operation(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_operation(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
+#[doc(hidden)]
+#[proc_macro_derive(OperationCode, attributes(operation))]
+pub fn derive_opcode(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match generate_opcode(input) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }

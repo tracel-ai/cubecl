@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, UIntKind};
+use cubecl_ir::{
+    Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, OpCode, UIntKind,
+};
 use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
@@ -160,14 +162,14 @@ impl From<Instruction> for Expression {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub struct Instruction {
-    pub(crate) op: OpId,
+    pub(crate) op: OpCode,
     pub(crate) commutative: bool,
     pub(crate) args: SmallVec<[u32; 4]>,
     pub(crate) item: Item,
 }
 
 impl Instruction {
-    pub fn new(op: OpId, args: &[u32], item: Item) -> Self {
+    pub fn new(op: OpCode, args: &[u32], item: Item) -> Self {
         Self {
             op,
             commutative: false,
@@ -176,7 +178,7 @@ impl Instruction {
         }
     }
 
-    pub fn commutative(op: OpId, args: &[u32], item: Item) -> Self {
+    pub fn commutative(op: OpCode, args: &[u32], item: Item) -> Self {
         Self {
             op,
             commutative: true,
@@ -184,63 +186,4 @@ impl Instruction {
             item,
         }
     }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum OpId {
-    Add,
-    Fma,
-    Sub,
-    Mul,
-    Div,
-    Abs,
-    Exp,
-    Log,
-    Log1p,
-    Cos,
-    Sin,
-    Tanh,
-    Powf,
-    Sqrt,
-    Round,
-    Floor,
-    Ceil,
-    Erf,
-    Recip,
-    Equal,
-    NotEqual,
-    Lower,
-    Clamp,
-    Greater,
-    LowerEqual,
-    GreaterEqual,
-    Modulo,
-    Index,
-    InitLine,
-    And,
-    Or,
-    Not,
-    Neg,
-    Max,
-    Min,
-    BitwiseNot,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    CountOnes,
-    ReverseBits,
-    ShiftLeft,
-    ShiftRight,
-    Remainder,
-    Magnitude,
-    Normalize,
-    Dot,
-    Select,
-    Bitcast,
-    Rank,
-    Length,
-    BufferLength,
-    Shape,
-    Stride,
-    Cast,
 }

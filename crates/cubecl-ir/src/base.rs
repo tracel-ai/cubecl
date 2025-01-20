@@ -8,18 +8,29 @@ pub trait OperationCore: Sized {
     type OpCode;
 
     fn op_code(&self) -> Self::OpCode;
-    fn args(&self) -> SmallVec<[Variable; 4]>;
-    fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self>;
+    fn args(&self) -> Option<SmallVec<[Variable; 4]>> {
+        None
+    }
+    #[allow(unused)]
+    fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
+        None
+    }
 }
 
 pub trait OperationArgs: Sized {
-    fn from_args(args: &[Variable]) -> Option<Self>;
-    fn into_args(self) -> Option<SmallVec<[Variable; 4]>>;
+    #[allow(unused)]
+    fn from_args(args: &[Variable]) -> Option<Self> {
+        None
+    }
+
+    fn as_args(&self) -> Option<SmallVec<[Variable; 4]>> {
+        None
+    }
 }
 
 pub trait FromArgList: Sized {
     fn from_arg_list(args: &mut VecDeque<Variable>) -> Self;
-    fn into_arg_list(self) -> impl IntoIterator<Item = Variable>;
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable>;
 }
 
 impl FromArgList for Variable {
@@ -27,8 +38,8 @@ impl FromArgList for Variable {
         args.pop_front().expect("Missing variable from arg list")
     }
 
-    fn into_arg_list(self) -> impl IntoIterator<Item = Variable> {
-        [self]
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        [*self]
     }
 }
 
@@ -37,7 +48,7 @@ impl FromArgList for Vec<Variable> {
         core::mem::take(args).into_iter().collect()
     }
 
-    fn into_arg_list(self) -> impl IntoIterator<Item = Variable> {
-        self
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        self.clone()
     }
 }

@@ -172,7 +172,7 @@ impl OptimizerPass for EliminateDeadPhi {
                             .find(|it| it.block == predecessor)
                             .unwrap()
                             .value;
-                        Instruction::new(Operation::Copy(value), phi.out)
+                        Instruction::new(Operation::Copy(value.into()), phi.out)
                     })
                     .collect();
 

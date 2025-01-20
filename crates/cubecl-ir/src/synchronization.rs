@@ -2,9 +2,12 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
+use crate::OperationCore;
+
 /// All synchronization types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
+#[operation(opcode_name = SyncOpCode)]
 #[allow(missing_docs)]
 pub enum Synchronization {
     // Synchronizize units in a cube.

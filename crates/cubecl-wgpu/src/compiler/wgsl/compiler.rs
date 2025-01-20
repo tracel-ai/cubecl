@@ -546,7 +546,7 @@ impl WgslCompiler {
     ) {
         match operation {
             cube::Operation::Copy(variable) => instructions.push(wgsl::Instruction::Assign {
-                input: self.compile_variable(variable),
+                input: self.compile_variable(*variable),
                 out: self.compile_variable(out.unwrap()),
             }),
             cube::Operation::Operator(op) => self.compile_instruction(op, out, instructions, scope),
@@ -1083,7 +1083,7 @@ impl WgslCompiler {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len,
+                len: op.len.as_const().unwrap().as_u32(),
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),

@@ -327,7 +327,8 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         return elem;
     }
 
-    let mut init = |elem: ExpandElement| init_expand(context, elem, Operation::Copy);
+    let mut init =
+        |elem: ExpandElement| init_expand(context, elem, |var| Operation::Copy(var.into()));
 
     match elem.kind {
         VariableKind::GlobalScalar { .. } => init(elem),

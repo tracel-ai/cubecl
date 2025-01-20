@@ -3,7 +3,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
-use crate::parse::operation::{Operation, OperationVariant};
+use crate::parse::operation::{OpCode, Operation, OperationVariant};
 
 impl Operation {
     fn variants(&self) -> Vec<&OperationVariant> {
@@ -17,9 +17,14 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if has_children {
-                quote![Self::#ident(child) => #opcode::#ident(cubecl_ir::OperationCore::op_code(child))]
+                quote![Self::#ident(child) => #opcode::#ident(crate::OperationCore::op_code(child))]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => #opcode::#ident]
+            } else if variant.fields.fields[0].ident.is_some() {
+                quote![Self::#ident { .. } => #opcode::#ident]
             } else {
-                quote![Self::#ident(_) => #opcode::#ident]
+                let args = variant.fields.fields.iter().map(|_| quote![_]);
+                quote![Self::#ident(#(#args),*) => #opcode::#ident]
             }
         });
         quote! {
@@ -35,9 +40,24 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if has_children {
-                quote![Self::#ident(child) => cubecl_ir::OperationCore::args(child)]
+                quote![Self::#ident(child) => crate::OperationCore::args(child)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => Some(smallvec::SmallVec::new())]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let names = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .map(|it| it.ident.clone().unwrap())
+                    .collect::<Vec<_>>();
+                let body = quote![{
+                    let mut args = smallvec::SmallVec::new();
+                    #(args.extend(crate::FromArgList::as_arg_list(#names));)*
+                    Some(args)
+                }];
+                quote![Self::#ident { #(#names),* } => #body]
             } else {
-                quote![Self::#ident(args) => cubecl_ir::OperationArgs::into_args(args)]
+                quote![Self::#ident(args) => crate::OperationArgs::as_args(args)]
             }
         });
         quote! {
@@ -54,9 +74,24 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if has_children {
-                quote![#opcode::#ident(child) => cubecl_ir::OperationCore::from_code_and_args(child, args)]
+                quote![#opcode::#ident(child) => Some(Self::#ident(crate::OperationCore::from_code_and_args(child, args)?))]
+            } else if variant.fields.is_empty() {
+                quote![#opcode::#ident => Some(Self::#ident)]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let fields = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .map(|it| it.ident.clone().unwrap())
+                    .map(|it| quote![#it: crate::FromArgList::from_arg_list(&mut args)]);
+                quote![#opcode::#ident => {
+                    let mut args: std::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
+                    Some(Self::#ident {
+                        #(#fields),*
+                    })
+                }]
             } else {
-                quote![#opcode::#ident => Self::#ident(cubecl_ir::OperationArgs::from_args(args))]
+                quote![#opcode::#ident => crate::OperationArgs::from_args(args).map(Self::#ident)]
             }
         });
         quote! {
@@ -75,16 +110,16 @@ impl Operation {
         let args_impl = self.generate_args_impl();
         let from_args_impl = self.generate_from_args_impl();
 
-        quote![impl #generics cubecl_ir::OperationCore for #name #generic_names #where_clause {
+        quote![impl #generics crate::OperationCore for #name #generic_names #where_clause {
             type OpCode = #opcode_name;
 
             fn op_code(&self) -> Self::OpCode {
                 #opcode_impl
             }
-            fn args(&self) -> SmallVec<[Variable; 4]> {
+            fn args(&self) -> Option<smallvec::SmallVec<[crate::Variable; 4]>> {
                 #args_impl
             }
-            fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
+            fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
                 #from_args_impl
             }
         }]
@@ -99,12 +134,13 @@ impl Operation {
             let ident = &variant.ident;
             if has_children {
                 let child_ty = &variant.fields.fields[0].ty;
-                quote![#ident(<#child_ty as cubecl_ir::OperationCore>::OpCode)]
+                quote![#ident(<#child_ty as crate::OperationCore>::OpCode)]
             } else {
                 quote![#ident]
             }
         });
         quote! {
+            #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
             #vis enum #name {
                 #(#variants),*
             }
@@ -121,5 +157,33 @@ pub fn generate_operation(input: DeriveInput) -> syn::Result<TokenStream> {
     Ok(quote! {
         #opcode
         #operation_impl
+    })
+}
+
+pub fn generate_opcode(input: DeriveInput) -> syn::Result<TokenStream> {
+    let operation = OpCode::from_derive_input(&input)?;
+    let operation = Operation {
+        ident: operation.ident,
+        vis: operation.vis,
+        generics: operation.generics,
+        data: operation.data,
+        opcode_name: operation.opcode_name,
+        with_children: operation.with_children,
+    };
+
+    let name = &operation.ident;
+    let generics = &operation.generics;
+    let opcode_name = &operation.opcode_name;
+    let opcode = operation.generate_opcode();
+    let match_opcode = operation.generate_opcode_impl();
+
+    Ok(quote! {
+        #opcode
+
+        impl #generics #name {
+            fn __match_opcode(&self) -> #opcode_name {
+                #match_opcode
+            }
+        }
     })
 }

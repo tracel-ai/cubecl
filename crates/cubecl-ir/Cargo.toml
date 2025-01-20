@@ -12,10 +12,11 @@ serde = ["dep:serde"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5" }
+cubecl-macros = { path = "../cubecl-macros", version = "0.5" }
 
 float-ord = "0.3"
 half = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["std", "rc"] }
-type_hash = { workspace = true }
 smallvec = { workspace = true }
+type_hash = { workspace = true }

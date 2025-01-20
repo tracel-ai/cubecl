@@ -4,15 +4,13 @@ use std::{
 };
 
 use cubecl_ir::{
-    self as ir, Elem, Item, Metadata, Operation, Operator, UIntKind, Variable, VariableKind,
+    self as ir, Elem, Item, Metadata, OpCode, Operation, OperationCore, Operator, OperatorOpCode,
+    UIntKind, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
 
-use super::{
-    convert::{id_of_meta, id_of_op, value_of_var},
-    Expression, Instruction, OpId, Value, ValueTable,
-};
+use super::{convert::value_of_var, Expression, Instruction, Value, ValueTable};
 
 impl ValueTable {
     /// Look up or insert operation if it's numberable. Returns the number, optional out value and
@@ -150,7 +148,7 @@ impl ValueTable {
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
-                let id = id_of_op(operator);
+                let id = OpCode::Operator(operator.op_code());
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
                 }
@@ -170,7 +168,7 @@ impl ValueTable {
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
-                let id = id_of_op(operator);
+                let id = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out)
             }
@@ -184,7 +182,7 @@ impl ValueTable {
                 let mut lhs = self.lookup_or_add_var(&op.lhs)?;
                 let mut rhs = self.lookup_or_add_var(&op.rhs)?;
                 let out = value_of_var(&out);
-                let mut op = id_of_op(operator);
+                let mut op = OpCode::Operator(operator.op_code());
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
                     op = cmp_inverse(&op);
@@ -217,7 +215,7 @@ impl ValueTable {
                 let input = self.lookup_or_add_var(&op.input)?;
                 let item = out.item;
                 let out = value_of_var(&out);
-                let op = id_of_op(operator);
+                let op = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
@@ -225,7 +223,7 @@ impl ValueTable {
                 let item = out.item;
                 let input = self.lookup_or_add_var(&op.input)?;
                 let out = value_of_var(&out);
-                let op = id_of_op(operator);
+                let op = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(op, &[input], item);
                 (expr.into(), out)
             }
@@ -236,7 +234,7 @@ impl ValueTable {
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
                 let out = value_of_var(&out);
-                let op = id_of_op(operator);
+                let op = OpCode::Operator(operator.op_code());
                 if a > b {
                     swap(&mut a, &mut b);
                 }
@@ -249,7 +247,7 @@ impl ValueTable {
                 let min = self.lookup_or_add_var(&op.min_value)?;
                 let max = self.lookup_or_add_var(&op.max_value)?;
                 let out = value_of_var(&out);
-                let op = id_of_op(operator);
+                let op = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(op, &[val, min, max], item);
                 (expr.into(), out)
             }
@@ -258,7 +256,7 @@ impl ValueTable {
                 let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
                 let operands = operands.collect::<Result<Vec<_>, _>>()?;
                 let out = value_of_var(&out);
-                let op = id_of_op(operator);
+                let op = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(op, &operands, item);
                 (expr.into(), out)
             }
@@ -271,7 +269,7 @@ impl ValueTable {
                 let item = out.item;
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
-                let id = id_of_op(operator);
+                let id = OpCode::Operator(operator.op_code());
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out_val)
             }
@@ -281,7 +279,8 @@ impl ValueTable {
                 let cond = self.lookup_or_add_var(&op.cond)?;
                 let then = self.lookup_or_add_var(&op.then)?;
                 let or_else = self.lookup_or_add_var(&op.or_else)?;
-                let expr = Instruction::new(OpId::Select, &[cond, then, or_else], item);
+                let id = OpCode::Operator(operator.op_code());
+                let expr = Instruction::new(id, &[cond, then, or_else], item);
                 (expr.into(), value_of_var(&out))
             }
 
@@ -299,7 +298,7 @@ impl ValueTable {
         meta: &Metadata,
         out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let op = id_of_meta(meta);
+        let op = OpCode::Metadata(meta.op_code());
         let (expr, val) = match meta {
             Metadata::Stride { dim, var } | Metadata::Shape { dim, var } => {
                 let item = out.item;
@@ -357,12 +356,18 @@ impl ValueTable {
     }
 }
 
-fn cmp_inverse(op: &OpId) -> OpId {
-    match op {
-        OpId::Lower => OpId::Greater,
-        OpId::Greater => OpId::Lower,
-        OpId::LowerEqual => OpId::GreaterEqual,
-        OpId::GreaterEqual => OpId::LowerEqual,
+fn cmp_inverse(op: &OpCode) -> OpCode {
+    let op = match op {
+        OpCode::Operator(op) => op,
         _ => unreachable!(),
-    }
+    };
+
+    let op = match op {
+        OperatorOpCode::Lower => OperatorOpCode::Greater,
+        OperatorOpCode::Greater => OperatorOpCode::Lower,
+        OperatorOpCode::LowerEqual => OperatorOpCode::GreaterEqual,
+        OperatorOpCode::GreaterEqual => OperatorOpCode::LowerEqual,
+        _ => unreachable!(),
+    };
+    OpCode::Operator(op)
 }

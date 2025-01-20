@@ -1,12 +1,15 @@
 use std::fmt::Display;
 
-use super::{Elem, Item, Scope, UIntKind, Variable};
+use crate::{OperationArgs, OperationCore};
+
+use super::{Elem, Item, OperationCode, Scope, UIntKind, Variable};
 use type_hash::TypeHash;
 
 /// All branching types.
 #[allow(clippy::large_enum_variant)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[operation(opcode_name = BranchOpCode)]
 pub enum Branch {
     /// An if statement.
     If(Box<If>),
@@ -22,6 +25,14 @@ pub enum Branch {
     Return,
     /// A break statement.
     Break,
+}
+
+impl OperationCore for Branch {
+    type OpCode = BranchOpCode;
+
+    fn op_code(&self) -> Self::OpCode {
+        self.__match_opcode()
+    }
 }
 
 impl Display for Branch {
@@ -72,7 +83,7 @@ pub struct IfElse {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct Select {
     pub cond: Variable,

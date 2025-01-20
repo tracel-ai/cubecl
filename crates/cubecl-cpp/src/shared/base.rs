@@ -227,7 +227,7 @@ impl<D: Dialect> CppCompiler<D> {
         match instruction.operation {
             gpu::Operation::Copy(variable) => {
                 instructions.push(Instruction::Assign(UnaryInstruction {
-                    input: self.compile_variable(variable),
+                    input: self.compile_variable(*variable),
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
@@ -823,7 +823,7 @@ impl<D: Dialect> CppCompiler<D> {
                 in_index: self.compile_variable(op.in_index),
                 out: self.compile_variable(out),
                 out_index: self.compile_variable(op.out_index),
-                len: op.len,
+                len: op.len.as_const().unwrap().as_u32(),
             }),
             gpu::Operator::Select(op) => instructions.push(Instruction::Select {
                 cond: self.compile_variable(op.cond),

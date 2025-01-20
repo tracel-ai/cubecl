@@ -7,22 +7,25 @@ use crate::parse::op_args::OpArgs;
 
 impl OpArgs {
     fn generate_into(&self) -> TokenStream {
-        let mut tokens = quote![let args = smallvec::SmallVec::new()];
+        let mut tokens = quote![let mut args = smallvec::SmallVec::new();];
         for field in self.data.as_ref().take_struct().unwrap().fields {
             let ident = field.ident.as_ref().unwrap();
-            tokens.extend(quote![args.extend(FromArgList::into_arg_list(self.#ident))]);
+            tokens.extend(quote![args.extend(crate::FromArgList::as_arg_list(&self.#ident));]);
         }
-        tokens
+        quote! {
+            #tokens
+            args
+        }
     }
 
     fn generate_from(&self) -> TokenStream {
         let mut tokens = quote![];
         for field in self.data.as_ref().take_struct().unwrap().fields {
             let ident = field.ident.as_ref().unwrap();
-            tokens.extend(quote![#ident: cubecl_ir::FromArgList::from_arg_list(&mut args)]);
+            tokens.extend(quote![#ident: crate::FromArgList::from_arg_list(&mut args),]);
         }
         quote! {
-            let mut args: VecDequeue = args.into();
+            let mut args: std::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
             Self {
                 #tokens
             }
@@ -36,13 +39,13 @@ impl OpArgs {
         let into = self.generate_into();
         let from = self.generate_from();
 
-        quote![impl #generics cubecl_ir::OperationArgs for #name #generic_names #where_clause {
-            fn from_args(args: &[Variable]) -> Self {
-                #from
+        quote![impl #generics crate::OperationArgs for #name #generic_names #where_clause {
+            fn from_args(args: &[Variable]) -> Option<Self> {
+                Some({#from})
             }
 
-            fn into_args(self) -> smallvec::SmallVec<[Variable; 4]> {
-                #into
+            fn as_args(&self) -> Option<smallvec::SmallVec<[Variable; 4]>> {
+                Some({#into})
             }
         }]
     }
