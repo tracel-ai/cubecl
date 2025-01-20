@@ -53,6 +53,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
     fn create_pipeline(
         server: &mut WgpuServer<Self>,
         kernel: CompiledKernel<Self>,
+        mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let (module, layout) = kernel
             .repr
@@ -108,21 +109,28 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
             })
             .unwrap_or_else(|| {
                 let source = &kernel.source;
-                // Cube always in principle uses unchecked modules. Certain operations like
-                // indexing are instead checked by cube. The WebGPU specification only makes
-                // incredibly loose guarantees that Cube can't rely on. Additionally, kernels
-                // can opt in/out per operation whether checks should be performed which can be faster.
-                //
+
+                let checks = wgpu::ShaderRuntimeChecks {
+                    // Cube does not need wgpu bounds checks - OOB behaviour is instead
+                    // checked by cube (if enabled).
+                    // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
+                    bounds_checks: false,
+                    // Loop bounds are only checked in checked mode.
+                    force_loop_bounding: mode == ExecutionMode::Checked,
+                };
+
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 let module = unsafe {
-                    server
-                        .device
-                        .create_shader_module_unchecked(wgpu::ShaderModuleDescriptor {
-                            label: Some(&kernel.entrypoint_name),
+                    server.device.create_shader_module_trusted(
+                        wgpu::ShaderModuleDescriptor {
+                            label: None,
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                        })
+                        },
+                        checks,
+                    )
                 };
+
                 (module, None)
             });
 
@@ -414,9 +422,7 @@ fn is_robust(device: &wgpu::Device) -> bool {
             .contains(&EXT_ROBUSTNESS2_NAME)
     }
     unsafe {
-        device
-            .as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
-            .unwrap_or(false)
+        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
     }
 }
 
