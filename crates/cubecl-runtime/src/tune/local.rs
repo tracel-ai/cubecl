@@ -6,7 +6,7 @@ use core::{fmt::Display, hash::Hash};
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, string::ToString};
+use alloc::string::ToString;
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
