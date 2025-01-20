@@ -87,7 +87,7 @@ pub struct Pipeline<C: CubePrimitive> {
 }
 
 impl<C: CubePrimitive> IntoRuntime for Pipeline<C> {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
         panic!("Doesn't exist at runtime")
     }
 }
@@ -111,13 +111,13 @@ pub struct PipelineExpand<C: CubePrimitive> {
 
 impl<C: CubePrimitive> Default for Pipeline<C> {
     fn default() -> Self {
-        Self::new()
+        Self::new(1)
     }
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new() -> Self {
+    pub fn new(_num_steps: u8) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -151,9 +151,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(context: &mut CubeContext) -> PipelineExpand<C> {
+    pub fn __expand_new(context: &mut CubeContext, num_steps: u8) -> PipelineExpand<C> {
         let elem = C::as_elem(context);
-        let variable = context.create_pipeline(Item::new(elem));
+        let variable = context.create_pipeline(Item::new(elem), num_steps);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,

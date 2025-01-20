@@ -101,8 +101,12 @@ impl CubeContext {
     }
 
     /// Create a new pipeline element.
-    pub fn create_pipeline(&mut self, item: Item) -> ExpandElement {
-        let pipeline = self.scope.borrow().allocator.create_pipeline(item);
+    pub fn create_pipeline(&mut self, item: Item, num_steps: u8) -> ExpandElement {
+        let pipeline = self
+            .scope
+            .borrow()
+            .allocator
+            .create_pipeline(item, num_steps);
         self.scope.borrow_mut().add_pipeline(*pipeline);
         pipeline
     }

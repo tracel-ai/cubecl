@@ -51,7 +51,7 @@ pub enum VariableKind {
     Matrix { id: Id, mat: Matrix },
     Slice { id: Id },
     Builtin(Builtin),
-    Pipeline { id: Id, item: Item },
+    Pipeline { id: Id, item: Item, num_steps: u8 },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]

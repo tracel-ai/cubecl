@@ -137,7 +137,7 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let pipeline = Pipeline::<MP::ES>::new();
+        let pipeline = Pipeline::<MP::ES>::new(1);
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
