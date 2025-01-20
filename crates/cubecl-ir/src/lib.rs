@@ -1,5 +1,6 @@
 mod allocator;
 mod atomic;
+mod base;
 mod branch;
 mod cmma;
 mod element;
@@ -16,6 +17,7 @@ mod variable;
 
 pub use allocator::*;
 pub use atomic::*;
+pub use base::*;
 pub use branch::*;
 pub use cmma::*;
 pub use item::*;

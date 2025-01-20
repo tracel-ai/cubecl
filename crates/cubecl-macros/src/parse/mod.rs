@@ -9,6 +9,8 @@ pub mod desugar;
 pub mod expression;
 pub mod helpers;
 pub mod kernel;
+pub mod op_args;
+pub mod operation;
 pub mod operator;
 pub mod statement;
 

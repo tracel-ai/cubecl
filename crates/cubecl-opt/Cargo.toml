@@ -22,7 +22,7 @@ float-ord = "0.3"
 log = "0.4"
 num = "0.4"
 petgraph = { version = "0.6" }
-smallvec = { version = "1", features = ["union", "const_generics"] }
+smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
 
