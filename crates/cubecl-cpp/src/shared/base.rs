@@ -963,7 +963,10 @@ impl<D: Dialect> CppCompiler<D> {
                     item: self.compile_item(item),
                 };
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
-                    self.pipelines.push(PipelineOps::Init { pipeline });
+                    self.pipelines.push(PipelineOps::Init {
+                        pipeline,
+                        num_steps: 1,
+                    });
                 }
                 pipeline
             }
