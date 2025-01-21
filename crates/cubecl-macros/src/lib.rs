@@ -202,6 +202,10 @@ pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     }
 }
 
+/// *Internal macro*
+///
+/// Generates an implementation of `OperationArgs` for this type. All fields must implement
+/// `FromArgList`.
 #[doc(hidden)]
 #[proc_macro_derive(OperationArgs, attributes(args))]
 pub fn derive_operation_args(input: TokenStream) -> TokenStream {
@@ -212,6 +216,24 @@ pub fn derive_operation_args(input: TokenStream) -> TokenStream {
     }
 }
 
+/// *Internal Macro*
+///
+/// Generates reflection info for an operation. Generates an opcode enum and an implementation of
+/// `OperationReflect` that deconstructs and reconstructs the typed version. All variant fields must
+/// implement `OperationArgs`, or `OperationReflect` if the variant is nested. Uses the `operation`
+/// helper attribute.
+///
+/// # Arguments
+///
+/// * `opcode_name` - the name of the generated opcode enum (required)
+/// * `pure` - marks this entire operation as pure
+/// * `commutative` - marks this entire operation as commutative
+///
+/// # Variant arguments
+///
+/// * `pure` - Marks this variant as pure
+/// * `commutative` - Marks this variant as commutative
+///
 #[doc(hidden)]
 #[proc_macro_derive(OperationReflect, attributes(operation))]
 pub fn derive_operation(input: TokenStream) -> TokenStream {

@@ -7,7 +7,7 @@ use crate::{BinaryOperator, OperationReflect};
 /// Comparison operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
-#[operation(opcode_name = ComparisonOpCode)]
+#[operation(opcode_name = ComparisonOpCode, pure)]
 pub enum Comparison {
     Lower(BinaryOperator),
     LowerEqual(BinaryOperator),

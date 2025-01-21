@@ -115,7 +115,7 @@ impl Operation {
                 let ident = &variant.ident;
                 let value = flag_local(variant).is_present();
                 if variant.nested.is_present() && !value {
-                    quote![Self::#ident(child) => crate::OperationReflect::is_commutative(child)]
+                    quote![Self::#ident(child) => crate::OperationReflect::#func_ident(child)]
                 } else if variant.fields.is_empty() {
                     quote![Self::#ident => #value]
                 } else if variant.fields.is_struct() {

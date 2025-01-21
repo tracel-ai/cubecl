@@ -7,7 +7,7 @@ use crate::{OperationReflect, Variable};
 /// All metadata that can be accessed in a shader.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
-#[operation(opcode_name = MetadataOpCode)]
+#[operation(opcode_name = MetadataOpCode, pure)]
 #[allow(missing_docs)]
 pub enum Metadata {
     /// The rank of an array.

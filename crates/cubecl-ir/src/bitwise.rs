@@ -7,7 +7,7 @@ use crate::{BinaryOperator, OperationReflect, UnaryOperator};
 /// Bitwise operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
-#[operation(opcode_name = BitwiseOpCode)]
+#[operation(opcode_name = BitwiseOpCode, pure)]
 pub enum Bitwise {
     #[operation(commutative)]
     BitwiseAnd(BinaryOperator),

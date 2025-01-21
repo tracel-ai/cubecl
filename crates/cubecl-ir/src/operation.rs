@@ -23,17 +23,17 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Copy(Variable),
-    #[operation(nested, pure)]
+    #[operation(nested)]
     Arithmetic(Arithmetic),
-    #[operation(nested, pure)]
+    #[operation(nested)]
     Comparison(Comparison),
-    #[operation(nested, pure)]
+    #[operation(nested)]
     Bitwise(Bitwise),
     #[operation(nested)]
     Operator(Operator),
     #[operation(nested)]
     Atomic(AtomicOp),
-    #[operation(nested, pure)]
+    #[operation(nested)]
     Metadata(Metadata),
     #[operation(nested)]
     Branch(Branch),
