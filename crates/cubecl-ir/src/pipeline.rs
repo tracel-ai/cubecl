@@ -1,12 +1,12 @@
 use std::fmt::Display;
 use type_hash::TypeHash;
 
-use crate::OperationCore;
+use crate::OperationReflect;
 
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = PipelineOpCode)]
 /// Operations available on a pipeline
 pub enum PipelineOps {

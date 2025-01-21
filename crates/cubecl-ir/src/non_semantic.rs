@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::{fmt_vararg, OperationCode, OperationCore};
+use crate::{fmt_vararg, OperationCode, OperationReflect};
 
 use super::Variable;
 
@@ -39,7 +39,7 @@ pub enum NonSemantic {
     },
 }
 
-impl OperationCore for NonSemantic {
+impl OperationReflect for NonSemantic {
     type OpCode = NonSemanticOpCode;
 
     fn op_code(&self) -> Self::OpCode {

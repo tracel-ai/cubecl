@@ -213,7 +213,7 @@ pub fn derive_operation_args(input: TokenStream) -> TokenStream {
 }
 
 #[doc(hidden)]
-#[proc_macro_derive(OperationCore, attributes(operation))]
+#[proc_macro_derive(OperationReflect, attributes(operation))]
 pub fn derive_operation(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_operation(input) {

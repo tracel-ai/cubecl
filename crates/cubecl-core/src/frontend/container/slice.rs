@@ -4,7 +4,7 @@ use cubecl_ir::ExpandElement;
 
 use crate::{
     frontend::{indexation::Index, Tensor},
-    ir::{self, Operator},
+    ir::{self, Arithmetic},
     prelude::{CubeContext, IntoRuntime},
     unexpanded,
 };
@@ -126,7 +126,7 @@ mod indexation {
     use ir::Instruction;
 
     use crate::{
-        ir::{BinaryOperator, Operator},
+        ir::{BinaryOperator, Arithmetic},
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -180,7 +180,7 @@ mod indexation {
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
+                Arithmetic::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
                 }),
@@ -198,7 +198,7 @@ mod indexation {
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
+                Arithmetic::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
                 }),
@@ -214,7 +214,7 @@ mod indexation {
             value: ExpandElementTyped<E>,
         ) {
             context.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
+                Arithmetic::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),
                 }),
@@ -420,7 +420,7 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     let out = context.create_slice(input.item);
 
     context.register(Instruction::new(
-        Operator::Slice(ir::SliceOperator {
+        Arithmetic::Slice(ir::SliceOperator {
             input: *input,
             start: start.value(),
             end: end.value(),

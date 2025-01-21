@@ -1,9 +1,10 @@
+use cubecl_ir::Bitwise;
 use half::{bf16, f16};
 
 use crate::{
     flex32,
     frontend::CubeContext,
-    ir::{ExpandElement, Operator},
+    ir::{Arithmetic, ExpandElement},
     prelude::{CubePrimitive, ExpandElementTyped},
     tf32, unexpanded,
 };
@@ -17,7 +18,7 @@ pub mod not {
         context: &mut CubeContext,
         x: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
-        unary_expand(context, x.into(), Operator::Not).into()
+        unary_expand(context, x.into(), Arithmetic::Not).into()
     }
 }
 
@@ -30,7 +31,7 @@ pub mod neg {
         context: &mut CubeContext,
         x: ExpandElementTyped<N>,
     ) -> ExpandElementTyped<N> {
-        unary_expand(context, x.into(), Operator::Neg).into()
+        unary_expand(context, x.into(), Arithmetic::Neg).into()
     }
 }
 
@@ -95,7 +96,7 @@ impl_unary_func!(
     Abs,
     abs,
     __expand_abs,
-    Operator::Abs,
+    Arithmetic::Abs,
     f16,
     bf16,
     flex32,
@@ -115,7 +116,7 @@ impl_unary_func!(
     Exp,
     exp,
     __expand_exp,
-    Operator::Exp,
+    Arithmetic::Exp,
     f16,
     bf16,
     flex32,
@@ -127,7 +128,7 @@ impl_unary_func!(
     Log,
     log,
     __expand_log,
-    Operator::Log,
+    Arithmetic::Log,
     f16,
     bf16,
     flex32,
@@ -139,7 +140,7 @@ impl_unary_func!(
     Log1p,
     log1p,
     __expand_log1p,
-    Operator::Log1p,
+    Arithmetic::Log1p,
     f16,
     bf16,
     flex32,
@@ -151,7 +152,7 @@ impl_unary_func!(
     Cos,
     cos,
     __expand_cos,
-    Operator::Cos,
+    Arithmetic::Cos,
     f16,
     bf16,
     flex32,
@@ -163,7 +164,7 @@ impl_unary_func!(
     Sin,
     sin,
     __expand_sin,
-    Operator::Sin,
+    Arithmetic::Sin,
     f16,
     bf16,
     flex32,
@@ -175,7 +176,7 @@ impl_unary_func!(
     Tanh,
     tanh,
     __expand_tanh,
-    Operator::Tanh,
+    Arithmetic::Tanh,
     f16,
     bf16,
     flex32,
@@ -187,7 +188,7 @@ impl_unary_func!(
     Sqrt,
     sqrt,
     __expand_sqrt,
-    Operator::Sqrt,
+    Arithmetic::Sqrt,
     f16,
     bf16,
     flex32,
@@ -199,7 +200,7 @@ impl_unary_func!(
     Round,
     round,
     __expand_round,
-    Operator::Round,
+    Arithmetic::Round,
     f16,
     bf16,
     flex32,
@@ -211,7 +212,7 @@ impl_unary_func!(
     Floor,
     floor,
     __expand_floor,
-    Operator::Floor,
+    Arithmetic::Floor,
     f16,
     bf16,
     flex32,
@@ -223,7 +224,7 @@ impl_unary_func!(
     Ceil,
     ceil,
     __expand_ceil,
-    Operator::Ceil,
+    Arithmetic::Ceil,
     f16,
     bf16,
     flex32,
@@ -235,7 +236,7 @@ impl_unary_func!(
     Erf,
     erf,
     __expand_erf,
-    Operator::Erf,
+    Arithmetic::Erf,
     f16,
     bf16,
     flex32,
@@ -247,7 +248,7 @@ impl_unary_func!(
     Recip,
     recip,
     __expand_recip,
-    Operator::Recip,
+    Arithmetic::Recip,
     f16,
     bf16,
     flex32,
@@ -259,7 +260,7 @@ impl_unary_func_fixed_out_vectorization!(
     Magnitude,
     magnitude,
     __expand_magnitude,
-    Operator::Magnitude,
+    Arithmetic::Magnitude,
     None,
     f16,
     bf16,
@@ -272,7 +273,7 @@ impl_unary_func!(
     Normalize,
     normalize,
     __expand_normalize,
-    Operator::Normalize,
+    Arithmetic::Normalize,
     f16,
     bf16,
     flex32,
@@ -285,7 +286,7 @@ impl_unary_func_fixed_out_ty!(
     count_ones,
     __expand_count_ones,
     u32,
-    Operator::CountOnes,
+    Bitwise::CountOnes,
     u8,
     i8,
     u16,
@@ -299,7 +300,7 @@ impl_unary_func!(
     ReverseBits,
     reverse_bits,
     __expand_reverse_bits,
-    Operator::ReverseBits,
+    Bitwise::ReverseBits,
     u8,
     i8,
     u16,
@@ -314,7 +315,7 @@ impl_unary_func!(
     BitwiseNot,
     bitwise_not,
     __expand_bitwise_not,
-    Operator::BitwiseNot,
+    Bitwise::BitwiseNot,
     u8,
     i8,
     u16,

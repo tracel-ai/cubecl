@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Id, Instruction, Item, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Item, Operation, Arithmetic, Variable, VariableKind};
 
 use crate::{analyses::writes::Writes, AtomicCounter, Optimizer};
 
@@ -61,7 +61,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow().values() {
             match &op.operation {
-                Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
+                Operation::Arithmetic(Arithmetic::Index(index) | Arithmetic::UncheckedIndex(index)) => {
                     if let VariableKind::LocalArray { id, length } = index.lhs.kind {
                         let item = index.lhs.item;
                         arrays.insert(id, Array { id, length, item });
@@ -69,8 +69,8 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                         *track_consts.entry(id).or_insert(is_const) &= is_const;
                     }
                 }
-                Operation::Operator(
-                    Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
+                Operation::Arithmetic(
+                    Arithmetic::IndexAssign(assign) | Arithmetic::UncheckedIndexAssign(assign),
                 ) => {
                     if let VariableKind::LocalArray { id, length } = op.out().kind {
                         let item = op.out().item;
@@ -96,7 +96,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
         let ops = opt.program[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             match &mut op.operation.clone() {
-                Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
+                Operation::Arithmetic(Arithmetic::Index(index) | Arithmetic::UncheckedIndex(index)) => {
                     if let VariableKind::LocalArray { id, .. } = index.lhs.kind {
                         if id == arr_id {
                             let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
@@ -104,8 +104,8 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
                         }
                     }
                 }
-                Operation::Operator(
-                    Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
+                Operation::Arithmetic(
+                    Arithmetic::IndexAssign(assign) | Arithmetic::UncheckedIndexAssign(assign),
                 ) => {
                     if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind {
                         if id == arr_id {

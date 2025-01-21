@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 use crate::Variable;
 
-pub trait OperationCore: Sized {
+pub trait OperationReflect: Sized {
     type OpCode;
 
     fn op_code(&self) -> Self::OpCode;
@@ -14,6 +14,12 @@ pub trait OperationCore: Sized {
     #[allow(unused)]
     fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
         None
+    }
+    fn is_commutative(&self) -> bool {
+        false
+    }
+    fn is_pure(&self) -> bool {
+        false
     }
 }
 

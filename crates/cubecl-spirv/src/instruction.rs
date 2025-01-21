@@ -1,6 +1,6 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as core, BinaryOperator, UnaryOperator};
-use cubecl_core::ir::{Instruction, Operation, Operator};
+use cubecl_core::ir::{self as core, BinaryOperator, Bitwise, Comparison, UnaryOperator};
+use cubecl_core::ir::{Arithmetic, Instruction, Operation};
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
@@ -23,7 +23,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.copy_object(ty, Some(out_id), in_id).unwrap();
                 self.write(&out, out_id);
             }
-            Operation::Operator(operator) => self.compile_operator(operator, inst.out),
+            Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out),
+            Operation::Comparison(operator) => self.compile_cmp(operator, inst.out),
+            Operation::Bitwise(operator) => self.compile_bitwise(operator, inst.out),
             Operation::Atomic(atomic) => self.compile_atomic(atomic, inst.out),
             Operation::Branch(_) => unreachable!("Branches shouldn't exist in optimized IR"),
             Operation::Metadata(meta) => self.compile_meta(meta, inst.out),
@@ -35,10 +37,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>) {
+    pub fn compile_arithmetic(&mut self, op: Arithmetic, out: Option<core::Variable>) {
         let out = out.unwrap();
         match op {
-            Operator::Index(op) => {
+            Arithmetic::Index(op) => {
                 let is_atomic = op.lhs.item.elem.is_atomic();
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
@@ -59,7 +61,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            Operator::IndexAssign(op) => {
+            Arithmetic::IndexAssign(op) => {
                 let index = self.compile_variable(op.lhs);
                 let value = self.compile_variable(op.rhs);
                 let out = self.compile_variable(out);
@@ -67,7 +69,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 self.write_indexed(&out, &index, value_id);
             }
-            Operator::UncheckedIndex(op) => {
+            Arithmetic::UncheckedIndex(op) => {
                 let value = self.compile_variable(op.lhs);
                 let index = self.compile_variable(op.rhs);
                 let out = self.compile_variable(out);
@@ -75,7 +77,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.read_indexed_unchecked(&out, &value, &index);
                 self.write(&out, out_id);
             }
-            Operator::UncheckedIndexAssign(op) => {
+            Arithmetic::UncheckedIndexAssign(op) => {
                 let index = self.compile_variable(op.lhs);
                 let value = self.compile_variable(op.rhs);
                 let out = self.compile_variable(out);
@@ -83,7 +85,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 self.write_indexed_unchecked(&out, &index, value_id);
             }
-            Operator::Slice(op) => {
+            Arithmetic::Slice(op) => {
                 let item = self.compile_item(op.input.item);
                 let input = self.compile_variable(op.input);
                 let start = self.compile_variable(op.start);
@@ -114,7 +116,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     },
                 );
             }
-            Operator::Cast(op) => {
+            Arithmetic::Cast(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(out);
                 let ty = out.item().id(self);
@@ -130,97 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 self.write(&out, out_id);
             }
-            Operator::Equal(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_equal(ty, Some(out), lhs, rhs)
-                        }
-                        Elem::Void => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::NotEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_not_equal(ty, Some(out), lhs, rhs)
-                        }
-                        Elem::Void => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::Lower(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_less_than(ty, Some(out), lhs, rhs)
-                        }
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::LowerEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
-                        }
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::Greater(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_greater_than(ty, Some(out), lhs, rhs)
-                        }
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::GreaterEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
-                    match lhs_ty.elem() {
-                        Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Relaxed => {
-                            b.decorate(out, Decoration::RelaxedPrecision, []);
-                            b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)
-                        }
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
-                });
-            }
-            Operator::Add(op) => {
+            Arithmetic::Add(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
@@ -233,7 +145,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Sub(op) => {
+            Arithmetic::Sub(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_sub(ty, Some(out), lhs, rhs).unwrap(),
@@ -246,7 +158,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Mul(op) => {
+            Arithmetic::Mul(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
@@ -259,7 +171,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Div(op) => {
+            Arithmetic::Div(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_div(ty, Some(out), lhs, rhs).unwrap(),
@@ -273,7 +185,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Remainder(op) => {
+            Arithmetic::Remainder(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -287,7 +199,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Modulo(op) => {
+            Arithmetic::Modulo(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -301,7 +213,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::Dot(op) => {
+            Arithmetic::Dot(op) => {
                 if op.lhs.item.vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
                     self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                         match out_ty.elem() {
@@ -356,7 +268,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            Operator::Fma(op) => {
+            Arithmetic::Fma(op) => {
                 let a = self.compile_variable(op.a);
                 let b = self.compile_variable(op.b);
                 let c = self.compile_variable(op.c);
@@ -382,28 +294,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
                 self.write(&out, out_id);
             }
-            Operator::Recip(op) => {
+            Arithmetic::Recip(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     b.f_div(ty, Some(out), one, input).unwrap();
                 });
             }
-            Operator::And(op) => {
+            Arithmetic::And(op) => {
                 self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
                     b.logical_and(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
-            Operator::Or(op) => {
+            Arithmetic::Or(op) => {
                 self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
                     b.logical_or(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
-            Operator::Not(op) => {
+            Arithmetic::Not(op) => {
                 self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
-            Operator::Neg(op) => {
+            Arithmetic::Neg(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
                         Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
@@ -416,58 +328,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Operator::BitwiseAnd(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.bitwise_and(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Operator::BitwiseOr(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Operator::BitwiseXor(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Operator::BitwiseNot(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    b.not(ty, Some(out), input).unwrap();
-                });
-            }
-            Operator::CountOnes(op) => {
-                // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    b.bit_count(ty, Some(out), input).unwrap();
-                });
-            }
-            Operator::ReverseBits(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                    b.bit_reverse(ty, Some(out), input).unwrap();
-                });
-            }
-            Operator::ShiftLeft(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Operator::ShiftRight(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Operator::Bitcast(op) => self.compile_unary_op(op, out, |b, _, ty, input, out| {
+            Arithmetic::Bitcast(op) => self.compile_unary_op(op, out, |b, _, ty, input, out| {
                 b.bitcast(ty, Some(out), input).unwrap();
             }),
-            Operator::Erf(op) => {
+            Arithmetic::Erf(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     b.compile_erf(out_ty, ty, input, out);
                 })
             }
 
             // Extension functions
-            Operator::Normalize(op) => {
+            Arithmetic::Normalize(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     T::normalize(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -475,7 +346,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
-            Operator::Magnitude(op) => {
+            Arithmetic::Magnitude(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
                     T::magnitude(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -483,7 +354,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
-            Operator::Abs(op) => {
+            Arithmetic::Abs(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => T::s_abs(b, ty, input, out),
@@ -496,7 +367,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
-            Operator::Exp(op) => {
+            Arithmetic::Exp(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::exp(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -504,7 +375,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
-            Operator::Log(op) => {
+            Arithmetic::Log(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::log(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -512,7 +383,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Log1p(op) => {
+            Arithmetic::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
@@ -528,7 +399,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     T::log(b, ty, add, out)
                 });
             }
-            Operator::Cos(op) => {
+            Arithmetic::Cos(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::cos(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -536,7 +407,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Sin(op) => {
+            Arithmetic::Sin(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::sin(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -544,7 +415,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Tanh(op) => {
+            Arithmetic::Tanh(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::tanh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -552,7 +423,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Powf(op) => {
+            Arithmetic::Powf(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
                     let bool = match out_ty {
                         Item::Scalar(_) => Elem::Bool.id(b),
@@ -591,7 +462,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.select(ty, Some(out), is_zero, even, sel1).unwrap();
                 })
             }
-            Operator::Sqrt(op) => {
+            Arithmetic::Sqrt(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::sqrt(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -599,7 +470,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Round(op) => {
+            Arithmetic::Round(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::round(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -607,7 +478,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Floor(op) => {
+            Arithmetic::Floor(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::floor(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -615,7 +486,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Ceil(op) => {
+            Arithmetic::Ceil(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
                     T::ceil(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
@@ -623,7 +494,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Operator::Clamp(op) => {
+            Arithmetic::Clamp(op) => {
                 let input = self.compile_variable(op.input);
                 let min = self.compile_variable(op.min_value);
                 let max = self.compile_variable(op.max_value);
@@ -650,32 +521,36 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
 
-            Operator::Max(op) => self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
-                match out_ty.elem() {
-                    Elem::Int(_, false) => T::u_max(b, ty, lhs, rhs, out),
-                    Elem::Int(_, true) => T::s_max(b, ty, lhs, rhs, out),
-                    Elem::Float(_) => T::f_max(b, ty, lhs, rhs, out),
-                    Elem::Relaxed => {
-                        b.decorate(out, Decoration::RelaxedPrecision, []);
-                        T::f_max(b, ty, lhs, rhs, out)
+            Arithmetic::Max(op) => {
+                self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_, false) => T::u_max(b, ty, lhs, rhs, out),
+                        Elem::Int(_, true) => T::s_max(b, ty, lhs, rhs, out),
+                        Elem::Float(_) => T::f_max(b, ty, lhs, rhs, out),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            T::f_max(b, ty, lhs, rhs, out)
+                        }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                }
-            }),
-            Operator::Min(op) => self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
-                match out_ty.elem() {
-                    Elem::Int(_, false) => T::u_min(b, ty, lhs, rhs, out),
-                    Elem::Int(_, true) => T::s_min(b, ty, lhs, rhs, out),
-                    Elem::Float(_) => T::f_min(b, ty, lhs, rhs, out),
-                    Elem::Relaxed => {
-                        b.decorate(out, Decoration::RelaxedPrecision, []);
-                        T::f_min(b, ty, lhs, rhs, out)
+                })
+            }
+            Arithmetic::Min(op) => {
+                self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    match out_ty.elem() {
+                        Elem::Int(_, false) => T::u_min(b, ty, lhs, rhs, out),
+                        Elem::Int(_, true) => T::s_min(b, ty, lhs, rhs, out),
+                        Elem::Float(_) => T::f_min(b, ty, lhs, rhs, out),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            T::f_min(b, ty, lhs, rhs, out)
+                        }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                }
-            }),
+                })
+            }
 
-            Operator::InitLine(op) => {
+            Arithmetic::InitLine(op) => {
                 let values = op
                     .inputs
                     .into_iter()
@@ -691,7 +566,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
             }
-            Operator::CopyMemory(op) => {
+            Arithmetic::CopyMemory(op) => {
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
@@ -712,7 +587,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
-            Operator::CopyMemoryBulk(op) => {
+            Arithmetic::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);
@@ -737,7 +612,146 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
-            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out),
+            Arithmetic::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out),
+        }
+    }
+
+    pub fn compile_cmp(&mut self, op: Comparison, out: Option<core::Variable>) {
+        let out = out.unwrap();
+        match op {
+            Comparison::Equal(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_equal(ty, Some(out), lhs, rhs)
+                        }
+                        Elem::Void => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Comparison::NotEqual(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_not_equal(ty, Some(out), lhs, rhs)
+                        }
+                        Elem::Void => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Comparison::Lower(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_less_than(ty, Some(out), lhs, rhs)
+                        }
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Comparison::LowerEqual(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
+                        }
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Comparison::Greater(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_greater_than(ty, Some(out), lhs, rhs)
+                        }
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+            Comparison::GreaterEqual(op) => {
+                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                    match lhs_ty.elem() {
+                        Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Relaxed => {
+                            b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)
+                        }
+                        _ => unreachable!(),
+                    }
+                    .unwrap();
+                });
+            }
+        }
+    }
+
+    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>) {
+        let out = out.unwrap();
+        match op {
+            Bitwise::BitwiseAnd(op) => {
+                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                    b.bitwise_and(ty, Some(out), lhs, rhs).unwrap();
+                })
+            }
+            Bitwise::BitwiseOr(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Bitwise::BitwiseXor(op) => {
+                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                    b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
+                })
+            }
+            Bitwise::BitwiseNot(op) => {
+                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                    b.not(ty, Some(out), input).unwrap();
+                });
+            }
+            Bitwise::CountOnes(op) => {
+                // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
+                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                    b.bit_count(ty, Some(out), input).unwrap();
+                });
+            }
+            Bitwise::ReverseBits(op) => {
+                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                    b.bit_reverse(ty, Some(out), input).unwrap();
+                });
+            }
+            Bitwise::ShiftLeft(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
+            }),
+            Bitwise::ShiftRight(op) => {
+                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                    b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
+                })
+            }
         }
     }
 

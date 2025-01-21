@@ -4,7 +4,7 @@ use crate::ir::{Instruction, Item, UnaryOperator, Variable};
 use crate::unexpanded;
 use crate::{
     frontend::{cast, CubeContext, CubePrimitive, CubeType},
-    ir::Operator,
+    ir::Arithmetic,
 };
 
 use super::ExpandElementTyped;
@@ -55,7 +55,7 @@ pub trait BitCast: CubePrimitive {
             var.item.vectorization,
         ));
         context.register(Instruction::new(
-            Operator::Bitcast(UnaryOperator { input: *value }),
+            Arithmetic::Bitcast(UnaryOperator { input: *value }),
             *new_var.clone(),
         ));
         new_var.into()

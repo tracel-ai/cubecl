@@ -2,7 +2,7 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    ir::{ClampOperator, ExpandElement, Operator},
+    ir::{ClampOperator, ExpandElement, Arithmetic},
     prelude::{CubeContext, CubePrimitive},
     tf32, unexpanded,
 };
@@ -26,7 +26,7 @@ pub trait Clamp: CubePrimitive + Sized {
         let max_value: ExpandElement = max_value.into();
 
         unary_expand(context, input, |op| {
-            Operator::Clamp(ClampOperator {
+            Arithmetic::Clamp(ClampOperator {
                 input: op.input,
                 min_value: *min_value,
                 max_value: *max_value,

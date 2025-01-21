@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{OperationArgs, OperationCore};
+use crate::{OperationArgs, OperationReflect};
 
 use super::{Elem, Item, OperationCode, Scope, UIntKind, Variable};
 use type_hash::TypeHash;
@@ -27,7 +27,7 @@ pub enum Branch {
     Break,
 }
 
-impl OperationCore for Branch {
+impl OperationReflect for Branch {
     type OpCode = BranchOpCode;
 
     fn op_code(&self) -> Self::OpCode {

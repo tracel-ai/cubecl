@@ -64,7 +64,7 @@ impl Expression {
                 let right = right.to_tokens(context);
                 let expand = with_span(
                     *span,
-                    quote![#frontend_path::#op::expand(context, _lhs, _rhs)],
+                    quote![#frontend_path::#op::expand(context, _lhs.into(), _rhs.into())],
                 );
                 quote! {
                     {
@@ -88,7 +88,10 @@ impl Expression {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
-                let expand = with_span(*span, quote![#frontend_path::#op::expand(context, _inner)]);
+                let expand = with_span(
+                    *span,
+                    quote![#frontend_path::#op::expand(context, _inner.into())],
+                );
                 quote! {
                     {
                         let _inner = #input;

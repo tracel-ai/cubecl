@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{ConstantScalarValue, Item, Operation, OperationCore, Variable, VariableKind};
+use cubecl_ir::{ConstantScalarValue, Item, Operation, OperationReflect, Variable, VariableKind};
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
 
@@ -23,7 +23,7 @@ impl Expression {
                     .map(|val| leaders[val].as_var())
                     .collect::<SmallVec<[Variable; 4]>>();
 
-                <Operation as OperationCore>::from_code_and_args(instruction.op, &args).unwrap()
+                <Operation as OperationReflect>::from_code_and_args(instruction.op, &args).unwrap()
             }
             Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
         }

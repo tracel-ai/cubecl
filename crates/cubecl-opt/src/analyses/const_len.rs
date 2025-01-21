@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use cubecl_ir::{Id, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Id, Operation, Arithmetic, Variable, VariableKind};
 
 use crate::Optimizer;
 
@@ -43,11 +43,11 @@ impl Slices {
             let ops = opt.program[block].ops.clone();
             for operator in ops.borrow().values() {
                 let op = match &operator.operation {
-                    Operation::Operator(op) => op,
+                    Operation::Arithmetic(op) => op,
                     _ => continue,
                 };
                 let out = operator.out.as_ref();
-                if let Operator::Slice(slice_op) = op {
+                if let Arithmetic::Slice(slice_op) = op {
                     let out_id = match out.unwrap().kind {
                         VariableKind::Slice { id } => id,
                         _ => unreachable!(),
@@ -73,16 +73,16 @@ impl Slices {
             let ops = opt.program[block].ops.clone();
             for operator in ops.borrow().values() {
                 let op = match &operator.operation {
-                    Operation::Operator(op) => op,
+                    Operation::Arithmetic(op) => op,
                     _ => continue,
                 };
                 // Only handle the simplest cases for now
-                if let Operator::Add(op) = op {
+                if let Arithmetic::Add(op) = op {
                     let mut slices = self.slices.values_mut();
                     let slice =
                         slices.find(|it| it.end == operator.out() && it.const_len.is_none());
                     if let Some(slice) = slice {
-                        slice.end_op = Some(Operator::Add(op.clone()).into());
+                        slice.end_op = Some(Arithmetic::Add(op.clone()).into());
                         if op.lhs == slice.start && op.rhs.as_const().is_some() {
                             slice.const_len = Some(op.rhs.as_const().unwrap().as_u32());
                         } else if op.rhs == slice.start && op.lhs.as_const().is_some() {

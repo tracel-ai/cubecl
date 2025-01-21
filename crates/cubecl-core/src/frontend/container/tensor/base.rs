@@ -23,7 +23,7 @@ mod metadata {
 
     use super::*;
     use crate::{
-        ir::{BinaryOperator, Instruction, Operator},
+        ir::{BinaryOperator, Instruction, Arithmetic},
         prelude::Array,
     };
 
@@ -177,7 +177,7 @@ mod metadata {
             // Compute `num_strides = index / stride`.
             let num_strides = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
-                Operator::Div(BinaryOperator {
+                Arithmetic::Div(BinaryOperator {
                     lhs: *index,
                     rhs: stride.expand.into(),
                 }),
@@ -187,7 +187,7 @@ mod metadata {
             // Compute `coordinate = num_strides % shape `.
             let coordinate = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
-                Operator::Modulo(BinaryOperator {
+                Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
                     rhs: shape.expand.into(),
                 }),
@@ -224,7 +224,7 @@ mod metadata {
 /// Module that contains the implementation details of the index functions.
 mod indexation {
     use crate::{
-        ir::{BinaryOperator, Instruction, Operator},
+        ir::{BinaryOperator, Instruction, Arithmetic},
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -264,7 +264,7 @@ mod indexation {
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
-                Operator::UncheckedIndex(BinaryOperator {
+                Arithmetic::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
                 }),
@@ -280,7 +280,7 @@ mod indexation {
             value: ExpandElementTyped<E>,
         ) {
             context.register(Instruction::new(
-                Operator::UncheckedIndexAssign(BinaryOperator {
+                Arithmetic::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),
                 }),

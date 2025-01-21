@@ -3,7 +3,7 @@ use std::fmt::Display;
 use smallvec::SmallVec;
 use type_hash::TypeHash;
 
-use crate::{Operation, OperationCode, OperationCore};
+use crate::{OperationCode, OperationReflect};
 
 use super::{Elem, Variable};
 
@@ -69,7 +69,7 @@ pub enum CoopMma {
     Cast { input: Variable },
 }
 
-impl OperationCore for CoopMma {
+impl OperationReflect for CoopMma {
     type OpCode = CmmaOpCode;
 
     fn op_code(&self) -> Self::OpCode {
@@ -125,11 +125,5 @@ impl Display for CoopMma {
                 write!(f, "matrix_cast(input: {})", input)
             }
         }
-    }
-}
-
-impl From<CoopMma> for Operation {
-    fn from(value: CoopMma) -> Self {
-        Operation::CoopMma(value)
     }
 }

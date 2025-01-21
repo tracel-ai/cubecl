@@ -4,8 +4,8 @@ use std::{
 };
 
 use cubecl_ir::{
-    self as ir, Elem, Item, Metadata, OpCode, Operation, OperationCore, Operator, OperatorOpCode,
-    UIntKind, Variable, VariableKind,
+    self as ir, Arithmetic, Comparison, ComparisonOpCode, Elem, Item, Metadata, OpCode, Operation,
+    OperationReflect, UIntKind, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -114,7 +114,9 @@ impl ValueTable {
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
-            Operation::Operator(operator) => self.create_expr_op(operator, inst.out()),
+            Operation::Arithmetic(operator) => self.create_expr_arithmetic(operator, inst.out()),
+            Operation::Comparison(cmp) => self.create_expr_cmp(cmp, inst.out()),
+            Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
             Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
             Operation::Plane(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
             Operation::Branch(_)
@@ -125,143 +127,26 @@ impl ValueTable {
         }
     }
 
-    fn create_expr_op(
+    fn create_expr_arithmetic(
         &mut self,
-        operator: &Operator,
+        operator: &Arithmetic,
         out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
-            // Commutative binop
-            Operator::Add(op)
-            | Operator::Mul(op)
-            | Operator::And(op)
-            | Operator::Or(op)
-            | Operator::Equal(op)
-            | Operator::NotEqual(op)
-            | Operator::BitwiseAnd(op)
-            | Operator::BitwiseOr(op)
-            | Operator::BitwiseXor(op)
-            | Operator::Max(op)
-            | Operator::Min(op)
-            | Operator::Dot(op) => {
-                let item = out.item;
-                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
-                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&out);
-                let id = OpCode::Operator(operator.op_code());
-                if lhs > rhs {
-                    swap(&mut lhs, &mut rhs);
-                }
-                let expr = Instruction::commutative(id, &[lhs, rhs], item);
-                (expr.into(), out)
-            }
-
-            // Non-commutative binops
-            Operator::Sub(op)
-            | Operator::Div(op)
-            | Operator::Powf(op)
-            | Operator::Modulo(op)
-            | Operator::Remainder(op)
-            | Operator::ShiftLeft(op)
-            | Operator::ShiftRight(op) => {
-                let item = out.item;
-                let lhs = self.lookup_or_add_var(&op.lhs)?;
-                let rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&out);
-                let id = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(id, &[lhs, rhs], item);
-                (expr.into(), out)
-            }
-
-            // Compare ops
-            Operator::Lower(op)
-            | Operator::Greater(op)
-            | Operator::LowerEqual(op)
-            | Operator::GreaterEqual(op) => {
-                let item = out.item;
-                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
-                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&out);
-                let mut op = OpCode::Operator(operator.op_code());
-                if lhs > rhs {
-                    swap(&mut lhs, &mut rhs);
-                    op = cmp_inverse(&op);
-                }
-                let expr = Instruction::new(op, &[lhs, rhs], item);
-                (expr.into(), out)
-            }
-
-            // Unary ops
-            Operator::Abs(op)
-            | Operator::Exp(op)
-            | Operator::Log(op)
-            | Operator::Log1p(op)
-            | Operator::Cos(op)
-            | Operator::Sin(op)
-            | Operator::Tanh(op)
-            | Operator::Sqrt(op)
-            | Operator::Round(op)
-            | Operator::Floor(op)
-            | Operator::Ceil(op)
-            | Operator::Erf(op)
-            | Operator::Recip(op)
-            | Operator::Not(op)
-            | Operator::Neg(op)
-            | Operator::Magnitude(op)
-            | Operator::Normalize(op)
-            | Operator::CountOnes(op)
-            | Operator::BitwiseNot(op)
-            | Operator::ReverseBits(op) => {
-                let input = self.lookup_or_add_var(&op.input)?;
-                let item = out.item;
-                let out = value_of_var(&out);
-                let op = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(op, &[input], item);
-                (expr.into(), out)
-            }
-            Operator::Bitcast(op) | Operator::Cast(op) => {
-                let item = out.item;
-                let input = self.lookup_or_add_var(&op.input)?;
-                let out = value_of_var(&out);
-                let op = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(op, &[input], item);
-                (expr.into(), out)
-            }
-
-            Operator::Fma(op) => {
+            Arithmetic::Fma(op) => {
                 let item = out.item;
                 let mut a = self.lookup_or_add_var(&op.a)?;
                 let mut b = self.lookup_or_add_var(&op.b)?;
                 let c = self.lookup_or_add_var(&op.c)?;
                 let out = value_of_var(&out);
-                let op = OpCode::Operator(operator.op_code());
+                let op = OpCode::Arithmetic(operator.op_code());
                 if a > b {
                     swap(&mut a, &mut b);
                 }
                 let expr = Instruction::new(op, &[a, b, c], item);
                 (expr.into(), out)
             }
-            Operator::Clamp(op) => {
-                let item = out.item;
-                let val = self.lookup_or_add_var(&op.input)?;
-                let min = self.lookup_or_add_var(&op.min_value)?;
-                let max = self.lookup_or_add_var(&op.max_value)?;
-                let out = value_of_var(&out);
-                let op = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(op, &[val, min, max], item);
-                (expr.into(), out)
-            }
-            Operator::InitLine(op) => {
-                let item = out.item;
-                let operands = op.inputs.iter().map(|it| self.lookup_or_add_var(it));
-                let operands = operands.collect::<Result<Vec<_>, _>>()?;
-                let out = value_of_var(&out);
-                let op = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(op, &operands, item);
-                (expr.into(), out)
-            }
-
-            Operator::Index(op) | Operator::UncheckedIndex(op) => {
+            Arithmetic::Index(op) | Arithmetic::UncheckedIndex(op) => {
                 let out_val = value_of_var(&out);
                 if !op.lhs.is_immutable() {
                     Err(out_val)?
@@ -269,28 +154,47 @@ impl ValueTable {
                 let item = out.item;
                 let lhs = self.lookup_or_add_var(&op.lhs)?;
                 let rhs = self.lookup_or_add_var(&op.rhs)?;
-                let id = OpCode::Operator(operator.op_code());
+                let id = OpCode::Arithmetic(operator.op_code());
                 let expr = Instruction::new(id, &[lhs, rhs], item);
                 (expr.into(), out_val)
             }
 
-            Operator::Select(op) => {
-                let item = out.item;
-                let cond = self.lookup_or_add_var(&op.cond)?;
-                let then = self.lookup_or_add_var(&op.then)?;
-                let or_else = self.lookup_or_add_var(&op.or_else)?;
-                let id = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(id, &[cond, then, or_else], item);
-                (expr.into(), value_of_var(&out))
-            }
+            Arithmetic::IndexAssign(_)
+            | Arithmetic::UncheckedIndexAssign(_)
+            | Arithmetic::Slice(_)
+            | Arithmetic::CopyMemoryBulk(_)
+            | Arithmetic::CopyMemory(_) => Err(None)?,
 
-            Operator::IndexAssign(_)
-            | Operator::UncheckedIndexAssign(_)
-            | Operator::Slice(_)
-            | Operator::CopyMemoryBulk(_)
-            | Operator::CopyMemory(_) => Err(None)?,
+            op => self.create_expr_simple_op(op, out)?,
         };
         Ok((expr, val))
+    }
+
+    fn create_expr_cmp(
+        &mut self,
+        cmp: &Comparison,
+        out: Variable,
+    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        match cmp {
+            // Compare ops
+            Comparison::Lower(op)
+            | Comparison::Greater(op)
+            | Comparison::LowerEqual(op)
+            | Comparison::GreaterEqual(op) => {
+                let item = out.item;
+                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
+                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
+                let out = value_of_var(&out);
+                let mut op = cmp.op_code();
+                if lhs > rhs {
+                    swap(&mut lhs, &mut rhs);
+                    op = cmp_inverse(&op);
+                }
+                let expr = Instruction::new(op, &[lhs, rhs], item);
+                Ok((expr.into(), out))
+            }
+            op => self.create_expr_simple_op(op, out),
+        }
     }
 
     fn create_expr_meta(
@@ -300,14 +204,6 @@ impl ValueTable {
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let op = OpCode::Metadata(meta.op_code());
         let (expr, val) = match meta {
-            Metadata::Stride { dim, var } | Metadata::Shape { dim, var } => {
-                let item = out.item;
-                let var = self.lookup_or_add_var(var)?;
-                let dim = self.lookup_or_add_var(dim)?;
-                let out = value_of_var(&out);
-                let expr = Instruction::new(op, &[var, dim], item);
-                (expr, out)
-            }
             Metadata::Length { var } => {
                 let item = out.item;
                 let out = value_of_var(&out);
@@ -327,47 +223,47 @@ impl ValueTable {
                     _ => unreachable!("Length only available on array"),
                 };
                 let expr = Instruction::new(op, &[var], item);
-                (expr, out)
+                (expr.into(), out)
             }
-            Metadata::BufferLength { var } => {
-                let item = out.item;
-                let out = value_of_var(&out);
-                let var = match var.kind {
-                    VariableKind::GlobalInputArray { .. }
-                    | VariableKind::GlobalOutputArray { .. } => self.lookup_or_add_var(var)?,
-                    _ => unreachable!("Buffer length only available on global buffers"),
-                };
-                let expr = Instruction::new(op, &[var], item);
-                (expr, out)
-            }
-            Metadata::Rank { var } => {
-                let item = out.item;
-                let out = value_of_var(&out);
-                let var = match var.kind {
-                    VariableKind::GlobalInputArray { .. }
-                    | VariableKind::GlobalOutputArray { .. } => self.lookup_or_add_var(var)?,
-                    _ => unreachable!("Rank only available on global buffers"),
-                };
-                let expr = Instruction::new(op, &[var], item);
-                (expr, out)
-            }
+            op => self.create_expr_simple_op(op, out)?,
         };
-        Ok((expr.into(), val))
+        Ok((expr, val))
+    }
+
+    fn create_expr_simple_op<Code: Into<OpCode>>(
+        &mut self,
+        op: &impl OperationReflect<OpCode = Code>,
+        out: Variable,
+    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        let item = out.item;
+        let id = op.op_code().into();
+        let args = op.args();
+        if let Some(args) = args {
+            let mut args = args
+                .iter()
+                .map(|it| self.lookup_or_add_var(it))
+                .collect::<Result<Vec<_>, _>>()?;
+            let out = value_of_var(&out);
+            let expr = if op.is_commutative() {
+                args.sort();
+                Instruction::commutative(id, &args, item)
+            } else {
+                Instruction::new(id, &args, item)
+            };
+
+            Ok((expr.into(), out))
+        } else {
+            Err(None)
+        }
     }
 }
 
-fn cmp_inverse(op: &OpCode) -> OpCode {
-    let op = match op {
-        OpCode::Operator(op) => op,
+fn cmp_inverse(op: &ComparisonOpCode) -> ComparisonOpCode {
+    match op {
+        ComparisonOpCode::Lower => ComparisonOpCode::Greater,
+        ComparisonOpCode::Greater => ComparisonOpCode::Lower,
+        ComparisonOpCode::LowerEqual => ComparisonOpCode::GreaterEqual,
+        ComparisonOpCode::GreaterEqual => ComparisonOpCode::LowerEqual,
         _ => unreachable!(),
-    };
-
-    let op = match op {
-        OperatorOpCode::Lower => OperatorOpCode::Greater,
-        OperatorOpCode::Greater => OperatorOpCode::Lower,
-        OperatorOpCode::LowerEqual => OperatorOpCode::GreaterEqual,
-        OperatorOpCode::GreaterEqual => OperatorOpCode::LowerEqual,
-        _ => unreachable!(),
-    };
-    OpCode::Operator(op)
+    }
 }

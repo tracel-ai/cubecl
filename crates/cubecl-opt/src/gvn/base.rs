@@ -169,18 +169,18 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    pub fn new(op: OpCode, args: &[u32], item: Item) -> Self {
+    pub fn new(op: impl Into<OpCode>, args: &[u32], item: Item) -> Self {
         Self {
-            op,
+            op: op.into(),
             commutative: false,
             args: SmallVec::from_slice(args),
             item,
         }
     }
 
-    pub fn commutative(op: OpCode, args: &[u32], item: Item) -> Self {
+    pub fn commutative(op: impl Into<OpCode>, args: &[u32], item: Item) -> Self {
         Self {
-            op,
+            op: op.into(),
             commutative: true,
             args: SmallVec::from_slice(args),
             item,

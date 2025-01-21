@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_ir::{
-    Builtin, ConstantScalarValue, Elem, Id, Operation, Operator, Variable, VariableKind,
+    Builtin, ConstantScalarValue, Elem, Id, Operation, Arithmetic, Variable, VariableKind,
 };
 
 use crate::{Optimizer, VarId};
@@ -58,11 +58,11 @@ impl Ranges {
             let ops = opt.program[block].ops.clone();
             for inst in ops.borrow().values() {
                 let op = match &inst.operation {
-                    Operation::Operator(op) => op,
+                    Operation::Arithmetic(op) => op,
                     _ => continue,
                 };
                 match op {
-                    Operator::Add(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Add(binop) if is_uint(inst.item().elem()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -73,7 +73,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Operator::Sub(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Sub(binop) if is_uint(inst.item().elem()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -84,7 +84,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Operator::Mul(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Mul(binop) if is_uint(inst.item().elem()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -95,7 +95,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Operator::Div(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Div(binop) if is_uint(inst.item().elem()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -106,7 +106,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Operator::Modulo(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Modulo(binop) if is_uint(inst.item().elem()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);

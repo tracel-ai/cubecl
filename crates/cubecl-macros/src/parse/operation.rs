@@ -14,6 +14,8 @@ pub struct Operation {
     pub data: Data<OperationVariant, ()>,
 
     pub opcode_name: Ident,
+    pub commutative: Flag,
+    pub pure: Flag,
 }
 
 #[derive(FromDeriveInput)]
@@ -25,6 +27,8 @@ pub struct OpCode {
     pub data: Data<OperationVariant, ()>,
 
     pub opcode_name: Ident,
+    pub commutative: Flag,
+    pub pure: Flag,
 }
 
 #[derive(FromVariant)]
@@ -33,6 +37,8 @@ pub struct OperationVariant {
     pub ident: Ident,
     pub fields: Fields<OperationField>,
     pub nested: Flag,
+    pub commutative: Flag,
+    pub pure: Flag,
 }
 
 #[derive(FromField)]

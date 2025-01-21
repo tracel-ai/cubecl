@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
+    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Arithmetic, Variable,
     VariableKind,
 };
 use stable_vec::StableVec;
@@ -45,7 +45,7 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::IndexAssign(BinaryOperator { lhs, rhs })),
+                    Operation::Arithmetic(Arithmetic::IndexAssign(BinaryOperator { lhs, rhs })),
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
@@ -94,7 +94,7 @@ fn merge_assigns(
     let out = Variable::new(VariableKind::LocalMut { id }, item);
     ops.insert(
         last,
-        Instruction::new(Operator::InitLine(LineInitOperator { inputs }), out),
+        Instruction::new(Arithmetic::InitLine(LineInitOperator { inputs }), out),
     );
 }
 
@@ -109,7 +109,7 @@ impl OptimizerPass for RemoveIndexScalar {
         for block in blocks {
             let ops = opt.program[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::Index(BinaryOperator { lhs, rhs })) =
+                if let Operation::Arithmetic(Arithmetic::Index(BinaryOperator { lhs, rhs })) =
                     &mut op.operation
                 {
                     if !lhs.is_array() {

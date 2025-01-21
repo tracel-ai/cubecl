@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::{OperationCore, Variable};
+use crate::{OperationReflect, Variable};
 
 /// All metadata that can be accessed in a shader.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = MetadataOpCode)]
 #[allow(missing_docs)]
 pub enum Metadata {

@@ -1,12 +1,11 @@
 use std::fmt::Display;
 
-use cubecl_macros::OperationCore;
 use type_hash::TypeHash;
 
-use crate::{BinaryOperator, CompareAndSwapOperator, Operation, UnaryOperator};
+use crate::{BinaryOperator, CompareAndSwapOperator, OperationReflect, UnaryOperator};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = AtomicOpCode)]
 pub enum AtomicOp {
     Load(UnaryOperator),
@@ -41,11 +40,5 @@ impl Display for AtomicOp {
                 write!(f, "compare_and_swap({}, {}, {})", op.input, op.cmp, op.val)
             }
         }
-    }
-}
-
-impl From<AtomicOp> for Operation {
-    fn from(value: AtomicOp) -> Self {
-        Operation::Atomic(value)
     }
 }

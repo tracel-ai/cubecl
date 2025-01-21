@@ -1,6 +1,6 @@
-use darling::FromDeriveInput;
+use darling::{util::Flag, FromDeriveInput};
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::DeriveInput;
 
 use crate::parse::operation::{OpCode, Operation, OperationVariant};
@@ -16,7 +16,7 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if variant.nested.is_present() {
-                quote![Self::#ident(child) => #opcode::#ident(crate::OperationCore::op_code(child))]
+                quote![Self::#ident(child) => #opcode::#ident(crate::OperationReflect::op_code(child))]
             } else if variant.fields.is_empty() {
                 quote![Self::#ident => #opcode::#ident]
             } else if variant.fields.fields[0].ident.is_some() {
@@ -38,7 +38,7 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if variant.nested.is_present() {
-                quote![Self::#ident(child) => crate::OperationCore::args(child)]
+                quote![Self::#ident(child) => crate::OperationReflect::args(child)]
             } else if variant.fields.is_empty() {
                 quote![Self::#ident => Some(smallvec::SmallVec::new())]
             } else if variant.fields.fields[0].ident.is_some() {
@@ -71,7 +71,7 @@ impl Operation {
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
             if variant.nested.is_present() {
-                quote![#opcode::#ident(child) => Some(Self::#ident(crate::OperationCore::from_code_and_args(child, args)?))]
+                quote![#opcode::#ident(child) => Some(Self::#ident(crate::OperationReflect::from_code_and_args(child, args)?))]
             } else if variant.fields.is_empty() {
                 quote![#opcode::#ident => Some(Self::#ident)]
             } else if variant.fields.fields[0].ident.is_some() {
@@ -98,6 +98,43 @@ impl Operation {
         }
     }
 
+    fn generate_bool_property(
+        &self,
+        flag_global: impl Fn(&Self) -> Flag,
+        flag_local: impl Fn(&OperationVariant) -> Flag,
+        func_ident: &str,
+    ) -> TokenStream {
+        let func_ident = format_ident!("{func_ident}");
+        if flag_global(self).is_present() {
+            quote! {
+                fn #func_ident(&self) -> bool { true }
+            }
+        } else {
+            let variants = self.variants();
+            let variants = variants.iter().map(|variant| {
+                let ident = &variant.ident;
+                let value = flag_local(variant).is_present();
+                if variant.nested.is_present() && !value {
+                    quote![Self::#ident(child) => crate::OperationReflect::is_commutative(child)]
+                } else if variant.fields.is_empty() {
+                    quote![Self::#ident => #value]
+                } else if variant.fields.is_struct() {
+                    quote![Self::#ident { .. } => #value]
+                } else {
+                    let args = variant.fields.fields.iter().map(|_| quote![_]);
+                    quote![Self::#ident(#(#args),*) => #value]
+                }
+            });
+            quote! {
+                fn #func_ident(&self) -> bool {
+                    match self {
+                        #(#variants),*
+                    }
+                }
+            }
+        }
+    }
+
     fn generate_operation_impl(&self) -> TokenStream {
         let name = &self.ident;
         let opcode_name = &self.opcode_name;
@@ -106,8 +143,11 @@ impl Operation {
         let opcode_impl = self.generate_opcode_impl();
         let args_impl = self.generate_args_impl();
         let from_args_impl = self.generate_from_args_impl();
+        let commutative =
+            self.generate_bool_property(|x| x.commutative, |x| x.commutative, "is_commutative");
+        let pure = self.generate_bool_property(|x| x.pure, |x| x.pure, "is_pure");
 
-        quote![impl #generics crate::OperationCore for #name #generic_names #where_clause {
+        quote![impl #generics crate::OperationReflect for #name #generic_names #where_clause {
             type OpCode = #opcode_name;
 
             fn op_code(&self) -> Self::OpCode {
@@ -119,6 +159,9 @@ impl Operation {
             fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
                 #from_args_impl
             }
+
+            #commutative
+            #pure
         }]
     }
 
@@ -130,13 +173,13 @@ impl Operation {
             let ident = &variant.ident;
             if variant.nested.is_present() {
                 let child_ty = &variant.fields.fields[0].ty;
-                quote![#ident(<#child_ty as crate::OperationCore>::OpCode)]
+                quote![#ident(<#child_ty as crate::OperationReflect>::OpCode)]
             } else {
                 quote![#ident]
             }
         });
         quote! {
-            #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+            #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, derive_more::From)]
             #vis enum #name {
                 #(#variants),*
             }
@@ -164,6 +207,8 @@ pub fn generate_opcode(input: DeriveInput) -> syn::Result<TokenStream> {
         generics: operation.generics,
         data: operation.data,
         opcode_name: operation.opcode_name,
+        commutative: operation.commutative,
+        pure: operation.pure,
     };
 
     let name = &operation.ident;

@@ -32,7 +32,7 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use crate::ir::{Instruction, Operator};
+    use crate::ir::{Instruction, Arithmetic};
 
     use super::*;
 
@@ -53,7 +53,7 @@ pub mod select {
         let output = context.create_local(then.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
-        let select = Operator::Select(Select {
+        let select = Arithmetic::Select(Select {
             cond,
             then,
             or_else,
