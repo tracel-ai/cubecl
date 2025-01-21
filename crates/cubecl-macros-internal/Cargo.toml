@@ -10,7 +10,7 @@ keywords = []
 license.workspace = true
 name = "cubecl-macros-internal"
 readme.workspace = true
-repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-macros-internal"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-macros-internal"
 version.workspace = true
 
 [lib]
