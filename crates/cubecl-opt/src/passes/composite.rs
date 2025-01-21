@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    BinaryOperator, CopyOp, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
+    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
     VariableKind,
 };
 use stable_vec::StableVec;
@@ -68,7 +68,7 @@ impl OptimizerPass for CompositeMerge {
                         } else {
                             assert_eq!(index, 0, "Can't index into scalar");
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
-                                Operation::Copy(rhs.into()),
+                                Operation::Copy(rhs),
                                 Variable::new(VariableKind::LocalMut { id }, item),
                             )
                         }
@@ -119,7 +119,7 @@ impl OptimizerPass for RemoveIndexScalar {
                                 lhs.item.vectorization.map(|it| it.get()).unwrap_or(1);
                             if vectorization == 1 {
                                 assert_eq!(index, 0, "Can't index into scalar");
-                                op.operation = Operation::Copy(CopyOp(*lhs));
+                                op.operation = Operation::Copy(*lhs);
                                 changes.inc();
                             }
                         }

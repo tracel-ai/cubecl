@@ -1,5 +1,5 @@
 use cubecl_ir::{
-    ConstantScalarValue, CopyOp, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
+    ConstantScalarValue, Instruction, Metadata, Operation, Operator, UIntKind, Variable,
     VariableKind,
 };
 
@@ -27,44 +27,44 @@ impl OptimizerPass for ConstOperandSimplify {
                     Operation::Operator(operator) => match operator {
                         // 0 * x == 0
                         Operator::Mul(bin_op) if bin_op.lhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // x * 0 == 0
                         Operator::Mul(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.rhs.into());
+                            op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // 1 * x == x
                         Operator::Mul(bin_op) if bin_op.lhs.is_constant(1) => {
-                            op.operation = Operation::Copy(bin_op.rhs.into());
+                            op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x * 1 == x
                         Operator::Mul(bin_op) if bin_op.rhs.is_constant(1) => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // 0 + x = x
                         Operator::Add(bin_op) if bin_op.lhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.rhs.into());
+                            op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x + 0 = x
                         Operator::Add(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // x - 0 == x
                         Operator::Sub(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // x / 1 == x, 0 / x == 0
                         Operator::Div(bin_op)
                             if bin_op.lhs.is_constant(0) || bin_op.rhs.is_constant(1) =>
                         {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // x % 1 == 0, 0 % x == 0
@@ -73,47 +73,47 @@ impl OptimizerPass for ConstOperandSimplify {
                         {
                             let value = ConstantScalarValue::UInt(0, UIntKind::U32)
                                 .cast_to(op.item().elem());
-                            op.operation = Operation::Copy(Variable::constant(value).into());
+                            op.operation = Operation::Copy(Variable::constant(value));
                             changes.inc();
                         }
                         // true || x == true, x || true == true
                         Operator::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
-                            op.operation = Operation::Copy(CopyOp(true.into()));
+                            op.operation = Operation::Copy(true.into());
                             changes.inc();
                         }
                         // false || x == x, x || false == x
                         Operator::Or(bin_op) if bin_op.lhs.is_false() => {
-                            op.operation = Operation::Copy(bin_op.rhs.into());
+                            op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x || false == x
                         Operator::Or(bin_op) if bin_op.rhs.is_false() => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // false && x == false, x && false == false
                         Operator::And(bin_op) if bin_op.lhs.is_false() || bin_op.rhs.is_false() => {
-                            op.operation = Operation::Copy(CopyOp(false.into()));
+                            op.operation = Operation::Copy(false.into());
                             changes.inc();
                         }
                         // true && x == x
                         Operator::And(bin_op) if bin_op.lhs.is_true() => {
-                            op.operation = Operation::Copy(bin_op.rhs.into());
+                            op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x && true == x
                         Operator::And(bin_op) if bin_op.rhs.is_true() => {
-                            op.operation = Operation::Copy(bin_op.lhs.into());
+                            op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // select(true, a, b) == a
                         Operator::Select(select) if select.cond.is_true() => {
-                            op.operation = Operation::Copy(select.then.into());
+                            op.operation = Operation::Copy(select.then);
                             changes.inc();
                         }
                         // select(false, a, b) == b
                         Operator::Select(select) if select.cond.is_false() => {
-                            op.operation = Operation::Copy(select.or_else.into());
+                            op.operation = Operation::Copy(select.or_else);
                             changes.inc();
                         }
                         _ => {}
@@ -124,7 +124,7 @@ impl OptimizerPass for ConstOperandSimplify {
                         VariableKind::ConstantArray { length, .. }
                         | VariableKind::SharedMemory { length, .. }
                         | VariableKind::LocalArray { length, .. } => {
-                            op.operation = Operation::Copy(CopyOp(length.into()));
+                            op.operation = Operation::Copy(length.into());
                             changes.inc();
                         }
                         VariableKind::Slice { id } => {
@@ -134,7 +134,7 @@ impl OptimizerPass for ConstOperandSimplify {
                                 ..
                             }) = slice
                             {
-                                op.operation = Operation::Copy(CopyOp((*len).into()));
+                                op.operation = Operation::Copy((*len).into());
                                 changes.inc();
                             }
                         }
@@ -159,7 +159,7 @@ impl OptimizerPass for ConstEval {
             for op in ops.borrow_mut().values_mut() {
                 if let Some(const_eval) = try_const_eval(op) {
                     let input = Variable::constant(const_eval);
-                    op.operation = Operation::Copy(input.into());
+                    op.operation = Operation::Copy(input);
                     changes.inc();
                 }
             }

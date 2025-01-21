@@ -11,10 +11,10 @@ impl Expression {
         match self {
             Expression::Copy(val, _) => {
                 let input = leaders[val].as_var();
-                Operation::Copy(input.into())
+                Operation::Copy(input)
             }
             Expression::Value(value) | Expression::Volatile(value) => {
-                Operation::Copy(value.as_var().into())
+                Operation::Copy(value.as_var())
             }
             Expression::Instruction(instruction) => {
                 let args = instruction

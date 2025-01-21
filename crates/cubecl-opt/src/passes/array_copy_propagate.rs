@@ -100,7 +100,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
                     if let VariableKind::LocalArray { id, .. } = index.lhs.kind {
                         if id == arr_id {
                             let const_index = index.rhs.as_const().unwrap().as_i64() as usize;
-                            op.operation = Operation::Copy(vars[const_index].into());
+                            op.operation = Operation::Copy(vars[const_index]);
                         }
                     }
                 }
@@ -111,7 +111,7 @@ fn replace_const_arrays(opt: &mut Optimizer, arr_id: Id, vars: &[Variable]) {
                         if id == arr_id {
                             let const_index = assign.lhs.as_const().unwrap().as_i64() as usize;
                             let out = vars[const_index];
-                            *op = Instruction::new(Operation::Copy(assign.rhs.into()), out);
+                            *op = Instruction::new(Operation::Copy(assign.rhs), out);
                             opt.invalidate_analysis::<Writes>();
                         }
                     }

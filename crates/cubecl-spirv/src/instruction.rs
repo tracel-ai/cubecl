@@ -14,7 +14,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
         match inst.operation {
             Operation::Copy(var) => {
-                let input = self.compile_variable(*var);
+                let input = self.compile_variable(var);
                 let out = self.compile_variable(inst.out());
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);

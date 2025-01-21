@@ -28,6 +28,16 @@ pub trait OperationArgs: Sized {
     }
 }
 
+impl OperationArgs for Variable {
+    fn from_args(args: &[Variable]) -> Option<Self> {
+        Some(args[0])
+    }
+
+    fn as_args(&self) -> Option<SmallVec<[Variable; 4]>> {
+        Some(SmallVec::from_slice(&[*self]))
+    }
+}
+
 pub trait FromArgList: Sized {
     fn from_arg_list(args: &mut VecDeque<Variable>) -> Self;
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable>;

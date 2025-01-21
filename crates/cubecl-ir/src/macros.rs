@@ -327,7 +327,7 @@ macro_rules! cpa {
     // out = input
     ($scope:expr, $out:ident = $input:ident) => {
         $scope.register($crate::Instruction::new($crate::Operation::Copy(
-            $crate::CopyOp($input)
+            $input
         ), $out));
     };
     // out = vec4(a, b, c, d)

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_ir::{self as ir, CopyOp};
+use cubecl_ir::{self as ir, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
@@ -155,7 +155,7 @@ impl GvnState {
                     let var = leader.as_var();
                     let out = op.out;
                     if Some(var) != out {
-                        op.operation = CopyOp(var).into();
+                        op.operation = Operation::Copy(var);
                         changes.inc();
                     }
                 }

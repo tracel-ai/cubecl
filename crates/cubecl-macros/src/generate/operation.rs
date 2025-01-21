@@ -12,11 +12,10 @@ impl Operation {
 
     fn generate_opcode_impl(&self) -> TokenStream {
         let opcode = &self.opcode_name;
-        let has_children = self.with_children.is_present();
         let variants = self.variants();
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
-            if has_children {
+            if variant.nested.is_present() {
                 quote![Self::#ident(child) => #opcode::#ident(crate::OperationCore::op_code(child))]
             } else if variant.fields.is_empty() {
                 quote![Self::#ident => #opcode::#ident]
@@ -35,11 +34,10 @@ impl Operation {
     }
 
     fn generate_args_impl(&self) -> TokenStream {
-        let has_children = self.with_children.is_present();
         let variants = self.variants();
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
-            if has_children {
+            if variant.nested.is_present() {
                 quote![Self::#ident(child) => crate::OperationCore::args(child)]
             } else if variant.fields.is_empty() {
                 quote![Self::#ident => Some(smallvec::SmallVec::new())]
@@ -69,11 +67,10 @@ impl Operation {
 
     fn generate_from_args_impl(&self) -> TokenStream {
         let opcode = &self.opcode_name;
-        let has_children = self.with_children.is_present();
         let variants = self.variants();
         let match_variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
-            if has_children {
+            if variant.nested.is_present() {
                 quote![#opcode::#ident(child) => Some(Self::#ident(crate::OperationCore::from_code_and_args(child, args)?))]
             } else if variant.fields.is_empty() {
                 quote![#opcode::#ident => Some(Self::#ident)]
@@ -128,11 +125,10 @@ impl Operation {
     fn generate_opcode(&self) -> TokenStream {
         let vis = &self.vis;
         let name = &self.opcode_name;
-        let has_children = self.with_children.is_present();
         let variants = self.variants();
         let variants = variants.iter().map(|variant| {
             let ident = &variant.ident;
-            if has_children {
+            if variant.nested.is_present() {
                 let child_ty = &variant.fields.fields[0].ty;
                 quote![#ident(<#child_ty as crate::OperationCore>::OpCode)]
             } else {
@@ -168,7 +164,6 @@ pub fn generate_opcode(input: DeriveInput) -> syn::Result<TokenStream> {
         generics: operation.generics,
         data: operation.data,
         opcode_name: operation.opcode_name,
-        with_children: operation.with_children,
     };
 
     let name = &operation.ident;

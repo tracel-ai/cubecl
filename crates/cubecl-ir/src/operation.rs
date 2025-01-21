@@ -1,11 +1,7 @@
-use std::{
-    fmt::Display,
-    ops::{Deref, DerefMut},
-};
+use std::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
 use crate::{AtomicOp, Metadata, OperationCore, Operator};
-use smallvec::SmallVec;
 use type_hash::TypeHash;
 
 /// All operations that can be used in a GPU compute shader.
@@ -17,68 +13,29 @@ use type_hash::TypeHash;
 ///
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCore)]
-#[operation(opcode_name = OpCode, with_children)]
+#[operation(opcode_name = OpCode)]
 #[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
 pub enum Operation {
-    Copy(CopyOp),
+    Copy(Variable),
+    #[operation(nested)]
     Operator(Operator),
+    #[operation(nested)]
     Atomic(AtomicOp),
+    #[operation(nested)]
     Metadata(Metadata),
+    #[operation(nested)]
     Branch(Branch),
+    #[operation(nested)]
     Synchronization(Synchronization),
+    #[operation(nested)]
     Plane(Plane),
+    #[operation(nested)]
     CoopMma(CoopMma),
+    #[operation(nested)]
     Pipeline(PipelineOps),
     /// Non-semantic instructions (i.e. comments, debug info)
+    #[operation(nested)]
     NonSemantic(NonSemantic),
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
-pub struct CopyOp(pub Variable);
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CopyOpCode;
-
-impl Deref for CopyOp {
-    type Target = Variable;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for CopyOp {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<Variable> for CopyOp {
-    fn from(value: Variable) -> Self {
-        CopyOp(value)
-    }
-}
-
-impl From<CopyOp> for Operation {
-    fn from(value: CopyOp) -> Self {
-        Operation::Copy(value)
-    }
-}
-
-impl OperationCore for CopyOp {
-    type OpCode = CopyOpCode;
-
-    fn op_code(&self) -> Self::OpCode {
-        CopyOpCode
-    }
-
-    fn args(&self) -> Option<smallvec::SmallVec<[Variable; 4]>> {
-        Some(SmallVec::from_slice(&[self.0]))
-    }
-
-    fn from_code_and_args(_op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
-        Some(Self(args[0]))
-    }
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
@@ -181,7 +138,7 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{}", variable.0),
+            Operation::Copy(variable) => write!(f, "{}", variable),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
         }
