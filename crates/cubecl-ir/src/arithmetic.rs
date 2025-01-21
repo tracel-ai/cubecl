@@ -7,7 +7,7 @@ use crate::{
     UnaryOperator, Variable,
 };
 
-/// All operators that can be used in a GPU compute shader.
+/// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = ArithmeticOpCode)]

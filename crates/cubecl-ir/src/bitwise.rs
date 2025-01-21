@@ -4,7 +4,7 @@ use type_hash::TypeHash;
 
 use crate::{BinaryOperator, OperationReflect, UnaryOperator};
 
-/// Comparison operations
+/// Bitwise operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = BitwiseOpCode)]

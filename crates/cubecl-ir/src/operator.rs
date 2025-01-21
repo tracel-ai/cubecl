@@ -4,6 +4,7 @@ use type_hash::TypeHash;
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
+/// Operators available on the GPU
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = OperatorOpCode)]
