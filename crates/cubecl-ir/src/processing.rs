@@ -1,4 +1,4 @@
-use crate::{AtomicOp, Bitwise, Comparison};
+use crate::{AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{
     Arithmetic, Branch, CoopMma, Elem, Instruction, Metadata, Operation, UIntKind, Variable,
@@ -108,38 +108,6 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
-                    Arithmetic::Slice(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
-                    }
-                    Arithmetic::Index(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
-                    }
-                    Arithmetic::UncheckedIndex(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
-                    }
-                    Arithmetic::IndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
-                    }
-                    Arithmetic::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
-                    }
-                    Arithmetic::And(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                    }
-                    Arithmetic::Or(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
-                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
-                    }
-                    Arithmetic::Not(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
-                    }
                     Arithmetic::Neg(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap())
                     }
@@ -155,7 +123,6 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
-                    Arithmetic::Bitcast(_) => {}
                     Arithmetic::Magnitude(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
@@ -166,37 +133,6 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
-                    Arithmetic::InitLine(_) => {
-                        // TODO: Sanitize based on elem
-                    }
-                    Arithmetic::CopyMemory(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.in_index,
-                            Elem::UInt(UIntKind::U32),
-                        );
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.out_index,
-                            Elem::UInt(UIntKind::U32),
-                        );
-                    }
-                    Arithmetic::CopyMemoryBulk(op) => {
-                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.in_index,
-                            Elem::UInt(UIntKind::U32),
-                        );
-                        sanitize_constant_scalar_ref_elem(
-                            &mut op.out_index,
-                            Elem::UInt(UIntKind::U32),
-                        );
-                    }
-                    Arithmetic::Select(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
-                        sanitize_constant_scalar_ref_var(&mut op.then, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
-                    }
-                    Arithmetic::Cast(_) => {}
                 },
                 Operation::Comparison(op) => match op {
                     Comparison::Greater(op) => {
@@ -254,6 +190,72 @@ impl ScopeProcessing {
                     Bitwise::BitwiseNot(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                },
+                Operation::Operator(op) => match op {
+                    Operator::Slice(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
+                    }
+                    Operator::Index(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
+                    }
+                    Operator::UncheckedIndex(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
+                    }
+                    Operator::IndexAssign(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::UncheckedIndexAssign(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.lhs, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Operator::And(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Or(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Operator::Not(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
+                    }
+                    Operator::InitLine(_) => {
+                        // TODO: Sanitize based on elem
+                    }
+                    Operator::CopyMemory(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.in_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.out_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                    }
+                    Operator::CopyMemoryBulk(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.in_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.out_index,
+                            Elem::UInt(UIntKind::U32),
+                        );
+                    }
+                    Operator::Select(op) => {
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                        sanitize_constant_scalar_ref_var(&mut op.then, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
+                    }
+                    Operator::Cast(_) => {}
+                    Operator::Bitcast(_) => {}
                 },
                 Operation::Atomic(op) => match op {
                     AtomicOp::Load(_) => {}

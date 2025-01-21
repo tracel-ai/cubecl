@@ -1,11 +1,8 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Operator};
 
 use crate::ir::{Instruction, Item, UnaryOperator, Variable};
 use crate::unexpanded;
-use crate::{
-    frontend::{cast, CubeContext, CubePrimitive, CubeType},
-    ir::Arithmetic,
-};
+use crate::frontend::{cast, CubeContext, CubePrimitive, CubeType};
 
 use super::ExpandElementTyped;
 
@@ -55,7 +52,7 @@ pub trait BitCast: CubePrimitive {
             var.item.vectorization,
         ));
         context.register(Instruction::new(
-            Arithmetic::Bitcast(UnaryOperator { input: *value }),
+            Operator::Bitcast(UnaryOperator { input: *value }),
             *new_var.clone(),
         ));
         new_var.into()

@@ -1,4 +1,4 @@
-use cubecl_ir::{Operation, Arithmetic, Variable, VariableKind};
+use cubecl_ir::{Operation, Operator, Variable, VariableKind};
 
 use crate::{
     analyses::{const_len::Slices, integer_range::Ranges},
@@ -19,28 +19,28 @@ impl OptimizerPass for InBoundsToUnchecked {
             let ops = opt.program[block].ops.clone();
             for inst in ops.borrow_mut().values_mut() {
                 let op = match &inst.operation {
-                    Operation::Arithmetic(op) => op,
+                    Operation::Operator(op) => op,
                     _ => continue,
                 };
                 match op {
-                    Arithmetic::Index(op) => {
+                    Operator::Index(op) => {
                         if let Some(const_len) = const_len(opt, &op.lhs) {
                             let range = ranges.range_of(opt, &op.rhs);
                             if let Some((_, upper)) = range.lower_bound.zip(range.upper_bound) {
                                 if (upper as u32) < const_len {
-                                    inst.operation = Arithmetic::UncheckedIndex(op.clone()).into();
+                                    inst.operation = Operator::UncheckedIndex(op.clone()).into();
                                     changes.inc();
                                 }
                             }
                         }
                     }
-                    Arithmetic::IndexAssign(op) => {
+                    Operator::IndexAssign(op) => {
                         if let Some(const_len) = const_len(opt, &inst.out()) {
                             let range = ranges.range_of(opt, &op.lhs);
                             if let Some((_, upper)) = range.lower_bound.zip(range.upper_bound) {
                                 if (upper as u32) < const_len {
                                     inst.operation =
-                                        Arithmetic::UncheckedIndexAssign(op.clone()).into();
+                                        Operator::UncheckedIndexAssign(op.clone()).into();
                                     changes.inc();
                                 }
                             }

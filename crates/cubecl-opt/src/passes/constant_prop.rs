@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, Bitwise, Comparison, ConstantScalarValue, Instruction, Metadata, Operation,
-    UIntKind, Variable, VariableKind,
+    Operator, UIntKind, Variable, VariableKind,
 };
 
 use crate::{
@@ -76,45 +76,47 @@ impl OptimizerPass for ConstOperandSimplify {
                             op.operation = Operation::Copy(Variable::constant(value));
                             changes.inc();
                         }
+                        _ => {}
+                    },
+
+                    Operation::Operator(operator) => match operator {
                         // true || x == true, x || true == true
-                        Arithmetic::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
+                        Operator::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
                             op.operation = Operation::Copy(true.into());
                             changes.inc();
                         }
                         // false || x == x, x || false == x
-                        Arithmetic::Or(bin_op) if bin_op.lhs.is_false() => {
+                        Operator::Or(bin_op) if bin_op.lhs.is_false() => {
                             op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x || false == x
-                        Arithmetic::Or(bin_op) if bin_op.rhs.is_false() => {
+                        Operator::Or(bin_op) if bin_op.rhs.is_false() => {
                             op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // false && x == false, x && false == false
-                        Arithmetic::And(bin_op)
-                            if bin_op.lhs.is_false() || bin_op.rhs.is_false() =>
-                        {
+                        Operator::And(bin_op) if bin_op.lhs.is_false() || bin_op.rhs.is_false() => {
                             op.operation = Operation::Copy(false.into());
                             changes.inc();
                         }
                         // true && x == x
-                        Arithmetic::And(bin_op) if bin_op.lhs.is_true() => {
+                        Operator::And(bin_op) if bin_op.lhs.is_true() => {
                             op.operation = Operation::Copy(bin_op.rhs);
                             changes.inc();
                         }
                         // x && true == x
-                        Arithmetic::And(bin_op) if bin_op.rhs.is_true() => {
+                        Operator::And(bin_op) if bin_op.rhs.is_true() => {
                             op.operation = Operation::Copy(bin_op.lhs);
                             changes.inc();
                         }
                         // select(true, a, b) == a
-                        Arithmetic::Select(select) if select.cond.is_true() => {
+                        Operator::Select(select) if select.cond.is_true() => {
                             op.operation = Operation::Copy(select.then);
                             changes.inc();
                         }
                         // select(false, a, b) == b
-                        Arithmetic::Select(select) if select.cond.is_false() => {
+                        Operator::Select(select) if select.cond.is_false() => {
                             op.operation = Operation::Copy(select.or_else);
                             changes.inc();
                         }
@@ -298,6 +300,7 @@ fn try_const_eval(inst: &mut Instruction) -> Option<ConstantScalarValue> {
         Operation::Arithmetic(op) => try_const_eval_arithmetic(op),
         Operation::Comparison(op) => try_const_eval_cmp(op),
         Operation::Bitwise(op) => try_const_eval_bitwise(op),
+        Operation::Operator(op) => try_const_eval_operator(op),
         _ => None,
     }
 }
@@ -311,8 +314,6 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
-        Arithmetic::And(op) => const_eval_bool!(&&op.lhs, op.rhs),
-        Arithmetic::Or(op) => const_eval_bool!(|| op.lhs, op.rhs),
         Arithmetic::Max(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
@@ -370,13 +371,6 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
         Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),
         Arithmetic::Recip(op) => const_eval_float!(op.input; num::Float::recip),
-        Arithmetic::Not(op) => {
-            use ConstantScalarValue::*;
-            op.input.as_const().map(|input| match input {
-                Bool(input) => ConstantScalarValue::Bool(!input),
-                _ => unreachable!(),
-            })
-        }
         Arithmetic::Neg(op) => {
             use ConstantScalarValue::*;
             op.input.as_const().map(|input| match input {
@@ -426,20 +420,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
                 }
             })
         }
-        Arithmetic::Erf(_)
-        | Arithmetic::Cast(_)
-        | Arithmetic::Index(_)
-        | Arithmetic::CopyMemory(_)
-        | Arithmetic::CopyMemoryBulk(_)
-        | Arithmetic::Slice(_)
-        | Arithmetic::UncheckedIndex(_)
-        | Arithmetic::IndexAssign(_)
-        | Arithmetic::InitLine(_)
-        | Arithmetic::UncheckedIndexAssign(_)
-        | Arithmetic::Bitcast(_)
-        | Arithmetic::Magnitude(_)
-        | Arithmetic::Normalize(_)
-        | Arithmetic::Select(_) => None,
+        Arithmetic::Erf(_) | Arithmetic::Magnitude(_) | Arithmetic::Normalize(_) => None,
     }
 }
 
@@ -485,5 +466,30 @@ fn try_const_eval_bitwise(op: &mut Bitwise) -> Option<ConstantScalarValue> {
                 _ => unreachable!(),
             })
         }
+    }
+}
+
+fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
+    match op {
+        Operator::And(op) => const_eval_bool!(&&op.lhs, op.rhs),
+        Operator::Or(op) => const_eval_bool!(|| op.lhs, op.rhs),
+        Operator::Not(op) => {
+            use ConstantScalarValue::*;
+            op.input.as_const().map(|input| match input {
+                Bool(input) => ConstantScalarValue::Bool(!input),
+                _ => unreachable!(),
+            })
+        }
+        Operator::Cast(_)
+        | Operator::Index(_)
+        | Operator::CopyMemory(_)
+        | Operator::CopyMemoryBulk(_)
+        | Operator::Slice(_)
+        | Operator::UncheckedIndex(_)
+        | Operator::IndexAssign(_)
+        | Operator::InitLine(_)
+        | Operator::UncheckedIndexAssign(_)
+        | Operator::Bitcast(_)
+        | Operator::Select(_) => None,
     }
 }

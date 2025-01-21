@@ -2,12 +2,15 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::{cpa, Elem, Item, OperationArgs, OperationReflect, Scope, Select, UIntKind, Variable};
+use crate::{
+    cpa, BinaryOperator, Elem, Item, OperationArgs, OperationReflect, Scope, UIntKind,
+    UnaryOperator, Variable,
+};
 
 /// All operators that can be used in a GPU compute shader.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
-#[operation(opcode_name = OperatorOpCode)]
+#[operation(opcode_name = ArithmeticOpCode)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Arithmetic {
     #[operation(commutative)]
@@ -32,34 +35,17 @@ pub enum Arithmetic {
     Erf(UnaryOperator),
     Recip(UnaryOperator),
     Clamp(ClampOperator),
-    Cast(UnaryOperator),
     Modulo(BinaryOperator),
-    Index(BinaryOperator),
-    CopyMemory(CopyMemoryOperator),
-    CopyMemoryBulk(CopyMemoryBulkOperator),
-    Slice(SliceOperator),
-    UncheckedIndex(BinaryOperator),
-    IndexAssign(BinaryOperator),
-    InitLine(LineInitOperator),
-    UncheckedIndexAssign(BinaryOperator),
-    #[operation(commutative)]
-    And(BinaryOperator),
-    #[operation(commutative)]
-    Or(BinaryOperator),
-    Not(UnaryOperator),
     Neg(UnaryOperator),
     #[operation(commutative)]
     Max(BinaryOperator),
     #[operation(commutative)]
     Min(BinaryOperator),
     Remainder(BinaryOperator),
-    Bitcast(UnaryOperator),
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
     #[operation(commutative)]
     Dot(BinaryOperator),
-    // A select statement/ternary
-    Select(Select),
 }
 
 impl Display for Arithmetic {
@@ -90,26 +76,6 @@ impl Display for Arithmetic {
             }
 
             Arithmetic::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
-            Arithmetic::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
-            Arithmetic::CopyMemory(op) => {
-                write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
-            }
-            Arithmetic::CopyMemoryBulk(op) => write!(
-                f,
-                "memcpy([{}], {}[{}], {})",
-                op.input, op.in_index, op.out_index, op.len
-            ),
-            Arithmetic::Slice(op) => write!(f, "{}[{}..{}]", op.input, op.start, op.end),
-            Arithmetic::UncheckedIndex(op) => {
-                write!(f, "unchecked {}[{}]", op.lhs, op.rhs)
-            }
-            Arithmetic::IndexAssign(op) => write!(f, "[{}] = {}", op.lhs, op.rhs),
-            Arithmetic::UncheckedIndexAssign(op) => {
-                write!(f, "unchecked [{}] = {}", op.lhs, op.rhs)
-            }
-            Arithmetic::And(op) => write!(f, "{} && {}", op.lhs, op.rhs),
-            Arithmetic::Or(op) => write!(f, "{} || {}", op.lhs, op.rhs),
-            Arithmetic::Not(op) => write!(f, "!{}", op.input),
             Arithmetic::Neg(op) => write!(f, "-{}", op.input),
             Arithmetic::Max(op) => write!(f, "{}.max({})", op.lhs, op.rhs),
             Arithmetic::Min(op) => write!(f, "{}.min({})", op.lhs, op.rhs),
@@ -117,62 +83,8 @@ impl Display for Arithmetic {
             Arithmetic::Magnitude(op) => write!(f, "{}.length()", op.input),
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
-            Arithmetic::InitLine(init) => {
-                let inits = init
-                    .inputs
-                    .iter()
-                    .map(|input| format!("{input}"))
-                    .collect::<Vec<_>>();
-                write!(f, "vec({})", inits.join(", "))
-            }
-            Arithmetic::Select(op) => {
-                write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
-            }
-            Arithmetic::Cast(op) => write!(f, "cast({})", op.input),
-            Arithmetic::Bitcast(op) => write!(f, "bitcast({})", op.input),
         }
     }
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct BinaryOperator {
-    pub lhs: Variable,
-    pub rhs: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct UnaryOperator {
-    pub input: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct LineInitOperator {
-    pub inputs: Vec<Variable>,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct CopyMemoryOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct CopyMemoryBulkOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
-    pub len: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -182,24 +94,6 @@ pub struct ClampOperator {
     pub input: Variable,
     pub min_value: Variable,
     pub max_value: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct SliceOperator {
-    pub input: Variable,
-    pub start: Variable,
-    pub end: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct CompareAndSwapOperator {
-    pub input: Variable,
-    pub cmp: Variable,
-    pub val: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

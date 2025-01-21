@@ -1,4 +1,4 @@
-use crate::ir::{Arithmetic, Bitwise, ExpandElement};
+use crate::ir::{Arithmetic, Bitwise, ExpandElement, Operator};
 use crate::{
     flex32,
     frontend::{CubeContext, CubePrimitive, ExpandElementTyped},
@@ -78,7 +78,7 @@ pub mod and {
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::And).into()
+        binary_expand(context, lhs.into(), rhs.into(), Operator::And).into()
     }
 }
 
@@ -114,7 +114,7 @@ pub mod or {
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Or).into()
+        binary_expand(context, lhs.into(), rhs.into(), Operator::Or).into()
     }
 }
 

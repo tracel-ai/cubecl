@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction, Metadata,
-    Operation, PipelineOps, Plane, UnaryOperator, Variable,
+    Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -37,9 +37,10 @@ impl Optimizer {
     ) {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
-            Operation::Arithmetic(operator) => self.visit_arithmetic(operator, visit_read),
-            Operation::Comparison(operator) => self.visit_compare(operator, visit_read),
-            Operation::Bitwise(operator) => self.visit_bitwise(operator, visit_read),
+            Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
+            Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
+            Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
+            Operation::Operator(operator) => self.visit_operator(operator, visit_read),
             Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
@@ -69,13 +70,7 @@ impl Optimizer {
             | Arithmetic::Mul(binary_operator)
             | Arithmetic::Div(binary_operator)
             | Arithmetic::Powf(binary_operator)
-            | Arithmetic::UncheckedIndex(binary_operator)
-            | Arithmetic::UncheckedIndexAssign(binary_operator)
             | Arithmetic::Modulo(binary_operator)
-            | Arithmetic::Index(binary_operator)
-            | Arithmetic::IndexAssign(binary_operator)
-            | Arithmetic::And(binary_operator)
-            | Arithmetic::Or(binary_operator)
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
@@ -94,10 +89,7 @@ impl Optimizer {
             | Arithmetic::Ceil(unary_operator)
             | Arithmetic::Erf(unary_operator)
             | Arithmetic::Recip(unary_operator)
-            | Arithmetic::Not(unary_operator)
             | Arithmetic::Neg(unary_operator)
-            | Arithmetic::Cast(unary_operator)
-            | Arithmetic::Bitcast(unary_operator)
             | Arithmetic::Magnitude(unary_operator)
             | Arithmetic::Normalize(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
@@ -105,31 +97,6 @@ impl Optimizer {
                 visit_read(self, &mut clamp_operator.input);
                 visit_read(self, &mut clamp_operator.min_value);
                 visit_read(self, &mut clamp_operator.max_value);
-            }
-            Arithmetic::Slice(slice_operator) => {
-                visit_read(self, &mut slice_operator.start);
-                visit_read(self, &mut slice_operator.end);
-                visit_read(self, &mut slice_operator.input);
-            }
-            Arithmetic::InitLine(line_init_operator) => {
-                for input in &mut line_init_operator.inputs {
-                    visit_read(self, input)
-                }
-            }
-            Arithmetic::CopyMemory(copy_operator) => {
-                visit_read(self, &mut copy_operator.input);
-                visit_read(self, &mut copy_operator.in_index);
-                visit_read(self, &mut copy_operator.out_index);
-            }
-            Arithmetic::CopyMemoryBulk(copy_bulk_operator) => {
-                visit_read(self, &mut copy_bulk_operator.input);
-                visit_read(self, &mut copy_bulk_operator.in_index);
-                visit_read(self, &mut copy_bulk_operator.out_index);
-            }
-            Arithmetic::Select(select) => {
-                visit_read(self, &mut select.cond);
-                visit_read(self, &mut select.then);
-                visit_read(self, &mut select.or_else);
             }
         }
     }
@@ -170,6 +137,53 @@ impl Optimizer {
             Bitwise::CountOnes(unary_operator)
             | Bitwise::BitwiseNot(unary_operator)
             | Bitwise::ReverseBits(unary_operator) => self.visit_unop(unary_operator, visit_read),
+        }
+    }
+
+    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
+    pub fn visit_operator(
+        &mut self,
+        op: &mut Operator,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match op {
+            Operator::UncheckedIndex(binary_operator)
+            | Operator::UncheckedIndexAssign(binary_operator)
+            | Operator::Index(binary_operator)
+            | Operator::IndexAssign(binary_operator)
+            | Operator::And(binary_operator)
+            | Operator::Or(binary_operator) => self.visit_binop(binary_operator, visit_read),
+
+            Operator::Not(unary_operator)
+            | Operator::Cast(unary_operator)
+            | Operator::Bitcast(unary_operator) => self.visit_unop(unary_operator, visit_read),
+
+            Operator::Slice(slice_operator) => {
+                visit_read(self, &mut slice_operator.start);
+                visit_read(self, &mut slice_operator.end);
+                visit_read(self, &mut slice_operator.input);
+            }
+            Operator::InitLine(line_init_operator) => {
+                for input in &mut line_init_operator.inputs {
+                    visit_read(self, input)
+                }
+            }
+            Operator::CopyMemory(copy_operator) => {
+                visit_read(self, &mut copy_operator.input);
+                visit_read(self, &mut copy_operator.in_index);
+                visit_read(self, &mut copy_operator.out_index);
+            }
+            Operator::CopyMemoryBulk(copy_bulk_operator) => {
+                visit_read(self, &mut copy_bulk_operator.input);
+                visit_read(self, &mut copy_bulk_operator.in_index);
+                visit_read(self, &mut copy_bulk_operator.out_index);
+            }
+            Operator::Select(select) => {
+                visit_read(self, &mut select.cond);
+                visit_read(self, &mut select.then);
+                visit_read(self, &mut select.or_else);
+            }
         }
     }
 

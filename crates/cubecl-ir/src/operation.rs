@@ -1,7 +1,10 @@
 use std::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
-use crate::{comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationReflect};
+use crate::{
+    comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
+    OperationReflect, Operator,
+};
 use derive_more::derive::From;
 use type_hash::TypeHash;
 
@@ -26,6 +29,8 @@ pub enum Operation {
     Comparison(Comparison),
     #[operation(nested, pure)]
     Bitwise(Bitwise),
+    #[operation(nested)]
+    Operator(Operator),
     #[operation(nested)]
     Atomic(AtomicOp),
     #[operation(nested, pure)]
@@ -73,7 +78,7 @@ impl Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.operation {
-            Operation::Arithmetic(Arithmetic::CopyMemory(op)) => write!(
+            Operation::Operator(Operator::CopyMemory(op)) => write!(
                 f,
                 "copy_mem({}[{}], {}[{}])",
                 self.out(),
@@ -81,7 +86,7 @@ impl Display for Instruction {
                 op.input,
                 op.in_index
             ),
-            Operation::Arithmetic(Arithmetic::CopyMemoryBulk(op)) => write!(
+            Operation::Operator(Operator::CopyMemoryBulk(op)) => write!(
                 f,
                 "copy_mem_bulk({}[{}], {}[{}], {})",
                 self.out(),
@@ -90,16 +95,16 @@ impl Display for Instruction {
                 op.in_index,
                 op.len
             ),
-            Operation::Arithmetic(Arithmetic::IndexAssign(op)) => {
+            Operation::Operator(Operator::IndexAssign(op)) => {
                 write!(f, "{}[{}] = {}", self.out(), op.lhs, op.rhs)
             }
-            Operation::Arithmetic(Arithmetic::UncheckedIndexAssign(op)) => {
+            Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
                 write!(f, "unchecked {}[{}] = {}", self.out(), op.lhs, op.rhs)
             }
-            Operation::Arithmetic(Arithmetic::Cast(op)) => {
+            Operation::Operator(Operator::Cast(op)) => {
                 write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
             }
-            Operation::Arithmetic(Arithmetic::Bitcast(op)) => {
+            Operation::Operator(Operator::Bitcast(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)
             }
             _ => {
@@ -116,9 +121,10 @@ impl Display for Instruction {
 impl Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Operation::Arithmetic(operator) => write!(f, "{operator}"),
+            Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),
             Operation::Bitwise(bitwise) => write!(f, "{bitwise}"),
+            Operation::Operator(operator) => write!(f, "{operator}"),
             Operation::Atomic(atomic) => write!(f, "{atomic}"),
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
@@ -143,6 +149,21 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
             .join(", ");
         format!(", {str}")
     }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct BinaryOperator {
+    pub lhs: Variable,
+    pub rhs: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct UnaryOperator {
+    pub input: Variable,
 }
 
 impl From<Branch> for Instruction {

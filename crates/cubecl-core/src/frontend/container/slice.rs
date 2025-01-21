@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Operator};
 
 use crate::{
     frontend::{indexation::Index, Tensor},
-    ir::{self, Arithmetic},
+    ir::{self},
     prelude::{CubeContext, IntoRuntime},
     unexpanded,
 };
@@ -123,10 +123,11 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use cubecl_ir::Operator;
     use ir::Instruction;
 
     use crate::{
-        ir::{BinaryOperator, Arithmetic},
+        ir::BinaryOperator,
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -180,7 +181,7 @@ mod indexation {
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
-                Arithmetic::UncheckedIndex(BinaryOperator {
+                Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
                 }),
@@ -198,7 +199,7 @@ mod indexation {
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
             context.register(Instruction::new(
-                Arithmetic::UncheckedIndex(BinaryOperator {
+                Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
                 }),
@@ -214,7 +215,7 @@ mod indexation {
             value: ExpandElementTyped<E>,
         ) {
             context.register(Instruction::new(
-                Arithmetic::UncheckedIndexAssign(BinaryOperator {
+                Operator::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),
                 }),
@@ -420,7 +421,7 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     let out = context.create_slice(input.item);
 
     context.register(Instruction::new(
-        Arithmetic::Slice(ir::SliceOperator {
+        Operator::Slice(ir::SliceOperator {
             input: *input,
             start: start.value(),
             end: end.value(),

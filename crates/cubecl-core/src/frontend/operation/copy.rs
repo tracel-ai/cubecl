@@ -24,7 +24,7 @@ pub fn copy_bulk<C: CubePrimitive>(
 }
 
 pub mod copy_bulk {
-    use crate::ir::{CopyMemoryBulkOperator, Instruction, Arithmetic};
+    use crate::ir::{CopyMemoryBulkOperator, Instruction, Operator};
 
     use super::*;
 
@@ -38,7 +38,7 @@ pub mod copy_bulk {
         length: u32,
     ) {
         context.register(Instruction::new(
-            Arithmetic::CopyMemoryBulk(CopyMemoryBulkOperator {
+            Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
                 out_index: to_index.expand.consume(),
                 input: from.expand.consume(),
                 in_index: from_index.expand.consume(),

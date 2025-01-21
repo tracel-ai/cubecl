@@ -33,7 +33,8 @@ use std::{
 use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Item, Operation, Arithmetic, Scope, Variable, VariableKind,
+    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable,
+    VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
@@ -277,7 +278,7 @@ impl Optimizer {
         for node in self.node_ids() {
             let ops = self.program[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Arithmetic(Arithmetic::IndexAssign(_)) = &op.operation {
+                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation {
                     if let VariableKind::LocalMut { id } = &op.out().kind {
                         self.program.variables.remove(id);
                     }

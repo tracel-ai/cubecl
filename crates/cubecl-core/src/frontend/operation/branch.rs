@@ -1,4 +1,7 @@
-use crate::{ir::Select, prelude::*};
+use crate::{
+    ir::{Operator, Select},
+    prelude::*,
+};
 use crate::{
     prelude::{CubePrimitive, Line},
     unexpanded,
@@ -32,7 +35,7 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use crate::ir::{Instruction, Arithmetic};
+    use crate::ir::Instruction;
 
     use super::*;
 
@@ -53,7 +56,7 @@ pub mod select {
         let output = context.create_local(then.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
-        let select = Arithmetic::Select(Select {
+        let select = Operator::Select(Select {
             cond,
             then,
             or_else,

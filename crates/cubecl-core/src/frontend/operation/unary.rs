@@ -1,4 +1,4 @@
-use cubecl_ir::Bitwise;
+use cubecl_ir::{Bitwise, Operator};
 use half::{bf16, f16};
 
 use crate::{
@@ -18,7 +18,7 @@ pub mod not {
         context: &mut CubeContext,
         x: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
-        unary_expand(context, x.into(), Arithmetic::Not).into()
+        unary_expand(context, x.into(), Operator::Not).into()
     }
 }
 

@@ -1,6 +1,6 @@
 use std::mem::take;
 
-use cubecl_ir::{Instruction, Arithmetic, Select};
+use cubecl_ir::{Instruction, Operator, Select};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{passes::update_references, AtomicCounter, ControlFlow, Optimizer};
@@ -47,7 +47,7 @@ impl OptimizerPass for EmptyBranchToSelect {
                                 let or_else =
                                     phi.entries.iter().find(|it| it.block == or_else).unwrap();
                                 Instruction::new(
-                                    Arithmetic::Select(Select {
+                                    Operator::Select(Select {
                                         cond,
                                         then: then.value,
                                         or_else: or_else.value,

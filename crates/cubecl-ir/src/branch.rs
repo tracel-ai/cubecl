@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{OperationArgs, OperationReflect};
+use crate::OperationReflect;
 
 use super::{Elem, Item, OperationCode, Scope, UIntKind, Variable};
 use type_hash::TypeHash;
@@ -80,15 +80,6 @@ pub struct IfElse {
     pub cond: Variable,
     pub scope_if: Scope,
     pub scope_else: Scope,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct Select {
-    pub cond: Variable,
-    pub then: Variable,
-    pub or_else: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

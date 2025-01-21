@@ -1,6 +1,6 @@
 use std::num::NonZeroU8;
 
-use cubecl_ir::Comparison;
+use cubecl_ir::{Comparison, Operator};
 
 use crate::ir::{
     Arithmetic, BinaryOperator, Elem, ExpandElement, Instruction, Item, Operation, UnaryOperator,
@@ -73,7 +73,7 @@ pub(crate) fn binary_expand_no_vec<F>(
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Arithmetic,
+    F: Fn(BinaryOperator) -> Operator,
 {
     let lhs = lhs.consume();
     let rhs = rhs.consume();
@@ -253,7 +253,7 @@ pub fn array_assign_binary_op_expand<
     let array_value = context.create_local(array_item);
 
     let read = Instruction::new(
-        Arithmetic::Index(BinaryOperator {
+        Operator::Index(BinaryOperator {
             lhs: *array,
             rhs: *index,
         }),
@@ -269,7 +269,7 @@ pub fn array_assign_binary_op_expand<
         *op_out,
     );
 
-    let write = Arithmetic::IndexAssign(BinaryOperator {
+    let write = Operator::IndexAssign(BinaryOperator {
         lhs: *index,
         rhs: op_out.consume(),
     });

@@ -231,9 +231,10 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
-            gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions, scope),
+            gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
+            gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions, scope),
             gpu::Operation::Atomic(op) => self.compile_atomic(op, out, instructions),
             gpu::Operation::Metadata(op) => instructions.push(self.compile_metadata(op, out)),
             gpu::Operation::Branch(val) => self.compile_branch(instructions, val),
@@ -571,7 +572,6 @@ impl<D: Dialect> CppCompiler<D> {
         value: gpu::Arithmetic,
         out: Option<gpu::Variable>,
         instructions: &mut Vec<Instruction<D>>,
-        scope: &mut gpu::Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -586,76 +586,6 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
-            }
-            gpu::Arithmetic::Slice(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
-                    let input = op.input;
-                    let input_len =
-                        scope.create_local_mut(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match input.has_buffer_length() {
-                        true => gpu::Metadata::BufferLength { var: input },
-                        false => gpu::Metadata::Length { var: input },
-                    };
-
-                    instructions.push(self.compile_metadata(length, Some(input_len)));
-                    instructions.push(Instruction::CheckedSlice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                        len: self.compile_variable(input_len),
-                    });
-                } else {
-                    instructions.push(Instruction::Slice {
-                        input: self.compile_variable(op.input),
-                        start: self.compile_variable(op.start),
-                        end: self.compile_variable(op.end),
-                        out: self.compile_variable(out),
-                    })
-                }
-            }
-            gpu::Arithmetic::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-
-                    let array_len =
-                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
-
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match lhs.has_buffer_length() {
-                        true => gpu::Metadata::BufferLength { var: lhs },
-                        false => gpu::Metadata::Length { var: lhs },
-                    };
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
-                        out: self.compile_variable(out),
-                    });
-                } else {
-                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
-                }
-            }
-            gpu::Arithmetic::UncheckedIndex(op) => {
-                instructions.push(Instruction::Index(self.compile_binary(op, out)))
-            }
-            gpu::Arithmetic::IndexAssign(op) => {
-                if let ExecutionMode::Checked = self.strategy {
-                    if out.has_length() {
-                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
-                        instructions.extend(self.compile_scope(scope));
-                        return;
-                    }
-                };
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)));
-            }
-            gpu::Arithmetic::UncheckedIndexAssign(op) => {
-                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Modulo(op) => {
                 instructions.push(Instruction::Modulo(self.compile_binary(op, out)))
@@ -689,15 +619,6 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Erf(op) => {
                 instructions.push(Instruction::Erf(self.compile_unary(op, out)))
-            }
-            gpu::Arithmetic::And(op) => {
-                instructions.push(Instruction::And(self.compile_binary(op, out)))
-            }
-            gpu::Arithmetic::Or(op) => {
-                instructions.push(Instruction::Or(self.compile_binary(op, out)))
-            }
-            gpu::Arithmetic::Not(op) => {
-                instructions.push(Instruction::Not(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Max(op) => {
                 instructions.push(Instruction::Max(self.compile_binary(op, out)))
@@ -749,9 +670,6 @@ impl<D: Dialect> CppCompiler<D> {
                 c: self.compile_variable(op.c),
                 out: self.compile_variable(out),
             }),
-            gpu::Arithmetic::Bitcast(op) => {
-                instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
-            }
             gpu::Arithmetic::Neg(op) => {
                 instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }
@@ -763,36 +681,6 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
-            }
-            gpu::Arithmetic::InitLine(op) => instructions.push(Instruction::VecInit {
-                inputs: op
-                    .inputs
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                out: self.compile_variable(out),
-            }),
-            gpu::Arithmetic::CopyMemory(op) => instructions.push(Instruction::Copy {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-            }),
-            gpu::Arithmetic::CopyMemoryBulk(op) => instructions.push(Instruction::CopyBulk {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-                len: op.len.as_const().unwrap().as_u32(),
-            }),
-            gpu::Arithmetic::Select(op) => instructions.push(Instruction::Select {
-                cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
-                out: self.compile_variable(out),
-            }),
-            gpu::Arithmetic::Cast(op) => {
-                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
             }
         };
     }
@@ -857,6 +745,130 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Bitwise::BitwiseNot(op) => {
                 instructions.push(Instruction::BitwiseNot(self.compile_unary(op, out)))
+            }
+        };
+    }
+
+    fn compile_operator(
+        &mut self,
+        value: gpu::Operator,
+        out: Option<gpu::Variable>,
+        instructions: &mut Vec<Instruction<D>>,
+        scope: &mut gpu::Scope,
+    ) {
+        let out = out.unwrap();
+        match value {
+            gpu::Operator::Slice(op) => {
+                if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
+                    let input = op.input;
+                    let input_len =
+                        scope.create_local_mut(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+                    instructions.extend(self.compile_scope(scope));
+
+                    let length = match input.has_buffer_length() {
+                        true => gpu::Metadata::BufferLength { var: input },
+                        false => gpu::Metadata::Length { var: input },
+                    };
+
+                    instructions.push(self.compile_metadata(length, Some(input_len)));
+                    instructions.push(Instruction::CheckedSlice {
+                        input: self.compile_variable(op.input),
+                        start: self.compile_variable(op.start),
+                        end: self.compile_variable(op.end),
+                        out: self.compile_variable(out),
+                        len: self.compile_variable(input_len),
+                    });
+                } else {
+                    instructions.push(Instruction::Slice {
+                        input: self.compile_variable(op.input),
+                        start: self.compile_variable(op.start),
+                        end: self.compile_variable(op.end),
+                        out: self.compile_variable(out),
+                    })
+                }
+            }
+            gpu::Operator::Index(op) => {
+                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
+                    let lhs = op.lhs;
+                    let rhs = op.rhs;
+
+                    let array_len =
+                        scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+
+                    instructions.extend(self.compile_scope(scope));
+
+                    let length = match lhs.has_buffer_length() {
+                        true => gpu::Metadata::BufferLength { var: lhs },
+                        false => gpu::Metadata::Length { var: lhs },
+                    };
+                    instructions.push(self.compile_metadata(length, Some(array_len)));
+                    instructions.push(Instruction::CheckedIndex {
+                        len: self.compile_variable(array_len),
+                        lhs: self.compile_variable(lhs),
+                        rhs: self.compile_variable(rhs),
+                        out: self.compile_variable(out),
+                    });
+                } else {
+                    instructions.push(Instruction::Index(self.compile_binary(op, out)));
+                }
+            }
+            gpu::Operator::UncheckedIndex(op) => {
+                instructions.push(Instruction::Index(self.compile_binary(op, out)))
+            }
+            gpu::Operator::IndexAssign(op) => {
+                if let ExecutionMode::Checked = self.strategy {
+                    if out.has_length() {
+                        expand_checked_index_assign(scope, op.lhs, op.rhs, out);
+                        instructions.extend(self.compile_scope(scope));
+                        return;
+                    }
+                };
+                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)));
+            }
+            gpu::Operator::UncheckedIndexAssign(op) => {
+                instructions.push(Instruction::IndexAssign(self.compile_binary(op, out)))
+            }
+            gpu::Operator::And(op) => {
+                instructions.push(Instruction::And(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Or(op) => {
+                instructions.push(Instruction::Or(self.compile_binary(op, out)))
+            }
+            gpu::Operator::Not(op) => {
+                instructions.push(Instruction::Not(self.compile_unary(op, out)))
+            }
+            gpu::Operator::InitLine(op) => instructions.push(Instruction::VecInit {
+                inputs: op
+                    .inputs
+                    .into_iter()
+                    .map(|it| self.compile_variable(it))
+                    .collect(),
+                out: self.compile_variable(out),
+            }),
+            gpu::Operator::CopyMemory(op) => instructions.push(Instruction::Copy {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(out),
+                out_index: self.compile_variable(op.out_index),
+            }),
+            gpu::Operator::CopyMemoryBulk(op) => instructions.push(Instruction::CopyBulk {
+                input: self.compile_variable(op.input),
+                in_index: self.compile_variable(op.in_index),
+                out: self.compile_variable(out),
+                out_index: self.compile_variable(op.out_index),
+                len: op.len.as_const().unwrap().as_u32(),
+            }),
+            gpu::Operator::Select(op) => instructions.push(Instruction::Select {
+                cond: self.compile_variable(op.cond),
+                then: self.compile_variable(op.then),
+                or_else: self.compile_variable(op.or_else),
+                out: self.compile_variable(out),
+            }),
+            gpu::Operator::Cast(op) => {
+                instructions.push(Instruction::Assign(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Bitcast(op) => {
+                instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
         };
     }

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use cubecl_ir::{Id, Operation, Arithmetic, Variable, VariableKind};
+use cubecl_ir::{Arithmetic, Id, Operation, Operator, Variable, VariableKind};
 
 use crate::Optimizer;
 
@@ -43,11 +43,11 @@ impl Slices {
             let ops = opt.program[block].ops.clone();
             for operator in ops.borrow().values() {
                 let op = match &operator.operation {
-                    Operation::Arithmetic(op) => op,
+                    Operation::Operator(op) => op,
                     _ => continue,
                 };
                 let out = operator.out.as_ref();
-                if let Arithmetic::Slice(slice_op) = op {
+                if let Operator::Slice(slice_op) = op {
                     let out_id = match out.unwrap().kind {
                         VariableKind::Slice { id } => id,
                         _ => unreachable!(),

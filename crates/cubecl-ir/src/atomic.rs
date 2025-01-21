@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::{BinaryOperator, CompareAndSwapOperator, OperationReflect, UnaryOperator};
+use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
@@ -41,4 +41,13 @@ impl Display for AtomicOp {
             }
         }
     }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct CompareAndSwapOperator {
+    pub input: Variable,
+    pub cmp: Variable,
+    pub val: Variable,
 }

@@ -1,4 +1,4 @@
-use cubecl_ir::{Bitwise, ExpandElement};
+use cubecl_ir::{Bitwise, ExpandElement, Operator};
 use half::{bf16, f16};
 
 use crate::{
@@ -12,7 +12,7 @@ pub mod cast {
 
     use crate::prelude::ExpandElementTyped;
 
-    use self::ir::{Arithmetic, UnaryOperator};
+    use self::ir::UnaryOperator;
 
     use super::*;
 
@@ -22,7 +22,7 @@ pub mod cast {
         output: ExpandElementTyped<C>,
     ) {
         context.register(Instruction::new(
-            Arithmetic::Cast(UnaryOperator {
+            Operator::Cast(UnaryOperator {
                 input: *input.expand,
             }),
             *output.expand,
@@ -59,7 +59,7 @@ pub mod index_assign {
         tf32,
     };
 
-    use self::ir::{Arithmetic, BinaryOperator, Variable};
+    use self::ir::{BinaryOperator, Variable};
 
     use super::*;
 
@@ -79,7 +79,7 @@ pub mod index_assign {
             _ => index,
         };
         context.register(Instruction::new(
-            Arithmetic::IndexAssign(BinaryOperator {
+            Operator::IndexAssign(BinaryOperator {
                 lhs: index,
                 rhs: value.expand.into(),
             }),
@@ -121,7 +121,7 @@ pub mod index {
         tf32,
     };
 
-    use self::ir::{Arithmetic, Variable};
+    use self::ir::Variable;
 
     use super::*;
 
@@ -145,9 +145,9 @@ pub mod index {
         let var: Variable = *array;
         let var = match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                binary_expand_no_vec(context, array, index, Arithmetic::Index)
+                binary_expand_no_vec(context, array, index, Operator::Index)
             }
-            _ => binary_expand(context, array, index, Arithmetic::Index),
+            _ => binary_expand(context, array, index, Operator::Index),
         };
 
         ExpandElementTyped::new(var)

@@ -227,25 +227,25 @@ macro_rules! cpa {
     };
     // out = index(lhs, rhs)
     ($scope:expr, $out:ident = index($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Arithmetic::Index(
+        $scope.register($crate::Instruction::new($crate::Operator::Index(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out = unchecked(lhs[rhs])
     ($scope:expr, $out:ident = unchecked($lhs:ident[$rhs:expr])) => {
-        $scope.register($crate::Instruction::new($crate::Arithmetic::UncheckedIndex(
+        $scope.register($crate::Instruction::new($crate::Operator::UncheckedIndex(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out[lhs] = rhs
     ($scope:expr, $out:ident[$lhs:ident] = $rhs:expr) => {
-        $scope.register($crate::Instruction::new($crate::Arithmetic::IndexAssign(
+        $scope.register($crate::Instruction::new($crate::Operator::IndexAssign(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // unchecked(out[lhs]) = rhs
     ($scope:expr, unchecked($out:ident[$lhs:ident]) = $rhs:expr) => {
-        $scope.register($crate::Instruction::new($crate::Arithmetic::UncheckedIndexAssign(
+        $scope.register($crate::Instruction::new($crate::Operator::UncheckedIndexAssign(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
