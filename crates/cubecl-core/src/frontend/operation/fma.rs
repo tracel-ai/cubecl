@@ -1,5 +1,5 @@
 use crate::{
-    ir::{ExpandElement, FmaOperator, Instruction, Arithmetic},
+    ir::{Arithmetic, ExpandElement, FmaOperator, Instruction},
     prelude::{CubeContext, CubePrimitive},
     unexpanded,
 };

@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_ir::{
-    Builtin, ConstantScalarValue, Elem, Id, Operation, Arithmetic, Variable, VariableKind,
+    Arithmetic, Builtin, ConstantScalarValue, Elem, Id, Operation, Variable, VariableKind,
 };
 
 use crate::{Optimizer, VarId};

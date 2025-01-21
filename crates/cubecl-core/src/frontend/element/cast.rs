@@ -1,8 +1,8 @@
 use cubecl_ir::{ExpandElement, Operator};
 
+use crate::frontend::{cast, CubeContext, CubePrimitive, CubeType};
 use crate::ir::{Instruction, Item, UnaryOperator, Variable};
 use crate::unexpanded;
-use crate::frontend::{cast, CubeContext, CubePrimitive, CubeType};
 
 use super::ExpandElementTyped;
 

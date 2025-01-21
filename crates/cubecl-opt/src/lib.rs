@@ -33,8 +33,7 @@ use std::{
 use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable,
-    VariableKind,
+    self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable, VariableKind,
 };
 use gvn::GvnPass;
 use passes::{

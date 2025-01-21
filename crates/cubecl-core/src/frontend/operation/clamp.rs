@@ -2,7 +2,7 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    ir::{ClampOperator, ExpandElement, Arithmetic},
+    ir::{Arithmetic, ClampOperator, ExpandElement},
     prelude::{CubeContext, CubePrimitive},
     tf32, unexpanded,
 };

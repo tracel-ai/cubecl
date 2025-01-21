@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator,
-    Variable, VariableKind,
+    BinaryOperator, Id, Instruction, Item, LineInitOperator, Operation, Operator, Variable,
+    VariableKind,
 };
 use stable_vec::StableVec;
 

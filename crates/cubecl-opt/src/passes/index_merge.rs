@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_ir::{
-    CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind,
-};
+use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer};
 
