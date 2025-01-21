@@ -27,8 +27,6 @@ pub struct OpCode {
     pub data: Data<OperationVariant, ()>,
 
     pub opcode_name: Ident,
-    pub commutative: Flag,
-    pub pure: Flag,
 }
 
 #[derive(FromVariant)]

@@ -2,11 +2,7 @@ use core::panic;
 
 use darling::FromDeriveInput;
 use error::error_into_token_stream;
-use generate::{
-    autotune::generate_autotune_key,
-    op_args::generate_op_args,
-    operation::{generate_opcode, generate_operation},
-};
+use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
@@ -197,58 +193,6 @@ pub fn comment(input: TokenStream) -> TokenStream {
 pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
     match generate_autotune_key(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
-}
-
-/// *Internal macro*
-///
-/// Generates an implementation of `OperationArgs` for this type. All fields must implement
-/// `FromArgList`.
-#[doc(hidden)]
-#[proc_macro_derive(OperationArgs, attributes(args))]
-pub fn derive_operation_args(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_op_args(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
-}
-
-/// *Internal Macro*
-///
-/// Generates reflection info for an operation. Generates an opcode enum and an implementation of
-/// `OperationReflect` that deconstructs and reconstructs the typed version. All variant fields must
-/// implement `OperationArgs`, or `OperationReflect` if the variant is nested. Uses the `operation`
-/// helper attribute.
-///
-/// # Arguments
-///
-/// * `opcode_name` - the name of the generated opcode enum (required)
-/// * `pure` - marks this entire operation as pure
-/// * `commutative` - marks this entire operation as commutative
-///
-/// # Variant arguments
-///
-/// * `pure` - Marks this variant as pure
-/// * `commutative` - Marks this variant as commutative
-///
-#[doc(hidden)]
-#[proc_macro_derive(OperationReflect, attributes(operation))]
-pub fn derive_operation(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_operation(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
-}
-
-#[doc(hidden)]
-#[proc_macro_derive(OperationCode, attributes(operation))]
-pub fn derive_opcode(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_opcode(input) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }

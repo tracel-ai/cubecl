@@ -207,8 +207,8 @@ pub fn generate_opcode(input: DeriveInput) -> syn::Result<TokenStream> {
         generics: operation.generics,
         data: operation.data,
         opcode_name: operation.opcode_name,
-        commutative: operation.commutative,
-        pure: operation.pure,
+        commutative: Flag::default(),
+        pure: Flag::default(),
     };
 
     let name = &operation.ident;

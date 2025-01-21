@@ -38,4 +38,4 @@ pub use scope::*;
 pub use synchronization::*;
 pub use variable::*;
 
-pub(crate) use cubecl_macros::{OperationArgs, OperationCode, OperationReflect};
+pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect};

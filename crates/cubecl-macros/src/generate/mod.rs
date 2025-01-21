@@ -5,6 +5,4 @@ pub mod cube_type;
 pub mod expression;
 pub mod kernel;
 pub mod launch;
-pub mod op_args;
-pub mod operation;
 pub mod statement;
