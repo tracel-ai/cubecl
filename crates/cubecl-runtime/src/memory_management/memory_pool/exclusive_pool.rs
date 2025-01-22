@@ -34,7 +34,6 @@ impl ExclusiveMemoryPool {
     pub(crate) fn new(max_alloc_size: u64, alignment: u64, dealloc_period: u64) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(max_alloc_size % alignment, 0);
-        log::info!("Adding pool with size {max_alloc_size}");
 
         Self {
             pages: Vec::new(),
