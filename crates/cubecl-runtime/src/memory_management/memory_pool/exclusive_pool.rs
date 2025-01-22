@@ -61,7 +61,9 @@ impl ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> &mut MemoryPage {
-        let alloc_size = (self.cur_avg_size as u64).max(size);
+        let alloc_size = (self.cur_avg_size as u64)
+            .max(size)
+            .next_multiple_of(self.alignment);
 
         let storage = storage.alloc(alloc_size);
 

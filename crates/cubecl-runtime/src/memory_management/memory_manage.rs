@@ -263,11 +263,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.alloc_reserve_count += 1;
 
         // Find first pool that fits this allocation
-        let index = self.pools.partition_point(|p| p.max_alloc_size() >= size);
-
         let pool = self
             .pools
-            .get_mut(index)
+            .iter_mut()
+            .find(|p| p.max_alloc_size() >= size)
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"));
 
         if let Some(slice) = pool.try_reserve(size) {
@@ -353,12 +352,16 @@ mod tests {
     #[test]
     #[cfg(not(exclusive_memory_only))]
     fn test_memory_usage() {
+        let max_page_size = 512;
+
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: max_page_size,
+                    },
                     dealloc_period: None,
                 }],
             },
@@ -367,9 +370,7 @@ mod tests {
         let usage = memory_management.memory_usage();
 
         assert_eq!(usage.bytes_in_use, 100);
-        println!("{}", usage);
-
-        assert!(usage.bytes_reserved >= 100 && usage.bytes_reserved < 200);
+        assert!(usage.bytes_reserved >= 100 && usage.bytes_reserved <= max_page_size);
 
         // Drop and re-alloc.
         drop(handle);
@@ -611,7 +612,9 @@ mod tests {
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
                     dealloc_period: None,
                 }],
             },
@@ -635,7 +638,9 @@ mod tests {
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
                     dealloc_period: None,
                 }],
             },
@@ -659,7 +664,9 @@ mod tests {
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
                     dealloc_period: None,
                 }],
             },
@@ -684,7 +691,9 @@ mod tests {
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 50 * 20,
+                    },
                     dealloc_period: None,
                 }],
             },
