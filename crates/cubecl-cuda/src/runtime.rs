@@ -104,6 +104,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
     }
+    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
     // if arch.version >= 80 {
     //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
     // }
