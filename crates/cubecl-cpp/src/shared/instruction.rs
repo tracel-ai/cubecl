@@ -150,7 +150,7 @@ pub enum Instruction<D: Dialect> {
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
-    Wrap(WarpInstruction<D>),
+    Warp(WarpInstruction<D>),
     Wmma(WmmaInstruction<D>),
     Bitcast(UnaryInstruction<D>),
     AtomicLoad(UnaryInstruction<D>),
@@ -454,7 +454,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {input}_length;")
             }
-            Instruction::Wrap(it) => write!(f, "{it}"),
+            Instruction::Warp(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {

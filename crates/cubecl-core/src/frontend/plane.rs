@@ -1,6 +1,6 @@
 use cubecl_ir::ExpandElement;
 
-use super::{CubeContext, CubePrimitive};
+use super::{CubeContext, CubePrimitive, Line};
 use crate::prelude::ExpandElementTyped;
 use crate::{
     ir::{Elem, Instruction, Item, Plane, UnaryOperator},
@@ -214,6 +214,44 @@ pub mod plane_any {
         let input = *elem;
 
         context.register(Instruction::new(Plane::Any(UnaryOperator { input }), out));
+
+        output.into()
+    }
+}
+
+/// Perform a ballot operation across all units in a plane.
+/// Returns a set of 32-bit bitfields as a vector, with the vectorization being `PLANE_SIZE / 32`.
+/// Note that in reality, vectorization will always be set to 4 because we can't retrieve the actual
+/// plane size at expand time. Use the runtime plane size to index appropriately.
+pub fn plane_ballot(_elem: bool) -> Line<u32> {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_ballot()].
+pub mod plane_ballot {
+
+    use std::num::NonZero;
+
+    use cubecl_ir::UIntKind;
+
+    use super::*;
+
+    /// Expand method of [plane_ballot()].
+    pub fn expand(
+        context: &mut CubeContext,
+        elem: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<bool> {
+        let elem: ExpandElement = elem.into();
+        let out_item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
+        let output = context.create_local(out_item);
+
+        let out = *output;
+        let input = *elem;
+
+        context.register(Instruction::new(
+            Plane::Ballot(UnaryOperator { input }),
+            out,
+        ));
 
         output.into()
     }

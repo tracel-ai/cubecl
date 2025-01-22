@@ -76,6 +76,15 @@ pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_ballot(output: &mut Tensor<Line<u32>>) {
+    let val2 = plane_ballot(UNIT_POS < 8);
+
+    if UNIT_POS == 0 {
+        output[0] = Line::cast_from(val2);
+    }
+}
+
 pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -313,6 +322,32 @@ pub fn test_plane_any<
             )
         },
     );
+}
+
+pub fn test_plane_ballot<TestRuntime: Runtime>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+) {
+    if !client.properties().feature_enabled(Feature::Plane) {
+        // Can't execute the test.
+        return;
+    }
+
+    let handle = client.empty(size_of::<u32>() * 4);
+    let (shape, strides) = ([1], [1]);
+
+    unsafe {
+        kernel_ballot::launch::<TestRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(32, 1, 1),
+            TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
+        );
+    }
+
+    let expected = [0b1111_1111, 0, 0, 0];
+    let actual = client.read_one(handle.binding());
+
+    assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
 pub fn test_plane_elect<
@@ -580,6 +615,12 @@ macro_rules! testgen_plane {
         #[test]
         fn test_plane_broadcast_vec4() {
             impl_test_plane_broadcast(4);
+        }
+
+        #[test]
+        fn test_plane_ballot() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_ballot::<TestRuntime>(client.clone());
         }
     };
 }

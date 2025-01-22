@@ -38,6 +38,7 @@ pub trait Dialect:
     fn warp_shuffle_down(var: &str, offset: &str) -> String;
     fn warp_all(var: &str) -> String;
     fn warp_any(var: &str) -> String;
+    fn warp_ballot(var: &str) -> String;
 }
 
 #[derive(Clone, Debug)]
@@ -247,46 +248,52 @@ impl<D: Dialect> CppCompiler<D> {
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::ReduceSum {
+                        instructions.push(Instruction::Warp(WarpInstruction::ReduceSum {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Prod(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::ReduceProd {
+                        instructions.push(Instruction::Warp(WarpInstruction::ReduceProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Max(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::ReduceMax {
+                        instructions.push(Instruction::Warp(WarpInstruction::ReduceMax {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Min(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::ReduceMin {
+                        instructions.push(Instruction::Warp(WarpInstruction::ReduceMin {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Elect => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Elect { out }))
+                        instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
                     }
                     gpu::Plane::All(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::All {
+                        instructions.push(Instruction::Warp(WarpInstruction::All {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Any(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Any {
+                        instructions.push(Instruction::Warp(WarpInstruction::Any {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::Ballot(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::Ballot {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Broadcast(op) => {
-                        instructions.push(Instruction::Wrap(WarpInstruction::Broadcast {
+                        instructions.push(Instruction::Warp(WarpInstruction::Broadcast {
                             input: self.compile_variable(op.lhs),
                             id: self.compile_variable(op.rhs),
                             out,

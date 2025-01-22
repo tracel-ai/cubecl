@@ -862,12 +862,28 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = ~{input};")
             }
             Instruction::LeadingZeros { input, out } => {
+                let u32_ty = match input.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::U32),
+                    Item::Vec3(_) => Item::Vec3(Elem::U32),
+                    Item::Vec2(_) => Item::Vec2(Elem::U32),
+                    Item::Scalar(_) => Item::Scalar(Elem::U32),
+                };
+
+                let input = input.fmt_cast_to(u32_ty);
                 let out = out.fmt_left();
                 writeln!(f, "{out} = countLeadingZeros({input});")
             }
             Instruction::FindFirstSet { input, out } => {
+                let u32_ty = match input.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::U32),
+                    Item::Vec3(_) => Item::Vec3(Elem::U32),
+                    Item::Vec2(_) => Item::Vec2(Elem::U32),
+                    Item::Scalar(_) => Item::Scalar(Elem::U32),
+                };
+
+                let input = input.fmt_cast_to(u32_ty);
                 let out = out.fmt_left();
-                writeln!(f, "{out} = firstTrailingBit({input});")
+                writeln!(f, "{out} = firstTrailingBit({input}) + 1;")
             }
             Instruction::Round { input, out } => {
                 let out = out.fmt_left();

@@ -1,7 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{
-    self as core, BinaryOperator, Bitwise, Comparison, IntKind, Operator, UIntKind, UnaryOperator,
-};
+use cubecl_core::ir::{self as core, BinaryOperator, Bitwise, Comparison, Operator, UnaryOperator};
 use cubecl_core::ir::{Arithmetic, Instruction, Operation};
 use rspirv::spirv::{Capability, Decoration, Word};
 

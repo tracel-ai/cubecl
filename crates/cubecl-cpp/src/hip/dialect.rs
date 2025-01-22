@@ -90,4 +90,7 @@ impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
     fn warp_any(out: &str) -> String {
         format!("__any({out})")
     }
+    fn warp_ballot(out: &str) -> String {
+        format!("__ballot({out})")
+    }
 }
