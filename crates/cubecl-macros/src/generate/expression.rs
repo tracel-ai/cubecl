@@ -244,13 +244,6 @@ impl Expression {
                 quote![#path::branch::break_expand(context);]
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
-            Expression::Return { expr, span, .. } => {
-                if expr.is_some() {
-                    error!(*span, "Only void return is supported.")
-                } else {
-                    quote![cubecl::frontend::branch::return_expand(context);]
-                }
-            }
             Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);
@@ -491,6 +484,9 @@ impl Expression {
             Expression::Comment { content } => {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(context, #content)]
+            }
+            Expression::Terminate => {
+                quote![cubecl::frontend::branch::return_expand(context);]
             }
         }
     }

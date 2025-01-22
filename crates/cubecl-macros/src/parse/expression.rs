@@ -198,18 +198,6 @@ impl Expression {
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
-            Expr::Return(ret) => {
-                let span = ret.expr.span();
-                Expression::Return {
-                    expr: ret
-                        .expr
-                        .map(|expr| Expression::from_expr(*expr, context))
-                        .transpose()?
-                        .map(Box::new),
-                    span,
-                    _ty: context.return_type.clone(),
-                }
-            }
             Expr::Array(array) => {
                 let span = array.span();
                 let elements = array

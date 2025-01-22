@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
     if ABSOLUTE_POS >= output1.len() {
-        return;
+        terminate!();
     }
 
     output1[ABSOLUTE_POS] = ABSOLUTE_POS;
