@@ -46,6 +46,38 @@ mod new {
     }
 }
 
+mod sequence {
+    use cubecl_ir::{LineInitOperator, Operator};
+
+    use crate::prelude::{Sequence, SequenceExpand};
+
+    use super::*;
+
+    impl<P: CubePrimitive> Line<P> {
+        pub fn from_sequence(_seq: Sequence<P>) -> Line<P> {
+            unexpanded!()
+        }
+
+        pub fn __expand_from_sequence(
+            scope: &mut Scope,
+            seq: SequenceExpand<P>,
+        ) -> ExpandElementTyped<Self> {
+            let items = seq.into_iter().collect::<Vec<_>>();
+            let item_out = Item::vectorized(P::as_elem(scope), NonZero::new(items.len() as u8));
+            let out = scope.create_local(item_out);
+
+            scope.register(Instruction::new(
+                Operator::InitLine(LineInitOperator {
+                    inputs: items.into_iter().map(|it| *it.expand).collect(),
+                }),
+                *out,
+            ));
+
+            out.into()
+        }
+    }
+}
+
 /// Module that contains the implementation details of the fill function.
 mod fill {
     use crate::prelude::cast;

@@ -1,4 +1,4 @@
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, prelude::Sequence};
 use cubecl_core::{
     cube,
     prelude::{Abs, Exp, Float, Line},
@@ -158,17 +158,17 @@ fn powf(lhs: {elem}, rhs: {elem}) -> {elem} {{
 
 #[cube]
 pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
-    let mut out = Line::empty(x.size());
+    let mut out = Sequence::new();
     #[unroll]
     for i in 0..x.size() {
         let elem = x[i];
         if elem < F::new(0.0) {
-            out[i] = -erf_positive_scalar::<F>(-elem);
+            out.push(-erf_positive_scalar::<F>(-elem));
         } else {
-            out[i] = erf_positive_scalar::<F>(elem);
+            out.push(erf_positive_scalar::<F>(elem));
         }
     }
-    out
+    Line::from_sequence(out)
 }
 
 /// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations

@@ -948,7 +948,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let item = out.item();
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {item}({})", inputs.join(", "))
+                writeln!(f, "{out} = {item}({});", inputs.join(", "))
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
