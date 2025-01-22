@@ -19,7 +19,6 @@ pub(crate) struct SlicedPool {
     recently_allocated_size: u64,
     page_size: u64,
     max_alloc_size: u64,
-    min_alloc_size: u64,
     alignment: u64,
 }
 
@@ -82,8 +81,8 @@ impl MemoryPage {
 }
 
 impl MemoryPool for SlicedPool {
-    fn handles_alloc(&self, size: u64) -> bool {
-        size >= self.min_alloc_size && size <= self.max_alloc_size
+    fn max_alloc_size(&self) -> u64 {
+        self.max_alloc_size
     }
 
     /// Returns the resource from the storage, for the specified handle.
@@ -154,12 +153,7 @@ impl MemoryPool for SlicedPool {
 }
 
 impl SlicedPool {
-    pub(crate) fn new(
-        page_size: u64,
-        min_alloc_size: u64,
-        max_alloc_size: u64,
-        alignment: u64,
-    ) -> Self {
+    pub(crate) fn new(page_size: u64, max_alloc_size: u64, alignment: u64) -> Self {
         // Pages should be allocated to be aligned.
         assert_eq!(page_size % alignment, 0);
         Self {
@@ -171,7 +165,6 @@ impl SlicedPool {
             recently_allocated_size: 0,
             alignment,
             page_size,
-            min_alloc_size,
             max_alloc_size,
         }
     }

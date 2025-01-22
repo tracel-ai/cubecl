@@ -97,8 +97,10 @@ impl WgpuStream {
             &memory_properties,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: memory_management::PoolType::ExclusivePages { min_alloc_size: 0 },
-                    dealloc_period: None,
+                    pool_type: memory_management::PoolType::ExclusivePages {
+                        max_alloc_size: SMALL_UNIFORMS_BUFFER_SIZE,
+                    },
+                    dealloc_period: Some(100),
                 }],
             },
         );
