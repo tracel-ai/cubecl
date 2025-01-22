@@ -9,13 +9,16 @@ use crate::{
 };
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::expand_checked_index_assign;
 use cubecl_core::{
     compute,
     ir::{self as cube, UIntKind},
-    prelude::CompiledKernel,
+    prelude::{assign, CompiledKernel},
     server::ComputeServer,
     Feature, Metadata,
+};
+use cubecl_core::{
+    ir::{expand_checked_index_assign, ExpandElement},
+    prelude::FloatExpand,
 };
 use cubecl_runtime::DeviceProperties;
 use wgpu::{
@@ -549,7 +552,9 @@ impl WgslCompiler {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
             }),
-            cube::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
+            cube::Operation::Arithmetic(op) => {
+                self.compile_arithmetic(op, out, instructions, scope)
+            }
             cube::Operation::Comparison(op) => self.compile_cmp(op, out, instructions),
             cube::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
             cube::Operation::Operator(op) => self.compile_operator(op, out, instructions, scope),
@@ -762,6 +767,7 @@ impl WgslCompiler {
         value: cube::Arithmetic,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
+        scope: &mut cube::Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -855,10 +861,15 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::Erf(op) => instructions.push(wgsl::Instruction::Erf {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(out),
-            }),
+            cube::Arithmetic::Erf(op) => {
+                let input = ExpandElement::Plain(op.input);
+                let out = ExpandElement::Plain(out);
+                let mut scope = scope.child();
+                scope.register_elem::<FloatExpand<0>>(op.input.item.elem);
+                let erf = super::extension::erf::expand::<FloatExpand<0>>(&mut scope, input.into());
+                assign::expand(&mut scope, erf, out.into());
+                instructions.extend(self.compile_scope(&mut scope));
+            }
             cube::Arithmetic::Recip(op) => instructions.push(wgsl::Instruction::Recip {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -1237,9 +1248,6 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
                 } else {
                     register_extension(wgsl::Extension::Powf(out.item()));
                 }
-            }
-            wgsl::Instruction::Erf { input, out: _ } => {
-                register_extension(wgsl::Extension::Erf(input.item()));
             }
             #[cfg(target_os = "macos")]
             wgsl::Instruction::Tanh { input, out: _ } => {

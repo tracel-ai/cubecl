@@ -19,14 +19,12 @@ pub mod not {
 }
 
 pub mod neg {
-    use crate::prelude::Numeric;
-
     use super::*;
 
-    pub fn expand<N: Numeric>(
+    pub fn expand<E: CubePrimitive>(
         context: &mut Scope,
-        x: ExpandElementTyped<N>,
-    ) -> ExpandElementTyped<N> {
+        x: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
         unary_expand(context, x.into(), Arithmetic::Neg).into()
     }
 }

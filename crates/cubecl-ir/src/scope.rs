@@ -168,7 +168,9 @@ impl Scope {
 
     /// Create a mutable variable of the given [item type](Item).
     pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> ExpandElement {
-        self.allocator.create_local_mut(item.into())
+        let local = self.allocator.create_local_mut(item.into());
+        self.add_local_mut(*local);
+        local
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -309,7 +311,7 @@ impl Scope {
             layout_ref: self.layout_ref,
             allocator: self.allocator.clone(),
             debug_enabled: self.debug_enabled,
-            typemap: Default::default(),
+            typemap: self.typemap.clone(),
         }
     }
 
@@ -351,14 +353,6 @@ impl Scope {
         self.allocator.new_local_index()
     }
 
-    fn new_shared_index(&self) -> Id {
-        self.shared_memories.len() as Id
-    }
-
-    fn new_const_array_index(&self) -> Id {
-        self.const_arrays.len() as Id
-    }
-
     fn read_input_strategy(
         &mut self,
         index: Id,
@@ -388,7 +382,7 @@ impl Scope {
         shared_memory_size: u32,
     ) -> ExpandElement {
         let item = item.into();
-        let index = self.new_shared_index();
+        let index = self.new_local_index();
         let shared_memory = Variable::new(
             VariableKind::SharedMemory {
                 id: index,
@@ -407,7 +401,7 @@ impl Scope {
         data: Vec<Variable>,
     ) -> ExpandElement {
         let item = item.into();
-        let index = self.new_const_array_index();
+        let index = self.new_local_index();
         let const_array = Variable::new(
             VariableKind::ConstantArray {
                 id: index,

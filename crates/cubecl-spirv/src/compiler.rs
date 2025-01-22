@@ -1,5 +1,9 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{ir as core, prelude::FastMath, Metadata};
+use cubecl_core::{
+    ir::{self as core, Scope},
+    prelude::FastMath,
+    Metadata,
+};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -368,6 +372,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .collect::<Vec<_>>();
         for ty in scalars {
             self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+        }
+    }
+
+    pub fn compile_polyfill(&mut self, mut scope: Scope) {
+        let processed = scope.process();
+        for inst in processed.operations {
+            self.compile_operation(inst);
         }
     }
 }

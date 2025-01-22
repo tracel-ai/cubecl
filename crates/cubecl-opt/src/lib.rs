@@ -132,7 +132,7 @@ pub struct Optimizer {
     /// The single return block
     pub ret: NodeIndex,
     /// Root scope to allocate variables on
-    root_scope: Scope,
+    pub root_scope: Scope,
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.

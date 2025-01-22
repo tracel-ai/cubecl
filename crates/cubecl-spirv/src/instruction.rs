@@ -1,5 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as core, BinaryOperator, Bitwise, Comparison, Operator, UnaryOperator};
+use cubecl_core::ir::{self as core, BinaryOperator, Comparison, Operator, UnaryOperator};
 use cubecl_core::ir::{Arithmetic, Instruction, Operation};
 use rspirv::spirv::{Capability, Decoration, Word};
 
@@ -535,49 +535,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     .unwrap();
                 });
-            }
-        }
-    }
-
-    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>) {
-        let out = out.unwrap();
-        match op {
-            Bitwise::BitwiseAnd(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.bitwise_and(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Bitwise::BitwiseOr(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
-            }),
-            Bitwise::BitwiseXor(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
-                })
-            }
-            Bitwise::BitwiseNot(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    b.not(ty, Some(out), input).unwrap();
-                });
-            }
-            Bitwise::CountOnes(op) => {
-                // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    b.bit_count(ty, Some(out), input).unwrap();
-                });
-            }
-            Bitwise::ReverseBits(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                    b.bit_reverse(ty, Some(out), input).unwrap();
-                });
-            }
-            Bitwise::ShiftLeft(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
-            }),
-            Bitwise::ShiftRight(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
-                })
             }
         }
     }

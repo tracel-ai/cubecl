@@ -137,10 +137,6 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Erf {
-        input: Variable,
-        out: Variable,
-    },
     Recip {
         input: Variable,
         out: Variable,
@@ -650,10 +646,6 @@ impl Display for Instruction {
                 let result = writeln!(f, "{out} = tanh({input});");
 
                 result
-            }
-            Instruction::Erf { input, out } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = erf({input});")
             }
             Instruction::Recip { input, out } => {
                 let out = out.fmt_left();

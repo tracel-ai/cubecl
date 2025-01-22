@@ -22,6 +22,7 @@ mod subgroup;
 mod sync;
 mod target;
 mod variable;
+mod bitwise;
 
 pub use compiler::*;
 pub use target::*;
