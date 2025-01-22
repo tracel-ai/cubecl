@@ -100,7 +100,7 @@ impl WgpuStream {
                     pool_type: memory_management::PoolType::ExclusivePages {
                         max_alloc_size: SMALL_UNIFORMS_BUFFER_SIZE,
                     },
-                    dealloc_period: Some(100),
+                    dealloc_period: Some(5000),
                 }],
             },
         );

@@ -3,8 +3,6 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
-use alloc::vec;
-use alloc::vec::Vec;
 
 pub use super::memory_pool::{SliceBinding, SliceHandle};
 
@@ -56,8 +54,6 @@ impl MemoryPool for DynamicPool {
         }
     }
 }
-
-const MB: u64 = 1024 * 1024;
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
@@ -162,8 +158,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                const MIN_BUCKET_SIZE: u64 = 1024 * 1024;
-                const NUM_POOLS: usize = 16;
+                const MIN_BUCKET_SIZE: u64 = 1024 * 128;
+                const NUM_POOLS: usize = 20;
 
                 let sizes = generate_bucket_sizes(
                     MIN_BUCKET_SIZE,
@@ -177,8 +173,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     .map(|&size| {
                         // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
                         // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
+                        const SCALE_MB: u64 = 1024 * 1024 * 1024;
+
                         let dealloc_period =
-                            (50.0 * (1.0 + size as f64 / (1024.0 * MB as f64)).round()) as u64;
+                            (500.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
 
                         log::info!("Adding option with size {size}");
 
@@ -275,7 +273,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .position(|p| p.max_alloc_size() >= size)
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"));
 
-        for i in index..(index + 1).min(self.pools.len()) {
+        for i in index..(index + 3).min(self.pools.len()) {
             if let Some(slice) = self.pools[i].try_reserve(size) {
                 return slice;
             }

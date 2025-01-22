@@ -17,11 +17,11 @@ pub struct ExclusiveMemoryPool {
     alignment: u64,
     dealloc_period: u64,
     last_dealloc_check: u64,
-
     max_alloc_size: u64,
-
     cur_avg_size: f64,
 }
+
+const ALLOC_AFTER_FREE: u32 = 5;
 
 struct MemoryPage {
     slice: Slice,
@@ -51,7 +51,8 @@ impl ExclusiveMemoryPool {
         // Return the smallest free page that fits.
         self.pages
             .iter_mut()
-            .find(|page| page.alloc_size >= size && page.slice.is_free())
+            .filter(|page| page.alloc_size >= size && page.slice.is_free())
+            .min_by_key(|page| page.free_count)
     }
 
     fn alloc_page<Storage: ComputeStorage>(
@@ -59,7 +60,7 @@ impl ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> &mut MemoryPage {
-        const AVG_DECAY: f64 = 0.01;
+        const AVG_DECAY: f64 = 0.025;
         self.cur_avg_size = self.cur_avg_size * (1.0 - AVG_DECAY) + size as f64 * AVG_DECAY;
         let alloc_size = (self.cur_avg_size as u64).max(size);
 
@@ -77,7 +78,7 @@ impl ExclusiveMemoryPool {
         self.pages.push(MemoryPage {
             slice,
             alloc_size,
-            free_count: 0,
+            free_count: ALLOC_AFTER_FREE - 1,
         });
 
         let idx = self.pages.len() - 1;
@@ -107,7 +108,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             // get a page with a big enough size, so this is ok to do.
             page.slice.storage.utilization = StorageUtilization { offset: 0, size };
             page.slice.padding = padding;
-            page.free_count = 0;
+            page.free_count = page.free_count.saturating_sub(1);
             page.slice.handle.clone()
         })
     }
@@ -118,7 +119,6 @@ impl MemoryPool for ExclusiveMemoryPool {
             "Should allocate less than maximum size in pool!"
         );
         let page = self.alloc_page(storage, size);
-        page.free_count = 0;
         page.slice.handle.clone()
     }
 
@@ -146,7 +146,7 @@ impl MemoryPool for ExclusiveMemoryPool {
     }
 
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
-        let check_period = self.dealloc_period;
+        let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
         if alloc_nr - self.last_dealloc_check < check_period {
             return;
@@ -158,7 +158,7 @@ impl MemoryPool for ExclusiveMemoryPool {
             if page.slice.is_free() {
                 page.free_count += 1;
 
-                if page.free_count > 1 {
+                if page.free_count >= ALLOC_AFTER_FREE {
                     // Dealloc page.
                     storage.dealloc(page.slice.storage.id);
                     return false;
