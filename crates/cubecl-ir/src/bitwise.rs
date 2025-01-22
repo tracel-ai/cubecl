@@ -20,6 +20,10 @@ pub enum Bitwise {
     CountOnes(UnaryOperator),
     ReverseBits(UnaryOperator),
     BitwiseNot(UnaryOperator),
+    /// Count leading zeros
+    LeadingZeros(UnaryOperator),
+    /// Find least significant bit set
+    FindFirstSet(UnaryOperator),
 }
 
 impl Display for Bitwise {
@@ -33,6 +37,8 @@ impl Display for Bitwise {
             Bitwise::ShiftLeft(op) => write!(f, "{} << {}", op.lhs, op.rhs),
             Bitwise::ShiftRight(op) => write!(f, "{} >> {}", op.lhs, op.rhs),
             Bitwise::BitwiseNot(op) => write!(f, "!{}", op.input),
+            Bitwise::LeadingZeros(op) => write!(f, "{}.leading_zeros()", op.input),
+            Bitwise::FindFirstSet(op) => write!(f, "{}.find_first_set()", op.input),
         }
     }
 }

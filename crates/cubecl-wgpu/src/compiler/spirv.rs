@@ -206,11 +206,13 @@ fn request_device(
 ) -> (wgpu::Device, wgpu::Queue) {
     // This registers only f16 but not u8/i8, so remove so we can manually add them
     features.remove(Features::SHADER_F16);
+    // Skip float features since we already register a more general version manually
+    features.remove(Features::SHADER_FLOAT32_ATOMIC);
 
     let ash = adapter.shared_instance();
     let mut extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
-    let extensions = extended_feat.extensions.clone();
-    let mut phys_features = adapter.physical_device_features(&extended_feat.extensions, features);
+    let extensions = adapter.required_device_extensions(features);
+    let mut phys_features = adapter.physical_device_features(&extensions, features);
 
     let supported_feat = unsafe {
         ash.raw_instance()

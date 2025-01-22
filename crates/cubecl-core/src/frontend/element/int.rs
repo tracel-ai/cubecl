@@ -1,12 +1,15 @@
 use cubecl_ir::ExpandElement;
 
-use crate::frontend::{CubeContext, CubeType, Numeric};
 use crate::ir::{Elem, IntKind};
 use crate::prelude::BitwiseNot;
 use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
+};
+use crate::{
+    frontend::{CubeContext, CubeType, Numeric},
+    prelude::{FindFirstSet, LeadingZeros},
 };
 
 use super::{
@@ -20,6 +23,8 @@ pub trait Int:
     + CountOnes
     + ReverseBits
     + BitwiseNot
+    + LeadingZeros
+    + FindFirstSet
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

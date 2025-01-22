@@ -1,5 +1,7 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as core, BinaryOperator, Bitwise, Comparison, Operator, UnaryOperator};
+use cubecl_core::ir::{
+    self as core, BinaryOperator, Bitwise, Comparison, IntKind, Operator, UIntKind, UnaryOperator,
+};
 use cubecl_core::ir::{Arithmetic, Instruction, Operation};
 use rspirv::spirv::{Capability, Decoration, Word};
 
@@ -316,11 +318,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Powf(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
-                    let bool = match out_ty {
-                        Item::Scalar(_) => Elem::Bool.id(b),
-                        Item::Vector(_, factor) => Item::Vector(Elem::Bool, factor).id(b),
-                        _ => unreachable!(),
-                    };
+                    let bool = out_ty.same_vectorization(Elem::Bool).id(b);
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let zero = out_ty.const_u32(b, 0);
                     let one = out_ty.const_u32(b, 1);
@@ -560,15 +558,83 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.not(ty, Some(out), input).unwrap();
                 });
             }
+
+            // The following ops only support 32 bit ints, so we need to do some conversion
             Bitwise::CountOnes(op) => {
+                let item = self.compile_item(op.input.item);
                 // While the spec theoretically allows arbitrary integers, Vulkan only supports i32/u32
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
-                    b.bit_count(ty, Some(out), input).unwrap();
-                });
+                match item.elem() {
+                    Elem::Int(64, _) => {
+                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                            let (_, lower, upper) = b.decompose_64(item, input);
+                            let lower_count = b.bit_count(ty, None, lower).unwrap();
+                            let upper_count = b.bit_count(ty, None, upper).unwrap();
+                            b.i_add(ty, Some(out), lower_count, upper_count).unwrap();
+                        });
+                    }
+                    _ => {
+                        self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                            b.bit_count(ty, Some(out), input).unwrap();
+                        });
+                    }
+                }
             }
             Bitwise::ReverseBits(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                    b.bit_reverse(ty, Some(out), input).unwrap();
+                let item = self.compile_item(op.input.item);
+                // Only supports 32 bit right now, so compensate with shift
+                self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
+                    match out_ty.elem() {
+                        Elem::Int(64, _) => {
+                            let (u32_ty, lower, upper) = b.decompose_64(item, input);
+                            let u32_id = u32_ty.id(b);
+                            let lower_rev = b.bit_reverse(u32_id, None, lower).unwrap();
+                            let upper_rev = b.bit_reverse(u32_id, None, upper).unwrap();
+                            let lower_cast = b.u_convert(ty, None, lower_rev).unwrap();
+                            let upper_cast = b.u_convert(ty, None, upper_rev).unwrap();
+                            let shift = u32_ty.const_u32(b, 32);
+                            // Shift lower up to flip order of decomposed ints
+                            let lower_shift =
+                                b.shift_left_logical(ty, None, lower_cast, shift).unwrap();
+                            b.bitwise_or(ty, Some(out), lower_shift, upper_cast)
+                                .unwrap()
+                        }
+                        Elem::Int(32, _) => b.bit_reverse(ty, Some(out), input).unwrap(),
+                        Elem::Int(width, _) => {
+                            let u32_ty = out_ty.same_vectorization(Elem::Int(32, false));
+                            let u32_id = u32_ty.id(b);
+                            let shift = u32_ty.const_u32(b, 32 - width);
+                            let cast = b.u_convert(u32_id, None, input).unwrap();
+                            let reverse = b.bit_reverse(u32_id, None, cast).unwrap();
+                            let shifted =
+                                b.shift_right_logical(u32_id, None, reverse, shift).unwrap();
+                            b.u_convert(ty, Some(out), shifted).unwrap()
+                        }
+                        _ => unreachable!(),
+                    };
+                });
+            }
+            Bitwise::LeadingZeros(op) => {
+                // GLSL extension only supports msb, map to corresponding clz
+                // Since Vulkan only supports 32 bit here, we zero extend to u32, and compensate
+                // in the conversion
+                let width = (op.input.item.elem().size() * 8) as u32;
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    let temp = b.id();
+                    let width = out_ty.const_u32(b, width);
+                    let one = out_ty.const_u32(b, 1);
+                    T::find_msb(b, ty, input, temp);
+                    let msb_normalized = b.i_add(ty, None, temp, one).unwrap();
+                    b.i_sub(ty, Some(out), width, msb_normalized).unwrap();
+                });
+            }
+            Bitwise::FindFirstSet(op) => {
+                // GLSL extension returns 0 indexed bits with -1 for no bits set. Add 1 to match CUDA
+                // Also cast to 32 bit because Vulkan only supports u32 at the moment
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    let temp = b.id();
+                    let one = out_ty.const_u32(b, 1);
+                    T::find_lsb(b, ty, input, temp);
+                    b.i_add(ty, Some(out), temp, one).unwrap();
                 });
             }
             Bitwise::ShiftLeft(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
@@ -580,6 +646,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 })
             }
         }
+    }
+
+    fn decompose_64(&mut self, ty: Item, input: Word) -> (Item, Word, Word) {
+        let u32_ty = ty.same_vectorization(Elem::Int(32, false));
+        let u32_id = u32_ty.id(self);
+        let shift = u32_ty.const_u32(self, 32);
+        let lower = self.u_convert(u32_id, None, input).unwrap();
+        let shifted = self
+            .shift_right_logical(u32_id, None, input, shift)
+            .unwrap();
+        let upper = self.u_convert(u32_id, None, shifted).unwrap();
+        (u32_ty, lower, upper)
     }
 
     pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>) {

@@ -38,6 +38,9 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn s_clamp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, min: Word, max: Word, out: Word);
     fn magnitude(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+
+    fn find_msb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn find_lsb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
 }
 
 pub mod glcompute {
@@ -171,6 +174,14 @@ pub mod glcompute {
 
         fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             ext_op(b, ty, out, GLSLstd450Normalize, [input]);
+        }
+
+        fn find_msb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            ext_op(b, ty, out, GLSLstd450FindUMsb, [input]);
+        }
+
+        fn find_lsb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            ext_op(b, ty, out, GLSLstd450FindILsb, [input]);
         }
     }
 }

@@ -256,6 +256,14 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    LeadingZeros {
+        input: Variable,
+        out: Variable,
+    },
+    FindFirstSet {
+        input: Variable,
+        out: Variable,
+    },
     Round {
         input: Variable,
         out: Variable,
@@ -852,6 +860,14 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::BitwiseNot { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ~{input};")
+            }
+            Instruction::LeadingZeros { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = countLeadingZeros({input});")
+            }
+            Instruction::FindFirstSet { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = firstTrailingBit({input});")
             }
             Instruction::Round { input, out } => {
                 let out = out.fmt_left();

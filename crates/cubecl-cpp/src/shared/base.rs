@@ -746,6 +746,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Bitwise::BitwiseNot(op) => {
                 instructions.push(Instruction::BitwiseNot(self.compile_unary(op, out)))
             }
+            gpu::Bitwise::LeadingZeros(op) => {
+                instructions.push(Instruction::LeadingZeros(self.compile_unary(op, out)))
+            }
+            gpu::Bitwise::FindFirstSet(op) => {
+                instructions.push(Instruction::FindFirstSet(self.compile_unary(op, out)))
+            }
         };
     }
 
