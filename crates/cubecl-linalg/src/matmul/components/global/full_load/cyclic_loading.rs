@@ -37,6 +37,16 @@ impl LoadingValidation for CyclicLoading {
             ));
         }
 
+        // For window mode
+        // TODO: it might be fine to allow partial planes but will necessitate branching
+        let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
+        if num_slices < total_units || num_slices % total_units != 0 {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out of bounds. 
+        Try setting line size and number of planes so that jump_length divides num_stage_elements.",
+            ));
+        }
+
         Ok(())
     }
 }
@@ -51,51 +61,40 @@ impl LoadingStrategy for CyclicLoading {
         #[comptime] config: G,
     ) {
         let stage_dim = config.stage_dim(ident);
-        let line_size = config.global_line_size(ident);
-
-        let num_stage_lines = stage_dim.total_elements() / line_size;
-        let tile_num_lines = stage_dim.tile_num_elements() / line_size;
-        let jump_length = comptime!(config.num_planes() * config.plane_dim());
-        let num_loads_per_unit = comptime!(num_stage_lines / jump_length);
+        let total_units = config.plane_dim() * config.num_planes();
+        let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
+        let num_loads_per_plane = num_slices / total_units;
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        // TODO: Actually load a window, not using for loops.
-        for i in 0..num_loads_per_unit {
-            let unit_position = unit_id + i * jump_length;
+        // If > 1, do: for i in 0..num_loads_per_plane {
+        let _ = assert!(num_loads_per_plane == 1);
 
-            let nth_tile = unit_position / tile_num_lines;
-            let (tile_x, tile_y) = match config.tiling_order(ident) {
-                TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
-                    nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
-                ),
-                TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
-                    nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
-                ),
-            };
+        let nth_tile = unit_id / num_slices;
+        let (tile_x, tile_y) = match config.tiling_order(ident) {
+            TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
+                nth_tile,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+            TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
+                nth_tile,
+                stage_dim.num_tiles_x_dim(),
+                stage_dim.num_tiles_y_dim(),
+            ),
+        };
+        let nth_slice = unit_id % num_slices;
 
-            let pos_within_tile = (unit_position % tile_num_lines) * line_size;
+        // let source: Slice<Line<EG>> =
+        //     read_view.load_window_coalesced(tile_x, tile_y, nth_slice, ident, config);
 
-            let source = read_view.load_window_coalesced::<G>(
-                tile_x,
-                tile_y,
-                pos_within_tile,
-                ident,
-                config,
-            );
-
-            match config.transpose_load(ident) {
-                false => {
-                    let destination = slice.slice_mut(unit_position, unit_position + source.len());
-                    pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-                }
-                true => {
-                    let _ = unimplemented!();
-                }
+        match config.transpose_load(ident) {
+            false => {
+                // let destination = slice.slice_mut(unit_position, unit_position + source.len());
+                // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+            }
+            true => {
+                let _ = unimplemented!();
             }
         }
     }
