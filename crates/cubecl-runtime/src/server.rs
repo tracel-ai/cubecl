@@ -4,11 +4,10 @@ use crate::{
         MemoryHandle, MemoryUsage,
     },
     storage::{BindingResource, ComputeStorage},
-    ExecutionMode,
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::benchmark::TimestampsResult;
+use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///

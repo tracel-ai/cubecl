@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_core::ir::{self, Operation};
+use cubecl_ir::{self as ir, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{

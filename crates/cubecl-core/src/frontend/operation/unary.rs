@@ -3,8 +3,8 @@ use half::{bf16, f16};
 use crate::{
     flex32,
     frontend::CubeContext,
-    ir::Operator,
-    prelude::{CubePrimitive, ExpandElement, ExpandElementTyped},
+    ir::{ExpandElement, Operator},
+    prelude::{CubePrimitive, ExpandElementTyped},
     tf32, unexpanded,
 };
 

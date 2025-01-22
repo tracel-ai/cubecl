@@ -1,16 +1,12 @@
-use std::fmt::Display;
-
-use serde::{Deserialize, Serialize};
+use cubecl_ir::{AtomicOp, ExpandElement};
 
 use super::{
     init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Int, IntoRuntime,
     LaunchArgExpand, Numeric,
 };
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType, ExpandElement},
-    ir::{
-        BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, Operation, UnaryOperator,
-    },
+    frontend::{CubeContext, CubePrimitive, CubeType},
+    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, UnaryOperator},
     prelude::KernelBuilder,
     unexpanded,
 };
@@ -21,43 +17,6 @@ use crate::{
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Atomic<Inner: CubePrimitive> {
     pub val: Inner,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AtomicOp {
-    Load(UnaryOperator),
-    Store(UnaryOperator),
-    Swap(BinaryOperator),
-    Add(BinaryOperator),
-    Sub(BinaryOperator),
-    Max(BinaryOperator),
-    Min(BinaryOperator),
-    And(BinaryOperator),
-    Or(BinaryOperator),
-    Xor(BinaryOperator),
-    CompareAndSwap(CompareAndSwapOperator),
-}
-
-impl Display for AtomicOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AtomicOp::Load(op) => write!(f, "atomic_load({})", op.input),
-            AtomicOp::Store(op) => write!(f, "atomic_store({})", op.input),
-            AtomicOp::Swap(op) => {
-                write!(f, "atomic_swap({}, {})", op.lhs, op.rhs)
-            }
-            AtomicOp::Add(op) => write!(f, "atomic_add({}, {})", op.lhs, op.rhs),
-            AtomicOp::Sub(op) => write!(f, "atomic_sub({}, {})", op.lhs, op.rhs),
-            AtomicOp::Max(op) => write!(f, "atomic_max({}, {})", op.lhs, op.rhs),
-            AtomicOp::Min(op) => write!(f, "atomic_min({}, {})", op.lhs, op.rhs),
-            AtomicOp::And(op) => write!(f, "atomic_and({}, {})", op.lhs, op.rhs),
-            AtomicOp::Or(op) => write!(f, "atomic_or({}, {})", op.lhs, op.rhs),
-            AtomicOp::Xor(op) => write!(f, "atomic_xor({}, {})", op.lhs, op.rhs),
-            AtomicOp::CompareAndSwap(op) => {
-                write!(f, "compare_and_swap({}, {}, {})", op.input, op.cmp, op.val)
-            }
-        }
-    }
 }
 
 impl<Inner: Numeric> Atomic<Inner> {
@@ -386,11 +345,5 @@ impl<Inner: CubePrimitive> LaunchArgExpand for Atomic<Inner> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder.scalar(Self::as_elem_native_unchecked()).into()
-    }
-}
-
-impl From<AtomicOp> for Operation {
-    fn from(value: AtomicOp) -> Self {
-        Operation::Atomic(value)
     }
 }

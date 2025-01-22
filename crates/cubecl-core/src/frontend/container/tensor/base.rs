@@ -1,7 +1,9 @@
+use cubecl_ir::ExpandElement;
+
 use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer};
 use crate::prelude::IntoRuntime;
 use crate::{
-    frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElement},
+    frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
     ir::{Item, Metadata},
     prelude::Line,
     unexpanded,
@@ -17,6 +19,8 @@ pub struct Tensor<T: CubeType> {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
+    use cubecl_ir::ExpandElement;
+
     use super::*;
     use crate::{
         ir::{BinaryOperator, Instruction, Operator},

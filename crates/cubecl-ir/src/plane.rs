@@ -1,12 +1,15 @@
 use std::fmt::Display;
 
+use crate::Operation;
+
 use super::{BinaryOperator, UnaryOperator};
-use serde::{Deserialize, Serialize};
+use type_hash::TypeHash;
 
 /// All plane operations.
 ///
 /// Note that not all backends support plane (warp/subgroup) operations. Use the [runtime flag](crate::Feature::Plane).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Plane {
     Elect,
@@ -33,5 +36,11 @@ impl Display for Plane {
             Plane::Min(op) => writeln!(f, "plane_min({})", op.input),
             Plane::Max(op) => writeln!(f, "plane_max({})", op.input),
         }
+    }
+}
+
+impl From<Plane> for Operation {
+    fn from(value: Plane) -> Self {
+        Operation::Plane(value)
     }
 }

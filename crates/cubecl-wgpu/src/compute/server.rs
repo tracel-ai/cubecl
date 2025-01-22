@@ -19,7 +19,7 @@ use cubecl_runtime::{
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
-    ExecutionMode, TimestampsError, TimestampsResult,
+    TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;

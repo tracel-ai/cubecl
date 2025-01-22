@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use cubecl_core::{ir::Binding, CompilerRepresentation};
+use cubecl_core::{compute::Binding, CompilerRepresentation};
 use cubecl_opt::Optimizer;
 use rspirv::{
     binary::{Assemble, Disassemble},

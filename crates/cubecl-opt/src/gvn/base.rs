@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, UIntKind};
+use cubecl_ir::{Builtin, ConstantScalarValue, Elem, FloatKind, Id, IntKind, Item, UIntKind};
 use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
@@ -223,6 +223,7 @@ pub enum OpId {
     Neg,
     Max,
     Min,
+    BitwiseNot,
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,

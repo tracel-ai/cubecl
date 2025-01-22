@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use cubecl_core::ir::{Id, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Id, Operation, Operator, Variable, VariableKind};
 
 use crate::Optimizer;
 

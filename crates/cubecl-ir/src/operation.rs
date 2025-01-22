@@ -4,12 +4,8 @@ use super::{
     Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Scope, Select, Synchronization,
     Variable,
 };
-use crate::{
-    cpa,
-    ir::{Elem, UIntKind},
-    prelude::AtomicOp,
-};
-use serde::{Deserialize, Serialize};
+use crate::{cpa, AtomicOp, Elem, UIntKind};
+use type_hash::TypeHash;
 
 /// All operations that can be used in a GPU compute shader.
 ///
@@ -18,7 +14,8 @@ use serde::{Deserialize, Serialize};
 /// [Operator] can be vectorized, but other operations can't.
 /// Therefore, during tracing, only operators can be registered.
 ///
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
 pub enum Operation {
     Copy(Variable),
@@ -35,7 +32,8 @@ pub enum Operation {
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
 pub struct Instruction {
     pub out: Option<Variable>,
     pub operation: Operation,
@@ -154,7 +152,8 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 }
 
 /// All operators that can be used in a GPU compute shader.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Operator {
     Add(BinaryOperator),
@@ -301,7 +300,8 @@ impl Display for Operator {
 }
 
 /// All metadata that can be accessed in a shader.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub enum Metadata {
     /// The rank of an array.
@@ -328,26 +328,30 @@ impl Display for Metadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct UnaryOperator {
     pub input: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct LineInitOperator {
     pub inputs: Vec<Variable>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct CopyMemoryOperator {
     pub out_index: Variable,
@@ -355,7 +359,8 @@ pub struct CopyMemoryOperator {
     pub in_index: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct CopyMemoryBulkOperator {
     pub out_index: Variable,
@@ -364,7 +369,8 @@ pub struct CopyMemoryBulkOperator {
     pub len: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct ClampOperator {
     pub input: Variable,
@@ -372,7 +378,8 @@ pub struct ClampOperator {
     pub max_value: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct SliceOperator {
     pub input: Variable,
@@ -380,7 +387,8 @@ pub struct SliceOperator {
     pub end: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct CompareAndSwapOperator {
     pub input: Variable,
@@ -388,13 +396,15 @@ pub struct CompareAndSwapOperator {
     pub val: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct ReadGlobalOperator {
     pub variable: Variable,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct ReadGlobalWithLayoutOperator {
     pub variable: Variable,
@@ -402,7 +412,8 @@ pub struct ReadGlobalWithLayoutOperator {
     pub tensor_layout_pos: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct FmaOperator {
     pub a: Variable,

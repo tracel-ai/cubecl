@@ -3,8 +3,8 @@ use std::{
     mem::swap,
 };
 
-use cubecl_core::ir::{
-    self, Elem, Item, Metadata, Operation, Operator, UIntKind, Variable, VariableKind,
+use cubecl_ir::{
+    self as ir, Elem, Item, Metadata, Operation, Operator, UIntKind, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;

@@ -69,14 +69,16 @@
 
 use std::marker::PhantomData;
 
+use cubecl_ir::ExpandElement;
+
 use crate::{
     ir::{Instruction, Item, Operation, PipelineOps},
     unexpanded,
 };
 
 use super::{
-    CubeContext, CubePrimitive, CubeType, ExpandElement, ExpandElementTyped, Init, IntoRuntime,
-    Line, Slice, SliceMut,
+    CubeContext, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice,
+    SliceMut,
 };
 
 /// A mechanism for managing a sequence of `memcpy_async`

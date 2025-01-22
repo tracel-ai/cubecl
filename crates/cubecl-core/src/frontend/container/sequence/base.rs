@@ -1,10 +1,10 @@
+use cubecl_ir::ExpandElement;
 use serde::{Deserialize, Serialize};
 
 use crate::frontend::{
     branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
     IntoRuntime,
 };
-use crate::prelude::ExpandElement;
 use std::{cell::RefCell, rc::Rc};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.

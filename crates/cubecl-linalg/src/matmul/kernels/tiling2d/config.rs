@@ -1,8 +1,9 @@
 use cubecl_core::{
     self as cubecl,
     prelude::{CubeContext, Init},
+    CubeDim,
 };
-use cubecl_core::{ir::CubeDim, CubeCount, CubeType};
+use cubecl_core::{CubeCount, CubeType};
 
 use super::base::TILE_SIZE;
 

@@ -7,6 +7,7 @@ use ash::{
         TRUE,
     },
 };
+use cubecl_common::ExecutionMode;
 use cubecl_core::{
     channel::MutexComputeChannel,
     client::ComputeClient,
@@ -14,7 +15,7 @@ use cubecl_core::{
     ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
-    AtomicFeature, ExecutionMode, Feature, Runtime,
+    AtomicFeature, Feature, Runtime,
 };
 use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 use cubecl_spirv::CompilationOptions;
@@ -71,7 +72,7 @@ impl WgpuCompiler for SpirvCompiler<GLCompute> {
                             ty: BufferBindingType::Storage {
                                 read_only: matches!(
                                     _binding.visibility,
-                                    cubecl_core::ir::Visibility::Read
+                                    cubecl_core::compute::Visibility::Read
                                 ),
                             },
                             has_dynamic_offset: false,

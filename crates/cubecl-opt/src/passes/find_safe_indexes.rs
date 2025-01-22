@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Operation, Operator, Variable, VariableKind};
 
 use crate::{
     analyses::{const_len::Slices, integer_range::Ranges},
