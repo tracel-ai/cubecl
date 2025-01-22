@@ -3,8 +3,8 @@ use std::num::NonZero;
 use cubecl_ir::{Comparison, ExpandElement};
 
 use crate::{
-    ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item},
-    prelude::{binary_expand_fixed_output, CubeContext, Dot, Numeric},
+    ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
+    prelude::{binary_expand_fixed_output, Dot, Numeric},
     unexpanded,
 };
 
@@ -37,10 +37,7 @@ mod new {
         }
 
         /// Expand function of [Self::new].
-        pub fn __expand_new(
-            _context: &mut CubeContext,
-            val: P::ExpandType,
-        ) -> ExpandElementTyped<Self> {
+        pub fn __expand_new(_context: &mut Scope, val: P::ExpandType) -> ExpandElementTyped<Self> {
             let elem: ExpandElementTyped<P> = val;
             elem.expand.into()
         }
@@ -72,7 +69,7 @@ mod fill {
 
         /// Expand function of [fill](Self::fill).
         pub fn __expand_fill(
-            context: &mut CubeContext,
+            context: &mut Scope,
             line: ExpandElementTyped<Self>,
             value: ExpandElementTyped<P>,
         ) -> ExpandElementTyped<Self> {
@@ -84,7 +81,7 @@ mod fill {
         /// Expand method of [fill](Line::fill).
         pub fn __expand_fill_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             value: ExpandElementTyped<P>,
         ) -> Self {
             let length = self.expand.item.vectorization;
@@ -112,7 +109,7 @@ mod empty {
 
         /// Expand function of [empty](Self::empty).
         pub fn __expand_empty(
-            context: &mut CubeContext,
+            context: &mut Scope,
             length: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<Self> {
             let length = match length.expand.as_const() {
@@ -155,7 +152,7 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(context: &mut CubeContext, element: ExpandElementTyped<P>) -> u32 {
+        pub fn __expand_size(context: &mut Scope, element: ExpandElementTyped<P>) -> u32 {
             element.__expand_vectorization_factor_method(context)
         }
     }
@@ -171,7 +168,7 @@ mod size {
         }
 
         /// Expand method of [size](Line::size).
-        pub fn __expand_size_method(&self, _context: &mut CubeContext) -> u32 {
+        pub fn __expand_size_method(&self, _context: &mut Scope) -> u32 {
             self.size()
         }
     }
@@ -198,7 +195,7 @@ macro_rules! impl_line_comparison {
 
                     /// Expand function of [$name](Self::$name).
                     pub fn [< __expand_ $name >](
-                        context: &mut CubeContext,
+                        context: &mut Scope,
                         lhs: ExpandElementTyped<Self>,
                         rhs: ExpandElementTyped<Self>,
                     ) -> ExpandElementTyped<Line<bool>> {
@@ -210,7 +207,7 @@ macro_rules! impl_line_comparison {
                     /// Expand method of [equal](Line::equal).
                     pub fn [< __expand_ $name _method >](
                         self,
-                        context: &mut CubeContext,
+                        context: &mut Scope,
                         rhs: Self,
                     ) -> ExpandElementTyped<Line<bool>> {
                         let size = self.expand.item.vectorization;
@@ -245,22 +242,19 @@ impl<P: CubePrimitive> CubeType for Line<P> {
 }
 
 impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(context: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         P::init_elem(context, elem)
     }
 }
 
 impl<P: CubePrimitive> IntoRuntime for Line<P> {
-    fn __expand_runtime_method(
-        self,
-        context: &mut crate::prelude::CubeContext,
-    ) -> Self::ExpandType {
+    fn __expand_runtime_method(self, context: &mut crate::ir::Scope) -> Self::ExpandType {
         self.val.__expand_runtime_method(context).expand.into()
     }
 }
 
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
-    fn as_elem(context: &CubeContext) -> Elem {
+    fn as_elem(context: &Scope) -> Elem {
         P::as_elem(context)
     }
 
@@ -279,7 +273,7 @@ impl<N: Numeric> Dot for Line<N> {
     }
 
     fn __expand_dot(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<Self>,
         rhs: ExpandElementTyped<Self>,
     ) -> ExpandElementTyped<Self> {

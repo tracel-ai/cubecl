@@ -1,6 +1,8 @@
+use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
+
 use type_hash::TypeHash;
 
-use crate::ConstantScalarValue;
+use crate::{ConstantScalarValue, ExpandElement, Matrix};
 
 use super::{
     cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -35,6 +37,10 @@ pub struct Scope {
     #[cfg_attr(feature = "serde", serde(skip))]
     #[type_hash(skip)]
     pub allocator: Allocator,
+    pub debug_enabled: bool,
+    #[type_hash(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
 }
 
 impl core::hash::Hash for Scope {
@@ -72,7 +78,7 @@ impl Scope {
     /// [kernel definition](crate::ir::KernelDefinition).
     ///
     /// A local scope can be created with the [child](Self::child) method.
-    pub fn root() -> Self {
+    pub fn root(debug_enabled: bool) -> Self {
         Self {
             depth: 0,
             operations: Vec::new(),
@@ -89,12 +95,14 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             allocator: Allocator::default(),
+            debug_enabled,
+            typemap: Default::default(),
         }
     }
 
     /// Create a variable initialized at zero.
     pub fn zero<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let local = self.create_local(item.into());
+        let local = *self.create_local(item.into());
         let zero: Variable = 0u32.into();
         cpa!(self, local = zero);
         local
@@ -119,18 +127,39 @@ impl Scope {
             }
             Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
         };
-        let local = self.create_local(item);
+        let local = *self.create_local(item);
         let value = Variable::constant(value);
         cpa!(self, local = value);
         local
+    }
+
+    /// Create a new matrix element.
+    pub fn create_matrix(&mut self, matrix: Matrix) -> ExpandElement {
+        let matrix = self.allocator.create_matrix(matrix);
+        self.add_matrix(*matrix);
+        matrix
     }
 
     pub fn add_matrix(&mut self, variable: Variable) {
         self.matrices.push(variable);
     }
 
+    /// Create a new pipeline element.
+    pub fn create_pipeline(&mut self, item: Item) -> ExpandElement {
+        let pipeline = self.allocator.create_pipeline(item);
+        self.add_pipeline(*pipeline);
+        pipeline
+    }
+
     pub fn add_pipeline(&mut self, variable: Variable) {
         self.pipelines.push(variable);
+    }
+
+    /// Create a new slice element.
+    pub fn create_slice(&mut self, item: Item) -> ExpandElement {
+        let slice = self.allocator.create_slice(item);
+        self.add_slice(*slice);
+        slice
     }
 
     pub fn add_slice(&mut self, slice: Variable) {
@@ -138,11 +167,8 @@ impl Scope {
     }
 
     /// Create a mutable variable of the given [item type](Item).
-    pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let id = self.new_local_index();
-        let local = Variable::new(VariableKind::LocalMut { id }, item.into());
-        self.add_local_mut(local);
-        local
+    pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> ExpandElement {
+        self.allocator.create_local_mut(item.into())
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -154,13 +180,13 @@ impl Scope {
 
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_restricted(&mut self, item: Item) -> Variable {
-        *self.allocator.create_local_restricted(item)
+    pub fn create_local_restricted(&mut self, item: Item) -> ExpandElement {
+        self.allocator.create_local_restricted(item)
     }
 
     /// Create a new immutable variable.
-    pub fn create_local(&mut self, item: Item) -> Variable {
-        *self.allocator.create_local(item)
+    pub fn create_local(&mut self, item: Item) -> ExpandElement {
+        self.allocator.create_local(item)
     }
 
     /// Reads an input array to a local variable.
@@ -249,6 +275,21 @@ impl Scope {
         self.operations.push(operation.into())
     }
 
+    /// Resolve the element type of the given generic type.
+    pub fn resolve_elem<T: 'static>(&self) -> Option<Elem> {
+        let map = self.typemap.borrow();
+        let result = map.get(&TypeId::of::<T>());
+
+        result.cloned()
+    }
+
+    /// Register the element type for the given generic type.
+    pub fn register_elem<T: 'static>(&mut self, elem: Elem) {
+        let mut map = self.typemap.borrow_mut();
+
+        map.insert(TypeId::of::<T>(), elem);
+    }
+
     /// Create an empty child scope.
     pub fn child(&mut self) -> Self {
         Self {
@@ -267,6 +308,8 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             allocator: self.allocator.clone(),
+            debug_enabled: self.debug_enabled,
+            typemap: Default::default(),
         }
     }
 
@@ -339,7 +382,11 @@ impl Scope {
     }
 
     /// Create a shared variable of the given [item type](Item).
-    pub fn create_shared<I: Into<Item>>(&mut self, item: I, shared_memory_size: u32) -> Variable {
+    pub fn create_shared<I: Into<Item>>(
+        &mut self,
+        item: I,
+        shared_memory_size: u32,
+    ) -> ExpandElement {
         let item = item.into();
         let index = self.new_shared_index();
         let shared_memory = Variable::new(
@@ -350,11 +397,15 @@ impl Scope {
             item,
         );
         self.shared_memories.push(shared_memory);
-        shared_memory
+        ExpandElement::Plain(shared_memory)
     }
 
     /// Create a shared variable of the given [item type](Item).
-    pub fn create_const_array<I: Into<Item>>(&mut self, item: I, data: Vec<Variable>) -> Variable {
+    pub fn create_const_array<I: Into<Item>>(
+        &mut self,
+        item: I,
+        data: Vec<Variable>,
+    ) -> ExpandElement {
         let item = item.into();
         let index = self.new_const_array_index();
         let const_array = Variable::new(
@@ -365,14 +416,37 @@ impl Scope {
             item,
         );
         self.const_arrays.push((const_array, data));
-        const_array
+        ExpandElement::Plain(const_array)
+    }
+
+    /// Obtain the index-th input
+    pub fn input(&mut self, id: Id, item: Item) -> ExpandElement {
+        ExpandElement::Plain(crate::Variable::new(
+            VariableKind::GlobalInputArray(id),
+            item,
+        ))
+    }
+
+    /// Obtain the index-th output
+    pub fn output(&mut self, id: Id, item: Item) -> ExpandElement {
+        let var = crate::Variable::new(VariableKind::GlobalOutputArray(id), item);
+        self.write_global_custom(var);
+        ExpandElement::Plain(var)
+    }
+
+    /// Obtain the index-th scalar
+    pub fn scalar(&self, id: Id, elem: Elem) -> ExpandElement {
+        ExpandElement::Plain(crate::Variable::new(
+            VariableKind::GlobalScalar(id),
+            Item::new(elem),
+        ))
     }
 
     /// Create a local array of the given [item type](Item).
-    pub fn create_local_array<I: Into<Item>>(&mut self, item: I, array_size: u32) -> Variable {
+    pub fn create_local_array<I: Into<Item>>(&mut self, item: I, array_size: u32) -> ExpandElement {
         let local_array = self.allocator.create_local_array(item.into(), array_size);
         self.add_local_array(*local_array);
-        *local_array
+        local_array
     }
 
     pub fn add_local_array(&mut self, var: Variable) {

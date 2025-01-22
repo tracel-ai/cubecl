@@ -123,8 +123,8 @@ pub struct FmaOperator {
 
 #[allow(missing_docs)]
 pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    let array_len = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
-    let inside_bound = scope.create_local(Item::new(Elem::Bool));
+    let array_len = *scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
+    let inside_bound = *scope.create_local(Item::new(Elem::Bool));
 
     if out.has_buffer_length() {
         cpa!(scope, array_len = buffer_len(out));

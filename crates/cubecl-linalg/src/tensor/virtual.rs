@@ -1,4 +1,4 @@
-use cubecl::prelude::{CubeContext, CubeType, *};
+use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
 use std::{marker::PhantomData, sync::Arc};
 
@@ -46,28 +46,28 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
         unexpanded!();
     }
     pub fn __expand_read(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         this.__expand_read_method(context, index)
     }
     pub fn __expand_shape(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         this.__expand_shape_method(context, axis)
     }
     pub fn __expand_stride(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         this.__expand_stride_method(context, axis)
     }
     pub fn __expand_rank(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         this.__expand_rank_method(context)
@@ -78,7 +78,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
 impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_read_method(
         self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         let _arg_0 = index;
@@ -89,7 +89,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 
     pub fn __expand_shape_method(
         self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         let _arg_0 = axis;
@@ -100,7 +100,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 
     pub fn __expand_stride_method(
         self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         let _arg_0 = axis;
@@ -109,12 +109,12 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
             .__expand_stride_method(context, _arg_0.into())
     }
 
-    pub fn __expand_rank_method(self, context: &mut CubeContext) -> <u32 as CubeType>::ExpandType {
+    pub fn __expand_rank_method(self, context: &mut Scope) -> <u32 as CubeType>::ExpandType {
         self.state.clone().__expand_rank_method(context)
     }
 
     pub fn __expand_read(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: Self,
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
@@ -122,7 +122,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     }
 
     pub fn __expand_shape(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: Self,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
@@ -130,14 +130,14 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     }
 
     pub fn __expand_stride(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: Self,
         axis: <u32 as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_stride(context, this, axis)
     }
 
-    pub fn __expand_rank(context: &mut CubeContext, this: Self) -> <u32 as CubeType>::ExpandType {
+    pub fn __expand_rank(context: &mut Scope, this: Self) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_rank(context, this)
     }
 }
@@ -150,7 +150,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     }
 
     pub fn __expand_write(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
@@ -161,7 +161,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
     pub fn __expand_write_method(
         self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
@@ -174,7 +174,7 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
     }
 
     pub fn __expand_write(
-        context: &mut CubeContext,
+        context: &mut Scope,
         this: Self,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
@@ -189,10 +189,7 @@ impl<E: Numeric> VirtualTensor<E, Read> {
     }
 
     /// Expand function of [Self::new].
-    pub fn __expand_new<V>(
-        _context: &mut CubeContext,
-        v: V::ExpandType,
-    ) -> VirtualTensorExpand<E, Read>
+    pub fn __expand_new<V>(_context: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, Read>
     where
         V::ExpandType: VirtualTensorOperationsExpand<E>,
         V: VirtualTensorOperations<E> + CubeType + 'static,
@@ -212,7 +209,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 
     /// Expand function of [Self::new].
     pub fn __expand_new<V>(
-        _context: &mut CubeContext,
+        _context: &mut Scope,
         v: V::ExpandType,
     ) -> VirtualTensorExpand<E, ReadWrite>
     where
@@ -265,26 +262,26 @@ pub trait VirtualTensorOperations<E: Numeric> {
 pub trait VirtualTensorOperationsExpand<E: Numeric> {
     fn __expand_read_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Line<E>>;
     fn __expand_write_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<Line<E>>,
     );
     fn __expand_shape_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32>;
     fn __expand_stride_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32>;
-    fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32>;
+    fn __expand_rank_method(&self, context: &mut Scope) -> ExpandElementTyped<u32>;
 }
 
 /// Making [virtual tensors](VirtualTensor) a proper [cube type](CubeType).
@@ -296,13 +293,13 @@ mod __cube_type {
     }
 
     impl<E: Numeric, IO> Init for VirtualTensorExpand<E, IO> {
-        fn init(self, _context: &mut CubeContext) -> Self {
+        fn init(self, _context: &mut Scope) -> Self {
             self
         }
     }
 
     impl<E: Numeric, IO: Clone> IntoRuntime for VirtualTensor<E, IO> {
-        fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        fn __expand_runtime_method(self, _context: &mut Scope) -> Self::ExpandType {
             panic!("Virtual tensors don't exist at comptime.")
         }
     }
@@ -316,7 +313,7 @@ mod __tensor {
     impl<E: Numeric> VirtualTensorOperationsExpand<E> for ExpandElementTyped<Tensor<Line<E>>> {
         fn __expand_read_method(
             &self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             index: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<Line<E>> {
             self.clone().__expand_index_unchecked_method(context, index)
@@ -324,7 +321,7 @@ mod __tensor {
 
         fn __expand_write_method(
             &self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             index: ExpandElementTyped<u32>,
             value: ExpandElementTyped<Line<E>>,
         ) {
@@ -334,7 +331,7 @@ mod __tensor {
 
         fn __expand_shape_method(
             &self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             axis: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             self.clone().__expand_shape_method(context, axis)
@@ -342,13 +339,13 @@ mod __tensor {
 
         fn __expand_stride_method(
             &self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             axis: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             self.clone().__expand_stride_method(context, axis)
         }
 
-        fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        fn __expand_rank_method(&self, context: &mut Scope) -> ExpandElementTyped<u32> {
             self.clone().__expand_rank_method(context)
         }
     }

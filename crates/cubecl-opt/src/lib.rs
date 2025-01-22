@@ -147,7 +147,7 @@ impl Default for Optimizer {
             current_block: Default::default(),
             loop_break: Default::default(),
             ret: Default::default(),
-            root_scope: Scope::root(),
+            root_scope: Scope::root(false),
             cube_dim: Default::default(),
             mode: Default::default(),
             analysis_cache: Default::default(),
@@ -421,7 +421,7 @@ mod test {
     #[test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = CubeContext::root();
+        let mut ctx = Scope::root(false);
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Item::new(Elem::UInt(UIntKind::U32)),
@@ -436,8 +436,7 @@ mod test {
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
-        let scope = ctx.into_scope();
-        let opt = Optimizer::new(scope, CubeDim::default(), ExecutionMode::Checked);
+        let opt = Optimizer::new(ctx, CubeDim::default(), ExecutionMode::Checked);
         println!("{opt}")
     }
 }

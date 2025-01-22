@@ -1,9 +1,9 @@
 //! In this file we use a trick where the constant has the same name as the module containing
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
 
-use super::{CubeContext, ExpandElementTyped};
+use super::ExpandElementTyped;
 
 macro_rules! constant {
     ($ident:ident, $var:expr, $doc:expr) => {
@@ -16,7 +16,7 @@ macro_rules! constant {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(_context: &mut CubeContext) -> ExpandElementTyped<u32> {
+            pub fn expand(_context: &mut Scope) -> ExpandElementTyped<u32> {
                 ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin($var)))
             }
         }

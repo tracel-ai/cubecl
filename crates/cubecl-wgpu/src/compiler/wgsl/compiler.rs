@@ -1003,7 +1003,7 @@ impl WgslCompiler {
                     let lhs = op.lhs;
                     let rhs = op.rhs;
                     let array_len =
-                        scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
+                        *scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
 
                     instructions.extend(self.compile_scope(scope));
 
@@ -1069,7 +1069,7 @@ impl WgslCompiler {
             cube::Operator::Slice(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.input.has_length() {
                     let input = op.input;
-                    let input_len = scope
+                    let input_len = *scope
                         .create_local_mut(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
                     instructions.extend(self.compile_scope(scope));
 

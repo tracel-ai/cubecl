@@ -25,16 +25,15 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Variable},
+    ir::{Elem, FloatKind, Scope, Variable},
     prelude::Numeric,
 };
 
 use super::{
-    init_expand_element, Abs, Ceil, Clamp, Cos, CubeContext, CubeIndex, CubeIndexMut,
-    CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElementBaseInit, ExpandElementTyped, Float,
-    Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log, Log1p,
-    Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round, Runtime, ScalarArgSettings, Sin,
-    Sqrt, Tanh,
+    init_expand_element, Abs, Ceil, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, CubeType,
+    Dot, Erf, Exp, ExpandElementBaseInit, ExpandElementTyped, Float, Floor, Index, Init,
+    IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log, Log1p, Magnitude, Max, Min,
+    Normalize, Powf, Recip, Remainder, Round, Runtime, ScalarArgSettings, Sin, Sqrt, Tanh,
 };
 
 #[allow(non_camel_case_types)]
@@ -178,7 +177,7 @@ impl<const POS: u8> CubeType for FloatExpand<POS> {
 
 impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(context: &CubeContext) -> Elem {
+    fn as_elem(context: &Scope) -> Elem {
         context
             .resolve_elem::<Self>()
             .expect("Type to be registered")
@@ -206,7 +205,7 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
 }
 
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self);
         Init::init(expand, context)
     }
@@ -222,7 +221,7 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }

@@ -5,8 +5,8 @@ use super::{
     LaunchArgExpand, Numeric,
 };
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType},
-    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, UnaryOperator},
+    frontend::{CubePrimitive, CubeType},
+    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, Scope, UnaryOperator},
     prelude::KernelBuilder,
     unexpanded,
 };
@@ -65,7 +65,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_load(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let pointer: ExpandElement = pointer.into();
@@ -78,7 +78,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_store(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) {
@@ -91,7 +91,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_swap(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -109,7 +109,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_add(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -127,7 +127,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_sub(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -145,7 +145,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_max(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -163,7 +163,7 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_min(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -211,7 +211,7 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_compare_and_swap(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         cmp: <Inner as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
@@ -232,7 +232,7 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_and(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -250,7 +250,7 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_or(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -268,7 +268,7 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_xor(
-        context: &mut CubeContext,
+        context: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
@@ -291,7 +291,7 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> IntoRuntime for Atomic<Inner> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _context: &mut Scope) -> Self::ExpandType {
         unimplemented!("Atomics don't exist at compile time")
     }
 }
@@ -307,7 +307,7 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
         }
     }
 
-    fn as_elem(context: &CubeContext) -> Elem {
+    fn as_elem(context: &Scope) -> Elem {
         match Inner::as_elem(context) {
             Elem::Float(kind) => Elem::AtomicFloat(kind),
             Elem::Int(kind) => Elem::AtomicInt(kind),
@@ -335,7 +335,7 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> ExpandElementBaseInit for Atomic<Inner> {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }

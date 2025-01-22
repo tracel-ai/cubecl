@@ -72,11 +72,11 @@ use std::marker::PhantomData;
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Instruction, Item, Operation, PipelineOps},
+    ir::{Instruction, Item, Operation, PipelineOps, Scope},
     unexpanded,
 };
 
-use super::{CubeContext, CubePrimitive, ExpandElementTyped, Line, Slice, SliceMut};
+use super::{CubePrimitive, ExpandElementTyped, Line, Slice, SliceMut};
 
 /// A mechanism for managing a sequence of `memcpy_async`
 /// For now, it only works at the Cube scope
@@ -133,7 +133,7 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(context: &mut CubeContext) -> PipelineExpand<C> {
+    pub fn __expand_new(context: &mut Scope) -> PipelineExpand<C> {
         let elem = C::as_elem(context);
         let variable = context.create_pipeline(Item::new(elem));
         PipelineExpand {
@@ -143,7 +143,7 @@ impl<C: CubePrimitive> Pipeline<C> {
     }
 
     pub fn __expand_memcpy_async(
-        context: &mut CubeContext,
+        context: &mut Scope,
         expand: PipelineExpand<C>,
         source: ExpandElementTyped<Slice<Line<C>>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
@@ -151,19 +151,19 @@ impl<C: CubePrimitive> Pipeline<C> {
         expand.__expand_memcpy_async_method(context, source, destination);
     }
 
-    pub fn __expand_producer_acquire(context: &mut CubeContext, expand: PipelineExpand<C>) {
+    pub fn __expand_producer_acquire(context: &mut Scope, expand: PipelineExpand<C>) {
         expand.__expand_producer_acquire_method(context);
     }
 
-    pub fn __expand_producer_commit(context: &mut CubeContext, expand: PipelineExpand<C>) {
+    pub fn __expand_producer_commit(context: &mut Scope, expand: PipelineExpand<C>) {
         expand.__expand_producer_commit_method(context);
     }
 
-    pub fn __expand_consumer_wait(context: &mut CubeContext, expand: PipelineExpand<C>) {
+    pub fn __expand_consumer_wait(context: &mut Scope, expand: PipelineExpand<C>) {
         expand.__expand_consumer_wait_method(context);
     }
 
-    pub fn __expand_consumer_release(context: &mut CubeContext, expand: PipelineExpand<C>) {
+    pub fn __expand_consumer_release(context: &mut Scope, expand: PipelineExpand<C>) {
         expand.__expand_consumer_release_method(context);
     }
 }
@@ -171,7 +171,7 @@ impl<C: CubePrimitive> Pipeline<C> {
 impl<C: CubePrimitive> PipelineExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         source: ExpandElementTyped<Slice<Line<C>>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
     ) {
@@ -191,28 +191,28 @@ impl<C: CubePrimitive> PipelineExpand<C> {
         });
     }
 
-    pub fn __expand_producer_acquire_method(&self, context: &mut CubeContext) {
+    pub fn __expand_producer_acquire_method(&self, context: &mut Scope) {
         let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ProducerAcquire { pipeline }),
         });
     }
-    pub fn __expand_producer_commit_method(&self, context: &mut CubeContext) {
+    pub fn __expand_producer_commit_method(&self, context: &mut Scope) {
         let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
         });
     }
-    pub fn __expand_consumer_wait_method(&self, context: &mut CubeContext) {
+    pub fn __expand_consumer_wait_method(&self, context: &mut Scope) {
         let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ConsumerWait { pipeline }),
         });
     }
-    pub fn __expand_consumer_release_method(&self, context: &mut CubeContext) {
+    pub fn __expand_consumer_release_method(&self, context: &mut Scope) {
         let pipeline = *self.elem;
         context.register(Instruction {
             out: None,
