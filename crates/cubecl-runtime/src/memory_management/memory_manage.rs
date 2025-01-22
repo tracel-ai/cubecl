@@ -158,8 +158,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 // Add all bin sizes. Nb: because of alignment some buckets
                 // end up as the same size, so only want unique ones,
                 // but also keep the order, so a BTree will do.
-                const MIN_BUCKET_SIZE: u64 = 1024 * 128;
-                const NUM_POOLS: usize = 20;
+                const MIN_BUCKET_SIZE: u64 = 1024 * 32;
+                const NUM_POOLS: usize = 24;
 
                 let sizes = generate_bucket_sizes(
                     MIN_BUCKET_SIZE,
@@ -177,8 +177,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
                         let dealloc_period =
                             (500.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
-
-                        log::info!("Adding option with size {size}");
 
                         MemoryPoolOptions {
                             pool_type: PoolType::ExclusivePages {
@@ -208,8 +206,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     properties.alignment,
                 )),
                 PoolType::ExclusivePages { max_alloc_size } => {
-                    log::info!("Adding pool with {max_alloc_size}");
-
                     DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                         max_alloc_size,
                         properties.alignment,
@@ -267,19 +263,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.alloc_reserve_count += 1;
 
         // Find first pool that fits this allocation
-        let index = self
+        let index = self.pools.partition_point(|p| p.max_alloc_size() >= size);
+
+        let pool = self
             .pools
-            .iter_mut()
-            .position(|p| p.max_alloc_size() >= size)
+            .get_mut(index)
             .unwrap_or_else(|| panic!("No pool handles allocation of size {size}"));
 
-        for i in index..(index + 3).min(self.pools.len()) {
-            if let Some(slice) = self.pools[i].try_reserve(size) {
-                return slice;
-            }
+        if let Some(slice) = pool.try_reserve(size) {
+            return slice;
         }
 
-        self.pools[index].alloc(&mut self.storage, size)
+        pool.alloc(&mut self.storage, size)
     }
 
     /// Fetch the storage used by the memory manager.

@@ -22,6 +22,7 @@ pub struct ExclusiveMemoryPool {
 }
 
 const ALLOC_AFTER_FREE: u32 = 5;
+const SIZE_AVG_DECAY: f64 = 0.01;
 
 struct MemoryPage {
     slice: Slice,
@@ -60,8 +61,6 @@ impl ExclusiveMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> &mut MemoryPage {
-        const AVG_DECAY: f64 = 0.025;
-        self.cur_avg_size = self.cur_avg_size * (1.0 - AVG_DECAY) + size as f64 * AVG_DECAY;
         let alloc_size = (self.cur_avg_size as u64).max(size);
 
         let storage = storage.alloc(alloc_size);
@@ -101,6 +100,9 @@ impl MemoryPool for ExclusiveMemoryPool {
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+        self.cur_avg_size =
+            self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
+
         let padding = calculate_padding(size, self.alignment);
 
         self.get_free_page(size).map(|page| {
