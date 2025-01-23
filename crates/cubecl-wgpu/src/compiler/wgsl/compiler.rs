@@ -12,13 +12,9 @@ use cubecl_common::ExecutionMode;
 use cubecl_core::{
     compute,
     ir::{self as cube, UIntKind},
-    prelude::{assign, CompiledKernel},
+    prelude::{expand_checked_index_assign, expand_erf, CompiledKernel},
     server::ComputeServer,
     Feature, Metadata,
-};
-use cubecl_core::{
-    ir::{expand_checked_index_assign, ExpandElement},
-    prelude::FloatExpand,
 };
 use cubecl_runtime::DeviceProperties;
 use wgpu::{
@@ -862,12 +858,8 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Arithmetic::Erf(op) => {
-                let input = ExpandElement::Plain(op.input);
-                let out = ExpandElement::Plain(out);
                 let mut scope = scope.child();
-                scope.register_elem::<FloatExpand<0>>(op.input.item.elem);
-                let erf = super::extension::erf::expand::<FloatExpand<0>>(&mut scope, input.into());
-                assign::expand(&mut scope, erf, out.into());
+                expand_erf(&mut scope, op.input, out);
                 instructions.extend(self.compile_scope(&mut scope));
             }
             cube::Arithmetic::Recip(op) => instructions.push(wgsl::Instruction::Recip {

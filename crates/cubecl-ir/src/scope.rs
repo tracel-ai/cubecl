@@ -2,10 +2,10 @@ use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
 use type_hash::TypeHash;
 
-use crate::{ConstantScalarValue, ExpandElement, Matrix};
+use crate::{ExpandElement, Matrix};
 
 use super::{
-    cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
+    processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
     Variable, VariableKind,
 };
 
@@ -98,39 +98,6 @@ impl Scope {
             debug_enabled,
             typemap: Default::default(),
         }
-    }
-
-    /// Create a variable initialized at zero.
-    pub fn zero<I: Into<Item>>(&mut self, item: I) -> Variable {
-        let local = *self.create_local(item.into());
-        let zero: Variable = 0u32.into();
-        cpa!(self, local = zero);
-        local
-    }
-
-    /// Create a variable initialized at some value.
-    pub fn create_with_value<E, I>(&mut self, value: E, item: I) -> Variable
-    where
-        E: num_traits::ToPrimitive,
-        I: Into<Item> + Copy,
-    {
-        let item: Item = item.into();
-        let value = match item.elem() {
-            Elem::Float(kind) | Elem::AtomicFloat(kind) => {
-                ConstantScalarValue::Float(value.to_f64().unwrap(), kind)
-            }
-            Elem::Int(kind) | Elem::AtomicInt(kind) => {
-                ConstantScalarValue::Int(value.to_i64().unwrap(), kind)
-            }
-            Elem::UInt(kind) | Elem::AtomicUInt(kind) => {
-                ConstantScalarValue::UInt(value.to_u64().unwrap(), kind)
-            }
-            Elem::Bool => ConstantScalarValue::Bool(value.to_u32().unwrap() == 1),
-        };
-        let local = *self.create_local(item);
-        let value = Variable::constant(value);
-        cpa!(self, local = value);
-        local
     }
 
     /// Create a new matrix element.

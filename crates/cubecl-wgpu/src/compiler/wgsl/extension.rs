@@ -1,9 +1,3 @@
-use cubecl_core as cubecl;
-use cubecl_core::{
-    cube,
-    prelude::{Abs, Exp, Float, Line},
-};
-
 use super::base::Item;
 use std::fmt::Display;
 
@@ -154,41 +148,6 @@ fn powf(lhs: {elem}, rhs: {elem}) -> {elem} {{
 "
         ),
     }
-}
-
-#[cube]
-pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
-    let mut out = Line::empty(x.size());
-    #[unroll]
-    for i in 0..x.size() {
-        let elem = x[i];
-        if elem < F::new(0.0) {
-            out[i] = -erf_positive_scalar::<F>(-elem);
-        } else {
-            out[i] = erf_positive_scalar::<F>(elem);
-        }
-    }
-    out
-}
-
-/// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
-///
-/// > (maximum error: 1.5×10−7)
-/// > All of these approximations are valid for x ≥ 0. To use these approximations for negative x, use the fact that erf x is an odd function, so erf x = −erf(−x).
-#[cube]
-fn erf_positive_scalar<F: Float>(x: F) -> F {
-    let p = F::new(0.3275911);
-    let a1 = F::new(0.2548296);
-    let a2 = F::new(-0.28449674);
-    let a3 = F::new(1.4214137);
-    let a4 = F::new(-1.453152);
-    let a5 = F::new(1.0614054);
-    let one = F::new(1.0);
-
-    let t = one / (one + p * Abs::abs(x));
-    let tmp = ((((a5 * t + a4) * t) + a3) * t + a2) * t + a1;
-
-    one - (tmp * t * Exp::exp(-x * x))
 }
 
 #[cfg(target_os = "macos")]

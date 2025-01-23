@@ -2,10 +2,7 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::{
-    ir::expand_checked_index_assign,
-    prelude::{FastMath, KernelDefinition},
-};
+use cubecl_core::prelude::{expand_checked_index_assign, FastMath, KernelDefinition};
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
