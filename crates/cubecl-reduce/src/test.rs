@@ -7,13 +7,69 @@ use rand::{
     SeedableRng,
 };
 
-use crate::{instructions::*, reduce, ReduceError, ReduceStrategy};
+use crate::{instructions::*, reduce, shared_sum, ReduceError, ReduceStrategy};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.
 // We choose this set to avoid precision issues with f16 and bf16 and
 // also to add multiple similar values to properly test ArgMax and ArgMin.
 const PRECISION: i32 = 4;
+
+#[macro_export]
+macro_rules! testgen_shared_sum {
+    // Generate all the tests for a list of types.
+    ([$($float:ident), *]) => {
+        mod test_shared_sum {
+            use super::*;
+            $(
+                $crate::testgen_shared_sum!($float);
+            )*
+        }
+    };
+
+
+    ($float:ident) => {
+        ::paste::paste! {
+            mod [<$float _ty>] {
+                use super::*;
+
+                #[test]
+                pub fn vector() {
+                    let test = cubecl_reduce::test::TestCase {
+                        shape: vec![1024],
+                        stride: vec![1],
+                        axis: None,
+                        strategy: None,
+                    };
+                    test.test_shared_sum::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
+                pub fn matrix() {
+                    let test = cubecl_reduce::test::TestCase {
+                        shape: vec![37, 68],
+                        stride: vec![68, 1],
+                        axis: None,
+                        strategy: None,
+                    };
+                    test.test_shared_sum::<$float, TestRuntime>(&Default::default());
+                }
+
+                #[test]
+                pub fn rank_three() {
+                    let test = cubecl_reduce::test::TestCase {
+                        shape: vec![12, 15, 101],
+                        stride: vec![1515, 1, 15],
+                        axis: None,
+                        strategy: None,
+                    };
+                    test.test_shared_sum::<$float, TestRuntime>(&Default::default());
+                }
+            }
+        }
+    }
+
+}
 
 // This macro generate all the tests.
 #[macro_export]
@@ -201,8 +257,8 @@ macro_rules! impl_test_reduce_with_strategy {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
-                        axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
+                        axis: Some($axis),
+                        strategy: Some($crate::ReduceStrategy { use_planes: $use_planes, shared: $shared }),
                     };
                     test.test_argmax::<$float, TestRuntime>(&Default::default());
                 }
@@ -213,8 +269,8 @@ macro_rules! impl_test_reduce_with_strategy {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
-                        axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
+                        axis: Some($axis),
+                        strategy: Some($crate::ReduceStrategy { use_planes: $use_planes, shared: $shared }),
                     };
                     test.test_argmin::<$float, TestRuntime>(&Default::default());
                 }
@@ -224,8 +280,8 @@ macro_rules! impl_test_reduce_with_strategy {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
-                        axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
+                        axis: Some($axis),
+                        strategy: Some($crate::ReduceStrategy { use_planes: $use_planes, shared: $shared }),
                     };
                     test.test_mean::<$float, TestRuntime>(&Default::default());
                 }
@@ -235,8 +291,8 @@ macro_rules! impl_test_reduce_with_strategy {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
-                        axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
+                        axis: Some($axis),
+                        strategy: Some($crate::ReduceStrategy { use_planes: $use_planes, shared: $shared }),
                     };
                     test.test_prod::<$float, TestRuntime>(&Default::default());
                 }
@@ -246,8 +302,8 @@ macro_rules! impl_test_reduce_with_strategy {
                     let test = TestCase {
                         shape: $shape.into(),
                         stride: $stride.into(),
-                        axis: $axis,
-                        strategy: $crate::ReduceStrategy { use_planes: $use_planes, shared: $shared },
+                        axis: Some($axis),
+                        strategy: Some($crate::ReduceStrategy { use_planes: $use_planes, shared: $shared }),
                     };
                     test.test_sum::<$float, TestRuntime>(&Default::default());
                 }
@@ -260,8 +316,8 @@ macro_rules! impl_test_reduce_with_strategy {
 pub struct TestCase {
     pub shape: Vec<usize>,
     pub stride: Vec<usize>,
-    pub axis: usize,
-    pub strategy: ReduceStrategy,
+    pub axis: Option<usize>,
+    pub strategy: Option<ReduceStrategy>,
 }
 
 impl TestCase {
@@ -272,7 +328,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_argmax(&input_values);
-        self.run_test::<F, u32, R, ArgMax>(device, input_values, expected_values)
+        self.run_reduce_test::<F, u32, R, ArgMax>(device, input_values, expected_values)
     }
 
     fn cpu_argmax<F: Float>(&self, values: &[F]) -> Vec<u32> {
@@ -282,7 +338,7 @@ impl TestCase {
                 let (best, _) = expected[output_index];
                 if value > best {
                     let coordinate = self.to_input_coordinate(input_index).unwrap();
-                    expected[output_index] = (value, coordinate[self.axis] as u32);
+                    expected[output_index] = (value, coordinate[self.axis.unwrap()] as u32);
                 }
             }
         }
@@ -296,7 +352,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_argmin(&input_values);
-        self.run_test::<F, u32, R, ArgMin>(device, input_values, expected_values)
+        self.run_reduce_test::<F, u32, R, ArgMin>(device, input_values, expected_values)
     }
 
     fn cpu_argmin<F: Float>(&self, values: &[F]) -> Vec<u32> {
@@ -306,7 +362,7 @@ impl TestCase {
                 let (best, _) = expected[output_index];
                 if value < best {
                     let coordinate = self.to_input_coordinate(input_index).unwrap();
-                    expected[output_index] = (value, coordinate[self.axis] as u32);
+                    expected[output_index] = (value, coordinate[self.axis.unwrap()] as u32);
                 }
             }
         }
@@ -320,13 +376,13 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_mean(&input_values);
-        self.run_test::<F, F, R, Mean>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F, R, Mean>(device, input_values, expected_values)
     }
 
     fn cpu_mean<F: Float>(&self, values: &[F]) -> Vec<F> {
         self.cpu_sum(values)
             .into_iter()
-            .map(|sum| sum / F::new(self.shape[self.axis] as f32))
+            .map(|sum| sum / F::new(self.shape[self.axis.unwrap()] as f32))
             .collect()
     }
 
@@ -337,7 +393,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_prod(&input_values);
-        self.run_test::<F, F, R, Prod>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F, R, Prod>(device, input_values, expected_values)
     }
 
     fn cpu_prod<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -358,7 +414,7 @@ impl TestCase {
     {
         let input_values: Vec<F> = self.random_input_values();
         let expected_values = self.cpu_sum(&input_values);
-        self.run_test::<F, F, R, Sum>(device, input_values, expected_values)
+        self.run_reduce_test::<F, F, R, Sum>(device, input_values, expected_values)
     }
 
     fn cpu_sum<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -372,7 +428,20 @@ impl TestCase {
         expected
     }
 
-    pub fn run_test<I, O, R, K>(
+    pub fn test_shared_sum<F, R>(&self, device: &R::Device)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let input_values: Vec<F> = self.random_input_values();
+        let mut expected = F::from_int(0);
+        for v in input_values.iter() {
+            expected += *v;
+        }
+        self.run_shared_sum_test::<F, R>(device, input_values, expected);
+    }
+
+    pub fn run_reduce_test<I, O, R, K>(
         &self,
         device: &R::Device,
         input_values: Vec<I>,
@@ -392,7 +461,7 @@ impl TestCase {
         let output_handle =
             client.create(O::as_bytes(&vec![O::from_int(0); expected_values.len()]));
         let mut output_shape = self.shape.clone();
-        output_shape[self.axis] = 1;
+        output_shape[self.axis.unwrap()] = 1;
         let output_stride = self.output_stride();
 
         let input = unsafe {
@@ -412,7 +481,8 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, I, O, K>(&client, input, output, self.axis, Some(self.strategy));
+        let result =
+            reduce::<R, I, O, K>(&client, input, output, self.axis.unwrap(), self.strategy);
         if result.is_err_and(|e| {
             e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim
         }) {
@@ -426,13 +496,40 @@ impl TestCase {
         assert_approx_equal(output_values, &expected_values);
     }
 
+    pub fn run_shared_sum_test<F, R>(&self, device: &R::Device, input_values: Vec<F>, expected: F)
+    where
+        F: Float + CubeElement + std::fmt::Display,
+        R: Runtime,
+    {
+        let client = R::client(device);
+
+        let input_handle = client.create(F::as_bytes(&input_values));
+
+        let input = unsafe {
+            TensorHandleRef::<R>::from_raw_parts(
+                &input_handle,
+                &self.stride,
+                &self.shape,
+                size_of::<F>(),
+            )
+        };
+
+        let cube_count = 3;
+        let result = shared_sum::<R, F>(&client, input, cube_count);
+
+        if result.is_err() {
+            return; // don't execute the test in that case since atomic adds are not supported.
+        }
+        assert_approx_equal(&[result.unwrap()], &[expected]);
+    }
+
     fn num_output_values(&self) -> usize {
-        self.shape.iter().product::<usize>() / self.shape[self.axis]
+        self.shape.iter().product::<usize>() / self.shape[self.axis.unwrap()]
     }
 
     fn to_output_index(&self, input_index: usize) -> Option<usize> {
         let mut coordinate = self.to_input_coordinate(input_index)?;
-        coordinate[self.axis] = 0;
+        coordinate[self.axis.unwrap()] = 0;
         Some(self.from_output_coordinate(coordinate))
     }
 
@@ -470,7 +567,7 @@ impl TestCase {
             .iter()
             .enumerate()
             .scan(1, |stride, (axis, shape)| {
-                if axis == self.axis {
+                if axis == self.axis.unwrap() {
                     Some(1)
                 } else {
                     let current = Some(*stride);
@@ -491,6 +588,7 @@ impl TestCase {
             .take(size)
             .map(|r| F::new(r as f32 * factor))
             .collect()
+        // (0..size).map(|x| F::from_int(x as i64)).collect() TODO DELETE
     }
 
     fn input_size(&self) -> usize {

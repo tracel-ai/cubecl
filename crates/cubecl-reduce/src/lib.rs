@@ -16,12 +16,14 @@ pub mod primitives;
 mod config;
 mod error;
 mod launch;
+mod shared_sum;
 mod strategy;
 
 pub use config::*;
 pub use error::*;
 pub use instructions::Reduce;
 pub use instructions::ReduceInstruction;
+pub use shared_sum::*;
 pub use strategy::*;
 
 use launch::*;
