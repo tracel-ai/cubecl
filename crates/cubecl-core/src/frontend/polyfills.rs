@@ -17,7 +17,7 @@ fn checked_index_assign<E: CubePrimitive>(
     };
 
     if index < array_len {
-        out[index] = value;
+        unsafe { out.index_assign_unchecked(index, value) };
     }
 }
 
