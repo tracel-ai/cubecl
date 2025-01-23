@@ -23,7 +23,7 @@ mod metadata {
 
     use super::*;
     use crate::{
-        ir::{BinaryOperator, Instruction, Operator},
+        ir::{Arithmetic, BinaryOperator, Instruction},
         prelude::Array,
     };
 
@@ -177,7 +177,7 @@ mod metadata {
             // Compute `num_strides = index / stride`.
             let num_strides = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
-                Operator::Div(BinaryOperator {
+                Arithmetic::Div(BinaryOperator {
                     lhs: *index,
                     rhs: stride.expand.into(),
                 }),
@@ -187,7 +187,7 @@ mod metadata {
             // Compute `coordinate = num_strides % shape `.
             let coordinate = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(
-                Operator::Modulo(BinaryOperator {
+                Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
                     rhs: shape.expand.into(),
                 }),
@@ -223,8 +223,10 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use cubecl_ir::Operator;
+
     use crate::{
-        ir::{BinaryOperator, Instruction, Operator},
+        ir::{BinaryOperator, Instruction},
         prelude::{CubeIndex, CubeIndexMut},
     };
 

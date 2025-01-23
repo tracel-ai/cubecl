@@ -1,4 +1,4 @@
-use crate::ir::{ExpandElement, Operator};
+use crate::ir::{Arithmetic, Bitwise, ExpandElement, Operator};
 use crate::{
     flex32,
     frontend::{CubeContext, CubePrimitive, ExpandElementTyped},
@@ -15,10 +15,10 @@ pub mod add {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::Add).into()
+        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Add).into()
     }
 }
 
@@ -27,10 +27,10 @@ pub mod sub {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::Sub).into()
+        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Sub).into()
     }
 }
 
@@ -39,10 +39,10 @@ pub mod mul {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::Mul).into()
+        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Mul).into()
     }
 }
 
@@ -51,10 +51,10 @@ pub mod div {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::Div).into()
+        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Div).into()
     }
 }
 
@@ -63,16 +63,10 @@ pub mod rem {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::Modulo,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Arithmetic::Modulo).into()
     }
 }
 
@@ -81,10 +75,10 @@ pub mod and {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::And).into()
+        binary_expand(context, lhs.into(), rhs.into(), Operator::And).into()
     }
 }
 
@@ -93,16 +87,10 @@ pub mod bitand {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::BitwiseAnd,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseAnd).into()
     }
 }
 
@@ -111,16 +99,10 @@ pub mod bitor {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::BitwiseOr,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseOr).into()
     }
 }
 
@@ -129,10 +111,10 @@ pub mod or {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        binary_expand(context, lhs.into().into(), rhs.into().into(), Operator::Or).into()
+        binary_expand(context, lhs.into(), rhs.into(), Operator::Or).into()
     }
 }
 
@@ -141,16 +123,10 @@ pub mod bitxor {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::BitwiseXor,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseXor).into()
     }
 }
 
@@ -159,16 +135,10 @@ pub mod shl {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::ShiftLeft,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Bitwise::ShiftLeft).into()
     }
 }
 
@@ -177,16 +147,10 @@ pub mod shr {
 
     pub fn expand<C: CubePrimitive>(
         context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        binary_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::ShiftRight,
-        )
-        .into()
+        binary_expand(context, lhs.into(), rhs.into(), Bitwise::ShiftRight).into()
     }
 }
 
@@ -252,7 +216,7 @@ impl_binary_func!(
     powf,
     __expand_powf,
     __expand_powf_method,
-    Operator::Powf,
+    Arithmetic::Powf,
     f16,
     bf16,
     flex32,
@@ -265,7 +229,7 @@ impl_binary_func!(
     max,
     __expand_max,
     __expand_max_method,
-    Operator::Max,
+    Arithmetic::Max,
     f16,
     bf16,
     flex32,
@@ -286,7 +250,7 @@ impl_binary_func!(
     min,
     __expand_min,
     __expand_min_method,
-    Operator::Min,
+    Arithmetic::Min,
     f16,
     bf16,
     flex32,
@@ -307,7 +271,7 @@ impl_binary_func!(
     rem,
     __expand_rem,
     __expand_rem_method,
-    Operator::Remainder,
+    Arithmetic::Remainder,
     f16,
     bf16,
     flex32,
@@ -328,7 +292,7 @@ impl_binary_func_fixed_output_vectorization!(
     dot,
     __expand_dot,
     __expand_dot_method,
-    Operator::Dot,
+    Arithmetic::Dot,
     None,
     f16,
     bf16,

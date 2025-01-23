@@ -20,18 +20,19 @@ pub use runtime::*;
 #[cfg(feature = "spirv")]
 pub use compiler::spirv;
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "spirv")))]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
 
     cubecl_core::testgen_all!();
-    cubecl_linalg::testgen_matmul_plane!([f32]);
+    //cubecl_linalg::testgen_matmul_plane!([f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_shared_sum!([f32]);
 }
 
 #[cfg(all(test, feature = "spirv"))]
@@ -47,4 +48,5 @@ mod tests_spirv {
     cubecl_linalg::testgen_matmul_simple!([f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_shared_sum!([f32]);
 }

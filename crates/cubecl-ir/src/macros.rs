@@ -17,7 +17,7 @@ macro_rules! cpa {
     };
     // out = add(lhs, rhs)
     ($scope:expr, $out:ident = add($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Add(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Add(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -27,7 +27,7 @@ macro_rules! cpa {
     };
     // out = sub(lhs, rhs)
     ($scope:expr, $out:ident = sub($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Sub(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Sub(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -41,7 +41,7 @@ macro_rules! cpa {
     };
     // out = mul(lhs, rhs)
     ($scope:expr, $out:ident = mul($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Mul(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Mul(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -51,7 +51,7 @@ macro_rules! cpa {
     };
     // out = div(lhs, rhs)
     ($scope:expr, $out:ident = div($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Div(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Div(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -61,13 +61,13 @@ macro_rules! cpa {
     };
     // out = modulo(lhs, rhs)
     ($scope:expr, $out:ident = modulo($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Modulo(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Modulo(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out = powf(lhs, rhs)
     ($scope:expr, $out:ident = powf($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Powf(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Powf(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -77,7 +77,7 @@ macro_rules! cpa {
     };
     // out = and(lhs, rhs)
     ($scope:expr, $out:ident = and($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::And(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::And(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -87,7 +87,7 @@ macro_rules! cpa {
     };
     // out = or(lhs, rhs)
     ($scope:expr, $out:ident = or($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Or(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Or(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -97,7 +97,7 @@ macro_rules! cpa {
     };
     // out = not(input)
     ($scope:expr, $out:ident = not($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Not(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Not(
             cpa!(unary $input)
         ), $out));
     };
@@ -107,7 +107,7 @@ macro_rules! cpa {
     };
     // out = bitwise_and(lhs, rhs)
     ($scope:expr, $out:ident = bitwise_and($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::BitwiseAnd(
+        $scope.register($crate::Instruction::new($crate::Bitwise::BitwiseAnd(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -117,13 +117,13 @@ macro_rules! cpa {
     };
     // out = bitwise_xor(lhs, rhs)
     ($scope:expr, $out:ident = bitwise_xor($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::BitwiseXor(
+        $scope.register($crate::Instruction::new($crate::Bitwise::BitwiseXor(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out = select(cond, then, or_else)
     ($scope:expr, $out:ident = select($cond:expr, $then:expr, $or_else:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Select($crate::Select{
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Select($crate::Select{
             cond: $cond,
             then: $then,
             or_else: $or_else,
@@ -135,7 +135,7 @@ macro_rules! cpa {
     };
     // out = shift_left(lhs, rhs)
     ($scope:expr, $out:ident = shift_left($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::ShiftLeft(
+        $scope.register($crate::Instruction::new($crate::Bitwise::ShiftLeft(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -145,7 +145,7 @@ macro_rules! cpa {
     };
     // out = shift_right(lhs, rhs)
     ($scope:expr, $out:ident = shift_right($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::ShiftRight(
+        $scope.register($crate::Instruction::new($crate::Bitwise::ShiftRight(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -155,7 +155,7 @@ macro_rules! cpa {
     };
     // out = equal(lhs, rhs)
     ($scope:expr, $out:ident = equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Equal(
+        $scope.register($crate::Instruction::new($crate::Comparison::Equal(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -165,7 +165,7 @@ macro_rules! cpa {
     };
     // out = not_equal(lhs, rhs)
     ($scope:expr, $out:ident = not_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::NotEqual(
+        $scope.register($crate::Instruction::new($crate::Comparison::NotEqual(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -175,7 +175,7 @@ macro_rules! cpa {
     };
     // out = greater(lhs, rhs)
     ($scope:expr, $out:ident = greater($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Greater(
+        $scope.register($crate::Instruction::new($crate::Comparison::Greater(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -185,7 +185,7 @@ macro_rules! cpa {
     };
     // out = greater_equal(lhs, rhs)
     ($scope:expr, $out:ident = greater_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::GreaterEqual(
+        $scope.register($crate::Instruction::new($crate::Comparison::GreaterEqual(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -195,7 +195,7 @@ macro_rules! cpa {
     };
     // out = lower(lhs, rhs)
     ($scope:expr, $out:ident = lower($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Lower(
+        $scope.register($crate::Instruction::new($crate::Comparison::Lower(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -205,19 +205,19 @@ macro_rules! cpa {
     };
     // out = lower_equal(lhs, rhs)
     ($scope:expr, $out:ident = lower_equal($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::LowerEqual(
+        $scope.register($crate::Instruction::new($crate::Comparison::LowerEqual(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out = max(lhs, rhs)
     ($scope:expr, $out:ident = max($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Max(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Max(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
     // out = min(lhs, rhs)
     ($scope:expr, $out:ident = min($lhs:expr, $rhs:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Min(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Min(
             cpa!(binary $lhs, $rhs)
         ), $out));
     };
@@ -255,72 +255,72 @@ macro_rules! cpa {
     };
     // out = abs(input)
     ($scope:expr, $out:ident = abs($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Abs(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Abs(
             cpa!(unary $input)
         ), $out));
     };
     // out = exp(input)
     ($scope:expr, $out:ident = exp($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Exp(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Exp(
             cpa!(unary $input)
         ), $out));
     };
     // out = log(input)
     ($scope:expr, $out:ident = log($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Log(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Log(
             cpa!(unary $input)
         ), $out));
     };
     // out = log1p(input)
     ($scope:expr, $out:ident = log1p($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Log1p(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Log1p(
             cpa!(unary $input)
         ), $out));
     };
     // out = cos(input)
     ($scope:expr, $out:ident = cos($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Cos(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Cos(
             cpa!(unary $input)
         ), $out));
     };
     ($scope:expr, $out:ident = normalize($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Normalize(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Normalize(
             cpa!(unary $input)
         ), $out));
     };
     // out = sin(input)
     ($scope:expr, $out:ident = sin($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Sin(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Sin(
             cpa!(unary $input)
         ), $out));
     };
     // out = tanh(input)
     ($scope:expr, $out:ident = tanh($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Tanh(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Tanh(
             cpa!(unary $input)
         ), $out));
     };
     // out = sqrt(input)
     ($scope:expr, $out:ident = sqrt($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Sqrt(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Sqrt(
             cpa!(unary $input)
         ), $out));
     };
     // out = floor(input)
     ($scope:expr, $out:ident = floor($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Floor(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Floor(
             cpa!(unary $input)
         ), $out));
     };
     // out = ceil(input)
     ($scope:expr, $out:ident = ceil($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Ceil(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Ceil(
             cpa!(unary $input)
         ), $out));
     };
     // out = erf(input)
     ($scope:expr, $out:ident = erf($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Erf(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Erf(
             cpa!(unary $input)
         ), $out));
     };
@@ -347,7 +347,7 @@ macro_rules! cpa {
     };
     // out = cast(input)
     ($scope:expr, $out:ident = cast($input:expr)) => {
-        $scope.register($crate::Instruction::new($crate::Operator::Cast(
+        $scope.register($crate::Instruction::new($crate::Arithmetic::Cast(
             cpa!(unary $input)
         ), $out));
     };

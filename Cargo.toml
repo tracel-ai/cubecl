@@ -29,6 +29,7 @@ type_hash = "0.3"
 dashmap = "5.5.3"
 hashbrown = "0.14.5"
 spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
+smallvec = { version = "1", features = ["union", "const_generics"] }
 
 getrandom = { version = "0.2.15", default-features = false }
 rand = { version = "0.8.5", default-features = false, features = [

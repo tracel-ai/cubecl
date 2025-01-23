@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::fmt_vararg;
+use crate::{fmt_vararg, OperationCode, OperationReflect};
 
 use super::Variable;
 
@@ -11,7 +11,8 @@ use super::Variable;
 ///
 /// Can be safely removed or ignored without changing the kernel result.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[operation(opcode_name = NonSemanticOpCode)]
 pub enum NonSemantic {
     Source {
         name: String,
@@ -36,6 +37,14 @@ pub enum NonSemantic {
     Comment {
         content: String,
     },
+}
+
+impl OperationReflect for NonSemantic {
+    type OpCode = NonSemanticOpCode;
+
+    fn op_code(&self) -> Self::OpCode {
+        self.__match_opcode()
+    }
 }
 
 impl Display for NonSemantic {

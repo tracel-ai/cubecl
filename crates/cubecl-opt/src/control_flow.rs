@@ -2,8 +2,8 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
-    BinaryOperator, Branch, ConstantScalarValue, Elem, If, IfElse, Instruction, Item, Loop,
-    Operation, Operator, RangeLoop, Switch, Variable, VariableKind,
+    Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, Elem, If, IfElse,
+    Instruction, Item, Loop, Operation, RangeLoop, Switch, Variable, VariableKind,
 };
 use petgraph::visit::EdgeRef;
 
@@ -304,8 +304,8 @@ impl Optimizer {
         self.insert_phi(header, i_id, range_loop.start.item);
         {
             let op = match range_loop.inclusive {
-                true => Operator::LowerEqual,
-                false => Operator::Lower,
+                true => Comparison::LowerEqual,
+                false => Comparison::Lower,
             };
             let tmp = *self
                 .allocator
@@ -329,7 +329,7 @@ impl Optimizer {
             .ops
             .borrow_mut()
             .push(Instruction::new(
-                Operator::Add(BinaryOperator { lhs: i, rhs: step }),
+                Arithmetic::Add(BinaryOperator { lhs: i, rhs: step }),
                 i,
             ));
     }

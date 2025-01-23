@@ -95,8 +95,10 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use cubecl_ir::Operator;
+
     use crate::{
-        ir::{BinaryOperator, Instruction, Operator},
+        ir::{BinaryOperator, Instruction},
         prelude::{CubeIndex, CubeIndexMut},
         unexpanded,
     };
