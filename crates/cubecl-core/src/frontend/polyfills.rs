@@ -36,7 +36,7 @@ pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variab
 #[cube]
 pub fn erf<F: Float>(x: Line<F>) -> Line<F> {
     let erf = erf_positive(Abs::abs(x));
-    select(x < Line::new(F::new(0.0)), -erf, erf)
+    select_many(x.less_than(Line::new(F::new(0.0))), -erf, erf)
 }
 
 /// An approximation of the error function: https://en.wikipedia.org/wiki/Error_function#Numerical_approximations
