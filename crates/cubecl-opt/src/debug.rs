@@ -4,7 +4,9 @@ use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    analyses::{const_len::Slices, integer_range::Ranges, liveness::Liveness},
+    analyses::{
+        const_len::Slices, integer_range::Ranges, liveness::Liveness, uniformity::Uniformity,
+    },
     gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, Value, ValueTable},
     ControlFlow,
 };
@@ -41,6 +43,10 @@ impl Display for Optimizer {
             .analysis_cache
             .try_get::<Liveness>()
             .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
+        let uniformity = self
+            .analysis_cache
+            .try_get::<Uniformity>()
+            .unwrap_or_default();
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
@@ -50,7 +56,11 @@ impl Display for Optimizer {
         for node in self.program.node_indices() {
             let id = node.index();
             let bb = &self.program[node];
-            writeln!(f, "bb{id} {{")?;
+            let uniform = match uniformity.is_block_uniform(node) {
+                true => "uniform ",
+                false => "",
+            };
+            writeln!(f, "{uniform}bb{id} {{")?;
             if DEBUG_GVN {
                 let block_sets = &global_nums
                     .block_sets
