@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use smallvec::SmallVec;
 use type_hash::TypeHash;
 
 use crate::{OperationCode, OperationReflect};
@@ -76,11 +75,11 @@ impl OperationReflect for CoopMma {
         self.__match_opcode()
     }
 
-    fn args(&self) -> Option<smallvec::SmallVec<[Variable; 4]>> {
+    fn args(&self) -> Option<Vec<Variable>> {
         match self {
-            CoopMma::Fill { value } => Some(SmallVec::from_slice(&[*value])),
+            CoopMma::Fill { value } => Some(vec![*value]),
             CoopMma::Load { .. } | CoopMma::Execute { .. } | CoopMma::Store { .. } => None,
-            CoopMma::Cast { input } => Some(SmallVec::from_slice(&[*input])),
+            CoopMma::Cast { input } => Some(vec![*input]),
         }
     }
 
