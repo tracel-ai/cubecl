@@ -13,8 +13,8 @@ mod indexation;
 mod operation;
 mod options;
 mod plane;
-mod topology;
 mod polyfills;
+mod topology;
 
 pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
 pub use comment::*;
@@ -26,5 +26,5 @@ pub use indexation::*;
 pub use operation::*;
 pub use options::*;
 pub use plane::*;
-pub use topology::*;
 pub use polyfills::*;
+pub use topology::*;

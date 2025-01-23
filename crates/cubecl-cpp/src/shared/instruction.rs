@@ -571,7 +571,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = atomicAdd({input}, 0);")
             }
             Instruction::AtomicStore(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
                 writeln!(f, "atomicExch({out}, {input});")
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),

@@ -104,9 +104,10 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
     }
-    if arch.version >= 80 {
-        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
-    }
+    // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
+    // if arch.version >= 80 {
+    //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
+    // }
     let supported_wmma_combinations = CudaWmmaCompiler::supported_wmma_combinations(&arch);
     register_wmma_features(supported_wmma_combinations, &mut device_props);
 
