@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
+use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
@@ -188,4 +189,6 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
+
+    fn load_mode(&self) -> LoadMode;
 }

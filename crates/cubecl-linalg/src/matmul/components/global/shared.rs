@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::{
     stage::{self, TilingOrderConfig},
     Ident, MatmulConfig, MatrixLayout, StageDim,
@@ -78,6 +79,10 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
 
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
+    }
+
+    fn load_mode(&self) -> LoadMode {
+        LoadMode::Window
     }
 }
 

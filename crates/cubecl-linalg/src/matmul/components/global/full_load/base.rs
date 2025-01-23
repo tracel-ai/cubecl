@@ -1,3 +1,4 @@
+use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{
     GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
@@ -53,9 +54,10 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        LL::check(config, Ident::Lhs)?;
-        RL::check(config, Ident::Rhs)?;
-        SMM::check_config(&config.to_smm_config())
+        LL::check(config, Ident::Lhs).unwrap_or_else(|x| panic!("{x}"));
+        RL::check(config, Ident::Rhs).unwrap_or_else(|x| panic!("{x}"));
+        SMM::check_config(&config.to_smm_config()).unwrap_or_else(|x| panic!("{x}"));
+        Ok(())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -290,6 +292,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
 
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
+    }
+
+    fn load_mode(&self) -> LoadMode {
+        LoadMode::Window
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{
     GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
@@ -310,6 +311,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
 
     fn transpose_load(&self, ident: Ident) -> bool {
         self.layout(ident) != self.smm_config.layout(ident)
+    }
+
+    fn load_mode(&self) -> LoadMode {
+        LoadMode::Coalesced
     }
 }
 

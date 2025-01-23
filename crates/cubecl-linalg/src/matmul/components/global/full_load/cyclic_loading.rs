@@ -15,37 +15,52 @@ use super::loader::LoadingStrategy;
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
 
+pub enum LoadMode {
+    Coalesced,
+    Window,
+}
+
 impl LoadingValidation for CyclicLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_elements = stage_dim.total_elements();
+        let num_stage_lines = stage_dim.total_elements() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
-        let jump_length = total_units * line_size;
 
-        if num_stage_elements % jump_length != 0 {
-            return Err(Box::new(
+        match config.load_mode() {
+            LoadMode::Coalesced => {
+                if num_stage_lines % total_units != 0 {
+                    return Err(Box::new(
                 "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that jump_length divides num_stage_elements.",
+        Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
-        }
+                }
+                if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
+                    return Err(Box::new(
+                        "Line size for stage is not supported when transposing",
+                    ));
+                }
+            }
+            LoadMode::Window => {
+                // TODO: it might be fine to allow partial planes but will necessitate branching
+                let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
+                if num_slices < total_units {
+                    return Err(Box::new(
+                        format!("There are less slices ({num_slices:?}) than units ({total_units:?}). Would require idle units. TODO: we probably want that"),
+                    ));
+                }
+                if num_slices % total_units != 0 {
+                    return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+                }
 
-        if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
-            return Err(Box::new(
-                "Line size for stage is not supported when transposing",
-            ));
-        }
-
-        // For window mode
-        // TODO: it might be fine to allow partial planes but will necessitate branching
-        let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
-        if num_slices < total_units || num_slices % total_units != 0 {
-            return Err(Box::new(
-                "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that jump_length divides num_stage_elements.",
-            ));
-        }
+                if num_slices / total_units != 1 {
+                    return Err(Box::new(format!(
+                        "Number of slices ({num_slices:?}) is larger than number of units ({total_units:?}). TODO: support with for loop" ,
+                    )));
+                }
+            }
+        };
 
         Ok(())
     }
@@ -63,7 +78,8 @@ impl LoadingStrategy for CyclicLoading {
         let stage_dim = config.stage_dim(ident);
         let total_units = config.plane_dim() * config.num_planes();
         let num_slices_per_tile = stage_dim.tile_size_x_dim();
-        let slice_length = stage_dim.tile_size_y_dim();
+        let line_size = config.global_line_size(ident);
+        let slice_length = stage_dim.tile_size_y_dim() / line_size;
         let num_slices = num_slices_per_tile * stage_dim.num_tiles();
         let num_loads_per_plane = num_slices / total_units;
 
@@ -92,8 +108,11 @@ impl LoadingStrategy for CyclicLoading {
         match config.transpose_load(ident) {
             false => {
                 let offset = (nth_tile * num_slices_per_tile + nth_slice) * slice_length;
-                let destination = slice.slice_mut(offset, offset + slice_length);
-                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+                let mut destination = slice.slice_mut(offset, offset + slice_length);
+                // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+                for i in 0..slice_length {
+                    destination[i] = Line::cast_from(source[i]);
+                }
             }
             true => {
                 let _ = unimplemented!();
