@@ -62,7 +62,9 @@ impl LoadingStrategy for CyclicLoading {
     ) {
         let stage_dim = config.stage_dim(ident);
         let total_units = config.plane_dim() * config.num_planes();
-        let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
+        let num_slices_per_tile = stage_dim.tile_size_x_dim();
+        let slice_length = stage_dim.tile_size_y_dim();
+        let num_slices = num_slices_per_tile * stage_dim.num_tiles();
         let num_loads_per_plane = num_slices / total_units;
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -85,13 +87,13 @@ impl LoadingStrategy for CyclicLoading {
         };
         let nth_slice = unit_id % num_slices;
 
-        // let source: Slice<Line<EG>> =
-        //     read_view.load_window_coalesced(tile_x, tile_y, nth_slice, ident, config);
+        let source = read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
 
         match config.transpose_load(ident) {
             false => {
-                // let destination = slice.slice_mut(unit_position, unit_position + source.len());
-                // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+                let offset = (nth_tile * num_slices_per_tile + nth_slice) * slice_length;
+                let destination = slice.slice_mut(offset, offset + slice_length);
+                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
             }
             true => {
                 let _ = unimplemented!();

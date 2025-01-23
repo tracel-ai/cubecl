@@ -1,4 +1,4 @@
-use crate::matmul::components::config::InputIdent;
+use crate::matmul::components::config::{self, InputIdent};
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::tensor::{ReadWrite, VirtualTensor};
@@ -83,14 +83,17 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_window_coalesced<G: global::GlobalConfig>(
+    pub fn load_window<G: global::GlobalConfig>(
         &self,
         tile_x: u32,
         tile_y: u32,
-        unit_id: u32,
+        nth_slice: u32,
+        // unit_id: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Slice<Line<EG>> {
+        // TODO Not just 1 element, but a slice
+
         let line_size = config.global_line_size(ident);
         let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
         let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
@@ -98,9 +101,9 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_tile_x = tile_x * tile_size_x + self.x_offset;
         let view_tile_y = tile_y * tile_size_y + self.y_offset;
 
-        let (load_x, load_y) = match config.layout(ident) {
-            MatrixLayout::RowMajor => (unit_id / tile_size_y, unit_id % tile_size_y),
-            MatrixLayout::ColMajor => (unit_id % tile_size_x, unit_id / tile_size_x),
+        let (load_x, load_y, slice_length) = match config.layout(ident) {
+            MatrixLayout::RowMajor => (nth_slice, 0, tile_size_y),
+            MatrixLayout::ColMajor => (0, nth_slice, tile_size_x),
         };
 
         let view_x = view_tile_x + load_x;
@@ -114,14 +117,14 @@ impl<EG: Numeric> TensorReader<EG> {
             InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
         };
 
-        let size = match comptime!((check_x_bounds, check_y_bounds)) {
-            (true, true) => u32::cast_from(view_x < self.shape_x && view_y < self.shape_y),
-            (true, false) => u32::cast_from(view_x < self.shape_x),
-            (false, true) => u32::cast_from(view_y < self.shape_y),
-            (false, false) => 1u32.runtime(),
-        };
+        // let size = match comptime!((check_x_bounds, check_y_bounds)) {
+        //     (true, true) => u32::cast_from(view_x < self.shape_x && view_y < self.shape_y),
+        //     (true, false) => u32::cast_from(view_x < self.shape_x),
+        //     (false, true) => u32::cast_from(view_y < self.shape_y),
+        //     (false, false) => 1u32.runtime(),
+        // };
 
-        self.tensor.as_slice(read_pos, read_pos + size)
+        self.tensor.as_slice(read_pos, read_pos + slice_length)
     }
 
     /// Reads data from the tensor view at the specified tile coordinates (tile_x, tile_y).

@@ -83,7 +83,7 @@ impl LoadingStrategy for TilewiseLoading {
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
 
-            let source = read_view.load_window_coalesced::<G>(
+            let source = read_view.load_window::<G>(
                 tile_x,
                 tile_y,
                 pos_within_tile * line_size,
