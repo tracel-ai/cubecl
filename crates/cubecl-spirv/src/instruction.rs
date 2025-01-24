@@ -12,6 +12,7 @@ use crate::{
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
+        let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
                 let input = self.compile_variable(var);
@@ -21,16 +22,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 self.copy_object(ty, Some(out_id), in_id).unwrap();
+                self.mark_uniform(out_id, uniform);
                 self.write(&out, out_id);
             }
-            Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out),
-            Operation::Comparison(operator) => self.compile_cmp(operator, inst.out),
-            Operation::Bitwise(operator) => self.compile_bitwise(operator, inst.out),
-            Operation::Operator(operator) => self.compile_operator(operator, inst.out),
+            Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out, uniform),
+            Operation::Comparison(operator) => self.compile_cmp(operator, inst.out, uniform),
+            Operation::Bitwise(operator) => self.compile_bitwise(operator, inst.out, uniform),
+            Operation::Operator(operator) => self.compile_operator(operator, inst.out, uniform),
             Operation::Atomic(atomic) => self.compile_atomic(atomic, inst.out),
             Operation::Branch(_) => unreachable!("Branches shouldn't exist in optimized IR"),
-            Operation::Metadata(meta) => self.compile_meta(meta, inst.out),
-            Operation::Plane(plane) => self.compile_plane(plane, inst.out),
+            Operation::Metadata(meta) => self.compile_meta(meta, inst.out, uniform),
+            Operation::Plane(plane) => self.compile_plane(plane, inst.out, uniform),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
@@ -38,11 +40,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_arithmetic(&mut self, op: Arithmetic, out: Option<core::Variable>) {
+    pub fn compile_arithmetic(
+        &mut self,
+        op: Arithmetic,
+        out: Option<core::Variable>,
+        uniform: bool,
+    ) {
         let out = out.unwrap();
         match op {
             Arithmetic::Add(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
@@ -56,6 +64,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Sub(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_sub(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_sub(ty, Some(out), lhs, rhs).unwrap(),
@@ -69,6 +78,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Mul(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
@@ -82,6 +92,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Div(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_div(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
@@ -96,6 +107,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Remainder(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -110,6 +122,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Modulo(op) => {
                 self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
@@ -125,6 +138,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Arithmetic::Dot(op) => {
                 if op.lhs.item.vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
                     self.compile_binary_op(op, out, |b, out_ty, ty, lhs, rhs, out| {
+                        b.mark_uniform(out, uniform);
                         match out_ty.elem() {
                             Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
                             Elem::Float(_) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
@@ -174,6 +188,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         _ => unreachable!(),
                     }
                     .unwrap();
+                    self.mark_uniform(out_id, uniform);
                     self.write(&out, out_id);
                 }
             }
@@ -201,16 +216,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.decorate(mul, Decoration::RelaxedPrecision, []);
                     self.decorate(out_id, Decoration::RelaxedPrecision, []);
                 }
+                self.mark_uniform(out_id, uniform);
                 self.write(&out, out_id);
             }
             Arithmetic::Recip(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let one = out_ty.const_u32(b, 1);
+                    b.mark_uniform(out, uniform);
                     b.f_div(ty, Some(out), one, input).unwrap();
                 });
             }
             Arithmetic::Neg(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
                         Elem::Float(_) => b.f_negate(ty, Some(out), input).unwrap(),
@@ -224,6 +242,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Erf(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     b.compile_erf(out_ty, ty, input, out);
                 })
             }
@@ -231,6 +250,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             // Extension functions
             Arithmetic::Normalize(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::normalize(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -239,6 +259,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Magnitude(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::magnitude(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -247,6 +268,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Abs(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     match out_ty.elem() {
                         Elem::Int(_, _) => T::s_abs(b, ty, input, out),
                         Elem::Float(_) => T::f_abs(b, ty, input, out),
@@ -260,6 +282,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Exp(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::exp(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -268,6 +291,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Log(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::log(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -276,22 +300,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
-                    let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    let one = out_ty.const_u32(b, 1);
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
                         Elem::Float(_) | Elem::Relaxed => b.f_add(ty, None, input, one).unwrap(),
                         _ => unreachable!(),
                     };
+                    b.mark_uniform(add, uniform);
                     if relaxed {
                         b.decorate(add, Decoration::RelaxedPrecision, []);
                         b.decorate(out, Decoration::RelaxedPrecision, []);
                     }
+                    b.mark_uniform(out, uniform);
                     T::log(b, ty, add, out)
                 });
             }
             Arithmetic::Cos(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::cos(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -300,6 +327,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Sin(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::sin(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -308,6 +336,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::Tanh(op) => {
                 self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    b.mark_uniform(out, uniform);
                     T::tanh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -979,5 +1008,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.select(ty, Some(out_id), cond_id, then, or_else)
             .unwrap();
         self.write(&out, out_id);
+    }
+
+    pub fn mark_uniform(&mut self, id: Word, uniform: bool) {
+        if uniform {
+            self.decorate(id, Decoration::Uniform, []);
+        }
     }
 }

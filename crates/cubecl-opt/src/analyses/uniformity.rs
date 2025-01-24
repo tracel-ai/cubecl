@@ -217,8 +217,9 @@ impl Uniformity {
                 | Builtin::PlaneDim => true,
             },
 
+            VariableKind::LocalMut { .. } => false,
+
             VariableKind::LocalArray { .. }
-            | VariableKind::LocalMut { .. }
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
