@@ -9,7 +9,7 @@ use crate::{ControlFlow, NodeIndex, Optimizer};
 
 use super::Analysis;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Uniformity {
     block_uniformity: HashMap<NodeIndex, bool>,
     variable_uniformity: HashMap<Variable, bool>,
