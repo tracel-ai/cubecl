@@ -27,7 +27,7 @@ impl IrTransformer for ErfTransform {
 #[derive(Debug)]
 pub(crate) struct BitwiseTransform;
 
-impl IrTransformer for ReverseBitsTransform {
+impl IrTransformer for BitwiseTransform {
     fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
         let op = match &inst.operation {
             Operation::Bitwise(op) => op,

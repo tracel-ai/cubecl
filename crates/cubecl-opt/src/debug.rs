@@ -92,6 +92,11 @@ impl Display for Optimizer {
             }
 
             for op in bb.ops.borrow_mut().values_mut() {
+                let op_fmt = op.to_string();
+                if op_fmt.is_empty() {
+                    continue;
+                }
+
                 let is_uniform = match op
                     .out
                     .map(|out| uniformity.is_var_uniform(out))
@@ -100,7 +105,7 @@ impl Display for Optimizer {
                     true => " @ uniform",
                     false => "",
                 };
-                writeln!(f, "    {op};{is_uniform}")?;
+                writeln!(f, "    {op_fmt};{is_uniform}")?;
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::IfElse {

@@ -136,7 +136,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>) {
+    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Operator::Index(op) => {
@@ -157,6 +157,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.merge_binding(out_id, ptr);
                 } else {
                     let out_id = self.read_indexed(&out, &value, &index);
+                    self.mark_uniform(out_id, uniform);
                     self.write(&out, out_id);
                 }
             }
@@ -221,6 +222,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
                 let out_id = self.write_id(&out);
+                self.mark_uniform(out_id, uniform);
 
                 if let Some(as_const) = input.as_const() {
                     let cast = self.static_cast(as_const, &input.elem(), &out.item());
@@ -232,23 +234,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::And(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.logical_and(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
             Operator::Or(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.logical_or(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
             Operator::Not(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
-            Operator::Bitcast(op) => self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                b.bitcast(ty, Some(out), input).unwrap();
-            }),
+            Operator::Bitcast(op) => {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.bitcast(ty, Some(out), input).unwrap();
+                })
+            }
             Operator::InitLine(op) => {
                 let values = op
                     .inputs
@@ -261,6 +265,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_item(out.item);
                 let out = self.compile_variable(out);
                 let out_id = self.write_id(&out);
+                self.mark_uniform(out_id, uniform);
                 let ty = item.id(self);
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
@@ -311,7 +316,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
-            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out),
+            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }
     }
 
@@ -453,6 +458,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         then: core::Variable,
         or_else: core::Variable,
         out: core::Variable,
+        uniform: bool,
     ) {
         let cond = self.compile_variable(cond);
         let then = self.compile_variable(then);

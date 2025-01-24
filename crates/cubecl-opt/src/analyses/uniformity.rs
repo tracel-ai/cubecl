@@ -120,6 +120,7 @@ impl Uniformity {
                 merge,
             } => {
                 // If we don't know the break condition, we can't detect whether it's uniform
+                self.block_uniformity.insert(block_id, false);
                 self.block_uniformity.insert(*body, false);
                 self.block_uniformity.insert(*continue_target, false);
                 self.block_uniformity.insert(*merge, false);
@@ -131,6 +132,8 @@ impl Uniformity {
                 merge,
             } => {
                 let is_uniform = self.is_var_uniform(*break_cond);
+                self.block_uniformity
+                    .insert(block_id, is_uniform && block_uniform);
                 self.block_uniformity
                     .insert(*body, is_uniform && block_uniform);
                 self.block_uniformity

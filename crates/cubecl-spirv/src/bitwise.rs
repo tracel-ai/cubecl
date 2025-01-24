@@ -1,8 +1,8 @@
-use cubecl_core::{self as cubecl, ir::ExpandElement};
+use cubecl_core as cubecl;
 use cubecl_core::{comptime, ir as core, prelude::*};
 use cubecl_core::{cube, ir::Bitwise};
 
-use crate::{item::Elem, SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>, uniform: bool) {
@@ -41,55 +41,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
             //These operations only support 32 bit
             Bitwise::CountOnes(op) => {
-                let item = self.compile_item(op.input.item);
-                match item.elem() {
-                    Elem::Int(64, _) => {
-                        let mut scope = self.opt.root_scope.child();
-                        scope.register_elem::<IntExpand<0>>(op.input.item.elem);
-                        u64_count_bits::expand::<IntExpand<0>>(
-                            &mut scope,
-                            ExpandElement::Plain(op.input).into(),
-                            ExpandElement::Plain(out).into(),
-                        );
-                        self.compile_polyfill(scope);
-                    }
-                    _ => {
-                        self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
-                            b.bit_count(ty, Some(out), input).unwrap();
-                        });
-                    }
-                }
+                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
+                    b.bit_count(ty, Some(out), input).unwrap();
+                });
             }
             Bitwise::ReverseBits(op) => {
-                let item = self.compile_item(op.input.item);
-                match item.elem() {
-                    Elem::Int(64, _) => {
-                        let mut scope = self.opt.root_scope.child();
-                        scope.register_elem::<IntExpand<0>>(op.input.item.elem);
-                        let input = ExpandElement::Plain(op.input);
-                        let out = ExpandElement::Plain(out);
-                        u64_reverse::expand::<IntExpand<0>>(&mut scope, input.into(), out.into());
-                        self.compile_polyfill(scope);
-                    }
-                    Elem::Int(32, _) => {
-                        self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                            b.bit_reverse(ty, Some(out), input).unwrap();
-                        });
-                    }
-                    Elem::Int(width, _) => {
-                        let mut scope = self.opt.root_scope.child();
-                        scope.register_elem::<IntExpand<0>>(op.input.item.elem);
-                        small_int_reverse::expand::<IntExpand<0>>(
-                            &mut scope,
-                            ExpandElement::Plain(op.input).into(),
-                            ExpandElement::Plain(out).into(),
-                            width,
-                        );
-                        println!("{scope:#?}");
-                        self.compile_polyfill(scope);
-                    }
-                    _ => unreachable!(),
-                }
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.bit_reverse(ty, Some(out), input).unwrap();
+                });
             }
         }
     }

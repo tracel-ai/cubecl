@@ -140,7 +140,7 @@ fn shared_sum_kernel<N: Numeric>(
     let mut sum = N::from_int(0);
     #[unroll]
     for k in 0..line_size {
-        sum[k] += line[k];
+        sum += line[k];
     }
 
     // Add the sum for the current cube to the output.
