@@ -83,6 +83,6 @@ impl FromArgList for Vec<Variable> {
     }
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
-        self.clone()
+        self.iter().cloned()
     }
 }
