@@ -42,7 +42,7 @@ pub mod copy_bulk {
                 out_index: to_index.expand.consume(),
                 input: from.expand.consume(),
                 in_index: from_index.expand.consume(),
-                len: length,
+                len: length.into(),
             }),
             *to.expand,
         ));

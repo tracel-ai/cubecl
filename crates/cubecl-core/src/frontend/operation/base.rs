@@ -1,20 +1,23 @@
 use std::num::NonZeroU8;
 
+use cubecl_ir::{Comparison, Operator};
+
 use crate::ir::{
-    BinaryOperator, Elem, ExpandElement, Instruction, Item, Operation, Operator, UnaryOperator,
+    Arithmetic, BinaryOperator, Elem, ExpandElement, Instruction, Item, Operation, UnaryOperator,
     Variable, VariableKind, Vectorization,
 };
 use crate::prelude::{CubeType, ExpandElementTyped};
 use crate::{frontend::CubeContext, prelude::CubeIndex};
 
-pub(crate) fn binary_expand<F>(
+pub(crate) fn binary_expand<F, Op>(
     context: &mut CubeContext,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Operator,
+    F: Fn(BinaryOperator) -> Op,
+    Op: Into<Operation>,
 {
     let lhs = lhs.consume();
     let rhs = rhs.consume();
@@ -44,7 +47,7 @@ pub(crate) fn binary_expand_fixed_output<F>(
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Operator,
+    F: Fn(BinaryOperator) -> Arithmetic,
 {
     let lhs_var = lhs.consume();
     let rhs_var = rhs.consume();
@@ -96,7 +99,7 @@ pub(crate) fn cmp_expand<F>(
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Operator,
+    F: Fn(BinaryOperator) -> Comparison,
 {
     let lhs: Variable = *lhs;
     let rhs: Variable = *rhs;
@@ -119,14 +122,15 @@ where
     out
 }
 
-pub(crate) fn assign_op_expand<F>(
+pub(crate) fn assign_op_expand<F, Op>(
     context: &mut CubeContext,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(BinaryOperator) -> Operator,
+    F: Fn(BinaryOperator) -> Op,
+    Op: Into<Operation>,
 {
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
@@ -140,9 +144,14 @@ where
     lhs
 }
 
-pub fn unary_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F) -> ExpandElement
+pub fn unary_expand<F, Op>(
+    context: &mut CubeContext,
+    input: ExpandElement,
+    func: F,
+) -> ExpandElement
 where
-    F: Fn(UnaryOperator) -> Operator,
+    F: Fn(UnaryOperator) -> Op,
+    Op: Into<Operation>,
 {
     let input = input.consume();
     let item = input.item;
@@ -157,14 +166,15 @@ where
     out
 }
 
-pub fn unary_expand_fixed_output<F>(
+pub fn unary_expand_fixed_output<F, Op>(
     context: &mut CubeContext,
     input: ExpandElement,
     out_item: Item,
     func: F,
 ) -> ExpandElement
 where
-    F: Fn(UnaryOperator) -> Operator,
+    F: Fn(UnaryOperator) -> Op,
+    Op: Into<Operation>,
 {
     let input = input.consume();
     let output = context.create_local(out_item);
@@ -220,7 +230,8 @@ fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
 pub fn array_assign_binary_op_expand<
     A: CubeType + CubeIndex<u32>,
     V: CubeType,
-    F: Fn(BinaryOperator) -> Operator,
+    F: Fn(BinaryOperator) -> Op,
+    Op: Into<Operation>,
 >(
     context: &mut CubeContext,
     array: ExpandElementTyped<A>,

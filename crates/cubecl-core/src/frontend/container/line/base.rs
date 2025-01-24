@@ -1,9 +1,9 @@
 use std::num::NonZero;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{Comparison, ExpandElement};
 
 use crate::{
-    ir::{BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Operator},
+    ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item},
     prelude::{binary_expand_fixed_output, CubeContext, Dot, Numeric},
     unexpanded,
 };
@@ -220,7 +220,7 @@ macro_rules! impl_line_comparison {
                         let output = context.create_local_mut(Item::vectorized(bool::as_elem(context), size));
 
                         context.register(Instruction::new(
-                            Operator::$operator(BinaryOperator { lhs, rhs }),
+                            Comparison::$operator(BinaryOperator { lhs, rhs }),
                             output.clone().into(),
                         ));
 
@@ -286,6 +286,6 @@ impl<N: Numeric> Dot for Line<N> {
         let lhs: ExpandElement = lhs.into();
         let mut item = lhs.item;
         item.vectorization = None;
-        binary_expand_fixed_output(context, lhs, rhs.into(), item, Operator::Dot).into()
+        binary_expand_fixed_output(context, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }

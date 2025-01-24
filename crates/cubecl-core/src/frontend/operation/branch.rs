@@ -1,4 +1,7 @@
-use crate::{ir::Select, prelude::*};
+use crate::{
+    ir::{Operator, Select},
+    prelude::*,
+};
 use crate::{
     prelude::{CubePrimitive, Line},
     unexpanded,
@@ -32,7 +35,7 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use crate::ir::{Instruction, Operator};
+    use crate::ir::Instruction;
 
     use super::*;
 

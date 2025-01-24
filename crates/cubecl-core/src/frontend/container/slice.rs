@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Operator};
 
 use crate::{
     frontend::{indexation::Index, Tensor},
-    ir::{self, Operator},
+    ir::{self},
     prelude::{CubeContext, IntoRuntime},
     unexpanded,
 };
@@ -123,10 +123,11 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use cubecl_ir::Operator;
     use ir::Instruction;
 
     use crate::{
-        ir::{BinaryOperator, Operator},
+        ir::BinaryOperator,
         prelude::{CubeIndex, CubeIndexMut},
     };
 

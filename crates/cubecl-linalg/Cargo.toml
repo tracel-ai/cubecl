@@ -10,7 +10,7 @@ keywords = []
 license.workspace = true
 name = "cubecl-linalg"
 readme.workspace = true
-repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-linalg"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-linalg"
 version.workspace = true
 
 [features]

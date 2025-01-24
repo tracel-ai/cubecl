@@ -2,10 +2,12 @@ use std::fmt::Display;
 
 use type_hash::TypeHash;
 
-use crate::{BinaryOperator, CompareAndSwapOperator, Operation, UnaryOperator};
+use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
+/// Operations that operate on atomics
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
+#[operation(opcode_name = AtomicOpCode)]
 pub enum AtomicOp {
     Load(UnaryOperator),
     Store(UnaryOperator),
@@ -42,8 +44,11 @@ impl Display for AtomicOp {
     }
 }
 
-impl From<AtomicOp> for Operation {
-    fn from(value: AtomicOp) -> Self {
-        Operation::Atomic(value)
-    }
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct CompareAndSwapOperator {
+    pub input: Variable,
+    pub cmp: Variable,
+    pub val: Variable,
 }
