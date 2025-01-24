@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-
 use crate::Variable;
 
 /// An operation that can be reflected on
