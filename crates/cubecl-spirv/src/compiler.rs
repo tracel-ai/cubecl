@@ -1,9 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{
-    ir::{self as core, Scope},
-    prelude::FastMath,
-    Metadata,
-};
+use cubecl_core::{ir as core, prelude::FastMath, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
