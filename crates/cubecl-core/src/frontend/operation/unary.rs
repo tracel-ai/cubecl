@@ -13,8 +13,8 @@ use super::base::{unary_expand, unary_expand_fixed_output};
 pub mod not {
     use super::*;
 
-    pub fn expand(context: &mut Scope, x: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
-        unary_expand(context, x.into(), Operator::Not).into()
+    pub fn expand(scope: &mut Scope, x: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
+        unary_expand(scope, x.into(), Operator::Not).into()
     }
 }
 
@@ -22,10 +22,10 @@ pub mod neg {
     use super::*;
 
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         x: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
-        unary_expand(context, x.into(), Arithmetic::Neg).into()
+        unary_expand(scope, x.into(), Arithmetic::Neg).into()
     }
 }
 
@@ -37,8 +37,8 @@ macro_rules! impl_unary_func {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
-                unary_expand(context, x.into(), $operator).into()
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
+                unary_expand(scope, x.into(), $operator).into()
             }
         }
 
@@ -54,11 +54,11 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item;
                 item.vectorization = $out_vectorization;
-                unary_expand_fixed_output(context, expand_element, item, $operator).into()
+                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
 
@@ -74,11 +74,11 @@ macro_rules! impl_unary_func_fixed_out_ty {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item;
-                item.elem = <$out_ty as CubePrimitive>::as_elem(context);
-                unary_expand_fixed_output(context, expand_element, item, $operator).into()
+                item.elem = <$out_ty as CubePrimitive>::as_elem(scope);
+                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
 

@@ -16,7 +16,7 @@ pub trait Clamp: CubePrimitive + Sized {
         unexpanded!()
     }
     fn __expand_clamp(
-        context: &mut Scope,
+        scope: &mut Scope,
         input: Self::ExpandType,
         min_value: Self::ExpandType,
         max_value: Self::ExpandType,
@@ -25,7 +25,7 @@ pub trait Clamp: CubePrimitive + Sized {
         let min_value: ExpandElement = min_value.into();
         let max_value: ExpandElement = max_value.into();
 
-        unary_expand(context, input, |op| {
+        unary_expand(scope, input, |op| {
             Arithmetic::Clamp(ClampOperator {
                 input: op.input,
                 min_value: *min_value,

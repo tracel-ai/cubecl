@@ -39,7 +39,7 @@ impl KernelFn {
 
 impl ToTokens for KernelSignature {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let cube_context = prelude_type("Scope");
+        let scope = prelude_type("Scope");
         let cube_type = prelude_type("CubeType");
 
         let name = &self.name;
@@ -59,7 +59,7 @@ impl ToTokens for KernelSignature {
             quote! {
                 fn #name #generics(
                     self, // Always owned during expand.
-                    context: &mut #cube_context,
+                    context: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }
@@ -67,7 +67,7 @@ impl ToTokens for KernelSignature {
             let args = &self.parameters;
             quote! {
                 fn #name #generics(
-                    context: &mut #cube_context,
+                    context: &mut #scope,
                     #(#args),*
                 ) -> #return_type
             }

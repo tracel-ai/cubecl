@@ -17,8 +17,8 @@ macro_rules! declare_uint {
         }
 
         impl ExpandElementBaseInit for $primitive {
-            fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(context, elem)
+            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(scope, elem)
             }
         }
 
@@ -29,9 +29,9 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
                 let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, context)
+                Init::init(expand, scope)
             }
         }
 

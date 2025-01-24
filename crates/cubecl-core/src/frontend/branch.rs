@@ -13,18 +13,18 @@ pub trait Iterable<T: CubeType>: Sized {
     ///
     /// # Arguments
     /// # Arguments
-    /// * `context` - the expansion context
+    /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
-    fn expand(self, context: &mut Scope, body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType));
+    fn expand(self, scope: &mut Scope, body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType));
     /// Expand an unrolled loop. The body should be invoced `n` times, where `n` is the number of
     /// iterations.
     ///
     /// # Arguments
-    /// * `context` - the expansion context
+    /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
     fn expand_unroll(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType),
     );
 }
@@ -60,7 +60,7 @@ impl<I: Int> RangeExpand<I> {
 impl<I: Int> Iterable<I> for RangeExpand<I> {
     fn expand_unroll(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let start = self
@@ -79,28 +79,28 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
         if self.inclusive {
             for i in start..=end {
                 let var = I::from_int(i);
-                body(context, var.into())
+                body(scope, var.into())
             }
         } else {
             for i in start..end {
                 let var = I::from_int(i);
-                body(context, var.into())
+                body(scope, var.into())
             }
         }
     }
 
     fn expand(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
-        let mut child = context.child();
-        let index_ty = Item::new(I::as_elem(context));
+        let mut child = scope.child();
+        let index_ty = Item::new(I::as_elem(scope));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
 
-        context.register(Branch::RangeLoop(Box::new(RangeLoop {
+        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
             start: *self.start.expand,
             end: *self.end.expand,
@@ -121,16 +121,16 @@ pub struct SteppedRangeExpand<I: Int> {
 impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
     fn expand(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
-        let mut child = context.child();
-        let index_ty = Item::new(I::as_elem(context));
+        let mut child = scope.child();
+        let index_ty = Item::new(I::as_elem(scope));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
 
-        context.register(Branch::RangeLoop(Box::new(RangeLoop {
+        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i: *i,
             start: *self.start.expand,
             end: *self.end.expand,
@@ -142,7 +142,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
 
     fn expand_unroll(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let start = self
@@ -167,12 +167,12 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
         if self.inclusive {
             for i in (start..=end).step_by(step) {
                 let var = I::from_int(i);
-                body(context, var.into())
+                body(scope, var.into())
             }
         } else {
             for i in (start..end).step_by(step) {
                 let var = I::from_int(i);
-                body(context, var.into())
+                body(scope, var.into())
             }
         }
     }
@@ -197,7 +197,7 @@ pub mod range {
     use super::RangeExpand;
 
     pub fn expand<I: Int>(
-        _context: &mut Scope,
+        _scope: &mut Scope,
         start: ExpandElementTyped<I>,
         end: ExpandElementTyped<I>,
     ) -> RangeExpand<I> {
@@ -234,7 +234,7 @@ pub mod range_stepped {
     use super::SteppedRangeExpand;
 
     pub fn expand<I: Int>(
-        _context: &mut Scope,
+        _scope: &mut Scope,
         start: ExpandElementTyped<I>,
         end: ExpandElementTyped<I>,
         step: ExpandElementTyped<u32>,
@@ -249,32 +249,32 @@ pub mod range_stepped {
 }
 
 pub fn for_expand<I: Numeric>(
-    context: &mut Scope,
+    scope: &mut Scope,
     range: impl Iterable<I>,
     unroll: bool,
     body: impl FnMut(&mut Scope, ExpandElementTyped<I>),
 ) {
     if unroll {
-        range.expand_unroll(context, body);
+        range.expand_unroll(scope, body);
     } else {
-        range.expand(context, body);
+        range.expand(scope, body);
     }
 }
 
-pub fn if_expand(context: &mut Scope, runtime_cond: ExpandElement, block: impl FnOnce(&mut Scope)) {
+pub fn if_expand(scope: &mut Scope, runtime_cond: ExpandElement, block: impl FnOnce(&mut Scope)) {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(cond) => {
             if cond {
-                block(context);
+                block(scope);
             }
         }
         None => {
-            let mut child = context.child();
+            let mut child = scope.child();
 
             block(&mut child);
 
-            context.register(Branch::If(Box::new(If {
+            scope.register(Branch::If(Box::new(If {
                 cond: *runtime_cond,
                 scope: child,
             })));
@@ -293,41 +293,41 @@ pub enum IfElseExpand {
 }
 
 impl IfElseExpand {
-    pub fn or_else(self, context: &mut Scope, else_block: impl FnOnce(&mut Scope)) {
+    pub fn or_else(self, scope: &mut Scope, else_block: impl FnOnce(&mut Scope)) {
         match self {
             Self::Runtime {
                 runtime_cond,
                 then_child,
             } => {
-                let mut else_child = context.child();
+                let mut else_child = scope.child();
                 else_block(&mut else_child);
 
-                context.register(Branch::IfElse(Box::new(IfElse {
+                scope.register(Branch::IfElse(Box::new(IfElse {
                     cond: *runtime_cond,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
             }
-            Self::ComptimeElse => else_block(context),
+            Self::ComptimeElse => else_block(scope),
             Self::ComptimeThen => (),
         }
     }
 }
 
 pub fn if_else_expand(
-    context: &mut Scope,
+    scope: &mut Scope,
     runtime_cond: ExpandElement,
     then_block: impl FnOnce(&mut Scope),
 ) -> IfElseExpand {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(true) => {
-            then_block(context);
+            then_block(scope);
             IfElseExpand::ComptimeThen
         }
         Some(false) => IfElseExpand::ComptimeElse,
         None => {
-            let mut then_child = context.child();
+            let mut then_child = scope.child();
             then_block(&mut then_child);
 
             IfElseExpand::Runtime {
@@ -352,7 +352,7 @@ pub enum IfElseExprExpand<C: CubeType> {
 impl<C: CubePrimitive> IfElseExprExpand<C> {
     pub fn or_else(
         self,
-        context: &mut Scope,
+        scope: &mut Scope,
         else_block: impl FnOnce(&mut Scope) -> ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
         match self {
@@ -361,39 +361,39 @@ impl<C: CubePrimitive> IfElseExprExpand<C> {
                 out,
                 then_child,
             } => {
-                let mut else_child = context.child();
+                let mut else_child = scope.child();
                 let ret = else_block(&mut else_child);
                 assign::expand(&mut else_child, ret, out.clone());
 
-                context.register(Branch::IfElse(Box::new(IfElse {
+                scope.register(Branch::IfElse(Box::new(IfElse {
                     cond: *runtime_cond,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
                 out
             }
-            Self::ComptimeElse => else_block(context),
+            Self::ComptimeElse => else_block(scope),
             Self::ComptimeThen(ret) => ret,
         }
     }
 }
 
 pub fn if_else_expr_expand<C: CubePrimitive>(
-    context: &mut Scope,
+    scope: &mut Scope,
     runtime_cond: ExpandElement,
     then_block: impl FnOnce(&mut Scope) -> ExpandElementTyped<C>,
 ) -> IfElseExprExpand<C> {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(true) => {
-            let ret = then_block(context);
+            let ret = then_block(scope);
             IfElseExprExpand::ComptimeThen(ret)
         }
         Some(false) => IfElseExprExpand::ComptimeElse,
         None => {
-            let mut then_child = context.child();
+            let mut then_child = scope.child();
             let ret = then_block(&mut then_child);
-            let out: ExpandElementTyped<C> = context.create_local_mut(ret.expand.item).into();
+            let out: ExpandElementTyped<C> = scope.create_local_mut(ret.expand.item).into();
             assign::expand(&mut then_child, ret, out.clone());
 
             IfElseExprExpand::Runtime {
@@ -414,20 +414,20 @@ pub struct SwitchExpand<I: Int> {
 impl<I: Int> SwitchExpand<I> {
     pub fn case(
         mut self,
-        context: &mut Scope,
+        scope: &mut Scope,
         value: impl Int,
         block: impl FnOnce(&mut Scope),
     ) -> Self {
         let value = I::from(value).unwrap();
-        let mut case_child = context.child();
+        let mut case_child = scope.child();
         block(&mut case_child);
         self.cases.push((value.into(), case_child));
         self
     }
 
-    pub fn finish(self, context: &mut Scope) {
+    pub fn finish(self, scope: &mut Scope) {
         let value_var = *self.value.expand;
-        context.register(Branch::Switch(Box::new(Switch {
+        scope.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default,
             cases: self
@@ -440,11 +440,11 @@ impl<I: Int> SwitchExpand<I> {
 }
 
 pub fn switch_expand<I: Int>(
-    context: &mut Scope,
+    scope: &mut Scope,
     value: ExpandElementTyped<I>,
     default_block: impl FnOnce(&mut Scope),
 ) -> SwitchExpand<I> {
-    let mut default_child = context.child();
+    let mut default_child = scope.child();
     default_block(&mut default_child);
 
     SwitchExpand {
@@ -464,21 +464,21 @@ pub struct SwitchExpandExpr<I: Int, C: CubePrimitive> {
 impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
     pub fn case(
         mut self,
-        context: &mut Scope,
+        scope: &mut Scope,
         value: impl Int,
         block: impl FnOnce(&mut Scope) -> ExpandElementTyped<C>,
     ) -> Self {
         let value = I::from(value).unwrap();
-        let mut case_child = context.child();
+        let mut case_child = scope.child();
         let ret = block(&mut case_child);
         assign::expand(&mut case_child, ret, self.out.clone());
         self.cases.push((value.into(), case_child));
         self
     }
 
-    pub fn finish(self, context: &mut Scope) -> ExpandElementTyped<C> {
+    pub fn finish(self, scope: &mut Scope) -> ExpandElementTyped<C> {
         let value_var = *self.value.expand;
-        context.register(Branch::Switch(Box::new(Switch {
+        scope.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default,
             cases: self
@@ -492,13 +492,13 @@ impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
 }
 
 pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
-    context: &mut Scope,
+    scope: &mut Scope,
     value: ExpandElementTyped<I>,
     default_block: impl FnOnce(&mut Scope) -> ExpandElementTyped<C>,
 ) -> SwitchExpandExpr<I, C> {
-    let mut default_child = context.child();
+    let mut default_child = scope.child();
     let default = default_block(&mut default_child);
-    let out: ExpandElementTyped<C> = context.create_local_mut(default.expand.item).into();
+    let out: ExpandElementTyped<C> = scope.create_local_mut(default.expand.item).into();
     assign::expand(&mut default_child, default, out.clone());
 
     SwitchExpandExpr {
@@ -509,18 +509,18 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
     }
 }
 
-pub fn break_expand(context: &mut Scope) {
-    context.register(Branch::Break);
+pub fn break_expand(scope: &mut Scope) {
+    scope.register(Branch::Break);
 }
 
-pub fn return_expand(context: &mut Scope) {
-    context.register(Branch::Return);
+pub fn return_expand(scope: &mut Scope) {
+    scope.register(Branch::Return);
 }
 
 // Don't make this `FnOnce`, it must be executable multiple times
-pub fn loop_expand(context: &mut Scope, mut block: impl FnMut(&mut Scope)) {
-    let mut inside_loop = context.child();
+pub fn loop_expand(scope: &mut Scope, mut block: impl FnMut(&mut Scope)) {
+    let mut inside_loop = scope.child();
 
     block(&mut inside_loop);
-    context.register(Branch::Loop(Box::new(Loop { scope: inside_loop })));
+    scope.register(Branch::Loop(Box::new(Loop { scope: inside_loop })));
 }

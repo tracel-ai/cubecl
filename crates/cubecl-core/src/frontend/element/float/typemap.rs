@@ -4,7 +4,7 @@
 //! Expand functions don't need to be generated for different element types even if they are generic
 //! over one, since the only use of numeric element types is to map to the [elem IR enum](Elem).
 //!
-//! This can be done dynamically using the context instead, reducing the binary size and the
+//! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
 //! You can still have multiple element types in a single kernel, since [FloatExpand] uses const
@@ -302,19 +302,15 @@ impl<const POS: u8> CubeType for IntExpand<POS> {
 
 impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(context: &Scope) -> Elem {
-        context
-            .resolve_elem::<Self>()
-            .expect("Type to be registered")
+    fn as_elem(scope: &Scope) -> Elem {
+        scope.resolve_elem::<Self>().expect("Type to be registered")
     }
 }
 
 impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(context: &Scope) -> Elem {
-        context
-            .resolve_elem::<Self>()
-            .expect("Type to be registered")
+    fn as_elem(scope: &Scope) -> Elem {
+        scope.resolve_elem::<Self>().expect("Type to be registered")
     }
 }
 
@@ -359,16 +355,16 @@ impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> 
 }
 
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
-    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self);
-        Init::init(expand, context)
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
+        Init::init(expand, scope)
     }
 }
 
 impl<const POS: u8> IntoRuntime for IntExpand<POS> {
-    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self.0);
-        Init::init(expand, context)
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self.0);
+        Init::init(expand, scope)
     }
 }
 
@@ -391,14 +387,14 @@ impl<const POS: u8> Numeric for IntExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }
 
 impl<const POS: u8> ExpandElementBaseInit for IntExpand<POS> {
-    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }
 

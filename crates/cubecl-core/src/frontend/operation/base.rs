@@ -8,7 +8,7 @@ use cubecl_ir::{
 use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
 
 pub(crate) fn binary_expand<F, Op>(
-    context: &mut Scope,
+    scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -27,18 +27,18 @@ where
 
     let item = Item::vectorized(item_lhs.elem, vectorization);
 
-    let output = context.create_local(item);
+    let output = scope.create_local(item);
     let out = *output;
 
     let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, out));
 
     output
 }
 
 pub(crate) fn binary_expand_fixed_output<F>(
-    context: &mut Scope,
+    scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     out_item: Item,
@@ -50,7 +50,7 @@ where
     let lhs_var = lhs.consume();
     let rhs_var = rhs.consume();
 
-    let out = context.create_local(out_item);
+    let out = scope.create_local(out_item);
 
     let out_var = *out;
 
@@ -59,13 +59,13 @@ where
         rhs: rhs_var,
     });
 
-    context.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out_var));
 
     out
 }
 
 pub(crate) fn binary_expand_no_vec<F>(
-    context: &mut Scope,
+    scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -80,18 +80,18 @@ where
 
     let item = Item::new(item_lhs.elem);
 
-    let output = context.create_local(item);
+    let output = scope.create_local(item);
     let out = *output;
 
     let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, out));
 
     output
 }
 
 pub(crate) fn cmp_expand<F>(
-    context: &mut Scope,
+    scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -110,18 +110,18 @@ where
         vectorization: item.vectorization,
     };
 
-    let out = context.create_local(out_item);
+    let out = scope.create_local(out_item);
     let out_var = *out;
 
     let op = func(BinaryOperator { lhs, rhs });
 
-    context.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out_var));
 
     out
 }
 
 pub(crate) fn assign_op_expand<F, Op>(
-    context: &mut Scope,
+    scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -137,12 +137,12 @@ where
 
     let op = func(BinaryOperator { lhs: lhs_var, rhs });
 
-    context.register(Instruction::new(op, lhs_var));
+    scope.register(Instruction::new(op, lhs_var));
 
     lhs
 }
 
-pub fn unary_expand<F, Op>(context: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
+pub fn unary_expand<F, Op>(scope: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
 where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
@@ -150,18 +150,18 @@ where
     let input = input.consume();
     let item = input.item;
 
-    let out = context.create_local(item);
+    let out = scope.create_local(item);
     let out_var = *out;
 
     let op = func(UnaryOperator { input });
 
-    context.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out_var));
 
     out
 }
 
 pub fn unary_expand_fixed_output<F, Op>(
-    context: &mut Scope,
+    scope: &mut Scope,
     input: ExpandElement,
     out_item: Item,
     func: F,
@@ -171,17 +171,17 @@ where
     Op: Into<Operation>,
 {
     let input = input.consume();
-    let output = context.create_local(out_item);
+    let output = scope.create_local(out_item);
     let out = *output;
 
     let op = func(UnaryOperator { input });
 
-    context.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, out));
 
     output
 }
 
-pub fn init_expand<F>(context: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
+pub fn init_expand<F>(scope: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
 where
     F: Fn(Variable) -> Operation,
 {
@@ -191,11 +191,11 @@ where
     let input_var: Variable = *input;
     let item = input.item;
 
-    let out = context.create_local_mut(item); // TODO: The mut is safe, but unecessary if the variable is immutable.
+    let out = scope.create_local_mut(item); // TODO: The mut is safe, but unecessary if the variable is immutable.
     let out_var = *out;
 
     let op = func(input_var);
-    context.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out_var));
 
     out
 }
@@ -227,7 +227,7 @@ pub fn array_assign_binary_op_expand<
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 >(
-    context: &mut Scope,
+    scope: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
     value: ExpandElementTyped<V>,
@@ -244,7 +244,7 @@ pub fn array_assign_binary_op_expand<
         VariableKind::LocalMut { .. } => array.item.vectorize(None),
         _ => array.item,
     };
-    let array_value = context.create_local(array_item);
+    let array_value = scope.create_local(array_item);
 
     let read = Instruction::new(
         Operator::Index(BinaryOperator {
@@ -254,7 +254,7 @@ pub fn array_assign_binary_op_expand<
         *array_value,
     );
     let array_value = array_value.consume();
-    let op_out = context.create_local(array_item);
+    let op_out = scope.create_local(array_item);
     let calculate = Instruction::new(
         func(BinaryOperator {
             lhs: array_value,
@@ -267,7 +267,7 @@ pub fn array_assign_binary_op_expand<
         lhs: *index,
         rhs: op_out.consume(),
     });
-    context.register(read);
-    context.register(calculate);
-    context.register(Instruction::new(write, *array));
+    scope.register(read);
+    scope.register(calculate);
+    scope.register(Instruction::new(write, *array));
 }
