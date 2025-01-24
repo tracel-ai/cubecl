@@ -247,6 +247,7 @@ impl Expression {
                 quote![#path::branch::break_expand(context);]
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
+            Expression::Return(span) => error!(*span, "Return not supported yet"),
             Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);

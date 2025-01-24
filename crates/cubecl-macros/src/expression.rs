@@ -79,6 +79,7 @@ pub enum Expression {
         tokens: TokenStream,
     },
     Continue(Span),
+    Return(Span),
     ForLoop {
         range: Box<Expression>,
         unroll: Option<Box<Expression>>,
@@ -175,6 +176,7 @@ impl Expression {
             Expression::Break { .. } => None,
             Expression::Cast { to, .. } => Some(to.clone()),
             Expression::Continue { .. } => None,
+            Expression::Return { .. } => None,
             Expression::ForLoop { .. } => None,
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,

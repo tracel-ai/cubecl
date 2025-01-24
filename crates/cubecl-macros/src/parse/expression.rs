@@ -161,6 +161,7 @@ impl Expression {
                 tokens: quote![#block],
             },
             Expr::Continue(cont) => Expression::Continue(cont.span()),
+            Expr::Return(ret) => Expression::Return(ret.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,
