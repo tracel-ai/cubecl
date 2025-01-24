@@ -1,6 +1,6 @@
 use std::{cell::RefCell, mem::take};
 
-use cubecl_ir::{Instruction, Item, Operation};
+use cubecl_ir::{Instruction, Item, Operation, Operator, UnaryOperator};
 use stable_vec::StableVec;
 
 use crate::{visit_noop, AtomicCounter, Optimizer};
@@ -49,22 +49,26 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 
         for idx in ops {
             let op = opt.program[node].ops.borrow()[idx].clone();
-            if let Operation::Copy(input) = op.operation {
-                if input.is_immutable()
-                    && op.out().is_immutable()
-                    && item_compatible(input.item, op.item())
-                {
-                    opt.visit_all(
-                        |_, var| {
-                            if *var == op.out() {
-                                *var = input
-                            }
-                        },
-                        visit_noop,
-                    );
-                    opt.program[node].ops.borrow_mut().remove(idx);
-                    return true;
+            match op.operation {
+                Operation::Copy(input)
+                | Operation::Operator(Operator::Cast(UnaryOperator { input })) => {
+                    if input.is_immutable()
+                        && op.out().is_immutable()
+                        && item_compatible(input.item, op.item())
+                    {
+                        opt.visit_all(
+                            |_, var| {
+                                if *var == op.out() {
+                                    *var = input
+                                }
+                            },
+                            visit_noop,
+                        );
+                        opt.program[node].ops.borrow_mut().remove(idx);
+                        return true;
+                    }
                 }
+                _ => {}
             }
         }
     }

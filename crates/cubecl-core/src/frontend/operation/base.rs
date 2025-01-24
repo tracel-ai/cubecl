@@ -1,16 +1,13 @@
 use std::num::NonZeroU8;
 
-use cubecl_ir::{Comparison, Operator};
-
-use crate::ir::{
-    Arithmetic, BinaryOperator, Elem, ExpandElement, Instruction, Item, Operation, UnaryOperator,
-    Variable, VariableKind, Vectorization,
+use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
+use cubecl_ir::{
+    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, Instruction, Item, Operation,
+    Operator, Scope, UnaryOperator, Variable, VariableKind, Vectorization,
 };
-use crate::prelude::{CubeType, ExpandElementTyped};
-use crate::{frontend::CubeContext, prelude::CubeIndex};
 
 pub(crate) fn binary_expand<F, Op>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -40,7 +37,7 @@ where
 }
 
 pub(crate) fn binary_expand_fixed_output<F>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     out_item: Item,
@@ -67,7 +64,7 @@ where
 }
 
 pub(crate) fn binary_expand_no_vec<F>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -93,7 +90,7 @@ where
 }
 
 pub(crate) fn cmp_expand<F>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -123,7 +120,7 @@ where
 }
 
 pub(crate) fn assign_op_expand<F, Op>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
     func: F,
@@ -144,11 +141,7 @@ where
     lhs
 }
 
-pub fn unary_expand<F, Op>(
-    context: &mut CubeContext,
-    input: ExpandElement,
-    func: F,
-) -> ExpandElement
+pub fn unary_expand<F, Op>(context: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
 where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
@@ -167,7 +160,7 @@ where
 }
 
 pub fn unary_expand_fixed_output<F, Op>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     input: ExpandElement,
     out_item: Item,
     func: F,
@@ -187,7 +180,7 @@ where
     output
 }
 
-pub fn init_expand<F>(context: &mut CubeContext, input: ExpandElement, func: F) -> ExpandElement
+pub fn init_expand<F>(context: &mut Scope, input: ExpandElement, func: F) -> ExpandElement
 where
     F: Fn(Variable) -> Operation,
 {
@@ -233,7 +226,7 @@ pub fn array_assign_binary_op_expand<
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 >(
-    context: &mut CubeContext,
+    context: &mut Scope,
     array: ExpandElementTyped<A>,
     index: ExpandElementTyped<u32>,
     value: ExpandElementTyped<V>,

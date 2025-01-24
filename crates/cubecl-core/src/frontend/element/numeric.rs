@@ -4,7 +4,7 @@ use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
 use crate::compute::KernelLauncher;
-use crate::ir::{Item, Variable};
+use crate::ir::{Item, Scope, Variable};
 use crate::prelude::Clamp;
 use crate::Runtime;
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     unexpanded,
 };
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType},
+    frontend::{CubePrimitive, CubeType},
     prelude::CubeIndexMut,
 };
 
@@ -49,14 +49,14 @@ pub trait Numeric:
     fn min_value() -> Self;
     fn max_value() -> Self;
 
-    fn __expand_min_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
+    fn __expand_min_value(context: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem(context);
         let var = elem.min_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
     }
 
-    fn __expand_max_value(context: &mut CubeContext) -> <Self as CubeType>::ExpandType {
+    fn __expand_max_value(context: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem(context);
         let var = elem.max_variable();
         let expand = ExpandElement::Plain(var);
@@ -80,7 +80,7 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(
-        context: &mut CubeContext,
+        context: &mut Scope,
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_elem(context);
@@ -90,7 +90,7 @@ pub trait Numeric:
     }
 
     fn __expand_from_vec<const D: usize>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
         let new_var = context.create_local(Item::vectorized(

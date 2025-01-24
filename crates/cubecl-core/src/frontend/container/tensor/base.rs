@@ -3,8 +3,8 @@ use cubecl_ir::ExpandElement;
 use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer};
 use crate::prelude::IntoRuntime;
 use crate::{
-    frontend::{indexation::Index, CubeContext, CubePrimitive, CubeType},
-    ir::{Item, Metadata},
+    frontend::{indexation::Index, CubePrimitive, CubeType},
+    ir::{Item, Metadata, Scope},
     prelude::Line,
     unexpanded,
 };
@@ -75,7 +75,7 @@ mod metadata {
 
         // Expand function of [stride](Tensor::stride).
         pub fn __expand_stride<C: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
@@ -84,7 +84,7 @@ mod metadata {
 
         // Expand function of [shape](Tensor::shape).
         pub fn __expand_shape<C: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
@@ -93,7 +93,7 @@ mod metadata {
 
         // Expand function of [coordinate](Tensor::coordinate).
         pub fn __expand_coordinate<I: Index, D: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
             index: ExpandElementTyped<u32>,
             dim: ExpandElementTyped<u32>,
@@ -103,7 +103,7 @@ mod metadata {
 
         // Expand function of [len](Tensor::len).
         pub fn __expand_len<C: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_len_method(context)
@@ -111,7 +111,7 @@ mod metadata {
 
         // Expand function of [buffer_len](Tensor::buffer_len).
         pub fn __expand_buffer_len<C: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_buffer_len_method(context)
@@ -119,7 +119,7 @@ mod metadata {
 
         // Expand function of [rank](Tensor::rank).
         pub fn __expand_rank<C: Index>(
-            context: &mut CubeContext,
+            context: &mut Scope,
             expand: ExpandElementTyped<Tensor<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_rank_method(context)
@@ -130,7 +130,7 @@ mod metadata {
         // Expand method of [stride](Tensor::stride).
         pub fn __expand_stride_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
@@ -148,7 +148,7 @@ mod metadata {
         // Expand method of [shape](Tensor::shape).
         pub fn __expand_shape_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
@@ -166,7 +166,7 @@ mod metadata {
         // Expand method of [coordinate](Tensor::coordinate).
         pub fn __expand_coordinate_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             index: ExpandElementTyped<u32>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
@@ -198,22 +198,19 @@ mod metadata {
         }
 
         // Expand method of [len](Tensor::len).
-        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        pub fn __expand_len_method(self, context: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(context)
         }
 
         // Expand method of [buffer_len](Tensor::buffer_len).
-        pub fn __expand_buffer_len_method(
-            self,
-            context: &mut CubeContext,
-        ) -> ExpandElementTyped<u32> {
+        pub fn __expand_buffer_len_method(self, context: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_buffer_len_method(context)
         }
 
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        pub fn __expand_rank_method(self, context: &mut Scope) -> ExpandElementTyped<u32> {
             let out = context.create_local(Item::new(u32::as_elem(context)));
             context.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
@@ -261,7 +258,7 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<Tensor<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
@@ -277,7 +274,7 @@ mod indexation {
 
         pub fn __expand_index_assign_unchecked_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
@@ -311,7 +308,7 @@ mod line {
         // Expand function of [size](Tensor::line_size).
         pub fn __expand_line_size(
             expand: <Self as CubeType>::ExpandType,
-            context: &mut CubeContext,
+            context: &mut Scope,
         ) -> u32 {
             expand.__expand_line_size_method(context)
         }
@@ -328,7 +325,7 @@ mod line {
         }
 
         // Expand method of [size](Tensor::line_size).
-        pub fn __expand_line_size_method(&self, _content: &mut CubeContext) -> u32 {
+        pub fn __expand_line_size_method(&self, _content: &mut Scope) -> u32 {
             self.line_size()
         }
     }
@@ -359,26 +356,26 @@ impl<T: CubeType> CubeType for *mut Tensor<T> {
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
-    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(_context: &mut Scope, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }
 }
 
 impl<E: CubePrimitive> IntoRuntime for Tensor<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _context: &mut Scope) -> Self::ExpandType {
         unimplemented!("Tensor can't exist at compile time")
     }
 }
 
 impl<E: CubePrimitive> IntoRuntime for *const Tensor<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _context: &mut Scope) -> Self::ExpandType {
         unimplemented!("Tensor can't exist at compile time")
     }
 }
 
 impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _context: &mut Scope) -> Self::ExpandType {
         unimplemented!("Tensor can't exist at compile time")
     }
 }

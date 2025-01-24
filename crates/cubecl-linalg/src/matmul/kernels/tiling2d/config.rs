@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    prelude::{CubeContext, Init},
+    prelude::{Init, Scope},
     CubeDim,
 };
 use cubecl_core::{CubeCount, CubeType};
@@ -62,7 +62,7 @@ pub struct CubeTiling2dConfig {
 }
 
 impl Init for CubeTiling2dConfig {
-    fn init(self, _context: &mut CubeContext) -> Self {
+    fn init(self, _context: &mut Scope) -> Self {
         self
     }
 }

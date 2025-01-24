@@ -1,11 +1,8 @@
 use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
-    frontend::{
-        indexation::Index, CubeContext, CubePrimitive, CubeType, ExpandElementTyped, Init,
-        IntoRuntime,
-    },
-    ir::Item,
+    frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime},
+    ir::{Item, Scope},
     prelude::Line,
 };
 
@@ -15,13 +12,13 @@ pub struct SharedMemory<T: CubeType> {
 }
 
 impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _context: &mut CubeContext) -> Self {
+    fn init(self, _context: &mut Scope) -> Self {
         self
     }
 }
 
 impl<T: CubePrimitive> IntoRuntime for SharedMemory<T> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _context: &mut Scope) -> ExpandElementTyped<Self> {
         unimplemented!("Shared memory can't exist at comptime");
     }
 }
@@ -40,7 +37,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     pub fn __expand_new_lined(
-        context: &mut CubeContext,
+        context: &mut Scope,
         size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
@@ -62,7 +59,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     pub fn __expand_vectorized(
-        context: &mut CubeContext,
+        context: &mut Scope,
         size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
@@ -81,7 +78,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     pub fn __expand_new(
-        context: &mut CubeContext,
+        context: &mut Scope,
         size: ExpandElementTyped<u32>,
     ) -> <Self as CubeType>::ExpandType {
         let size = size
@@ -134,7 +131,7 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<SharedMemory<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
             let out = context.create_local(self.expand.item);
@@ -150,7 +147,7 @@ mod indexation {
 
         pub fn __expand_index_assign_unchecked_method(
             self,
-            context: &mut CubeContext,
+            context: &mut Scope,
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {

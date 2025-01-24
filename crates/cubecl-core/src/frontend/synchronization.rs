@@ -1,5 +1,4 @@
-use crate::frontend::CubeContext;
-use crate::ir::Synchronization;
+use crate::ir::{Scope, Synchronization};
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
 
@@ -16,7 +15,7 @@ pub fn sync_units() {}
 pub mod sync_units {
     use super::*;
 
-    pub fn expand(context: &mut CubeContext) {
+    pub fn expand(context: &mut Scope) {
         context.register(Synchronization::SyncUnits)
     }
 }
@@ -29,7 +28,7 @@ pub fn sync_storage() {}
 pub mod sync_storage {
     use super::*;
 
-    pub fn expand(context: &mut CubeContext) {
+    pub fn expand(context: &mut Scope) {
         context.register(Synchronization::SyncStorage)
     }
 }

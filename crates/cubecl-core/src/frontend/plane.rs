@@ -1,9 +1,9 @@
 use cubecl_ir::ExpandElement;
 
-use super::{CubeContext, CubePrimitive, Line};
+use super::{CubePrimitive, Line};
 use crate::prelude::ExpandElementTyped;
 use crate::{
-    ir::{Elem, Instruction, Item, Plane, UnaryOperator},
+    ir::{Elem, Instruction, Item, Plane, Scope, UnaryOperator},
     unexpanded,
 };
 
@@ -18,7 +18,7 @@ pub mod plane_elect {
     use super::*;
 
     /// Expand method of [plane_elect()].
-    pub fn expand(context: &mut CubeContext) -> ExpandElementTyped<bool> {
+    pub fn expand(context: &mut Scope) -> ExpandElementTyped<bool> {
         let output = context.create_local(Item::new(Elem::Bool));
         let out = *output;
 
@@ -42,7 +42,7 @@ pub mod plane_broadcast {
 
     /// Expand method of [plane_broadcast()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
@@ -72,7 +72,7 @@ pub mod plane_sum {
 
     /// Expand method of [plane_sum()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
@@ -98,7 +98,7 @@ pub mod plane_prod {
 
     /// Expand method of [plane_prod()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
@@ -124,7 +124,7 @@ pub mod plane_max {
 
     /// Expand method of [plane_max()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
@@ -150,7 +150,7 @@ pub mod plane_min {
 
     /// Expand method of [plane_min()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
@@ -176,10 +176,7 @@ pub mod plane_all {
     use super::*;
 
     /// Expand method of [plane_all()].
-    pub fn expand(
-        context: &mut CubeContext,
-        elem: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<bool> {
+    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item);
 
@@ -203,10 +200,7 @@ pub mod plane_any {
     use super::*;
 
     /// Expand method of [plane_any()].
-    pub fn expand(
-        context: &mut CubeContext,
-        elem: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<bool> {
+    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let output = context.create_local(elem.item);
 
@@ -237,10 +231,7 @@ pub mod plane_ballot {
     use super::*;
 
     /// Expand method of [plane_ballot()].
-    pub fn expand(
-        context: &mut CubeContext,
-        elem: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<bool> {
+    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
         let out_item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
         let output = context.create_local(out_item);

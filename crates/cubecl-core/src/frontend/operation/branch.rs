@@ -1,5 +1,5 @@
 use crate::{
-    ir::{Operator, Select},
+    ir::{Instruction, Operator, Scope, Select},
     prelude::*,
 };
 use crate::{
@@ -35,12 +35,10 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use crate::ir::Instruction;
-
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         condition: ExpandElementTyped<bool>,
         then: ExpandElementTyped<C>,
         or_else: ExpandElementTyped<C>,
@@ -71,7 +69,7 @@ pub mod select_many {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         condition: ExpandElementTyped<Line<bool>>,
         then: ExpandElementTyped<Line<C>>,
         or_else: ExpandElementTyped<Line<C>>,

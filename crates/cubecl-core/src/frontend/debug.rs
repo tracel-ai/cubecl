@@ -1,15 +1,13 @@
-use crate::ir::{NonSemantic, Variable};
-
-use super::CubeContext;
+use crate::ir::{NonSemantic, Scope, Variable};
 
 /// Calls a function and inserts debug symbols if debug is enabled.
 #[track_caller]
 pub fn debug_call_expand<C>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     name: &'static str,
     line: u32,
     col: u32,
-    call: impl FnOnce(&mut CubeContext) -> C,
+    call: impl FnOnce(&mut Scope) -> C,
 ) -> C {
     if context.debug_enabled {
         context.register(NonSemantic::BeginCall {
@@ -31,10 +29,10 @@ pub fn debug_call_expand<C>(
 /// Calls an intrinsic op and inserts debug symbols if debug is enabled.
 #[track_caller]
 pub fn spanned_expand<C>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     line: u32,
     col: u32,
-    call: impl FnOnce(&mut CubeContext) -> C,
+    call: impl FnOnce(&mut Scope) -> C,
 ) -> C {
     if context.debug_enabled {
         context.register(NonSemantic::Line { line, col });
@@ -46,7 +44,7 @@ pub fn spanned_expand<C>(
 
 /// Adds source instruction if debug is enabled
 #[track_caller]
-pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, line: u32, col: u32) {
+pub fn debug_source_expand(context: &mut Scope, name: &str, file: &str, line: u32, col: u32) {
     if context.debug_enabled {
         // Normalize to linux separators
         let file = file.replace("\\", "/");
@@ -60,11 +58,7 @@ pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, li
 }
 
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.
-pub fn printf_expand(
-    context: &mut CubeContext,
-    format_string: impl Into<String>,
-    args: Vec<Variable>,
-) {
+pub fn printf_expand(context: &mut Scope, format_string: impl Into<String>, args: Vec<Variable>) {
     context.register(NonSemantic::Print {
         format_string: format_string.into(),
         args,

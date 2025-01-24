@@ -32,6 +32,7 @@ mod tests {
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_shared_sum!([f32]);
 }
 
 #[cfg(all(test, feature = "spirv"))]
@@ -41,12 +42,11 @@ mod tests_spirv {
     use cubecl_core::flex32;
     use half::f16;
 
-    // Need to split out bitwise at some point so we can test i64 for all other ops. For now, remove
-    // 64 bit ints since Vulkan only supports 32-bit bit counting ops.
-    cubecl_core::testgen_all!(f32: [f16, flex32, f32, f64], i32: [i8, i16, i32], u32: [u8, u16, u32]);
+    cubecl_core::testgen_all!(f32: [f16, flex32, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_linalg::testgen_matmul_plane!([f16, f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32, f64]);
     cubecl_linalg::testgen_matmul_simple!([f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_shared_sum!([f32]);
 }

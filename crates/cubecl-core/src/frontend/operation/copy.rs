@@ -24,13 +24,13 @@ pub fn copy_bulk<C: CubePrimitive>(
 }
 
 pub mod copy_bulk {
-    use crate::ir::{CopyMemoryBulkOperator, Instruction, Operator};
+    use crate::ir::{CopyMemoryBulkOperator, Instruction, Operator, Scope};
 
     use super::*;
 
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubeType>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         from: ExpandElementTyped<Slice<C>>,
         from_index: ExpandElementTyped<u32>,
         to: ExpandElementTyped<SliceMut<C>>,

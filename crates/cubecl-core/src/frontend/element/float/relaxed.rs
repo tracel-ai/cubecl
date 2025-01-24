@@ -1,12 +1,11 @@
 use cubecl_common::flex32;
-use cubecl_ir::{Elem, ExpandElement, FloatKind};
+use cubecl_ir::{Elem, ExpandElement, FloatKind, Scope};
 
 use crate::prelude::Numeric;
 
 use super::{
-    init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElementBaseInit,
-    ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand,
-    Runtime, ScalarArgSettings,
+    init_expand_element, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Float,
+    Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 impl CubeType for flex32 {
@@ -21,7 +20,7 @@ impl CubePrimitive for flex32 {
 }
 
 impl IntoRuntime for flex32 {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
         Init::init(expand, context)
     }
@@ -37,7 +36,7 @@ impl Numeric for flex32 {
 }
 
 impl ExpandElementBaseInit for flex32 {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }

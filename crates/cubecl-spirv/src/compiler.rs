@@ -1,6 +1,10 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{ir as core, prelude::FastMath, Metadata};
-use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
+use cubecl_core::{
+    ir::{self as core, Scope},
+    prelude::FastMath,
+    Metadata,
+};
+use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
     collections::HashSet,
@@ -20,6 +24,7 @@ use crate::{
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
+    transformers::{BitwiseTransform, ErfTransform},
     SpirvKernel,
 };
 
@@ -195,7 +200,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.init_state(kernel.clone());
 
-        let opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
+        let opt = OptimizerBuilder::default()
+            .with_transformer(ErfTransform)
+            .with_transformer(BitwiseTransform)
+            .optimize(kernel.body, kernel.cube_dim, self.mode);
         self.init_debug(options.kernel_name.clone(), &opt);
         self.opt = opt;
 
@@ -368,6 +376,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .collect::<Vec<_>>();
         for ty in scalars {
             self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
+        }
+    }
+
+    pub fn compile_polyfill(&mut self, mut scope: Scope) {
+        let processed = scope.process();
+        for inst in processed.operations {
+            self.compile_operation(inst);
         }
     }
 }
