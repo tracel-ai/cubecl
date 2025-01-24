@@ -88,22 +88,21 @@ impl<EG: Numeric> TensorReader<EG> {
         tile_x: u32,
         tile_y: u32,
         nth_slice: u32,
-        // unit_id: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
-    ) -> Slice<Line<EG>> {
-        // TODO Not just 1 element, but a slice
-
+    ) -> (Slice<Line<EG>>, u32) {
         let line_size = config.global_line_size(ident);
         let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
         let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+        let tile_lines_x = tile_size_x / line_size;
+        let tile_lines_y = tile_size_y / line_size;
 
         let view_tile_x = tile_x * tile_size_x + self.x_offset;
         let view_tile_y = tile_y * tile_size_y + self.y_offset;
 
-        let (load_x, load_y, slice_length) = match config.layout(ident) {
-            MatrixLayout::RowMajor => (nth_slice, 0, tile_size_y),
-            MatrixLayout::ColMajor => (0, nth_slice, tile_size_x),
+        let (load_x, load_y, num_slice_lines) = match config.layout(ident) {
+            MatrixLayout::RowMajor => (nth_slice, 0, tile_lines_y),
+            MatrixLayout::ColMajor => (0, nth_slice, tile_lines_x),
         };
 
         let view_x = view_tile_x + load_x;
@@ -117,14 +116,56 @@ impl<EG: Numeric> TensorReader<EG> {
             InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
         };
 
-        // let size = match comptime!((check_x_bounds, check_y_bounds)) {
-        //     (true, true) => u32::cast_from(view_x < self.shape_x && view_y < self.shape_y),
-        //     (true, false) => u32::cast_from(view_x < self.shape_x),
-        //     (false, true) => u32::cast_from(view_y < self.shape_y),
-        //     (false, false) => 1u32.runtime(),
+        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
+            match config.layout(ident) {
+                MatrixLayout::RowMajor => (
+                    check_x_bounds,
+                    view_x,
+                    self.shape_x,
+                    check_y_bounds,
+                    view_y,
+                    self.shape_y,
+                ),
+                MatrixLayout::ColMajor => (
+                    check_y_bounds,
+                    view_y,
+                    self.shape_y,
+                    check_x_bounds,
+                    view_x,
+                    self.shape_x,
+                ),
+            };
+
+        let max_slice_lines = if comptime!(check_h_bounds) {
+            num_slice_lines * u32::cast_from(view_h < shape_h)
+        } else {
+            num_slice_lines
+        };
+        let size = if comptime!(check_w_bounds) {
+            slice_length_clamp(shape_w / line_size, view_w / line_size, max_slice_lines)
+        } else {
+            max_slice_lines
+        };
+
+        // let size = match config.layout(ident) {
+        //     MatrixLayout::RowMajor => match comptime!((check_x_bounds, check_y_bounds)) {
+        //         (true, true) => slice_length_clamp(
+        //             self.shape_y / line_size,
+        //             view_y / line_size,
+        //             num_slice_lines * u32::cast_from(view_x < self.shape_x),
+        //         ),
+        //         (true, false) => num_slice_lines * u32::cast_from(view_x < self.shape_x),
+        //         (false, true) => slice_length_clamp(
+        //             self.shape_y / line_size,
+        //             view_y / line_size,
+        //             num_slice_lines,
+        //         ),
+        //         (false, false) => num_slice_lines,
+        //     },
+        //     MatrixLayout::ColMajor => unimplemented!(),
         // };
 
-        self.tensor.as_slice(read_pos, read_pos + slice_length)
+        (self.tensor.as_slice(read_pos, read_pos + size), size)
     }
 
     /// Reads data from the tensor view at the specified tile coordinates (tile_x, tile_y).
@@ -268,4 +309,10 @@ impl<EG: Numeric> TensorWriter<EG> {
     fn write(&mut self, position: u32, value: Line<EG>) {
         self.tensor.write(position, value)
     }
+}
+
+#[cube]
+/// Gives the largest slice starting at offset and not exceeding shape
+fn slice_length_clamp(shape: u32, offset: u32, max_length: u32) -> u32 {
+    Min::min(select(shape > offset, shape - offset, 0), max_length)
 }

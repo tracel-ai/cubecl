@@ -54,10 +54,9 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        LL::check(config, Ident::Lhs).unwrap_or_else(|x| panic!("{x}"));
-        RL::check(config, Ident::Rhs).unwrap_or_else(|x| panic!("{x}"));
-        SMM::check_config(&config.to_smm_config()).unwrap_or_else(|x| panic!("{x}"));
-        Ok(())
+        LL::check(config, Ident::Lhs)?;
+        RL::check(config, Ident::Rhs)?;
+        SMM::check_config(&config.to_smm_config())
     }
 
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
@@ -139,20 +138,24 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let pipeline = Pipeline::<MP::ES>::new(1);
+        // let pipeline = Pipeline::<MP::ES>::new(1);
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
-            pipeline.producer_acquire();
+            sync_units();
+            // pipeline.producer_acquire();
 
-            Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage_window(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage_window(&mut rhs_loader, config);
+            // Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
+            // Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
 
-            pipeline.producer_commit();
+            // pipeline.producer_commit();
 
-            pipeline.consumer_wait();
+            // pipeline.consumer_wait();
+            sync_units();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
@@ -166,7 +169,7 @@ where
                 config.to_smm_config(),
             );
 
-            pipeline.consumer_release();
+            // pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);

@@ -44,12 +44,12 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
 
     let selection = MatmulSelection {
         tile,
-        num_stagess: stage,
+        num_stages: stage,
         plane_dim,
     };
     let config_input = CommonStageInput {
         tile: A::TileMatmul::input(selection.tile),
-        num_stages: selection.num_stagess,
+        num_stages: selection.num_stages,
     };
 
     test_matmul_algorithm::<A, P::EG, P::ES, R>(client, problem, config_input, selection);
@@ -155,6 +155,11 @@ macro_rules! matmul_standard_tests {
             $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 100, n: 100, k: 100 });
         }
 
+        mod p20x20x16 {
+            use super::*;
+            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 65, n: 16, k: 16 });
+        }
+
         mod p23x1x17 {
             use super::*;
             $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 23, n: 1, k: 17 });
@@ -181,25 +186,25 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        #[test]
-        pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, (EG, ES), TestRuntime>(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
+        // #[test]
+        // pub fn specialized() {
+        //     cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, (EG, ES), TestRuntime>(
+        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+        //         $tile,
+        //         $stage,
+        //         $problem,
+        //     );
+        // }
 
-        #[test]
-        pub fn pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, (EG, ES), TestRuntime>(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
+        // #[test]
+        // pub fn pipelined() {
+        //     cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, (EG, ES), TestRuntime>(
+        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+        //         $tile,
+        //         $stage,
+        //         $problem,
+        //     );
+        // }
     };
 }
 

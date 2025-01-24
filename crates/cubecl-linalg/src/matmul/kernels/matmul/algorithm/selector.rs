@@ -53,7 +53,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
             tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            num_stages: selection.num_stages,
         };
 
         matmul_cube_preparation::<MS, R, StandardAlgorithm<TMM>>(
@@ -82,7 +82,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
             tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            num_stages: selection.num_stages,
         };
 
         matmul_cube_preparation::<MS, R, PipelinedAlgorithm<TMM>>(
@@ -111,7 +111,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
             tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            num_stages: selection.num_stages,
         };
 
         matmul_cube_preparation::<MS, R, SpecializedAlgorithm<TMM>>(
@@ -244,7 +244,7 @@ fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
             n: instruction_n as u32,
             k: instruction_k as u32,
         },
-        num_stagess: MatmulSize {
+        num_stages: MatmulSize {
             m: stage_size_m_n as u32,
             n: stage_size_m_n as u32,
             k: 2,

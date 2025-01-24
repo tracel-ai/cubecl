@@ -53,7 +53,7 @@ impl LoadingStrategy for TilewiseLoading {
     fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        pipeline: Pipeline<ES>,
+        // pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -83,7 +83,7 @@ impl LoadingStrategy for TilewiseLoading {
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
 
-            let source = read_view.load_window::<G>(
+            let (source, source_len) = read_view.load_window::<G>(
                 tile_x,
                 tile_y,
                 pos_within_tile * line_size,
@@ -92,8 +92,8 @@ impl LoadingStrategy for TilewiseLoading {
             );
 
             let offset = offset_base + pos_within_tile;
-            let destination = slice.slice_mut(offset, offset + source.len());
-            pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+            let destination = slice.slice_mut(offset, offset + source_len);
+            // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
         }
     }
     fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(

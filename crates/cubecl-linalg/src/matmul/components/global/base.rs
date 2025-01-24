@@ -105,7 +105,11 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
     /// Fills the stage at the current k offset.
-    fn fill_stage_window(this: &mut Self, pipeline: Pipeline<ES>, #[comptime] config: G);
+    fn fill_stage_window(
+        this: &mut Self,
+        // pipeline: Pipeline<ES>,
+        #[comptime] config: G,
+    );
 
     /// Returns a reader for the stage at the current k offset
     fn as_stage_reader(this: &Self) -> Self::StageReader;

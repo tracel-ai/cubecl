@@ -29,14 +29,14 @@ where
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(
             selection.plane_dim,
-            selection.num_stagess.m + core::cmp::max(1u32, selection.num_stagess.m / 2),
+            selection.num_stages.m + core::cmp::max(1u32, selection.num_stages.m / 2),
             1,
         )
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
-        let m_stage = selection.num_stagess.m * selection.tile.m;
-        let n_stage = selection.num_stagess.n * selection.tile.n;
+        let m_stage = selection.num_stages.m * selection.tile.m;
+        let n_stage = selection.num_stages.n * selection.tile.n;
         let cubes_for_m = (problem.m as u32 + m_stage - 1) / m_stage;
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
