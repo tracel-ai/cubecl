@@ -81,10 +81,15 @@ impl Display for Optimizer {
             }
 
             for op in bb.ops.borrow_mut().values_mut() {
+                let op_fmt = op.to_string();
+                if op_fmt.is_empty() {
+                    continue;
+                }
+
                 let range = op.out.map(|var| ranges.range_of(self, &var));
                 let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
 
-                writeln!(f, "    {op};{range}")?;
+                writeln!(f, "    {op_fmt};{range}")?;
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::IfElse {

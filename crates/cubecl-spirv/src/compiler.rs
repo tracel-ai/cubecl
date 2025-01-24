@@ -24,7 +24,7 @@ use crate::{
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
-    transformers::ErfTransform,
+    transformers::{BitwiseTransform, ErfTransform},
     SpirvKernel,
 };
 
@@ -202,6 +202,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
+            .with_transformer(BitwiseTransform)
             .optimize(kernel.body, kernel.cube_dim, self.mode);
         self.init_debug(options.kernel_name.clone(), &opt);
         self.opt = opt;
