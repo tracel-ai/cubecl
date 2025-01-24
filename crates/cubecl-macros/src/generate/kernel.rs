@@ -39,7 +39,7 @@ impl KernelFn {
 
 impl ToTokens for KernelSignature {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let cube_context = prelude_type("CubeContext");
+        let cube_context = prelude_type("Scope");
         let cube_type = prelude_type("CubeType");
 
         let name = &self.name;

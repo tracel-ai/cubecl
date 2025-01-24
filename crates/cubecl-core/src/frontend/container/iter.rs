@@ -1,10 +1,8 @@
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Branch, Item, RangeLoop},
-    prelude::{
-        index, CubeContext, CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable,
-    },
+    ir::{Branch, Item, RangeLoop, Scope},
+    prelude::{index, CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable},
 };
 
 use super::Array;
@@ -15,7 +13,7 @@ pub trait SizedContainer:
     type Item: CubeType<ExpandType = ExpandElementTyped<Self::Item>>;
 
     /// Return the length of the container.
-    fn len(val: &ExpandElement, context: &mut CubeContext) -> ExpandElement {
+    fn len(val: &ExpandElement, context: &mut Scope) -> ExpandElement {
         // By default we use the expand len method of the Array type.
         let val: ExpandElementTyped<Array<Self::Item>> = val.clone().into();
         val.__expand_len_method(context).expand
@@ -25,8 +23,8 @@ pub trait SizedContainer:
 impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
     fn expand(
         self,
-        context: &mut CubeContext,
-        mut body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
+        context: &mut Scope,
+        mut body: impl FnMut(&mut Scope, <T::Item as CubeType>::ExpandType),
     ) {
         let index_ty = Item::new(u32::as_elem(context));
         let len: ExpandElement = T::len(&self.expand, context);
@@ -43,14 +41,14 @@ impl<T: SizedContainer> Iterable<T::Item> for ExpandElementTyped<T> {
             end: *len,
             step: None,
             inclusive: false,
-            scope: child.into_scope(),
+            scope: child,
         })));
     }
 
     fn expand_unroll(
         self,
-        _context: &mut CubeContext,
-        _body: impl FnMut(&mut CubeContext, <T::Item as CubeType>::ExpandType),
+        _context: &mut Scope,
+        _body: impl FnMut(&mut Scope, <T::Item as CubeType>::ExpandType),
     ) {
         unimplemented!("Can't unroll array iterator")
     }

@@ -1,7 +1,7 @@
 use cubecl_ir::ExpandElement;
 
-use crate::frontend::{CubeContext, CubeType, Numeric};
-use crate::ir::{Elem, IntKind};
+use crate::frontend::{CubeType, Numeric};
+use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
 use crate::Runtime;
 use crate::{
@@ -47,7 +47,7 @@ pub trait Int:
     const BITS: u32;
 
     fn new(val: i64) -> Self;
-    fn __expand_new(context: &mut CubeContext, val: i64) -> <Self as CubeType>::ExpandType {
+    fn __expand_new(context: &mut Scope, val: i64) -> <Self as CubeType>::ExpandType {
         __expand_new(context, val)
     }
 }
@@ -65,10 +65,7 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(
-                self,
-                context: &mut CubeContext,
-            ) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
                 let expand: ExpandElementTyped<Self> = self.into();
                 Init::init(expand, context)
             }
@@ -84,7 +81,7 @@ macro_rules! impl_int {
         }
 
         impl ExpandElementBaseInit for $type {
-            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+            fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
             }
         }

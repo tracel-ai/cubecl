@@ -1,13 +1,13 @@
 use crate::frontend::operation::base::cmp_expand;
-use crate::frontend::{CubeContext, ExpandElementTyped};
-use crate::ir::Comparison;
+use crate::frontend::ExpandElementTyped;
+use crate::ir::{Comparison, Scope};
 use crate::prelude::CubePrimitive;
 
 pub mod ne {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -19,7 +19,7 @@ pub mod gt {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -31,7 +31,7 @@ pub mod lt {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -43,7 +43,7 @@ pub mod ge {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -55,7 +55,7 @@ pub mod le {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -68,7 +68,7 @@ pub mod eq {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {

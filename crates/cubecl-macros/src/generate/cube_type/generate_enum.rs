@@ -49,7 +49,7 @@ impl CubeTypeEnum {
     }
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
-        let context = prelude_type("CubeContext");
+        let context = prelude_type("Scope");
         let into_runtime = prelude_type("IntoRuntime");
         let init = prelude_type("Init");
 
@@ -81,7 +81,7 @@ impl CubeTypeEnum {
             }
 
             impl #generics #into_runtime for #name #generic_names #where_clause {
-                fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+                fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {
                     let expand = #body_into_runtime;
                     #init::init(expand, context)
                 }

@@ -1,6 +1,6 @@
 use crate::{
-    ir::{Arithmetic, ExpandElement, FmaOperator, Instruction},
-    prelude::{CubeContext, CubePrimitive},
+    ir::{Arithmetic, ExpandElement, FmaOperator, Instruction, Scope},
+    prelude::CubePrimitive,
     unexpanded,
 };
 
@@ -13,7 +13,7 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
 /// Expand method of [fma].
 #[allow(unused_variables)]
 pub fn fma_expand<C: CubePrimitive>(
-    context: &mut CubeContext,
+    context: &mut Scope,
     a: ExpandElement,
     b: ExpandElement,
     c: ExpandElement,

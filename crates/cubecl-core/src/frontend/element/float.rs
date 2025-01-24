@@ -1,3 +1,4 @@
+use cubecl_ir::Scope;
 use half::{bf16, f16};
 
 use crate::{
@@ -59,7 +60,7 @@ pub trait Float:
     const RADIX: u32;
 
     fn new(val: f32) -> Self;
-    fn __expand_new(context: &mut CubeContext, val: f32) -> <Self as CubeType>::ExpandType {
+    fn __expand_new(context: &mut Scope, val: f32) -> <Self as CubeType>::ExpandType {
         __expand_new(context, val)
     }
 }
@@ -84,10 +85,7 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(
-                self,
-                context: &mut CubeContext,
-            ) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
                 let expand: ExpandElementTyped<Self> = self.into();
                 Init::init(expand, context)
             }
@@ -103,7 +101,7 @@ macro_rules! impl_float {
         }
 
         impl ExpandElementBaseInit for $primitive {
-            fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+            fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
                 init_expand_element(context, elem)
             }
         }

@@ -1,7 +1,7 @@
 use cubecl_ir::{ExpandElement, Operator};
 
-use crate::frontend::{cast, CubeContext, CubePrimitive, CubeType};
-use crate::ir::{Instruction, Item, UnaryOperator, Variable};
+use crate::frontend::{cast, CubePrimitive, CubeType};
+use crate::ir::{Instruction, Item, Scope, UnaryOperator, Variable};
 use crate::unexpanded;
 
 use super::ExpandElementTyped;
@@ -11,7 +11,7 @@ pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 
     fn __expand_cast_from<From: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
         if core::any::TypeId::of::<Self>() == core::any::TypeId::of::<From>() {
@@ -42,7 +42,7 @@ pub trait BitCast: CubePrimitive {
     }
 
     fn __expand_bitcast_from<From: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();

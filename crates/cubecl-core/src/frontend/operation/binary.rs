@@ -1,7 +1,7 @@
-use crate::ir::{Arithmetic, Bitwise, ExpandElement, Operator};
+use crate::ir::{Arithmetic, Bitwise, ExpandElement, Operator, Scope};
 use crate::{
     flex32,
-    frontend::{CubeContext, CubePrimitive, ExpandElementTyped},
+    frontend::{CubePrimitive, ExpandElementTyped},
 };
 use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
@@ -14,7 +14,7 @@ pub mod add {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -26,7 +26,7 @@ pub mod sub {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -38,7 +38,7 @@ pub mod mul {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -50,7 +50,7 @@ pub mod div {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -62,7 +62,7 @@ pub mod rem {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -74,7 +74,7 @@ pub mod and {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -86,7 +86,7 @@ pub mod bitand {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -98,7 +98,7 @@ pub mod bitor {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -110,7 +110,7 @@ pub mod or {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
@@ -122,7 +122,7 @@ pub mod bitxor {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -134,7 +134,7 @@ pub mod shl {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -146,7 +146,7 @@ pub mod shr {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        context: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
@@ -163,7 +163,7 @@ macro_rules! impl_binary_func {
             }
 
             fn $func_name_expand(
-                context: &mut CubeContext,
+                context: &mut Scope,
                 lhs: ExpandElementTyped<Self>,
                 rhs: ExpandElementTyped<Self>,
             ) -> ExpandElementTyped<Self> {
@@ -173,7 +173,7 @@ macro_rules! impl_binary_func {
 
         $(impl $trait_name for $type {})*
         $(impl ExpandElementTyped<$type> {
-            pub fn $method_name_expand(self, context: &mut CubeContext, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
+            pub fn $method_name_expand(self, context: &mut Scope, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
                 binary_expand(context, self.into(), rhs.into(), $operator).into()
             }
         })*
@@ -188,7 +188,7 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
             }
 
             fn $func_name_expand(
-                context: &mut CubeContext,
+                context: &mut Scope,
                 lhs: ExpandElementTyped<Self>,
                 rhs: ExpandElementTyped<Self>,
             ) -> ExpandElementTyped<Self> {
@@ -201,7 +201,7 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
 
         $(impl $trait_name for $type {})*
         $(impl ExpandElementTyped<$type> {
-            pub fn $method_name_expand(self, context: &mut CubeContext, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
+            pub fn $method_name_expand(self, context: &mut Scope, rhs: ExpandElementTyped<$type>) -> ExpandElementTyped<$type> {
                 let lhs: ExpandElement = self.into();
                 let mut item = lhs.item;
                 item.vectorization = $out_vectorization;

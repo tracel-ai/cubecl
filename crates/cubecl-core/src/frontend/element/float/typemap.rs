@@ -13,28 +13,30 @@
 use core::f32;
 use std::{
     cmp::Ordering,
-    ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign},
+    ops::{Div, DivAssign, Mul, MulAssign, Rem, RemAssign, Shl, Shr},
 };
 
 use bytemuck::{Pod, Zeroable};
 use cubecl_ir::ExpandElement;
 use derive_more::derive::{
-    Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
+    DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+    SubAssign,
 };
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Variable},
+    ir::{Elem, FloatKind, Scope, Variable},
     prelude::Numeric,
 };
 
 use super::{
-    init_expand_element, Abs, Ceil, Clamp, Cos, CubeContext, CubeIndex, CubeIndexMut,
+    init_expand_element, Abs, BitwiseNot, Ceil, Clamp, Cos, CountOnes, CubeIndex, CubeIndexMut,
     CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElementBaseInit, ExpandElementTyped, Float,
-    Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log, Log1p,
-    Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round, Runtime, ScalarArgSettings, Sin,
-    Sqrt, Tanh,
+    Floor, Index, Init, Int, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log,
+    Log1p, Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, ReverseBits, Round, Runtime,
+    ScalarArgSettings, Sin, Sqrt, Tanh,
 };
 
 #[allow(non_camel_case_types)]
@@ -64,7 +66,43 @@ use super::{
 )]
 pub struct FloatExpand<const POS: u8>(f32);
 pub type NumericExpand<const POS: u8> = FloatExpand<POS>;
-pub type IntExpand<const POS: u8> = FloatExpand<POS>;
+
+#[repr(transparent)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    Serialize,
+    Zeroable,
+    Pod,
+    PartialEq,
+    PartialOrd,
+    Neg,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    RemAssign,
+    Debug,
+    Display,
+    Shl,
+    ShlAssign,
+    Shr,
+    ShrAssign,
+    BitXor,
+    BitXorAssign,
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    Not,
+)]
+pub struct IntExpand<const POS: u8>(i64);
 
 impl<const POS: u8> FloatExpand<POS> {
     pub const MIN_POSITIVE: Self = Self(half::f16::MIN_POSITIVE.to_f32_const());
@@ -136,6 +174,64 @@ impl<const POS: u8> RemAssign for FloatExpand<POS> {
     }
 }
 
+impl<const POS: u8> Mul for IntExpand<POS> {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        IntExpand(self.0 * rhs.0)
+    }
+}
+
+impl<const POS: u8> Div for IntExpand<POS> {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        IntExpand(self.0 / rhs.0)
+    }
+}
+
+impl<const POS: u8> Rem for IntExpand<POS> {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        IntExpand(self.0 % rhs.0)
+    }
+}
+
+impl<const POS: u8> MulAssign for IntExpand<POS> {
+    fn mul_assign(&mut self, rhs: Self) {
+        self.0 *= rhs.0;
+    }
+}
+
+impl<const POS: u8> DivAssign for IntExpand<POS> {
+    fn div_assign(&mut self, rhs: Self) {
+        self.0 /= rhs.0;
+    }
+}
+
+impl<const POS: u8> RemAssign for IntExpand<POS> {
+    fn rem_assign(&mut self, rhs: Self) {
+        self.0 %= rhs.0;
+    }
+}
+
+impl<const POS: u8> Shr for IntExpand<POS> {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        IntExpand(self.0 >> rhs.0)
+    }
+}
+
+impl<const POS: u8> Shl for IntExpand<POS> {
+    type Output = Self;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        IntExpand(self.0 << rhs.0)
+    }
+}
+
 impl<const POS: u8> From<f32> for FloatExpand<POS> {
     fn from(value: f32) -> Self {
         Self::from_f32(value)
@@ -166,9 +262,33 @@ impl<const POS: u8> ToPrimitive for FloatExpand<POS> {
     }
 }
 
+impl<const POS: u8> ToPrimitive for IntExpand<POS> {
+    fn to_i64(&self) -> Option<i64> {
+        Some(self.0)
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        Some(self.0 as u64)
+    }
+
+    fn to_f32(&self) -> Option<f32> {
+        Some(self.0 as f32)
+    }
+
+    fn to_f64(&self) -> Option<f64> {
+        Some(self.0 as f64)
+    }
+}
+
 impl<const POS: u8> NumCast for FloatExpand<POS> {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         Some(FloatExpand::from_f32(n.to_f32()?))
+    }
+}
+
+impl<const POS: u8> NumCast for IntExpand<POS> {
+    fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
+        Some(IntExpand(n.to_i64()?))
     }
 }
 
@@ -176,9 +296,22 @@ impl<const POS: u8> CubeType for FloatExpand<POS> {
     type ExpandType = ExpandElementTyped<FloatExpand<POS>>;
 }
 
+impl<const POS: u8> CubeType for IntExpand<POS> {
+    type ExpandType = ExpandElementTyped<IntExpand<POS>>;
+}
+
 impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(context: &CubeContext) -> Elem {
+    fn as_elem(context: &Scope) -> Elem {
+        context
+            .resolve_elem::<Self>()
+            .expect("Type to be registered")
+    }
+}
+
+impl<const POS: u8> CubePrimitive for IntExpand<POS> {
+    /// Return the element type to use on GPU
+    fn as_elem(context: &Scope) -> Elem {
         context
             .resolve_elem::<Self>()
             .expect("Type to be registered")
@@ -205,9 +338,36 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
     }
 }
 
+impl<const POS: u8> From<IntExpand<POS>> for Variable {
+    fn from(val: IntExpand<POS>) -> Self {
+        // TODO: Fix how we create literal.
+        Variable::new(
+            crate::ir::VariableKind::ConstantScalar(crate::ir::ConstantScalarValue::Int(
+                val.0,
+                cubecl_ir::IntKind::I32,
+            )),
+            crate::ir::Item::new(Elem::Float(FloatKind::F32)),
+        )
+    }
+}
+
+impl<const POS: u8> From<IntExpand<POS>> for ExpandElementTyped<IntExpand<POS>> {
+    fn from(value: IntExpand<POS>) -> Self {
+        let var: Variable = value.into();
+        ExpandElementTyped::new(ExpandElement::Plain(var))
+    }
+}
+
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self);
+        Init::init(expand, context)
+    }
+}
+
+impl<const POS: u8> IntoRuntime for IntExpand<POS> {
+    fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
+        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self.0);
         Init::init(expand, context)
     }
 }
@@ -221,8 +381,23 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
     }
 }
 
+impl<const POS: u8> Numeric for IntExpand<POS> {
+    fn min_value() -> Self {
+        panic!("Can't use min value in comptime with dynamic element type");
+    }
+    fn max_value() -> Self {
+        panic!("Can't use max value in comptime with dynamic element type");
+    }
+}
+
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(context, elem)
+    }
+}
+
+impl<const POS: u8> ExpandElementBaseInit for IntExpand<POS> {
+    fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
         init_expand_element(context, elem)
     }
 }
@@ -234,10 +409,15 @@ impl<const POS: u8> Recip for FloatExpand<POS> {}
 impl<const POS: u8> Erf for FloatExpand<POS> {}
 impl<const POS: u8> Exp for FloatExpand<POS> {}
 impl<const POS: u8> Remainder for FloatExpand<POS> {}
+impl<const POS: u8> Remainder for IntExpand<POS> {}
 impl<const POS: u8> Abs for FloatExpand<POS> {}
+impl<const POS: u8> Abs for IntExpand<POS> {}
 impl<const POS: u8> Max for FloatExpand<POS> {}
+impl<const POS: u8> Max for IntExpand<POS> {}
 impl<const POS: u8> Min for FloatExpand<POS> {}
+impl<const POS: u8> Min for IntExpand<POS> {}
 impl<const POS: u8> Clamp for FloatExpand<POS> {}
+impl<const POS: u8> Clamp for IntExpand<POS> {}
 impl<const POS: u8> Log for FloatExpand<POS> {}
 impl<const POS: u8> Log1p for FloatExpand<POS> {}
 impl<const POS: u8> Cos for FloatExpand<POS> {}
@@ -249,10 +429,19 @@ impl<const POS: u8> Round for FloatExpand<POS> {}
 impl<const POS: u8> Floor for FloatExpand<POS> {}
 impl<const POS: u8> Ceil for FloatExpand<POS> {}
 
+impl<const POS: u8> BitwiseNot for IntExpand<POS> {}
+impl<const POS: u8> ReverseBits for IntExpand<POS> {}
+impl<const POS: u8> CountOnes for IntExpand<POS> {}
+
 impl<T: Index, const POS: u8> CubeIndex<T> for FloatExpand<POS> {
     type Output = Self;
 }
 impl<T: Index, const POS: u8> CubeIndexMut<T> for FloatExpand<POS> {}
+
+impl<T: Index, const POS: u8> CubeIndex<T> for IntExpand<POS> {
+    type Output = Self;
+}
+impl<T: Index, const POS: u8> CubeIndexMut<T> for IntExpand<POS> {}
 
 impl<const POS: u8> Float for FloatExpand<POS> {
     const DIGITS: u32 = 32;
@@ -286,6 +475,14 @@ impl<const POS: u8> Float for FloatExpand<POS> {
     }
 }
 
+impl<const POS: u8> Int for IntExpand<POS> {
+    const BITS: u32 = 32;
+
+    fn new(val: i64) -> Self {
+        IntExpand(val)
+    }
+}
+
 impl<const POS: u8> LaunchArgExpand for FloatExpand<POS> {
     type CompilationArg = ();
 
@@ -296,9 +493,25 @@ impl<const POS: u8> LaunchArgExpand for FloatExpand<POS> {
     }
 }
 
+impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
+    type CompilationArg = ();
+
+    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
+        builder
+            .scalar(IntExpand::<POS>::as_elem(&builder.context))
+            .into()
+    }
+}
+
 impl<const POS: u8> ScalarArgSettings for FloatExpand<POS> {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_f32(self.0);
+    }
+}
+
+impl<const POS: u8> ScalarArgSettings for IntExpand<POS> {
+    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
+        settings.register_i32(self.0 as i32);
     }
 }
 
