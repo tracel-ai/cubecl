@@ -3,10 +3,12 @@ use cubecl_core::{ir as core, prelude::FastMath, Metadata};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
+    cell::{Ref, RefCell},
     collections::HashSet,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
+    rc::Rc,
 };
 
 use cubecl_core::{compute::KernelDefinition, Compiler};
@@ -38,7 +40,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
-    pub opt: Optimizer,
+    pub opt: Rc<RefCell<Optimizer>>,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
 
@@ -197,7 +199,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let opt = Optimizer::new(kernel.body, kernel.cube_dim, self.mode);
         self.init_debug(options.kernel_name.clone(), &opt);
-        self.opt = opt;
+        self.opt = Rc::new(RefCell::new(opt));
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -208,13 +210,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let setup = self.id();
         self.debug_name(setup, "setup");
 
-        let entry = self.opt.entry();
+        let entry = self.opt().entry();
         let body = self.label(entry);
         let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
         self.compile_block(entry);
 
-        let ret = self.opt.ret;
+        let ret = self.opt().ret;
         self.compile_block(ret);
 
         if self.selected_block().is_some() {
@@ -247,13 +249,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         target.set_modes(self, main, builtins, cube_dims);
 
         let module = take(&mut self.builder).module();
-        (module, self.opt.clone())
+        (module, self.opt().clone())
     }
 
     fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
 
-        for const_arr in self.opt.const_arrays() {
+        let opt = self.opt.clone();
+        for const_arr in opt.borrow().const_arrays() {
             self.register_const_array(const_arr);
         }
 
@@ -265,8 +268,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     #[track_caller]
-    pub fn current_block(&self) -> &BasicBlock {
-        self.opt.block(self.current_block.unwrap())
+    pub fn current_block(&self) -> BasicBlock {
+        self.opt.borrow().block(self.current_block.unwrap()).clone()
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -302,7 +305,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let current = self.selected_block();
         self.select_block(Some(block_id)).unwrap();
-        let phi = { self.opt.block(block).phi_nodes.borrow().clone() };
+        let phi = { self.opt.borrow().block(block).phi_nodes.borrow().clone() };
         for phi in phi {
             let out = self.compile_variable(phi.out);
             let ty = out.item().id(self);
@@ -369,6 +372,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         for ty in scalars {
             self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
         }
+    }
+
+    pub fn opt(&self) -> Ref<'_, Optimizer> {
+        self.opt.borrow()
     }
 }
 
