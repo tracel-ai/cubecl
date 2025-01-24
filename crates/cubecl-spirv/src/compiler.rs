@@ -378,13 +378,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
         }
     }
-
-    pub fn compile_polyfill(&mut self, mut scope: Scope) {
-        let processed = scope.process();
-        for inst in processed.operations {
-            self.compile_operation(inst);
-        }
-    }
 }
 
 fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
