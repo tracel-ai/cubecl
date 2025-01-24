@@ -2,18 +2,16 @@ use std::num::NonZero;
 
 use cubecl_ir::{Comparison, ExpandElement};
 use derive_more::derive::Neg;
-
 use crate::{
     ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
     prelude::{binary_expand_fixed_output, Dot, Numeric},
     unexpanded,
 };
-
 use crate::frontend::{
     CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
 };
-
 /// A contiguous list of elements that supports auto-vectorized operations.
+
 #[derive(Neg)]
 pub struct Line<P> {
     // Comptime lines only support 1 element.

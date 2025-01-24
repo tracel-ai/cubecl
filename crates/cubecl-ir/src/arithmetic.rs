@@ -8,7 +8,6 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = ArithmeticOpCode, pure)]
-#[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Arithmetic {
     #[operation(commutative)]
     Add(BinaryOperator),

@@ -7,7 +7,7 @@ use crate::parse::op_args::OpArgs;
 
 impl OpArgs {
     fn generate_into(&self) -> TokenStream {
-        let mut tokens = quote![let mut args = smallvec::SmallVec::new();];
+        let mut tokens = quote![let mut args = Vec::new();];
         for field in self.data.as_ref().take_struct().unwrap().fields {
             let ident = field.ident.as_ref().unwrap();
             tokens.extend(quote![args.extend(crate::FromArgList::as_arg_list(&self.#ident));]);
@@ -44,7 +44,7 @@ impl OpArgs {
                 Some({#from})
             }
 
-            fn as_args(&self) -> Option<smallvec::SmallVec<[Variable; 4]>> {
+            fn as_args(&self) -> Option<Vec<crate::Variable>> {
                 Some({#into})
             }
         }]

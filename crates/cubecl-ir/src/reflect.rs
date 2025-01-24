@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
 
-use smallvec::SmallVec;
-
 use crate::Variable;
 
 /// An operation that can be reflected on
@@ -13,7 +11,7 @@ pub trait OperationReflect: Sized {
     fn op_code(&self) -> Self::OpCode;
     /// Get the list of arguments for this operation. If not all arguments are [`Variable`], returns
     /// `None` instead.
-    fn args(&self) -> Option<SmallVec<[Variable; 4]>> {
+    fn args(&self) -> Option<Vec<Variable>> {
         None
     }
     /// Create typed operation from an opcode and a list of arguments. Returns `None` if not all
@@ -45,7 +43,7 @@ pub trait OperationArgs: Sized {
 
     /// Turns this type into a flat list of arguments. If not all arguments are [`Variable`],
     /// returns `None`
-    fn as_args(&self) -> Option<SmallVec<[Variable; 4]>> {
+    fn as_args(&self) -> Option<Vec<Variable>> {
         None
     }
 }
@@ -55,8 +53,8 @@ impl OperationArgs for Variable {
         Some(args[0])
     }
 
-    fn as_args(&self) -> Option<SmallVec<[Variable; 4]>> {
-        Some(SmallVec::from_slice(&[*self]))
+    fn as_args(&self) -> Option<Vec<Variable>> {
+        Some(vec![*self])
     }
 }
 
@@ -85,6 +83,6 @@ impl FromArgList for Vec<Variable> {
     }
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
-        self.clone()
+        self.iter().cloned()
     }
 }

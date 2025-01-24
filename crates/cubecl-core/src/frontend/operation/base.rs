@@ -1,10 +1,11 @@
 use std::num::NonZeroU8;
 
-use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, Instruction, Item, Operation,
     Operator, Scope, UnaryOperator, Variable, VariableKind, Vectorization,
 };
+
+use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
 
 pub(crate) fn binary_expand<F, Op>(
     context: &mut Scope,

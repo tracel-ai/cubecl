@@ -1,5 +1,5 @@
 use crate::{
-    ir::{Instruction, Operator, Scope, Select},
+    ir::{Operator, Scope, Select},
     prelude::*,
 };
 use crate::{
@@ -34,6 +34,8 @@ pub fn select_many<C: CubePrimitive>(
 
 pub mod select {
     use std::num::NonZero;
+
+    use crate::ir::Instruction;
 
     use super::*;
 
