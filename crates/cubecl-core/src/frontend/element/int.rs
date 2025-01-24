@@ -14,6 +14,9 @@ use super::{
     IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
 };
 
+mod typemap;
+pub use typemap::*;
+
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
