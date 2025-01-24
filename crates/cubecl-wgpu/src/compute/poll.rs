@@ -10,7 +10,7 @@ mod _impl {
     }
 
     impl WgpuPoll {
-        pub fn new(device: std::sync::Arc<wgpu::Device>) -> Self {
+        pub fn new(device: wgpu::Device) -> Self {
             let active_handle = std::sync::Arc::new(());
             let thread_check = active_handle.clone();
 
@@ -61,7 +61,7 @@ mod _impl {
     #[derive(Debug)]
     pub struct WgpuPoll {}
     impl WgpuPoll {
-        pub fn new(_device: alloc::sync::Arc<wgpu::Device>) -> Self {
+        pub fn new(_device: wgpu::Device) -> Self {
             Self {}
         }
         pub fn start_polling(&self) -> alloc::sync::Arc<()> {
