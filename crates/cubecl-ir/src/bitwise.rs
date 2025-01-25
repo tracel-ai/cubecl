@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use crate::TypeHash;
 
@@ -23,7 +23,7 @@ pub enum Bitwise {
 }
 
 impl Display for Bitwise {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Bitwise::BitwiseAnd(op) => write!(f, "{} & {}", op.lhs, op.rhs),
             Bitwise::BitwiseOr(op) => write!(f, "{} | {}", op.lhs, op.rhs),

@@ -1,9 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use alloc::{rc::Rc, vec::Vec};
+use core::cell::RefCell;
+
+use hashbrown::HashMap;
+use portable_atomic::{AtomicU32, Ordering};
 
 use super::{Item, Matrix, Variable, VariableKind};
 

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use crate::TypeHash;
 
@@ -23,7 +23,7 @@ pub enum AtomicOp {
 }
 
 impl Display for AtomicOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             AtomicOp::Load(op) => write!(f, "atomic_load({})", op.input),
             AtomicOp::Store(op) => write!(f, "atomic_store({})", op.input),

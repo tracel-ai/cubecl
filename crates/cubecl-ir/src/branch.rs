@@ -1,4 +1,5 @@
-use std::fmt::Display;
+use alloc::{boxed::Box, format, vec::Vec};
+use core::fmt::Display;
 
 use crate::OperationReflect;
 
@@ -36,7 +37,7 @@ impl OperationReflect for Branch {
 }
 
 impl Display for Branch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Branch::If(if_) => write!(f, "if({})", if_.cond),
             Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),

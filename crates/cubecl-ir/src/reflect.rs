@@ -1,4 +1,7 @@
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
+
+use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::Variable;
 

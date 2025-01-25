@@ -1,7 +1,7 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
-use std::fmt::Display;
-use std::num::NonZero;
+use core::fmt::Display;
+use core::num::NonZero;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -233,7 +233,7 @@ impl From<Elem> for Item {
 }
 
 impl Display for Elem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Float(kind) => match kind {
                 FloatKind::F16 => f.write_str("f16"),
@@ -303,7 +303,7 @@ impl Item {
 }
 
 impl Display for Item {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.vectorization {
             Some(vec) if vec.get() > 1 => {
                 write!(f, "vector{}<{}>", vec.get(), self.elem)

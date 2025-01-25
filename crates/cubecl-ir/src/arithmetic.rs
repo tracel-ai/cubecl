@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use crate::TypeHash;
 
@@ -49,7 +49,7 @@ pub enum Arithmetic {
 }
 
 impl Display for Arithmetic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Arithmetic::Add(op) => write!(f, "{} + {}", op.lhs, op.rhs),
             Arithmetic::Fma(op) => write!(f, "{} * {} + {}", op.a, op.b, op.c),
