@@ -1,5 +1,5 @@
-use std::fmt::Display;
 use crate::TypeHash;
+use std::fmt::Display;
 
 use crate::OperationReflect;
 

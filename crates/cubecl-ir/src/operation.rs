@@ -1,12 +1,12 @@
 use std::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
+use crate::TypeHash;
 use crate::{
     comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
     OperationReflect, Operator,
 };
 use derive_more::derive::From;
-use crate::TypeHash;
 
 /// All operations that can be used in a GPU compute shader.
 ///
