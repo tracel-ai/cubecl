@@ -57,7 +57,7 @@ impl WgpuStream {
         let poll = WgpuPoll::new(device.clone());
 
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 32,
             usage: wgpu::BufferUsages::COPY_DST
@@ -65,7 +65,7 @@ impl WgpuStream {
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::INDIRECT,
             mapped_at_creation: false,
-        })));
+        }));
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
