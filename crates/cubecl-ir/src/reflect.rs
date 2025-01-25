@@ -11,7 +11,6 @@ pub trait OperationReflect: Sized {
     fn op_code(&self) -> Self::OpCode;
     /// Get the list of arguments for this operation. If not all arguments are [`Variable`], returns
     /// `None` instead.
-
     fn args(&self) -> Option<Vec<Variable>> {
         None
     }
