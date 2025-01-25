@@ -30,8 +30,6 @@ pub struct Scope {
     writes_global: Vec<(Variable, Variable, Variable)>,
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    #[type_hash(skip)]
     pub allocator: Allocator,
 }
 
