@@ -31,6 +31,12 @@ macro_rules! declare_uint {
             }
         }
 
+        impl Init for $primitive {
+            fn init(self, _context: &mut CubeContext) -> Self {
+                self
+            }
+        }
+
         impl IntoRuntime for $primitive {
             fn __expand_runtime_method(
                 self,

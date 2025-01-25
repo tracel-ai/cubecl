@@ -27,7 +27,7 @@ impl From<ExpandElementTyped<u32>> for u32 {
     }
 }
 
-impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
+impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V> {
     /// Create a new registry.
     pub fn new() -> Self {
         Self::default()
@@ -49,7 +49,10 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
         let key = query.into();
         let map = self.map.as_ref().borrow();
 
-        map.get(&key).unwrap().clone()
+        match map.get(&key) {
+            Some(val) => val.clone(),
+            None => panic!("No value found for key {key:?}"),
+        }
     }
 
     /// Insert an item in the registry.
@@ -86,12 +89,15 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
     }
 }
 
-impl<K: PartialOrd + Ord, V: Clone> Registry<K, V> {
+impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
     /// Expand method of [Self::find].
     pub fn __expand_find_method(&self, _context: &mut CubeContext, key: K) -> V {
         let map = self.map.as_ref().borrow();
 
-        map.get(&key).unwrap().clone()
+        match map.get(&key) {
+            Some(val) => val.clone(),
+            None => panic!("No value found for key {key:?}"),
+        }
     }
 
     /// Expand method of [Self::insert].
