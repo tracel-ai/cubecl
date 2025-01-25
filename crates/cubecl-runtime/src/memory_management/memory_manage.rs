@@ -178,7 +178,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         const SCALE_MB: u64 = 1024 * 1024 * 1024;
 
                         let dealloc_period =
-                            (500.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
+                            (1000.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
 
                         MemoryPoolOptions {
                             pool_type: PoolType::ExclusivePages {

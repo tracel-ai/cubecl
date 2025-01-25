@@ -21,8 +21,10 @@ pub struct ExclusiveMemoryPool {
     cur_avg_size: f64,
 }
 
-const ALLOC_AFTER_FREE: u32 = 5;
 const SIZE_AVG_DECAY: f64 = 0.01;
+
+// How many times to find the allocation 'free' before deallocating it.
+const ALLOC_AFTER_FREE: u32 = 5;
 
 struct MemoryPage {
     slice: Slice,
@@ -78,6 +80,8 @@ impl ExclusiveMemoryPool {
         self.pages.push(MemoryPage {
             slice,
             alloc_size,
+            // Start the allocation at 'almost ready to free'. Every use will decrement this.
+            // This means allocations start as "suspected as unused" and over time will be kept for longer.
             free_count: ALLOC_AFTER_FREE - 1,
         });
 
@@ -144,11 +148,11 @@ impl MemoryPool for ExclusiveMemoryPool {
     }
 
     fn max_alloc_size(&self) -> u64 {
-        // Only handle slices in the range up to N times the min allocation size.
         self.max_alloc_size
     }
 
     fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+        // Check such that an alloc is free after at most dealloc_period.
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
         if alloc_nr - self.last_dealloc_check < check_period {
@@ -161,8 +165,9 @@ impl MemoryPool for ExclusiveMemoryPool {
             if page.slice.is_free() {
                 page.free_count += 1;
 
+                // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
+                // without it being used in the meantime), deallocate it.
                 if page.free_count >= ALLOC_AFTER_FREE {
-                    // Dealloc page.
                     storage.dealloc(page.slice.storage.id);
                     return false;
                 }
