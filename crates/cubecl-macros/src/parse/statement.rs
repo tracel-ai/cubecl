@@ -60,6 +60,11 @@ impl Statement {
                         expression: Box::new(Expression::Comment { content }),
                         terminated: val.semi_token.is_some(),
                     }
+                } else if val.mac.path.is_ident("terminate") {
+                    Statement::Expression {
+                        expression: Box::new(Expression::Terminate),
+                        terminated: val.semi_token.is_some(),
+                    }
                 } else {
                     return Err(syn::Error::new_spanned(
                         val,
