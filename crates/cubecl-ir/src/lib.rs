@@ -40,4 +40,4 @@ pub use synchronization::*;
 pub use variable::*;
 
 pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};
-pub(crate) use type_hash::TypeHash;
+pub use type_hash::TypeHash;
