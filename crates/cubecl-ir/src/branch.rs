@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::OperationReflect;
 
 use super::{Elem, Item, OperationCode, Scope, UIntKind, Variable};
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 /// All branching types.
 #[allow(clippy::large_enum_variant)]

@@ -1,6 +1,4 @@
-use type_hash::TypeHash;
-
-use crate::ConstantScalarValue;
+use crate::{ConstantScalarValue, TypeHash};
 
 use super::{
     cpa, processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,

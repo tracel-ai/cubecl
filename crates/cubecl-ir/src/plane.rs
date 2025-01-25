@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::OperationReflect;
 
 use super::{BinaryOperator, UnaryOperator};
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 /// All plane operations.
 ///

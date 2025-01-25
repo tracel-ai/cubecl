@@ -6,7 +6,7 @@ use crate::{
     OperationReflect, Operator,
 };
 use derive_more::derive::From;
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 /// All operations that can be used in a GPU compute shader.
 ///

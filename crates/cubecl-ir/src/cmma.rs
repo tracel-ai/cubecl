@@ -1,7 +1,7 @@
 use super::{Elem, Variable};
 use crate::{OperationCode, OperationReflect};
 use std::fmt::Display;
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]

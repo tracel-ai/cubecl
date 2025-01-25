@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 use crate::{BinaryOperator, OperationReflect, UnaryOperator};
 
