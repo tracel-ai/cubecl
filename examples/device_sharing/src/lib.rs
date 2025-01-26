@@ -26,10 +26,10 @@ mod device_sharing_wgpu {
             .expect("Failed to create wgpu device from adapter");
 
         WgpuSetup {
-            instance: instance.into(),
-            adapter: adapter.into(),
-            device: device.into(),
-            queue: queue.into(),
+            instance,
+            adapter,
+            device,
+            queue,
         }
     }
 

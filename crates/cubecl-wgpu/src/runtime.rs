@@ -5,7 +5,6 @@ use crate::{
     compute::{WgpuServer, WgpuStorage},
     AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
-use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
     ir::{Elem, FloatKind},
@@ -103,13 +102,13 @@ impl Default for RuntimeOptions {
 #[derive(Clone, Debug)]
 pub struct WgpuSetup {
     /// The underlying wgpu instance.
-    pub instance: Arc<wgpu::Instance>,
+    pub instance: wgpu::Instance,
     /// The selected 'adapter'. This corresponds to a physical device.
-    pub adapter: Arc<wgpu::Adapter>,
+    pub adapter: wgpu::Adapter,
     /// The wgpu device Burn will use. Nb: There can only be one device per adapter.
-    pub device: Arc<wgpu::Device>,
+    pub device: wgpu::Device,
     /// The queue Burn commands will be submitted to.
-    pub queue: Arc<wgpu::Queue>,
+    pub queue: wgpu::Queue,
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
@@ -239,10 +238,10 @@ pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
     );
 
     WgpuSetup {
-        instance: Arc::new(instance),
-        adapter: Arc::new(adapter),
-        device: Arc::new(device),
-        queue: Arc::new(queue),
+        instance,
+        adapter,
+        device,
+        queue,
     }
 }
 

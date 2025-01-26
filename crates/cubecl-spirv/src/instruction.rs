@@ -1,6 +1,7 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{self as core, BinaryOperator, Comparison, Operator, UnaryOperator};
-use cubecl_core::ir::{Instruction, Operation};
+use cubecl_core::ir::{
+    self as core, BinaryOperator, Comparison, Instruction, Operation, Operator, UnaryOperator,
+};
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{

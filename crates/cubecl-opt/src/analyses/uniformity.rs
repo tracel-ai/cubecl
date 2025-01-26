@@ -2,7 +2,6 @@ use cubecl_ir::{
     Builtin, Operation, OperationReflect, Plane, Synchronization, Variable, VariableKind,
 };
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
-use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
 use crate::{ControlFlow, NodeIndex, Optimizer};
@@ -180,7 +179,7 @@ impl Uniformity {
         Some(())
     }
 
-    fn is_all_uniform(&self, args: Option<SmallVec<[Variable; 4]>>) -> bool {
+    fn is_all_uniform(&self, args: Option<Vec<Variable>>) -> bool {
         args.map(|it| it.iter().all(|it| self.is_var_uniform(*it)))
             .unwrap_or(false)
     }

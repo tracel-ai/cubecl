@@ -61,7 +61,7 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
     let reduce_index = get_reduce_index(params);
 
     if params.bound_checks && reduce_index >= get_reduce_count(output.len(), params) {
-        return;
+        terminate!();
     }
 
     let range = ReduceRange::new::<In, Out>(

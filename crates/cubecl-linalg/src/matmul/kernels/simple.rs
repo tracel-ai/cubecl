@@ -29,7 +29,7 @@ fn matmul_kernel<F: Float>(
     let col = CUBE_DIM_Y * CUBE_POS_Y + UNIT_POS_Y;
 
     if row >= n_rows || col >= n_cols {
-        return;
+        terminate!();
     }
 
     let line_size = lhs.line_size();

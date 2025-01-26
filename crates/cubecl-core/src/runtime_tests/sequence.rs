@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
     if UNIT_POS != 0 {
-        return;
+        terminate!();
     }
 
     let mut sequence = Sequence::<F>::new();
@@ -19,7 +19,7 @@ pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
 #[cube(launch)]
 pub fn sequence_index<F: Float>(output: &mut Array<F>) {
     if UNIT_POS != 0 {
-        return;
+        terminate!();
     }
 
     let mut sequence = Sequence::<F>::new();

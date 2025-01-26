@@ -79,6 +79,7 @@ pub enum Expression {
         tokens: TokenStream,
     },
     Continue(Span),
+    Return(Span),
     ForLoop {
         range: Box<Expression>,
         unroll: Option<Box<Expression>>,
@@ -100,11 +101,6 @@ pub enum Expression {
         value: Box<Expression>,
         cases: Vec<(Lit, Block)>,
         default: Block,
-    },
-    Return {
-        expr: Option<Box<Expression>>,
-        span: Span,
-        _ty: Type,
     },
     Range {
         start: Box<Expression>,
@@ -150,6 +146,7 @@ pub enum Expression {
     Comment {
         content: LitStr,
     },
+    Terminate,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +176,7 @@ impl Expression {
             Expression::Break { .. } => None,
             Expression::Cast { to, .. } => Some(to.clone()),
             Expression::Continue { .. } => None,
+            Expression::Return { .. } => None,
             Expression::ForLoop { .. } => None,
             Expression::FieldAccess { .. } => None,
             Expression::MethodCall { .. } => None,
@@ -187,7 +185,6 @@ impl Expression {
             Expression::Loop { .. } => None,
             Expression::If { then_block, .. } => then_block.ty.clone(),
             Expression::Switch { default, .. } => default.ty.clone(),
-            Expression::Return { expr, .. } => expr.as_ref().and_then(|expr| expr.ty()),
             Expression::Array { .. } => None,
             Expression::Index { .. } => None,
             Expression::Tuple { .. } => None,
@@ -201,6 +198,7 @@ impl Expression {
             Expression::CompilerIntrinsic { .. } => None,
             Expression::ConstMatch { .. } => None,
             Expression::Comment { .. } => None,
+            Expression::Terminate => None,
         }
     }
 
