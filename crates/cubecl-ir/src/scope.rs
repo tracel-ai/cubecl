@@ -134,9 +134,16 @@ impl Scope {
 
     /// Create a mutable variable of the given [item type](Item).
     pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> ExpandElement {
-        let local = self.allocator.create_local_mut(item.into());
-        self.add_local_mut(*local);
-        local
+        let item = item.into();
+        if item.elem.is_atomic() {
+            self.allocator.create_local_restricted(item)
+        } else if let Some(local) = self.allocator.reuse_local_mut(item) {
+            local
+        } else {
+            let expand = ExpandElement::Managed(self.allocator.add_local_mut(item));
+            self.add_local_mut(*expand);
+            expand
+        }
     }
 
     /// Create a mutable variable of the given [item type](Item).
