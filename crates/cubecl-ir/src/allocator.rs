@@ -104,7 +104,7 @@ impl Allocator {
     }
 
     // Try to return a reusable mutable variable for the given `item` or `None` otherwise.
-    fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
+    pub fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
         // Among the candidates, take a variable if it's only referenced by the pool.
         // Arbitrarily takes the first it finds in reversed order.
         self.local_mut_pool.borrow().get(&item).and_then(|vars| {
