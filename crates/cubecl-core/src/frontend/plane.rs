@@ -231,7 +231,10 @@ pub mod plane_ballot {
     use super::*;
 
     /// Expand method of [plane_ballot()].
-    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
+    pub fn expand(
+        context: &mut Scope,
+        elem: ExpandElementTyped<bool>,
+    ) -> ExpandElementTyped<Line<u32>> {
         let elem: ExpandElement = elem.into();
         let out_item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
         let output = context.create_local(out_item);
