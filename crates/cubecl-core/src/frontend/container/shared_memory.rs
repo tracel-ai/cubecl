@@ -12,13 +12,13 @@ pub struct SharedMemory<T: CubeType> {
 }
 
 impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
-    fn init(self, _context: &mut Scope) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
 impl<T: CubePrimitive> IntoRuntime for SharedMemory<T> {
-    fn __expand_runtime_method(self, _context: &mut Scope) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
         unimplemented!("Shared memory can't exist at comptime");
     }
 }
@@ -37,7 +37,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     pub fn __expand_new_lined(
-        context: &mut Scope,
+        scope: &mut Scope,
         size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
@@ -45,11 +45,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = context.create_shared(
-            Item::vectorized(
-                T::as_elem(context),
-                NonZero::new(vectorization_factor as u8),
-            ),
+        let var = scope.create_shared(
+            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
             size,
         );
         ExpandElementTyped::new(var)
@@ -59,7 +56,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     }
 
     pub fn __expand_vectorized(
-        context: &mut Scope,
+        scope: &mut Scope,
         size: ExpandElementTyped<u32>,
         vectorization_factor: u32,
     ) -> <Self as CubeType>::ExpandType {
@@ -67,25 +64,22 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = context.create_shared(
-            Item::vectorized(
-                T::as_elem(context),
-                NonZero::new(vectorization_factor as u8),
-            ),
+        let var = scope.create_shared(
+            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
             size,
         );
         ExpandElementTyped::new(var)
     }
 
     pub fn __expand_new(
-        context: &mut Scope,
+        scope: &mut Scope,
         size: ExpandElementTyped<u32>,
     ) -> <Self as CubeType>::ExpandType {
         let size = size
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = context.create_shared(Item::new(T::as_elem(context)), size);
+        let var = scope.create_shared(Item::new(T::as_elem(scope)), size);
         ExpandElementTyped::new(var)
     }
 }
@@ -131,11 +125,11 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<SharedMemory<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut Scope,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local(self.expand.item);
-            context.register(Instruction::new(
+            let out = scope.create_local(self.expand.item);
+            scope.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
@@ -147,11 +141,11 @@ mod indexation {
 
         pub fn __expand_index_assign_unchecked_method(
             self,
-            context: &mut Scope,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Instruction::new(
+            scope.register(Instruction::new(
                 Operator::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),

@@ -18,11 +18,11 @@ pub mod plane_elect {
     use super::*;
 
     /// Expand method of [plane_elect()].
-    pub fn expand(context: &mut Scope) -> ExpandElementTyped<bool> {
-        let output = context.create_local(Item::new(Elem::Bool));
+    pub fn expand(scope: &mut Scope) -> ExpandElementTyped<bool> {
+        let output = scope.create_local(Item::new(Elem::Bool));
         let out = *output;
 
-        context.register(Instruction::new(Plane::Elect, out));
+        scope.register(Instruction::new(Plane::Elect, out));
 
         output.into()
     }
@@ -42,16 +42,16 @@ pub mod plane_broadcast {
 
     /// Expand method of [plane_broadcast()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
-        let output = context.create_local(value.expand.item);
+        let output = scope.create_local(value.expand.item);
         let out = *output;
         let lhs = *value.expand;
         let rhs = *id.expand;
 
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Plane::Broadcast(crate::ir::BinaryOperator { lhs, rhs }),
             out,
         ));
@@ -72,16 +72,16 @@ pub mod plane_sum {
 
     /// Expand method of [plane_sum()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::Sum(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Sum(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -98,16 +98,16 @@ pub mod plane_prod {
 
     /// Expand method of [plane_prod()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::Prod(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Prod(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -124,16 +124,16 @@ pub mod plane_max {
 
     /// Expand method of [plane_max()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::Max(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Max(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -150,16 +150,16 @@ pub mod plane_min {
 
     /// Expand method of [plane_min()].
     pub fn expand<E: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::Min(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Min(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -176,14 +176,14 @@ pub mod plane_all {
     use super::*;
 
     /// Expand method of [plane_all()].
-    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
+    pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::All(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::All(UnaryOperator { input }), out));
 
         output.into()
     }
@@ -200,14 +200,14 @@ pub mod plane_any {
     use super::*;
 
     /// Expand method of [plane_any()].
-    pub fn expand(context: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
+    pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = context.create_local(elem.item);
+        let output = scope.create_local(elem.item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(Plane::Any(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Any(UnaryOperator { input }), out));
 
         output.into()
     }

@@ -1,19 +1,17 @@
 use std::num::NonZero;
 
-use cubecl_ir::{Comparison, ExpandElement};
-use derive_more::derive::Neg;
-
+use crate::frontend::{
+    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
+};
 use crate::{
     ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
     prelude::{binary_expand_fixed_output, Dot, Numeric},
     unexpanded,
 };
-
-use crate::frontend::{
-    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
-};
-
+use cubecl_ir::{Comparison, ExpandElement};
+use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
+
 #[derive(Neg)]
 pub struct Line<P> {
     // Comptime lines only support 1 element.
@@ -39,7 +37,7 @@ mod new {
         }
 
         /// Expand function of [Self::new].
-        pub fn __expand_new(_context: &mut Scope, val: P::ExpandType) -> ExpandElementTyped<Self> {
+        pub fn __expand_new(_scope: &mut Scope, val: P::ExpandType) -> ExpandElementTyped<Self> {
             let elem: ExpandElementTyped<P> = val;
             elem.expand.into()
         }
@@ -71,25 +69,21 @@ mod fill {
 
         /// Expand function of [fill](Self::fill).
         pub fn __expand_fill(
-            context: &mut Scope,
+            scope: &mut Scope,
             line: ExpandElementTyped<Self>,
             value: ExpandElementTyped<P>,
         ) -> ExpandElementTyped<Self> {
-            line.__expand_fill_method(context, value)
+            line.__expand_fill_method(scope, value)
         }
     }
 
     impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
         /// Expand method of [fill](Line::fill).
-        pub fn __expand_fill_method(
-            self,
-            context: &mut Scope,
-            value: ExpandElementTyped<P>,
-        ) -> Self {
+        pub fn __expand_fill_method(self, scope: &mut Scope, value: ExpandElementTyped<P>) -> Self {
             let length = self.expand.item.vectorization;
-            let output = context.create_local(Item::vectorized(P::as_elem(context), length));
+            let output = scope.create_local(Item::vectorized(P::as_elem(scope), length));
 
-            cast::expand::<P>(context, value, output.clone().into());
+            cast::expand::<P>(scope, value, output.clone().into());
 
             output.into()
         }
@@ -111,7 +105,7 @@ mod empty {
 
         /// Expand function of [empty](Self::empty).
         pub fn __expand_empty(
-            context: &mut Scope,
+            scope: &mut Scope,
             length: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<Self> {
             let length = match length.expand.as_const() {
@@ -127,8 +121,8 @@ mod empty {
                 },
                 None => None,
             };
-            context
-                .create_local_mut(Item::vectorized(Self::as_elem(context), length))
+            scope
+                .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
                 .into()
         }
     }
@@ -154,8 +148,8 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(context: &mut Scope, element: ExpandElementTyped<P>) -> u32 {
-            element.__expand_vectorization_factor_method(context)
+        pub fn __expand_size(scope: &mut Scope, element: ExpandElementTyped<P>) -> u32 {
+            element.__expand_vectorization_factor_method(scope)
         }
     }
 
@@ -170,7 +164,7 @@ mod size {
         }
 
         /// Expand method of [size](Line::size).
-        pub fn __expand_size_method(&self, _context: &mut Scope) -> u32 {
+        pub fn __expand_size_method(&self, _scope: &mut Scope) -> u32 {
             self.size()
         }
     }
@@ -197,11 +191,11 @@ macro_rules! impl_line_comparison {
 
                     /// Expand function of [$name](Self::$name).
                     pub fn [< __expand_ $name >](
-                        context: &mut Scope,
+                        scope: &mut Scope,
                         lhs: ExpandElementTyped<Self>,
                         rhs: ExpandElementTyped<Self>,
                     ) -> ExpandElementTyped<Line<bool>> {
-                        lhs.[< __expand_ $name _method >](context, rhs)
+                        lhs.[< __expand_ $name _method >](scope, rhs)
                     }
                 }
 
@@ -209,16 +203,16 @@ macro_rules! impl_line_comparison {
                     /// Expand method of [equal](Line::equal).
                     pub fn [< __expand_ $name _method >](
                         self,
-                        context: &mut Scope,
+                        scope: &mut Scope,
                         rhs: Self,
                     ) -> ExpandElementTyped<Line<bool>> {
                         let size = self.expand.item.vectorization;
                         let lhs = self.expand.into();
                         let rhs = rhs.expand.into();
 
-                        let output = context.create_local_mut(Item::vectorized(bool::as_elem(context), size));
+                        let output = scope.create_local_mut(Item::vectorized(bool::as_elem(scope), size));
 
-                        context.register(Instruction::new(
+                        scope.register(Instruction::new(
                             Comparison::$operator(BinaryOperator { lhs, rhs }),
                             output.clone().into(),
                         ));
@@ -244,20 +238,20 @@ impl<P: CubePrimitive> CubeType for Line<P> {
 }
 
 impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
-    fn init_elem(context: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
-        P::init_elem(context, elem)
+    fn init_elem(scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
+        P::init_elem(scope, elem)
     }
 }
 
 impl<P: CubePrimitive> IntoRuntime for Line<P> {
-    fn __expand_runtime_method(self, context: &mut crate::ir::Scope) -> Self::ExpandType {
-        self.val.__expand_runtime_method(context).expand.into()
+    fn __expand_runtime_method(self, scope: &mut crate::ir::Scope) -> Self::ExpandType {
+        self.val.__expand_runtime_method(scope).expand.into()
     }
 }
 
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
-    fn as_elem(context: &Scope) -> Elem {
-        P::as_elem(context)
+    fn as_elem(scope: &Scope) -> Elem {
+        P::as_elem(scope)
     }
 
     fn as_elem_native() -> Option<Elem> {
@@ -275,13 +269,13 @@ impl<N: Numeric> Dot for Line<N> {
     }
 
     fn __expand_dot(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<Self>,
         rhs: ExpandElementTyped<Self>,
     ) -> ExpandElementTyped<Self> {
         let lhs: ExpandElement = lhs.into();
         let mut item = lhs.item;
         item.vectorization = None;
-        binary_expand_fixed_output(context, lhs, rhs.into(), item, Arithmetic::Dot).into()
+        binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }

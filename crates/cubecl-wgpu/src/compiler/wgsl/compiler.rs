@@ -11,7 +11,7 @@ use crate::{
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
     compute,
-    ir::{self as cube, UIntKind},
+    ir::{self as cube, Scope, UIntKind},
     prelude::{expand_checked_index_assign, expand_erf, CompiledKernel},
     server::ComputeServer,
     Feature, Metadata,
@@ -767,7 +767,7 @@ impl WgslCompiler {
         value: cube::Arithmetic,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
-        scope: &mut cube::Scope,
+        scope: &mut Scope,
     ) {
         let out = out.unwrap();
         match value {

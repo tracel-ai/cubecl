@@ -28,5 +28,4 @@ float-ord = "0.3"
 half = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["std", "rc"] }
-smallvec = { workspace = true }
 type_hash = { workspace = true }

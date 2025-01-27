@@ -1,6 +1,7 @@
-use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+
+use crate::ReduceError;
 
 /// Sum all the elements of the input tensor distributed over `cube_count` cubes.
 ///
@@ -43,7 +44,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     cube_count: u32,
-) -> Result<N, MissingAtomicAdd> {
+) -> Result<N, ReduceError> {
     // Check that the client supports atomic addition.
     let atomic_elem = Atomic::<N>::as_elem_native_unchecked();
     if !client
@@ -55,7 +56,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
                 cubecl_core::AtomicFeature::Add,
             ))
     {
-        return Err(MissingAtomicAdd(atomic_elem));
+        return Err(ReduceError::MissingAtomicAdd(N::as_elem_native_unchecked()));
     }
 
     let input_len = input.shape.iter().map(|s| *s as u32).product::<u32>();
@@ -169,17 +170,3 @@ fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Lin
     }
     accumulator[0]
 }
-
-/// An error returns when we can't launch a shared sum because the atomic
-/// addition is not supported.
-#[derive(Debug)]
-pub struct MissingAtomicAdd(Elem);
-
-impl std::fmt::Display for MissingAtomicAdd {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elem = self.0;
-        write!(f, "Atomic add not supported by the client for {elem}")
-    }
-}
-
-impl std::error::Error for MissingAtomicAdd {}

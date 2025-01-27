@@ -133,9 +133,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(context: &mut Scope) -> PipelineExpand<C> {
-        let elem = C::as_elem(context);
-        let variable = context.create_pipeline(Item::new(elem));
+    pub fn __expand_new(scope: &mut Scope) -> PipelineExpand<C> {
+        let elem = C::as_elem(scope);
+        let variable = scope.create_pipeline(Item::new(elem));
         PipelineExpand {
             elem: variable,
             _c: PhantomData,
@@ -143,35 +143,35 @@ impl<C: CubePrimitive> Pipeline<C> {
     }
 
     pub fn __expand_memcpy_async(
-        context: &mut Scope,
+        scope: &mut Scope,
         expand: PipelineExpand<C>,
         source: ExpandElementTyped<Slice<Line<C>>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
     ) {
-        expand.__expand_memcpy_async_method(context, source, destination);
+        expand.__expand_memcpy_async_method(scope, source, destination);
     }
 
-    pub fn __expand_producer_acquire(context: &mut Scope, expand: PipelineExpand<C>) {
-        expand.__expand_producer_acquire_method(context);
+    pub fn __expand_producer_acquire(scope: &mut Scope, expand: PipelineExpand<C>) {
+        expand.__expand_producer_acquire_method(scope);
     }
 
-    pub fn __expand_producer_commit(context: &mut Scope, expand: PipelineExpand<C>) {
-        expand.__expand_producer_commit_method(context);
+    pub fn __expand_producer_commit(scope: &mut Scope, expand: PipelineExpand<C>) {
+        expand.__expand_producer_commit_method(scope);
     }
 
-    pub fn __expand_consumer_wait(context: &mut Scope, expand: PipelineExpand<C>) {
-        expand.__expand_consumer_wait_method(context);
+    pub fn __expand_consumer_wait(scope: &mut Scope, expand: PipelineExpand<C>) {
+        expand.__expand_consumer_wait_method(scope);
     }
 
-    pub fn __expand_consumer_release(context: &mut Scope, expand: PipelineExpand<C>) {
-        expand.__expand_consumer_release_method(context);
+    pub fn __expand_consumer_release(scope: &mut Scope, expand: PipelineExpand<C>) {
+        expand.__expand_consumer_release_method(scope);
     }
 }
 
 impl<C: CubePrimitive> PipelineExpand<C> {
     pub fn __expand_memcpy_async_method(
         &self,
-        context: &mut Scope,
+        scope: &mut Scope,
         source: ExpandElementTyped<Slice<Line<C>>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
     ) {
@@ -185,36 +185,36 @@ impl<C: CubePrimitive> PipelineExpand<C> {
             destination,
         };
 
-        context.register(Instruction {
+        scope.register(Instruction {
             out: None,
             operation: Operation::Pipeline(mem_copy),
         });
     }
 
-    pub fn __expand_producer_acquire_method(&self, context: &mut Scope) {
+    pub fn __expand_producer_acquire_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        context.register(Instruction {
+        scope.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ProducerAcquire { pipeline }),
         });
     }
-    pub fn __expand_producer_commit_method(&self, context: &mut Scope) {
+    pub fn __expand_producer_commit_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        context.register(Instruction {
+        scope.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
         });
     }
-    pub fn __expand_consumer_wait_method(&self, context: &mut Scope) {
+    pub fn __expand_consumer_wait_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        context.register(Instruction {
+        scope.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ConsumerWait { pipeline }),
         });
     }
-    pub fn __expand_consumer_release_method(&self, context: &mut Scope) {
+    pub fn __expand_consumer_release_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        context.register(Instruction {
+        scope.register(Instruction {
             out: None,
             operation: Operation::Pipeline(PipelineOps::ConsumerRelease { pipeline }),
         });
