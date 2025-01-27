@@ -130,6 +130,15 @@ impl Allocator {
     pub fn new_local_index(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::Release)
     }
+
+    pub fn take_variables(&self) -> Vec<Variable> {
+        self.local_mut_pool
+            .borrow_mut()
+            .drain()
+            .flat_map(|it| it.1)
+            .map(|it| *it)
+            .collect()
+    }
 }
 
 pub use expand_element::*;
