@@ -95,7 +95,7 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
                 gen.remove(&id);
             }
         });
-        opt.visit_operation(&mut op.operation, |opt, var| {
+        opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
             if let Some(id) = opt.local_variable_id(var) {
                 gen.insert(id);
             }

@@ -25,7 +25,7 @@ impl Optimizer {
         visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         self.visit_out(&mut inst.out, visit_write);
-        self.visit_operation(&mut inst.operation, visit_read);
+        self.visit_operation(&mut inst.operation, &mut inst.out, visit_read);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -33,6 +33,7 @@ impl Optimizer {
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
+        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
@@ -41,7 +42,7 @@ impl Optimizer {
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) | Operation::NonSemantic(_) => {}
@@ -192,6 +193,7 @@ impl Optimizer {
     fn visit_atomic(
         &mut self,
         atomic: &mut AtomicOp,
+        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match atomic {
@@ -205,7 +207,11 @@ impl Optimizer {
             | AtomicOp::Swap(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read);
             }
-            AtomicOp::Load(unary_operator) | AtomicOp::Store(unary_operator) => {
+            AtomicOp::Load(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read);
+            }
+            AtomicOp::Store(unary_operator) => {
+                visit_read(self, out.as_mut().unwrap());
                 self.visit_unop(unary_operator, visit_read);
             }
             AtomicOp::CompareAndSwap(op) => {
