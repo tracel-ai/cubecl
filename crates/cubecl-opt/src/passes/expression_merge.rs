@@ -124,7 +124,7 @@ fn check_op(
     let mut op = ops.borrow()[idx].clone();
     let out = op.out?;
     let mut is_mut = false;
-    opt.visit_operation(&mut op.operation, |_, var| {
+    opt.visit_operation(&mut op.operation, &mut Some(out), |_, var| {
         if !var.is_immutable() {
             is_mut = true;
         }

@@ -37,11 +37,14 @@ impl OptimizerPass for CompositeMerge {
             let indices = { ops.borrow().indices().collect::<Vec<_>>() };
             for idx in indices {
                 // Reset writes when read
-                opt.visit_operation(&mut ops.borrow_mut()[idx].operation, |opt, var| {
-                    if let Some(id) = opt.local_variable_id(var) {
-                        assigns.remove(&id);
-                    }
-                });
+                {
+                    let op = &mut ops.borrow_mut()[idx];
+                    opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
+                        if let Some(id) = opt.local_variable_id(var) {
+                            assigns.remove(&id);
+                        }
+                    });
+                }
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
