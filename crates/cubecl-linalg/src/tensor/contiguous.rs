@@ -17,8 +17,8 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
 
     #[unroll(unroll)]
     for i in dim_start..dim_end {
-        let ogwl = offset_ref / layout.stride(i);
-        offset += ogwl % tensor.shape(i) * tensor.stride(i);
+        let coordinate_broadcasted = (offset_ref / layout.stride(i)) % tensor.shape(i);
+        offset += coordinate_broadcasted * tensor.stride(i);
     }
 
     offset / tensor.line_size()
