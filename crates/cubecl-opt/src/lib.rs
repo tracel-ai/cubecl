@@ -52,11 +52,13 @@ mod gvn;
 mod instructions;
 mod passes;
 mod phi_frontiers;
+mod transformers;
 mod version;
 
 pub use block::*;
 pub use control_flow::*;
 pub use petgraph::graph::{EdgeIndex, NodeIndex};
+pub use transformers::*;
 pub use version::PhiInstruction;
 
 /// An atomic counter with a simplified interface.
@@ -132,11 +134,12 @@ pub struct Optimizer {
     /// The single return block
     pub ret: NodeIndex,
     /// Root scope to allocate variables on
-    root_scope: Scope,
+    pub root_scope: Scope,
     /// The `CubeDim` used for range analysis
     pub(crate) cube_dim: CubeDim,
     /// The execution mode, `Unchecked` skips bounds check optimizations.
     pub(crate) mode: ExecutionMode,
+    pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
 }
 
 impl Default for Optimizer {
@@ -147,10 +150,11 @@ impl Default for Optimizer {
             current_block: Default::default(),
             loop_break: Default::default(),
             ret: Default::default(),
-            root_scope: Scope::root(),
+            root_scope: Scope::root(false),
             cube_dim: Default::default(),
             mode: Default::default(),
             analysis_cache: Default::default(),
+            transformers: Default::default(),
         }
     }
 }
@@ -158,22 +162,28 @@ impl Default for Optimizer {
 impl Optimizer {
     /// Create a new optimizer with the scope, `CubeDim` and execution mode passed into the compiler.
     /// Parses the scope and runs several optimization and analysis loops.
-    pub fn new(expand: Scope, cube_dim: CubeDim, mode: ExecutionMode) -> Self {
+    pub fn new(
+        expand: Scope,
+        cube_dim: CubeDim,
+        mode: ExecutionMode,
+        transformers: Vec<Rc<dyn IrTransformer>>,
+    ) -> Self {
         let mut opt = Self {
             root_scope: expand.clone(),
             cube_dim,
             mode,
             allocator: expand.allocator.clone(),
+            transformers,
             ..Default::default()
         };
-        opt.run_opt(expand);
+        opt.run_opt();
 
         opt
     }
 
     /// Run all optimizations
-    fn run_opt(&mut self, expand: Scope) {
-        self.parse_graph(expand);
+    fn run_opt(&mut self) {
+        self.parse_graph(self.root_scope.clone());
         self.split_critical_edges();
         self.apply_pre_ssa_passes();
         self.exempt_index_assign_locals();
@@ -342,7 +352,7 @@ impl Optimizer {
             }
         }
 
-        for (var, values) in scope.const_arrays {
+        for (var, values) in scope.const_arrays.clone() {
             let VariableKind::ConstantArray { id, length } = var.kind else {
                 unreachable!()
             };
@@ -357,6 +367,27 @@ impl Optimizer {
         let is_break = processed.operations.contains(&Branch::Break.into());
 
         for mut instruction in processed.operations {
+            let mut removed = false;
+            for transform in self.transformers.iter() {
+                match transform.maybe_transform(&mut scope, &instruction) {
+                    TransformAction::Ignore => {}
+                    TransformAction::Replace(replacement) => {
+                        self.current_block_mut()
+                            .ops
+                            .borrow_mut()
+                            .extend(replacement);
+                        removed = true;
+                        break;
+                    }
+                    TransformAction::Remove => {
+                        removed = true;
+                        break;
+                    }
+                }
+            }
+            if removed {
+                continue;
+            }
             match &mut instruction.operation {
                 Operation::Branch(branch) => self.parse_control_flow(branch.clone()),
                 _ => {
@@ -421,7 +452,7 @@ mod test {
     #[test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = CubeContext::root();
+        let mut ctx = Scope::root(false);
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
             Item::new(Elem::UInt(UIntKind::U32)),
@@ -436,8 +467,7 @@ mod test {
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
-        let scope = ctx.into_scope();
-        let opt = Optimizer::new(scope, CubeDim::default(), ExecutionMode::Checked);
+        let opt = Optimizer::new(ctx, CubeDim::default(), ExecutionMode::Checked, vec![]);
         println!("{opt}")
     }
 }

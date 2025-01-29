@@ -137,10 +137,6 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Erf {
-        input: Variable,
-        out: Variable,
-    },
     Recip {
         input: Variable,
         out: Variable,
@@ -651,10 +647,6 @@ impl Display for Instruction {
 
                 result
             }
-            Instruction::Erf { input, out } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = erf({input});")
-            }
             Instruction::Recip { input, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = 1.0 / {input};")
@@ -956,7 +948,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let item = out.item();
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {item}({})", inputs.join(", "))
+                writeln!(f, "{out} = {item}({});", inputs.join(", "))
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {

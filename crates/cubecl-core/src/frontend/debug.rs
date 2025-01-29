@@ -1,56 +1,54 @@
-use crate::ir::{NonSemantic, Variable};
-
-use super::CubeContext;
+use crate::ir::{NonSemantic, Scope, Variable};
 
 /// Calls a function and inserts debug symbols if debug is enabled.
 #[track_caller]
 pub fn debug_call_expand<C>(
-    context: &mut CubeContext,
+    scope: &mut Scope,
     name: &'static str,
     line: u32,
     col: u32,
-    call: impl FnOnce(&mut CubeContext) -> C,
+    call: impl FnOnce(&mut Scope) -> C,
 ) -> C {
-    if context.debug_enabled {
-        context.register(NonSemantic::BeginCall {
+    if scope.debug_enabled {
+        scope.register(NonSemantic::BeginCall {
             name: name.to_string(),
             line,
             col,
         });
 
-        let ret = call(context);
+        let ret = call(scope);
 
-        context.register(NonSemantic::EndCall);
+        scope.register(NonSemantic::EndCall);
 
         ret
     } else {
-        call(context)
+        call(scope)
     }
 }
 
 /// Calls an intrinsic op and inserts debug symbols if debug is enabled.
 #[track_caller]
 pub fn spanned_expand<C>(
-    context: &mut CubeContext,
+    scope: &mut Scope,
     line: u32,
     col: u32,
-    call: impl FnOnce(&mut CubeContext) -> C,
+    call: impl FnOnce(&mut Scope) -> C,
 ) -> C {
-    if context.debug_enabled {
-        context.register(NonSemantic::Line { line, col });
-        call(context)
+    if scope.debug_enabled {
+        scope.register(NonSemantic::Line { line, col });
+        call(scope)
     } else {
-        call(context)
+        call(scope)
     }
 }
 
 /// Adds source instruction if debug is enabled
 #[track_caller]
-pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, line: u32, col: u32) {
-    if context.debug_enabled {
+pub fn debug_source_expand(scope: &mut Scope, name: &str, file: &str, line: u32, col: u32) {
+    if scope.debug_enabled {
         // Normalize to linux separators
         let file = file.replace("\\", "/");
-        context.register(NonSemantic::Source {
+        scope.register(NonSemantic::Source {
             name: name.into(),
             file_name: format!("./{file}"),
             line,
@@ -60,12 +58,8 @@ pub fn debug_source_expand(context: &mut CubeContext, name: &str, file: &str, li
 }
 
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.
-pub fn printf_expand(
-    context: &mut CubeContext,
-    format_string: impl Into<String>,
-    args: Vec<Variable>,
-) {
-    context.register(NonSemantic::Print {
+pub fn printf_expand(scope: &mut Scope, format_string: impl Into<String>, args: Vec<Variable>) {
+    scope.register(NonSemantic::Print {
         format_string: format_string.into(),
         args,
     });
@@ -90,10 +84,10 @@ macro_rules! debug_print {
 /// specific, but Vulkan and CUDA both use the C++ conventions. WGSL isn't currently supported.
 #[macro_export]
 macro_rules! debug_print_expand {
-    ($context:expr, $format:literal, $($args:expr),*) => {
+    ($scope:expr, $format:literal, $($args:expr),*) => {
         {
             let args = vec![$(*$args.expand),*];
-            $crate::frontend::printf_expand($context, $format, args);
+            $crate::frontend::printf_expand($scope, $format, args);
         }
     };
     ($format:literal, $($args:expr,)*) => {

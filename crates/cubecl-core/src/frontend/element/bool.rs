@@ -1,8 +1,7 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
 
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::Elem;
-use crate::prelude::CubeContext;
 
 use super::{init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime};
 
@@ -13,7 +12,7 @@ pub trait BoolOps {
         value
     }
     fn __expand_new(
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         value: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
         ExpandElement::Plain(Elem::Bool.from_constant(*value.expand)).into()
@@ -33,14 +32,14 @@ impl CubePrimitive for bool {
 }
 
 impl IntoRuntime for bool {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        Init::init(expand, context)
+        Init::init(expand, scope)
     }
 }
 
 impl ExpandElementBaseInit for bool {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }

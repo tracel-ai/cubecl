@@ -7,7 +7,9 @@ use rspirv::{
     dr::Module,
 };
 
+mod arithmetic;
 mod atomic;
+mod bitwise;
 mod branch;
 mod cmma;
 mod compiler;
@@ -21,6 +23,7 @@ mod metadata;
 mod subgroup;
 mod sync;
 mod target;
+mod transformers;
 mod variable;
 
 pub use compiler::*;
