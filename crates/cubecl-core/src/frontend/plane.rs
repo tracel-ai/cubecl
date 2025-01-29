@@ -232,17 +232,17 @@ pub mod plane_ballot {
 
     /// Expand method of [plane_ballot()].
     pub fn expand(
-        context: &mut Scope,
+        scope: &mut Scope,
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<Line<u32>> {
         let elem: ExpandElement = elem.into();
         let out_item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
-        let output = context.create_local(out_item);
+        let output = scope.create_local(out_item);
 
         let out = *output;
         let input = *elem;
 
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Plane::Ballot(UnaryOperator { input }),
             out,
         ));
