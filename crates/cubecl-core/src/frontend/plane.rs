@@ -214,9 +214,10 @@ pub mod plane_any {
 }
 
 /// Perform a ballot operation across all units in a plane.
-/// Returns a set of 32-bit bitfields as a vector, with the vectorization being `PLANE_SIZE / 32`.
-/// Note that in reality, vectorization will always be set to 4 because we can't retrieve the actual
-/// plane size at expand time. Use the runtime plane size to index appropriately.
+/// Returns a set of 32-bit bitfields as a [`Line`], with each element containing the value from 32
+/// invocations.
+/// Note that line size will always be set to 4 even for `PLANE_DIM <= 64`, because we can't
+/// retrieve the actual plane size at expand time. Use the runtime`PLANE_DIM` to index appropriately.
 pub fn plane_ballot(_elem: bool) -> Line<u32> {
     unexpanded!()
 }
