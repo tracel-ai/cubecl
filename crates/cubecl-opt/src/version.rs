@@ -168,7 +168,9 @@ impl Optimizer {
     }
 
     fn version_reads(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
-        self.visit_operation(&mut op.operation, |opt, var| opt.version_read(var, state));
+        self.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
+            opt.version_read(var, state)
+        });
     }
 
     fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {

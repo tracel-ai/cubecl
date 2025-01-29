@@ -35,6 +35,10 @@ impl Variable {
         };
         Self::new(VariableKind::ConstantScalar(scalar), Item::new(elem))
     }
+
+    pub fn elem(&self) -> Elem {
+        self.item.elem
+    }
 }
 
 pub type Id = u32;

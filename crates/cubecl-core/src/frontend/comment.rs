@@ -1,8 +1,9 @@
 pub mod cube_comment {
-    use crate::{ir::NonSemantic, prelude::CubeContext};
+    use crate::ir::NonSemantic;
+    use cubecl_ir::Scope;
 
-    pub fn expand(context: &mut CubeContext, content: &str) {
-        context.register(NonSemantic::Comment {
+    pub fn expand(scope: &mut Scope, content: &str) {
+        scope.register(NonSemantic::Comment {
             content: content.to_string(),
         });
     }

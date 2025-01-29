@@ -2,16 +2,12 @@ use std::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{
-    cpa, BinaryOperator, Elem, Item, OperationArgs, OperationReflect, Scope, UIntKind,
-    UnaryOperator, Variable,
-};
+use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
 /// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = ArithmeticOpCode, pure)]
-#[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Arithmetic {
     #[operation(commutative)]
     Add(BinaryOperator),
@@ -119,21 +115,4 @@ pub struct FmaOperator {
     pub a: Variable,
     pub b: Variable,
     pub c: Variable,
-}
-
-#[allow(missing_docs)]
-pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    let array_len = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
-    let inside_bound = scope.create_local(Item::new(Elem::Bool));
-
-    if out.has_buffer_length() {
-        cpa!(scope, array_len = buffer_len(out));
-    } else {
-        cpa!(scope, array_len = len(out));
-    }
-
-    cpa!(scope, inside_bound = lhs < array_len);
-    cpa!(scope, if(inside_bound).then(|scope| {
-        cpa!(scope, unchecked(out[lhs]) = rhs);
-    }));
 }

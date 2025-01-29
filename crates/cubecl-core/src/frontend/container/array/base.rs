@@ -1,17 +1,17 @@
 use std::{marker::PhantomData, num::NonZero};
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
 
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 use crate::prelude::SizedContainer;
 use crate::{
+    frontend::indexation::Index,
+    prelude::{assign, index, index_assign},
+};
+use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
     unexpanded,
-};
-use crate::{
-    frontend::{indexation::Index, CubeContext},
-    prelude::{assign, index, index_assign},
 };
 
 /// A contiguous array of elements.
@@ -38,23 +38,23 @@ mod new {
 
         /// Expand function of [new](Array::new).
         pub fn __expand_new(
-            context: &mut CubeContext,
+            scope: &mut Scope,
             size: ExpandElementTyped<u32>,
         ) -> <Self as CubeType>::ExpandType {
             let size = size
                 .constant()
                 .expect("Array need constant initialization value")
                 .as_u32();
-            let elem = T::as_elem(context);
-            context.create_local_array(Item::new(elem), size).into()
+            let elem = T::as_elem(scope);
+            scope.create_local_array(Item::new(elem), size).into()
         }
 
         /// Expand function of [from_data](Array::from_data).
         pub fn __expand_from_data<C: CubePrimitive>(
-            context: &mut CubeContext,
+            scope: &mut Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = context.create_const_array(Item::new(T::as_elem(context)), data.values);
+            let var = scope.create_const_array(Item::new(T::as_elem(scope)), data.values);
             ExpandElementTyped::new(var)
         }
     }
@@ -105,9 +105,9 @@ mod line {
         // Expand function of [size](Tensor::line_size).
         pub fn __expand_line_size(
             expand: <Self as CubeType>::ExpandType,
-            context: &mut CubeContext,
+            scope: &mut Scope,
         ) -> u32 {
-            expand.__expand_line_size_method(context)
+            expand.__expand_line_size_method(scope)
         }
     }
 
@@ -122,7 +122,7 @@ mod line {
         }
 
         // Expand method of [size](Array::line_size).
-        pub fn __expand_line_size_method(&self, _content: &mut CubeContext) -> u32 {
+        pub fn __expand_line_size_method(&self, _content: &mut Scope) -> u32 {
             self.line_size()
         }
     }
@@ -145,7 +145,7 @@ mod vectorization {
         }
 
         pub fn __expand_vectorized(
-            context: &mut CubeContext,
+            scope: &mut Scope,
             size: ExpandElementTyped<u32>,
             vectorization_factor: u32,
         ) -> <Self as CubeType>::ExpandType {
@@ -154,12 +154,9 @@ mod vectorization {
                 crate::ir::VariableKind::ConstantScalar(value) => value.as_u32(),
                 _ => panic!("Shared memory need constant initialization value"),
             };
-            context
+            scope
                 .create_local_array(
-                    Item::vectorized(
-                        T::as_elem(context),
-                        NonZero::new(vectorization_factor as u8),
-                    ),
+                    Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
                     size,
                 )
                 .into()
@@ -169,7 +166,7 @@ mod vectorization {
     impl<C: CubePrimitive> ExpandElementTyped<Array<C>> {
         pub fn __expand_to_vectorized_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             vectorization_factor: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<C> {
             let factor = vectorization_factor
@@ -180,24 +177,24 @@ mod vectorization {
             let item = Item::vectorized(var.item.elem(), NonZero::new(factor as u8));
 
             let new_var = if factor == 1 {
-                let new_var = context.create_local(item);
+                let new_var = scope.create_local(item);
                 let element = index::expand(
-                    context,
+                    scope,
                     self.clone(),
-                    ExpandElementTyped::from_lit(context, 0u32),
+                    ExpandElementTyped::from_lit(scope, 0u32),
                 );
-                assign::expand(context, element, new_var.clone().into());
+                assign::expand(scope, element, new_var.clone().into());
                 new_var
             } else {
-                let new_var = context.create_local_mut(item);
+                let new_var = scope.create_local_mut(item);
                 for i in 0..factor {
                     let expand: Self = self.expand.clone().into();
                     let element =
-                        index::expand(context, expand, ExpandElementTyped::from_lit(context, i));
+                        index::expand(scope, expand, ExpandElementTyped::from_lit(scope, i));
                     index_assign::expand::<Array<C>>(
-                        context,
+                        scope,
                         new_var.clone().into(),
-                        ExpandElementTyped::from_lit(context, i),
+                        ExpandElementTyped::from_lit(scope, i),
                         element,
                     );
                 }
@@ -229,9 +226,9 @@ mod metadata {
 
     impl<T: CubeType> ExpandElementTyped<Array<T>> {
         // Expand method of [len](Array::len).
-        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-            let out = context.create_local(Item::new(u32::as_elem(context)));
-            context.register(Instruction::new(
+        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+            let out = scope.create_local(Item::new(u32::as_elem(scope)));
+            scope.register(Instruction::new(
                 Metadata::Length {
                     var: self.expand.into(),
                 },
@@ -241,12 +238,9 @@ mod metadata {
         }
 
         // Expand method of [buffer_len](Array::buffer_len).
-        pub fn __expand_buffer_len_method(
-            self,
-            context: &mut CubeContext,
-        ) -> ExpandElementTyped<u32> {
-            let out = context.create_local(Item::new(u32::as_elem(context)));
-            context.register(Instruction::new(
+        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+            let out = scope.create_local(Item::new(u32::as_elem(scope)));
+            scope.register(Instruction::new(
                 Metadata::BufferLength {
                     var: self.expand.into(),
                 },
@@ -297,11 +291,11 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<Array<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local(self.expand.item);
-            context.register(Instruction::new(
+            let out = scope.create_local(self.expand.item);
+            scope.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
@@ -313,11 +307,11 @@ mod indexation {
 
         pub fn __expand_index_assign_unchecked_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Instruction::new(
+            scope.register(Instruction::new(
                 Operator::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),
@@ -329,7 +323,7 @@ mod indexation {
 }
 
 impl<E: CubePrimitive> IntoRuntime for Array<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Array can't exist at compile time")
     }
 }
@@ -343,7 +337,7 @@ impl<C: CubeType> CubeType for &Array<C> {
 }
 
 impl<C: CubeType> ExpandElementBaseInit for Array<C> {
-    fn init_elem(_context: &mut crate::prelude::CubeContext, elem: ExpandElement) -> ExpandElement {
+    fn init_elem(_scope: &mut crate::ir::Scope, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
     }

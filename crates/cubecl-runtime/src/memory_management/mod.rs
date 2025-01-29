@@ -17,14 +17,12 @@ pub enum PoolType {
     /// Use a memory where every allocation is a separate page.
     ExclusivePages {
         /// The minimum number of bytes to allocate in this pool.
-        min_alloc_size: u64,
+        max_alloc_size: u64,
     },
     /// Use a memory where each allocation is a slice of a bigger allocation.
     SlicedPages {
         /// The page size to allocate.
         page_size: u64,
-        /// The minimum size of a slice to allocate in the pool.
-        min_slice_size: u64,
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
     },

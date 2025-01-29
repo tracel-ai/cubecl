@@ -6,7 +6,6 @@ mod branch;
 mod cmma;
 mod comparison;
 mod item;
-mod macros;
 mod metadata;
 mod non_semantic;
 mod operation;

@@ -1,5 +1,5 @@
 use crate::{
-    ir::{Operator, Select},
+    ir::{Operator, Scope, Select},
     prelude::*,
 };
 use crate::{
@@ -40,7 +40,7 @@ pub mod select {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         condition: ExpandElementTyped<bool>,
         then: ExpandElementTyped<C>,
         or_else: ExpandElementTyped<C>,
@@ -53,7 +53,7 @@ pub mod select {
         let vf = Ord::max(vf, then.vectorization_factor());
         let vf = Ord::max(vf, or_else.vectorization_factor());
 
-        let output = context.create_local(then.item.vectorize(NonZero::new(vf)));
+        let output = scope.create_local(then.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
         let select = Operator::Select(Select {
@@ -61,7 +61,7 @@ pub mod select {
             then,
             or_else,
         });
-        context.register(Instruction::new(select, out));
+        scope.register(Instruction::new(select, out));
 
         output.into()
     }
@@ -71,11 +71,11 @@ pub mod select_many {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         condition: ExpandElementTyped<Line<bool>>,
         then: ExpandElementTyped<Line<C>>,
         or_else: ExpandElementTyped<Line<C>>,
     ) -> ExpandElementTyped<Line<C>> {
-        select::expand(context, condition.expand.into(), then, or_else)
+        select::expand(scope, condition.expand.into(), then, or_else)
     }
 }
