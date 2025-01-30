@@ -1,9 +1,10 @@
 use std::num::NonZero;
 use std::{fmt::Display, hash::Hash};
 
+use crate::TypeHash;
+
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
-use type_hash::TypeHash;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]

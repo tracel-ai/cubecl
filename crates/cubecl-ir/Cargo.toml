@@ -25,7 +25,8 @@ cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.5" }
 
 derive_more = { workspace = true, features = ["from"] }
 float-ord = "0.3"
+fnv = { workspace = true }
 half = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["std", "rc"] }
-type_hash = { workspace = true }
+variadics_please = { workspace = true }

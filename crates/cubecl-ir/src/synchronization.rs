@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use type_hash::TypeHash;
-
-use crate::OperationReflect;
+use crate::{OperationReflect, TypeHash};
 
 /// All synchronization types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

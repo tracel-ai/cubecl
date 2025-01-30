@@ -3,6 +3,7 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
 };
 use crate::storage::{ComputeStorage, StorageHandle};
+#[cfg(not(feature = "std"))]
 use alloc::vec;
 use alloc::vec::Vec;
 

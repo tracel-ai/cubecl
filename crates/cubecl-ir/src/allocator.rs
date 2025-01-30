@@ -26,7 +26,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 ///
 /// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
     #[cfg_attr(feature = "serde", serde(skip))]
     local_mut_pool: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
@@ -141,6 +141,7 @@ impl Allocator {
     }
 }
 
+use cubecl_macros_internal::TypeHash;
 pub use expand_element::*;
 
 mod expand_element {
@@ -150,7 +151,7 @@ mod expand_element {
     use super::*;
 
     /// Reference to a JIT variable
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, TypeHash)]
     pub enum ExpandElement {
         /// Variable kept in the variable pool.
         Managed(Rc<Variable>),
