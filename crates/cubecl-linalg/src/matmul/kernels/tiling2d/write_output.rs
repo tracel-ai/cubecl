@@ -19,10 +19,10 @@ pub(crate) struct WriteTileInfo {
 }
 
 #[cube]
-pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
-    fn write_output<B: BlockWriter<F>>(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+pub(crate) trait OutputWriter<N: Numeric>: Sync + Send + 'static {
+    fn write_output<B: BlockWriter<N>>(
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         write_tile_info: WriteTileInfo,
         dims: Dimensions,
         #[comptime] config: CubeTiling2dConfig,
@@ -30,9 +30,9 @@ pub(crate) trait OutputWriter<F: Float>: Sync + Send + 'static {
 }
 
 #[cube]
-pub(crate) fn write_to_output<F: Float, W: OutputWriter<F>>(
-    out: &mut Tensor<Line<F>>,
-    results: &Array<F>,
+pub(crate) fn write_to_output<N: Numeric, W: OutputWriter<N>>(
+    out: &mut Tensor<Line<N>>,
+    results: &Array<N>,
     coordinates: Coordinates,
     offset_output: u32,
     dims: Dimensions,

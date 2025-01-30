@@ -15,15 +15,15 @@ use super::{
     memory_access::{MatchingVectorization, UnmatchingVectorization},
 };
 
-pub(crate) struct TileWriter<F: Float> {
-    _f: PhantomData<F>,
+pub(crate) struct TileWriter<N: Numeric> {
+    _f: PhantomData<N>,
 }
 
 #[cube]
-impl<F: Float> OutputWriter<F> for TileWriter<F> {
-    fn write_output<B: BlockWriter<F>>(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+impl<N: Numeric> OutputWriter<N> for TileWriter<N> {
+    fn write_output<B: BlockWriter<N>>(
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         write_info: WriteTileInfo,
         dims: Dimensions,
         #[comptime] config: CubeTiling2dConfig,

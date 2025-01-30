@@ -5,11 +5,11 @@ use super::{base::Coordinates, config::CubeTiling2dConfig, outer_product::tile_o
 
 #[cube]
 #[allow(unused_mut)]
-pub(crate) fn compute_loop<F: Float>(
+pub(crate) fn compute_loop<N: Numeric>(
     coordinates: Coordinates,
-    shared_lhs: SharedMemory<Line<F>>,
-    shared_rhs: SharedMemory<Line<F>>,
-    results: &mut Array<F>,
+    shared_lhs: SharedMemory<Line<N>>,
+    shared_rhs: SharedMemory<Line<N>>,
+    results: &mut Array<N>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
     let tile_size = config.tile_size;
@@ -26,6 +26,6 @@ pub(crate) fn compute_loop<F: Float>(
         let register_m = shared_lhs[(unit_row + dot_index * block_size_m) / tile_size];
         let register_n = shared_rhs[(unit_col + dot_index * block_size_n) / tile_size];
 
-        tile_outer_product::<F>(register_m, register_n, results, config);
+        tile_outer_product::<N>(register_m, register_n, results, config);
     }
 }

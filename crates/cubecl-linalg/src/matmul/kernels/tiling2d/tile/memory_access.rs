@@ -12,31 +12,31 @@ pub(crate) struct WritePositions {
 }
 
 #[cube]
-pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
+pub(crate) trait ContiguousAccess<N: Numeric>: Send + Sync + 'static {
     fn read_contiguous_unchecked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F>;
+    ) -> Line<N>;
 
     fn read_contiguous_checked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         check_bounds: CheckBounds,
         read_info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F>;
+    ) -> Line<N>;
 
     fn write_contiguous_unchecked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         #[comptime] config: CubeTiling2dConfig,
     );
 
     fn write_contiguous_checked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         check_bounds: CheckBounds,
         write_col: u32,
@@ -45,22 +45,22 @@ pub(crate) trait ContiguousAccess<F: Float>: Send + Sync + 'static {
 }
 
 #[cube]
-pub(crate) trait StridedAccess<F: Float>: Send + Sync + 'static {
+pub(crate) trait StridedAccess<N: Numeric>: Send + Sync + 'static {
     fn read_strided_unchecked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         gm_stride: u32,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F>;
+    ) -> Line<N>;
 
     fn read_strided_checked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         gm_stride: u32,
         check_bounds: CheckBounds,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F>;
+    ) -> Line<N>;
 }
 
 /// When vectorization == tile_size
@@ -70,29 +70,29 @@ pub(crate) struct MatchingVectorization;
 pub(crate) struct UnmatchingVectorization;
 
 #[cube]
-impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
+impl<N: Numeric> ContiguousAccess<N> for MatchingVectorization {
     fn read_contiguous_unchecked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         #[comptime] _config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         tensor[gm_position]
     }
 
     fn read_contiguous_checked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         _check_bounds: CheckBounds,
         _read_info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         // If vectorization matches, then it's certain to fit since tile_size divides block_sizes
         MatchingVectorization::read_contiguous_unchecked(tensor, gm_position, config)
     }
 
     fn write_contiguous_unchecked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -110,8 +110,8 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
     }
 
     fn write_contiguous_checked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         _check_bounds: CheckBounds,
         _write_col: u32,
@@ -123,18 +123,18 @@ impl<F: Float> ContiguousAccess<F> for MatchingVectorization {
 }
 
 #[cube]
-impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
+impl<N: Numeric> ContiguousAccess<N> for UnmatchingVectorization {
     fn read_contiguous_unchecked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
         let line_size = tensor.line_size();
         let is_scalar = comptime!(line_size == 1);
 
-        let mut vector = Line::empty(tile_size).fill(F::new(0.0));
+        let mut vector = Line::empty(tile_size).fill(N::from_int(0));
 
         #[unroll(unroll)]
         for i in 0u32..comptime!(tile_size / line_size) {
@@ -154,18 +154,18 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     }
 
     fn read_contiguous_checked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         check_bounds: CheckBounds,
         read_info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
         let line_size = tensor.line_size();
         let is_scalar = comptime!(line_size == 1);
 
-        let mut vector = Line::empty(tile_size).fill(F::new(0.));
+        let mut vector = Line::empty(tile_size).fill(N::from_int(0));
 
         let mut num_loops = 0;
         if check_bounds.dim_horizontal > read_info.read_col {
@@ -190,8 +190,8 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     }
 
     fn write_contiguous_unchecked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         #[comptime] config: CubeTiling2dConfig,
     ) {
@@ -219,8 +219,8 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
     }
 
     fn write_contiguous_checked(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         positions: WritePositions,
         check_bounds: CheckBounds,
         write_col: u32,
@@ -257,13 +257,13 @@ impl<F: Float> ContiguousAccess<F> for UnmatchingVectorization {
 }
 
 #[cube]
-impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
+impl<N: Numeric> StridedAccess<N> for UnmatchingVectorization {
     fn read_strided_unchecked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         gm_stride: u32,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         let tile_size = config.tile_size;
         let unroll = config.unroll_tile;
 
@@ -278,13 +278,13 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
     }
 
     fn read_strided_checked(
-        tensor: &Tensor<Line<F>>,
+        tensor: &Tensor<Line<N>>,
         gm_position: u32,
         gm_stride: u32,
         check_bounds: CheckBounds,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
-    ) -> Line<F> {
+    ) -> Line<N> {
         let tile_size = config.tile_size;
 
         let mut vertical = Line::empty(tile_size);
@@ -302,7 +302,7 @@ impl<F: Float> StridedAccess<F> for UnmatchingVectorization {
         }
 
         for i in num_reads..tile_size {
-            vertical[i] = F::new(0.);
+            vertical[i] = N::from_int(0);
         }
 
         vertical
