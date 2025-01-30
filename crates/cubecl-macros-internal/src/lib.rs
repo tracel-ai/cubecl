@@ -3,9 +3,11 @@ use generate::{
     operation::{generate_opcode, generate_operation},
 };
 use proc_macro::TokenStream;
+use type_hash::type_hash_impl;
 
 mod generate;
 mod parse;
+mod type_hash;
 
 /// *Internal macro*
 ///
@@ -63,4 +65,10 @@ pub fn derive_opcode(input: TokenStream) -> TokenStream {
         Ok(tokens) => tokens.into(),
         Err(e) => e.into_compile_error().into(),
     }
+}
+
+#[proc_macro_derive(TypeHash, attributes(type_hash))]
+pub fn derive_type_hash(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse(input).unwrap();
+    type_hash_impl(input).into()
 }

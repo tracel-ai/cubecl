@@ -1,8 +1,8 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
+use crate::TypeHash;
 use cubecl_common::{flex32, tf32};
 use std::fmt::Display;
 use std::num::NonZero;
-use type_hash::TypeHash;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]

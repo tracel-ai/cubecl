@@ -16,6 +16,7 @@ mod processing;
 mod reflect;
 mod scope;
 mod synchronization;
+mod type_hash;
 mod variable;
 
 pub use allocator::*;
@@ -37,4 +38,5 @@ pub use scope::*;
 pub use synchronization::*;
 pub use variable::*;
 
-pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect};
+pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};
+pub use type_hash::TypeHash;
