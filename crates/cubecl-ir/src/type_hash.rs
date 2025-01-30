@@ -3,7 +3,11 @@ use core::hash::Hasher;
 
 /// A hash of a type's structure
 pub trait TypeHash {
-    /// Generate a hash of the type structure.
+    /// Generate a stable hash of the type structure.
+    ///
+    /// This recursively hashes the names and types of each variant and field, and uses an unseeded
+    /// hasher to ensure the hash is stable across compilations and executions. The hash should only
+    /// change if a field/variant is renamed, added, or its type is changed.
     #[allow(unused)]
     fn type_hash() -> u64 {
         let mut hasher = fnv::FnvHasher::default();
