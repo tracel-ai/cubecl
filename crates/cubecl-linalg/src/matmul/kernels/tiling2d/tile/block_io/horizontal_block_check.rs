@@ -15,10 +15,10 @@ use super::base::{all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockWrite
 pub(crate) struct HorizontalCheckBlockIO;
 
 #[cube]
-impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
-    fn load_tile_plain<A: ContiguousAccess<F>>(
-        tensor: &Tensor<Line<F>>,
-        shared_memory: &mut SharedMemory<Line<F>>,
+impl<N: Numeric> BlockLoader<N> for HorizontalCheckBlockIO {
+    fn load_tile_plain<A: ContiguousAccess<N>>(
+        tensor: &Tensor<Line<N>>,
+        shared_memory: &mut SharedMemory<Line<N>>,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
@@ -43,8 +43,8 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
     }
 
     fn load_tile_transposed(
-        tensor: &Tensor<Line<F>>,
-        shared_memory: &mut SharedMemory<Line<F>>,
+        tensor: &Tensor<Line<N>>,
+        shared_memory: &mut SharedMemory<Line<N>>,
         info: ReadTileInfo,
         #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
@@ -81,10 +81,10 @@ impl<F: Float> BlockLoader<F> for HorizontalCheckBlockIO {
 }
 
 #[cube]
-impl<F: Float> BlockWriter<F> for HorizontalCheckBlockIO {
-    fn write_output<A: ContiguousAccess<F>>(
-        out: &mut Tensor<Line<F>>,
-        results: &Array<F>,
+impl<N: Numeric> BlockWriter<N> for HorizontalCheckBlockIO {
+    fn write_output<A: ContiguousAccess<N>>(
+        out: &mut Tensor<Line<N>>,
+        results: &Array<N>,
         info: WriteTileInfo,
         #[comptime] config: CubeTiling2dConfig,
         check_bounds: CheckBounds,
