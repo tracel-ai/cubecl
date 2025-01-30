@@ -34,7 +34,7 @@ impl OptimizerPass for CopyPropagateArray {
         for Array { id, length, item } in arrays {
             let arr_id = id;
             let vars = (0..length)
-                .map(|_| opt.root_scope.create_local_restricted(item))
+                .map(|_| *opt.root_scope.create_local_restricted(item))
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = opt.local_variable_id(var).unwrap();

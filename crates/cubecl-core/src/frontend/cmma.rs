@@ -53,11 +53,9 @@ use crate::{
     unexpanded,
 };
 
-use super::{
-    CubeContext, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut,
-};
+use super::{CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut};
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 /// A matrix represent a 2D grid of numbers.
@@ -91,13 +89,13 @@ impl<C: CubeType> CubeType for Matrix<C> {
 }
 
 impl<C: CubeType> IntoRuntime for Matrix<C> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> MatrixExpand<C> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> MatrixExpand<C> {
         unimplemented!("Matrices can't exist at compile time")
     }
 }
 
 impl<C: CubeType> Init for MatrixExpand<C> {
-    fn init(self, _context: &mut CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -183,15 +181,15 @@ impl<C: CubePrimitive> Matrix<C> {
     }
 
     pub fn __expand_uninitialized(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
         n: ExpandElementTyped<u32>,
         k: ExpandElementTyped<u32>,
         layout: MatrixLayout,
     ) -> MatrixExpand<C> {
-        let elem = C::as_elem(context);
-        let elem = context.create_matrix(ir::Matrix {
+        let elem = C::as_elem(scope);
+        let elem = scope.create_matrix(ir::Matrix {
             ident,
             m: m.constant().unwrap().as_u32() as u8,
             n: n.constant().unwrap().as_u32() as u8,
@@ -207,7 +205,7 @@ impl<C: CubePrimitive> Matrix<C> {
     }
 
     pub fn __expand_from_value(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
         n: ExpandElementTyped<u32>,
@@ -215,14 +213,14 @@ impl<C: CubePrimitive> Matrix<C> {
         layout: MatrixLayout,
         value: ExpandElementTyped<C>,
     ) -> MatrixExpand<C> {
-        let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
-        fill::expand(context, mat.clone(), value);
+        let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
+        fill::expand(scope, mat.clone(), value);
         mat
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn __expand_from_slice(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         ident: MatrixIdent,
         m: ExpandElementTyped<u32>,
         n: ExpandElementTyped<u32>,
@@ -231,8 +229,8 @@ impl<C: CubePrimitive> Matrix<C> {
         value: ExpandElementTyped<Slice<C>>,
         stride: ExpandElementTyped<u32>,
     ) -> MatrixExpand<C> {
-        let mat = Self::__expand_uninitialized(context, ident, m, n, k, layout);
-        load::expand(context, mat.clone(), value, stride);
+        let mat = Self::__expand_uninitialized(scope, ident, m, n, k, layout);
+        load::expand(scope, mat.clone(), value, stride);
         mat
     }
 }
@@ -249,12 +247,12 @@ pub mod fill {
 
     /// Expand method of [fill()].
     pub fn expand<C: CubeType>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: ExpandElementTyped<C>,
     ) {
         let value: ExpandElement = value.into();
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             ir::CoopMma::Fill { value: *value },
             *mat.elem,
         ));
@@ -274,7 +272,7 @@ pub mod load {
     /// Expand method of [load()].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: ExpandElementTyped<Slice<V>>,
         stride: ExpandElementTyped<u32>,
@@ -286,7 +284,7 @@ pub mod load {
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value: *value.expand,
                 stride: *stride,
@@ -316,7 +314,7 @@ pub mod load_with_layout {
     /// Expand method of [load_with_layout()].
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         mat: MatrixExpand<C>,
         value: ExpandElementTyped<Slice<V>>,
         stride: ExpandElementTyped<u32>,
@@ -324,7 +322,7 @@ pub mod load_with_layout {
     ) {
         let stride: ExpandElement = stride.into();
 
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value: *value.expand,
                 stride: *stride,
@@ -353,7 +351,7 @@ pub mod store {
     /// Expand method of [store()].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         output: ExpandElementTyped<SliceMut<O>>,
         mat: MatrixExpand<C>,
         stride: ExpandElementTyped<u32>,
@@ -361,7 +359,7 @@ pub mod store {
     ) {
         let stride: ExpandElement = stride.into();
 
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             ir::CoopMma::Store {
                 mat: *mat.elem,
                 stride: *stride,
@@ -389,13 +387,13 @@ pub mod execute {
 
     /// Expand method of [execute()].
     pub fn expand<A: CubePrimitive, B: CubePrimitive, C: CubePrimitive, D: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         mat_a: MatrixExpand<A>,
         mat_b: MatrixExpand<B>,
         mat_c: MatrixExpand<C>,
         mat_d: MatrixExpand<D>,
     ) {
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             ir::CoopMma::Execute {
                 mat_a: *mat_a.elem,
                 mat_b: *mat_b.elem,
@@ -419,7 +417,7 @@ pub mod cast {
     /// Expand method of [store()].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive>(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         input: MatrixExpand<C>,
     ) -> MatrixExpand<O> {
         let ident = input.ident;
@@ -437,8 +435,8 @@ pub mod cast {
             _ => unreachable!(),
         };
 
-        let elem = O::as_elem(context);
-        let elem = context.create_matrix(ir::Matrix {
+        let elem = O::as_elem(scope);
+        let elem = scope.create_matrix(ir::Matrix {
             ident,
             m: input_mat.m,
             n: input_mat.n,
@@ -452,7 +450,7 @@ pub mod cast {
             elem,
             _c: PhantomData,
         };
-        context.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
+        scope.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
 
         output
     }
@@ -463,7 +461,7 @@ impl CubeType for MatrixLayout {
 }
 
 impl Init for MatrixLayout {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+    fn init(self, _scope: &mut crate::ir::Scope) -> Self {
         self
     }
 }

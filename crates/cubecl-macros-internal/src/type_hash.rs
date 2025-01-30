@@ -51,7 +51,7 @@ fn type_hash_struct(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
         impl #impl_generics crate::TypeHash for #ident #ty_generics #where_clause {
-            fn write_hash(hasher: &mut impl core::hash::Hasher) {
+            fn write_hash(hasher: &mut impl std::hash::Hasher) {
                 hasher.write(#name.as_bytes());
                 #(#fields)*
             }
@@ -65,12 +65,12 @@ fn type_hash_enum(ident: &Ident, generics: &Generics, data: &[TypeHashVariant]) 
     let variants = data.iter().flat_map(|v| {
         v.discriminant
             .iter()
-            .map(|discriminant| quote! [core::hash::Hash::hash(&(#discriminant as isize), hasher);])
+            .map(|discriminant| quote! [std::hash::Hash::hash(&(#discriminant as isize), hasher);])
             .chain(v.fields.iter().map(write_field_hash))
     });
     quote! {
         impl #impl_generics crate::TypeHash for #ident #ty_generics #where_clause{
-            fn write_hash(hasher: &mut impl core::hash::Hasher) {
+            fn write_hash(hasher: &mut impl std::hash::Hasher) {
                 hasher.write(#name.as_bytes());
                 #(#variants)*
             }

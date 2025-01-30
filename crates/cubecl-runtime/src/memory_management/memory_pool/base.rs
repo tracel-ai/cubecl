@@ -35,7 +35,7 @@ pub(crate) fn calculate_padding(size: u64, buffer_alignment: u64) -> u64 {
 }
 
 pub trait MemoryPool {
-    fn handles_alloc(&self, size: u64) -> bool;
+    fn max_alloc_size(&self) -> u64;
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 

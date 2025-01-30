@@ -4,7 +4,7 @@
 //! Expand functions don't need to be generated for different element types even if they are generic
 //! over one, since the only use of numeric element types is to map to the [elem IR enum](Elem).
 //!
-//! This can be done dynamically using the context instead, reducing the binary size and the
+//! This can be done dynamically using the scope instead, reducing the binary size and the
 //! compilation time of kernels significantly.
 //!
 //! You can still have multiple element types in a single kernel, since [FloatExpand] uses const
@@ -18,24 +18,16 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cubecl_ir::ExpandElement;
-use derive_more::derive::{
-    Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
-};
+use derive_more::derive::*;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Variable},
+    ir::{Elem, FloatKind, Scope, Variable},
     prelude::Numeric,
 };
 
-use super::{
-    init_expand_element, Abs, Ceil, Clamp, Cos, CubeContext, CubeIndex, CubeIndexMut,
-    CubePrimitive, CubeType, Dot, Erf, Exp, ExpandElementBaseInit, ExpandElementTyped, Float,
-    Floor, Index, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Log, Log1p,
-    Magnitude, Max, Min, Normalize, Powf, Recip, Remainder, Round, Runtime, ScalarArgSettings, Sin,
-    Sqrt, Tanh,
-};
+use super::*;
 
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
@@ -64,7 +56,6 @@ use super::{
 )]
 pub struct FloatExpand<const POS: u8>(f32);
 pub type NumericExpand<const POS: u8> = FloatExpand<POS>;
-pub type IntExpand<const POS: u8> = FloatExpand<POS>;
 
 impl<const POS: u8> FloatExpand<POS> {
     pub const MIN_POSITIVE: Self = Self(half::f16::MIN_POSITIVE.to_f32_const());
@@ -178,10 +169,8 @@ impl<const POS: u8> CubeType for FloatExpand<POS> {
 
 impl<const POS: u8> CubePrimitive for FloatExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(context: &CubeContext) -> Elem {
-        context
-            .resolve_elem::<Self>()
-            .expect("Type to be registered")
+    fn as_elem(scope: &Scope) -> Elem {
+        scope.resolve_elem::<Self>().expect("Type to be registered")
     }
 }
 
@@ -206,9 +195,9 @@ impl<const POS: u8> From<FloatExpand<POS>> for ExpandElementTyped<FloatExpand<PO
 }
 
 impl<const POS: u8> IntoRuntime for FloatExpand<POS> {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
-        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(context, self);
-        Init::init(expand, context)
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let expand: ExpandElementTyped<Self> = ExpandElementTyped::from_lit(scope, self);
+        Init::init(expand, scope)
     }
 }
 
@@ -222,8 +211,8 @@ impl<const POS: u8> Numeric for FloatExpand<POS> {
 }
 
 impl<const POS: u8> ExpandElementBaseInit for FloatExpand<POS> {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }
 

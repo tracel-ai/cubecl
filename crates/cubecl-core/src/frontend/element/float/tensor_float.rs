@@ -1,13 +1,12 @@
 use cubecl_common::tf32;
-use cubecl_ir::{Elem, ExpandElement, FloatKind};
+use cubecl_ir::{Elem, ExpandElement, FloatKind, Scope};
 use half::f16;
 
 use crate::prelude::Numeric;
 
 use super::{
-    init_expand_element, CubeContext, CubePrimitive, CubeType, ExpandElementBaseInit,
-    ExpandElementTyped, Float, Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand,
-    Runtime, ScalarArgSettings,
+    init_expand_element, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Float,
+    Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
 };
 
 impl CubeType for tf32 {
@@ -22,9 +21,9 @@ impl CubePrimitive for tf32 {
 }
 
 impl IntoRuntime for tf32 {
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> ExpandElementTyped<Self> {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
         let expand: ExpandElementTyped<Self> = self.into();
-        Init::init(expand, context)
+        Init::init(expand, scope)
     }
 }
 
@@ -38,8 +37,8 @@ impl Numeric for tf32 {
 }
 
 impl ExpandElementBaseInit for tf32 {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }
 
