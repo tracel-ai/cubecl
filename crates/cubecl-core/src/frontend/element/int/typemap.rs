@@ -195,6 +195,8 @@ impl<const POS: u8> Clamp for IntExpand<POS> {}
 impl<const POS: u8> BitwiseNot for IntExpand<POS> {}
 impl<const POS: u8> ReverseBits for IntExpand<POS> {}
 impl<const POS: u8> CountOnes for IntExpand<POS> {}
+impl<const POS: u8> FindFirstSet for IntExpand<POS> {}
+impl<const POS: u8> LeadingZeros for IntExpand<POS> {}
 
 impl<T: Index, const POS: u8> CubeIndex<T> for IntExpand<POS> {
     type Output = Self;

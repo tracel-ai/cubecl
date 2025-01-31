@@ -45,6 +45,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.bit_reverse(ty, Some(out), input).unwrap();
                 });
             }
+            Bitwise::LeadingZeros(op) => {
+                let width = op.input.item.elem.size() as u32 * 8;
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    // Indices are zero based, so subtract 1
+                    let width = out_ty.const_u32(b, width - 1);
+                    let msb = b.id();
+                    T::find_msb(b, ty, input, msb);
+                    b.i_sub(ty, Some(out), width, msb).unwrap();
+                });
+            }
+            Bitwise::FindFirstSet(op) => {
+                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                    let one = out_ty.const_u32(b, 1);
+                    let lsb = b.id();
+                    T::find_lsb(b, ty, input, lsb);
+                    // Normalize to CUDA/POSIX convention of 1 based index, with 0 meaning not found
+                    b.i_add(ty, Some(out), lsb, one).unwrap();
+                });
+            }
         }
     }
 }
@@ -81,4 +100,41 @@ pub(crate) fn u64_count_bits<I: Int>(x: Line<I>, out: &mut Line<u32>) {
     let low_cnt = Line::<u32>::cast_from(Line::count_ones(low));
     let high_cnt = Line::<u32>::cast_from(Line::count_ones(high));
     *out = low_cnt + high_cnt;
+}
+
+#[cube]
+pub(crate) fn u64_leading_zeros<I: Int>(x: Line<I>, out: &mut Line<u32>) {
+    let shift = Line::new(I::new(32));
+
+    let low = Line::<u32>::cast_from(x);
+    let high = Line::<u32>::cast_from(x >> shift);
+    let low_zeros = Line::leading_zeros(low);
+    let high_zeros = Line::leading_zeros(high);
+
+    *out = select_many(
+        high_zeros.equal(Line::new(32)),
+        low_zeros + high_zeros,
+        high_zeros,
+    );
+}
+
+/// There are three possible outcomes:
+/// * low has any set -> return low
+/// * low is empty, high has any set -> return high + 32
+/// * low and high are empty -> return 0
+#[cube]
+pub(crate) fn u64_ffs<I: Int>(x: Line<I>, out: &mut Line<u32>) {
+    let shift = Line::new(I::new(32));
+
+    let low = Line::<u32>::cast_from(x);
+    let high = Line::<u32>::cast_from(x >> shift);
+    let low_ffs = Line::find_first_set(low);
+    let high_ffs = Line::find_first_set(high);
+
+    let high_ffs = select_many(
+        high_ffs.equal(Line::new(0)),
+        high_ffs,
+        high_ffs + Line::new(32),
+    );
+    *out = select_many(low_ffs.equal(Line::new(0)), high_ffs, low_ffs);
 }

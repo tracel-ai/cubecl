@@ -596,6 +596,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+            cube::Plane::Ballot(op) => Subgroup::Ballot {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
             cube::Plane::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
@@ -982,6 +986,14 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Bitwise::BitwiseNot(op) => instructions.push(wgsl::Instruction::BitwiseNot {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Bitwise::LeadingZeros(op) => instructions.push(wgsl::Instruction::LeadingZeros {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Bitwise::FindFirstSet(op) => instructions.push(wgsl::Instruction::FindFirstSet {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),

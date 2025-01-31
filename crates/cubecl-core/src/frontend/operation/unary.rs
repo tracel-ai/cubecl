@@ -319,3 +319,33 @@ impl_unary_func!(
     u64,
     i64
 );
+impl_unary_func_fixed_out_ty!(
+    LeadingZeros,
+    leading_zeros,
+    __expand_leading_zeros,
+    u32,
+    Bitwise::LeadingZeros,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);
+impl_unary_func_fixed_out_ty!(
+    FindFirstSet,
+    find_first_set,
+    __expand_find_first_set,
+    u32,
+    Bitwise::FindFirstSet,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);

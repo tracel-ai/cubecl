@@ -74,12 +74,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 };
             }
-            Plane::Broadcast(op) => {
+            Plane::Ballot(op) => {
                 self.capabilities.insert(Capability::GroupNonUniformBallot);
-                self.compile_binary_op_no_cast(op, out, |b, _, ty, lhs, rhs, out| {
-                    b.group_non_uniform_broadcast(ty, Some(out), subgroup, lhs, rhs)
+                assert_eq!(
+                    op.input.vectorization_factor(),
+                    1,
+                    "plane_ballot can't work with vectorized values"
+                );
+                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                    b.group_non_uniform_ballot(ty, Some(out), subgroup, input)
                         .unwrap();
                 });
+            }
+            Plane::Broadcast(op) => {
+                if op.rhs.as_const().is_some() {
+                    self.capabilities.insert(Capability::GroupNonUniformBallot);
+                    self.compile_binary_op_no_cast(op, out, |b, _, ty, lhs, rhs, out| {
+                        b.group_non_uniform_broadcast(ty, Some(out), subgroup, lhs, rhs)
+                            .unwrap();
+                    });
+                } else {
+                    self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                    self.compile_binary_op_no_cast(op, out, |b, _, ty, lhs, rhs, out| {
+                        b.group_non_uniform_shuffle(ty, Some(out), subgroup, lhs, rhs)
+                            .unwrap();
+                    });
+                }
             }
             Plane::Sum(op) => {
                 self.compile_unary_op(op, out, |b, out_ty, ty, input, out| {

@@ -15,6 +15,10 @@ pub enum Subgroup {
         input: Variable,
         out: Variable,
     },
+    Ballot {
+        input: Variable,
+        out: Variable,
+    },
     Broadcast {
         lhs: Variable,
         rhs: Variable,
@@ -102,6 +106,10 @@ impl Display for Subgroup {
             Subgroup::Broadcast { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupBroadcast({lhs}, {rhs});")
+            }
+            Subgroup::Ballot { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupBallot({input});")
             }
             Subgroup::Sum { input, out } => {
                 let out = out.fmt_left();

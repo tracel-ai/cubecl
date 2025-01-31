@@ -16,6 +16,7 @@ pub enum Plane {
     Elect,
     All(UnaryOperator),
     Any(UnaryOperator),
+    Ballot(UnaryOperator),
     Broadcast(BinaryOperator),
     Sum(UnaryOperator),
     Prod(UnaryOperator),
@@ -29,6 +30,7 @@ impl Display for Plane {
             Plane::Elect => writeln!(f, "plane_elect()"),
             Plane::All(op) => writeln!(f, "plane_all({})", op.input),
             Plane::Any(op) => writeln!(f, "plane_any({})", op.input),
+            Plane::Ballot(op) => writeln!(f, "plane_ballot({})", op.input),
             Plane::Broadcast(op) => {
                 writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
             }

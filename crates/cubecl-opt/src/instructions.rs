@@ -137,7 +137,9 @@ impl Optimizer {
 
             Bitwise::CountOnes(unary_operator)
             | Bitwise::BitwiseNot(unary_operator)
-            | Bitwise::ReverseBits(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Bitwise::ReverseBits(unary_operator)
+            | Bitwise::LeadingZeros(unary_operator)
+            | Bitwise::FindFirstSet(unary_operator) => self.visit_unop(unary_operator, visit_read),
         }
     }
 
@@ -254,7 +256,8 @@ impl Optimizer {
             | Plane::Sum(unary_operator)
             | Plane::Prod(unary_operator)
             | Plane::Min(unary_operator)
-            | Plane::Max(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Plane::Max(unary_operator)
+            | Plane::Ballot(unary_operator) => self.visit_unop(unary_operator, visit_read),
         }
     }
 
