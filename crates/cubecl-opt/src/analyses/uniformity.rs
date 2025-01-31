@@ -52,14 +52,14 @@ impl Uniformity {
                 Operation::Plane(plane) => match plane {
                     // Elect returns true on only one unit, so it's always non-uniform
                     Plane::Elect => self.mark_uniformity(out, false)?,
-                    // Reductions are always uniform
+                    // Reductions are always uniform if executed in uniform control flow
                     Plane::Sum(_)
                     | Plane::Prod(_)
                     | Plane::Min(_)
                     | Plane::Max(_)
                     | Plane::All(_)
                     | Plane::Any(_)
-                    | Plane::Ballot(_) => self.mark_uniformity(out, true)?,
+                    | Plane::Ballot(_) => self.mark_uniformity(out, block_uniform)?,
                     // Broadcast maps to shuffle or broadcast, if id or value is uniform, so will
                     // the output, otherwise not.
                     Plane::Broadcast(op) => {
