@@ -17,11 +17,11 @@ pub mod cast {
     use super::*;
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Operator::Cast(UnaryOperator {
                 input: *input.expand,
             }),
@@ -38,11 +38,11 @@ pub mod assign {
     use super::*;
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         input: ExpandElementTyped<C>,
         output: ExpandElementTyped<C>,
     ) {
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Operation::Copy(*input.expand),
             *output.expand,
         ));
@@ -64,7 +64,7 @@ pub mod index_assign {
     use super::*;
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
@@ -78,7 +78,7 @@ pub mod index_assign {
             }
             _ => index,
         };
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Operator::IndexAssign(BinaryOperator {
                 lhs: index,
                 rhs: value.expand.into(),
@@ -126,7 +126,7 @@ pub mod index {
     use super::*;
 
     pub fn expand<A: CubeType + CubeIndex<ExpandElementTyped<u32>>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<A::Output>
@@ -145,9 +145,9 @@ pub mod index {
         let var: Variable = *array;
         let var = match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                binary_expand_no_vec(context, array, index, Operator::Index)
+                binary_expand_no_vec(scope, array, index, Operator::Index)
             }
-            _ => binary_expand(context, array, index, Operator::Index),
+            _ => binary_expand(scope, array, index, Operator::Index),
         };
 
         ExpandElementTyped::new(var)
@@ -190,14 +190,14 @@ pub mod add_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Arithmetic::Add);
+        array_assign_binary_op_expand(scope, array, index, value, Arithmetic::Add);
     }
 }
 
@@ -207,14 +207,14 @@ pub mod sub_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Arithmetic::Sub);
+        array_assign_binary_op_expand(scope, array, index, value, Arithmetic::Sub);
     }
 }
 
@@ -224,14 +224,14 @@ pub mod mul_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Arithmetic::Mul);
+        array_assign_binary_op_expand(scope, array, index, value, Arithmetic::Mul);
     }
 }
 
@@ -241,14 +241,14 @@ pub mod div_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Arithmetic::Div);
+        array_assign_binary_op_expand(scope, array, index, value, Arithmetic::Div);
     }
 }
 
@@ -258,14 +258,14 @@ pub mod rem_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Arithmetic::Modulo);
+        array_assign_binary_op_expand(scope, array, index, value, Arithmetic::Modulo);
     }
 }
 
@@ -274,14 +274,14 @@ pub mod bitor_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Bitwise::BitwiseOr);
+        array_assign_binary_op_expand(scope, array, index, value, Bitwise::BitwiseOr);
     }
 }
 
@@ -290,14 +290,14 @@ pub mod bitand_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Bitwise::BitwiseAnd);
+        array_assign_binary_op_expand(scope, array, index, value, Bitwise::BitwiseAnd);
     }
 }
 
@@ -306,14 +306,14 @@ pub mod bitxor_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<A::Output>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Bitwise::BitwiseXor);
+        array_assign_binary_op_expand(scope, array, index, value, Bitwise::BitwiseXor);
     }
 }
 
@@ -323,14 +323,14 @@ pub mod shl_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<u32>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Bitwise::ShiftLeft);
+        array_assign_binary_op_expand(scope, array, index, value, Bitwise::ShiftLeft);
     }
 }
 
@@ -340,14 +340,14 @@ pub mod shr_assign_array_op {
     use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
-        context: &mut Scope,
+        scope: &mut Scope,
         array: ExpandElementTyped<A>,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<u32>,
     ) where
         A::Output: CubeType + Sized,
     {
-        array_assign_binary_op_expand(context, array, index, value, Bitwise::ShiftRight);
+        array_assign_binary_op_expand(scope, array, index, value, Bitwise::ShiftRight);
     }
 }
 
@@ -363,11 +363,11 @@ pub mod add_assign_op {
     use super::*;
 
     pub fn expand<C: CubeType + AddAssign>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Add).into()
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Add).into()
     }
 }
 
@@ -377,11 +377,11 @@ pub mod sub_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Sub)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Sub)
     }
 }
 
@@ -391,11 +391,11 @@ pub mod mul_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Mul)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Mul)
     }
 }
 
@@ -405,11 +405,11 @@ pub mod div_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Div)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Div)
     }
 }
 
@@ -419,11 +419,11 @@ pub mod rem_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Modulo)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Modulo)
     }
 }
 
@@ -433,11 +433,11 @@ pub mod bitor_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseOr)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Bitwise::BitwiseOr)
     }
 }
 
@@ -447,11 +447,11 @@ pub mod bitand_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseAnd)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Bitwise::BitwiseAnd)
     }
 }
 
@@ -461,11 +461,11 @@ pub mod bitxor_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Bitwise::BitwiseXor)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Bitwise::BitwiseXor)
     }
 }
 
@@ -475,11 +475,11 @@ pub mod shl_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<u32>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Bitwise::ShiftLeft)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Bitwise::ShiftLeft)
     }
 }
 
@@ -488,11 +488,11 @@ pub mod shr_assign_op {
     use crate::{frontend::operation::base::assign_op_expand, prelude::ExpandElementTyped};
 
     pub fn expand<C: CubeType>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<u32>,
     ) -> ExpandElement {
-        assign_op_expand(context, lhs.into(), rhs.into(), Bitwise::ShiftRight)
+        assign_op_expand(scope, lhs.into(), rhs.into(), Bitwise::ShiftRight)
     }
 }
 
@@ -503,10 +503,10 @@ pub mod add_assign {
     use crate::prelude::{assign_op_expand, CubePrimitive, ExpandElementTyped};
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         lhs: ExpandElementTyped<C>,
         rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
-        assign_op_expand(context, lhs.into(), rhs.into(), Arithmetic::Add).into()
+        assign_op_expand(scope, lhs.into(), rhs.into(), Arithmetic::Add).into()
     }
 }

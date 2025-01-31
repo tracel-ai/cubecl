@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
@@ -8,7 +8,6 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = ArithmeticOpCode, pure)]
-#[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Arithmetic {
     #[operation(commutative)]
     Add(BinaryOperator),
@@ -46,7 +45,7 @@ pub enum Arithmetic {
 }
 
 impl Display for Arithmetic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Arithmetic::Add(op) => write!(f, "{} + {}", op.lhs, op.rhs),
             Arithmetic::Fma(op) => write!(f, "{} * {} + {}", op.a, op.b, op.c),

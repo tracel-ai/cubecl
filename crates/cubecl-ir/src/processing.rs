@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{
@@ -173,7 +175,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
-                    Bitwise::CountOnes(_) => {
+                    Bitwise::CountOnes(_) | Bitwise::LeadingZeros(_) | Bitwise::FindFirstSet(_) => {
                         // Nothing to do
                     }
                     Bitwise::ReverseBits(op) => {

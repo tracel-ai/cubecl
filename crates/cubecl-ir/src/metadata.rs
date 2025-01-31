@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 use crate::{OperationReflect, Variable};
 
@@ -23,7 +23,7 @@ pub enum Metadata {
 }
 
 impl Display for Metadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Metadata::Rank { var } => write!(f, "rank({})", var),
             Metadata::Stride { dim, var } => write!(f, "{}.strides[{}]", var, dim),

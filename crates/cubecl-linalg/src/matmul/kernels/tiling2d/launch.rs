@@ -26,7 +26,7 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
 }
 
 /// Matrix multiplication using tiling 2d algorithm.
-pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
+pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -34,7 +34,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     config: Tiling2dConfig,
 ) {
     assert!(
-        F::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
+        N::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= <R::Compiler as Compiler>::max_shared_memory_size(),
         "Shared memory limit will be busted. "
     );
@@ -50,25 +50,25 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
     let rhs_correct_layout = check_layout(rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
-        (true, true) => matmul_tiling_2d_ref_no_check::<R, F>(client, lhs, rhs, out, config),
-        (true, false) => matmul_tiling_2d_ref_no_check::<R, F>(
+        (true, true) => matmul_tiling_2d_ref_no_check::<R, N>(client, lhs, rhs, out, config),
+        (true, false) => matmul_tiling_2d_ref_no_check::<R, N>(
             client,
             lhs,
-            &into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, N>(client, rhs).as_ref(),
             out,
             config,
         ),
-        (false, true) => matmul_tiling_2d_ref_no_check::<R, F>(
+        (false, true) => matmul_tiling_2d_ref_no_check::<R, N>(
             client,
-            &into_contiguous::<R, F>(client, lhs).as_ref(),
+            &into_contiguous::<R, N>(client, lhs).as_ref(),
             rhs,
             out,
             config,
         ),
-        (false, false) => matmul_tiling_2d_ref_no_check::<R, F>(
+        (false, false) => matmul_tiling_2d_ref_no_check::<R, N>(
             client,
-            &into_contiguous::<R, F>(client, lhs).as_ref(),
-            &into_contiguous::<R, F>(client, rhs).as_ref(),
+            &into_contiguous::<R, N>(client, lhs).as_ref(),
+            &into_contiguous::<R, N>(client, rhs).as_ref(),
             out,
             config,
         ),
@@ -76,7 +76,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, F: Float>(
 }
 
 /// Matrix multiplication using tiling 2d algorithm.
-fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
+fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -126,13 +126,13 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, F: Float>(
     let cube_config = CubeTiling2dConfig::new(&config, m, k, n, lhs_transposed, rhs_transposed);
 
     unsafe {
-        tiling2d_cube_kernel::launch_unchecked::<F, R>(
+        tiling2d_cube_kernel::launch_unchecked::<N, R>(
             client,
             cube_count,
             cube_dim,
-            TensorArg::from_raw_parts::<F>(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
-            TensorArg::from_raw_parts::<F>(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
-            TensorArg::from_raw_parts::<F>(out.handle, out.strides, out.shape, out_vectorization),
+            TensorArg::from_raw_parts::<N>(lhs.handle, lhs.strides, lhs.shape, lhs_vectorization),
+            TensorArg::from_raw_parts::<N>(rhs.handle, rhs.strides, rhs.shape, rhs_vectorization),
+            TensorArg::from_raw_parts::<N>(out.handle, out.strides, out.shape, out_vectorization),
             cube_config,
         );
     }

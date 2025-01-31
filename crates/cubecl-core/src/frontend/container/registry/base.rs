@@ -64,7 +64,7 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
 
     /// Expand function of [Self::find].
     pub fn __expand_find<Query: RegistryQuery<K>>(
-        _context: &mut Scope,
+        _scope: &mut Scope,
         state: Registry<K, V::ExpandType>,
         key: Query,
     ) -> V::ExpandType {
@@ -76,7 +76,7 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
 
     /// Expand function of [Self::insert].
     pub fn __expand_insert<Key: Into<K>>(
-        _context: &mut Scope,
+        _scope: &mut Scope,
         state: Registry<K, V::ExpandType>,
         key: Key,
         value: V::ExpandType,
@@ -90,14 +90,14 @@ impl<K: PartialOrd + Ord, V: CubeType + Clone> Registry<K, V> {
 
 impl<K: PartialOrd + Ord, V: Clone> Registry<K, V> {
     /// Expand method of [Self::find].
-    pub fn __expand_find_method(&self, _context: &mut Scope, key: K) -> V {
+    pub fn __expand_find_method(&self, _scope: &mut Scope, key: K) -> V {
         let map = self.map.as_ref().borrow();
 
         map.get(&key).unwrap().clone()
     }
 
     /// Expand method of [Self::insert].
-    pub fn __expand_insert_method(self, _context: &mut Scope, key: K, value: V) {
+    pub fn __expand_insert_method(self, _scope: &mut Scope, key: K, value: V) {
         let mut map = self.map.as_ref().borrow_mut();
 
         map.insert(key, value);
@@ -125,13 +125,13 @@ impl<K: PartialOrd + Ord, V: CubeType> CubeType for Registry<K, V> {
 }
 
 impl<K: PartialOrd + Ord, V> Init for Registry<K, V> {
-    fn init(self, _context: &mut crate::ir::Scope) -> Self {
+    fn init(self, _scope: &mut crate::ir::Scope) -> Self {
         self
     }
 }
 
 impl<K: PartialOrd + Ord, V: CubeType> IntoRuntime for Registry<K, V> {
-    fn __expand_runtime_method(self, _context: &mut Scope) -> Registry<K, V::ExpandType> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Registry<K, V::ExpandType> {
         unimplemented!("Comptime registry can't be moved to runtime.");
     }
 }

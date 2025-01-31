@@ -1,8 +1,9 @@
-use super::{Elem, Variable};
-use crate::{OperationCode, OperationReflect};
-use std::fmt::Display;
+use alloc::{format, string::String, vec, vec::Vec};
 
-use type_hash::TypeHash;
+use super::{Elem, Variable};
+use crate::TypeHash;
+use crate::{OperationCode, OperationReflect};
+use core::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -91,7 +92,7 @@ impl OperationReflect for CoopMma {
 }
 
 impl Display for CoopMma {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CoopMma::Fill { value } => write!(f, "{}", value),
             CoopMma::Load {

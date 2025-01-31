@@ -40,7 +40,7 @@ impl Expression {
                 let op = format_ident!("{}", operator.array_op_name());
                 let expand = with_span(
                     *span,
-                    quote![#frontend_path::#op::expand(context, _array, _index, _value)],
+                    quote![#frontend_path::#op::expand(context, _array.into(), _index.into(), _value.into())],
                 );
                 quote! {
                     {
@@ -140,7 +140,7 @@ impl Expression {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(context, _array, _index, _value)
+                        #frontend_path::index_assign::expand(context, _array.into(), _index.into(), _value.into())
                     }
                 }
             }
@@ -152,7 +152,7 @@ impl Expression {
                     {
                         let _var = #left;
                         let _value = #right;
-                        #frontend_path::assign::expand(context, _value, _var)
+                        #frontend_path::assign::expand(context, _value.into(), _var.into())
                     }
                 }
             }
@@ -160,7 +160,10 @@ impl Expression {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
-                let expand = with_span(*span, quote![#index_fn::expand(context, _array, _index)]);
+                let expand = with_span(
+                    *span,
+                    quote![#index_fn::expand(context, _array.into(), _index.into())],
+                );
                 quote! {
                     {
                         let _array = #expr;

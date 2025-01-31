@@ -74,6 +74,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 };
             }
+            Plane::Ballot(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformBallot);
+                assert_eq!(
+                    op.input.vectorization_factor(),
+                    1,
+                    "plane_ballot can't work with vectorized values"
+                );
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.group_non_uniform_ballot(ty, Some(out), subgroup, input)
+                        .unwrap();
+                });
+            }
             Plane::Broadcast(op) => {
                 let is_broadcast = self.uniformity.is_var_uniform(op.rhs);
                 self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {

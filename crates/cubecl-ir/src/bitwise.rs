@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 use crate::{BinaryOperator, OperationReflect, UnaryOperator};
 
@@ -20,10 +20,14 @@ pub enum Bitwise {
     CountOnes(UnaryOperator),
     ReverseBits(UnaryOperator),
     BitwiseNot(UnaryOperator),
+    /// Count leading zeros
+    LeadingZeros(UnaryOperator),
+    /// Find least significant bit set
+    FindFirstSet(UnaryOperator),
 }
 
 impl Display for Bitwise {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Bitwise::BitwiseAnd(op) => write!(f, "{} & {}", op.lhs, op.rhs),
             Bitwise::BitwiseOr(op) => write!(f, "{} | {}", op.lhs, op.rhs),
@@ -33,6 +37,8 @@ impl Display for Bitwise {
             Bitwise::ShiftLeft(op) => write!(f, "{} << {}", op.lhs, op.rhs),
             Bitwise::ShiftRight(op) => write!(f, "{} >> {}", op.lhs, op.rhs),
             Bitwise::BitwiseNot(op) => write!(f, "!{}", op.input),
+            Bitwise::LeadingZeros(op) => write!(f, "{}.leading_zeros()", op.input),
+            Bitwise::FindFirstSet(op) => write!(f, "{}.find_first_set()", op.input),
         }
     }
 }

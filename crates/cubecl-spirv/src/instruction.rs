@@ -23,7 +23,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 self.copy_object(ty, Some(out_id), in_id).unwrap();
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
             }
             Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out, uniform),
@@ -158,7 +158,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.merge_binding(out_id, ptr);
                 } else {
                     let out_id = self.read_indexed(&out, &value, &index);
-                    self.mark_uniform(out_id, uniform);
+                    self.mark_uniformity(out_id, uniform);
                     self.write(&out, out_id);
                 }
             }
@@ -223,7 +223,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
                 let out_id = self.write_id(&out);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 if let Some(as_const) = input.as_const() {
                     let cast = self.static_cast(as_const, &input.elem(), &out.item());
@@ -266,7 +266,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_item(out.item);
                 let out = self.compile_variable(out);
                 let out_id = self.write_id(&out);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
                 let ty = item.id(self);
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
@@ -334,7 +334,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read_as(&input, &out_ty);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -355,7 +355,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read(&input);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -376,7 +376,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read(&input);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out.item().id(self);
 
@@ -399,7 +399,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read_as(&lhs, &out_ty);
         let rhs_id = self.read_as(&rhs, &out_ty);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -422,7 +422,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read(&lhs);
         let rhs_id = self.read(&rhs);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -445,7 +445,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read(&lhs);
         let rhs_id = self.read_as(&rhs, &lhs_ty);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out.item().id(self);
 
@@ -473,14 +473,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let then = self.read_as(&then, &out_ty);
         let or_else = self.read_as(&or_else, &out_ty);
         let out_id = self.write_id(&out);
-        self.mark_uniform(out_id, uniform);
+        self.mark_uniformity(out_id, uniform);
 
         self.select(ty, Some(out_id), cond_id, then, or_else)
             .unwrap();
         self.write(&out, out_id);
     }
 
-    pub fn mark_uniform(&mut self, id: Word, uniform: bool) {
+    pub fn mark_uniformity(&mut self, id: Word, uniform: bool) {
         if uniform {
             self.decorate(id, Decoration::Uniform, []);
         }

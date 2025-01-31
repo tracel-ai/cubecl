@@ -11,7 +11,7 @@ use crate::{
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
     compute,
-    ir::{self as cube, UIntKind},
+    ir::{self as cube, Scope, UIntKind},
     prelude::{expand_checked_index_assign, expand_erf, CompiledKernel},
     server::ComputeServer,
     Feature, Metadata,
@@ -596,6 +596,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+            cube::Plane::Ballot(op) => Subgroup::Ballot {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
             cube::Plane::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
@@ -763,7 +767,7 @@ impl WgslCompiler {
         value: cube::Arithmetic,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
-        scope: &mut cube::Scope,
+        scope: &mut Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -982,6 +986,14 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Bitwise::BitwiseNot(op) => instructions.push(wgsl::Instruction::BitwiseNot {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Bitwise::LeadingZeros(op) => instructions.push(wgsl::Instruction::LeadingZeros {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Bitwise::FindFirstSet(op) => instructions.push(wgsl::Instruction::FindFirstSet {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),

@@ -1,13 +1,15 @@
 use cubecl_core::{
     ir::{
         Arithmetic, Bitwise, Elem, ExpandElement, Instruction, IntKind, Operation, Scope, UIntKind,
+        Variable,
     },
     prelude::{expand_erf, IntExpand},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 
-use crate::bitwise::{small_int_reverse, u64_count_bits, u64_reverse};
+use crate::bitwise::{small_int_reverse, u64_count_bits, u64_ffs, u64_leading_zeros, u64_reverse};
 
+/// Expand erf
 #[derive(Debug)]
 pub(crate) struct ErfTransform;
 
@@ -24,6 +26,7 @@ impl IrTransformer for ErfTransform {
     }
 }
 
+/// Transform operations that only support 32 bits using polyfills
 #[derive(Debug)]
 pub(crate) struct BitwiseTransform;
 
@@ -34,14 +37,9 @@ impl IrTransformer for BitwiseTransform {
             _ => return TransformAction::Ignore,
         };
         match op {
-            Bitwise::CountOnes(op)
-                if matches!(
-                    op.input.item.elem,
-                    Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64)
-                ) =>
-            {
+            Bitwise::CountOnes(op) if is_u64(op.input) => {
                 let mut scope = scope.child();
-                scope.register_elem::<IntExpand<0>>(op.input.item.elem);
+                scope.register_elem::<IntExpand<0>>(op.input.elem());
                 u64_count_bits::expand::<IntExpand<0>>(
                     &mut scope,
                     ExpandElement::Plain(op.input).into(),
@@ -70,9 +68,36 @@ impl IrTransformer for BitwiseTransform {
                     }
                 }
             }
+            Bitwise::LeadingZeros(op) if is_u64(op.input) => {
+                let mut scope = scope.child();
+                scope.register_elem::<IntExpand<0>>(op.input.elem());
+                u64_leading_zeros::expand::<IntExpand<0>>(
+                    &mut scope,
+                    ExpandElement::Plain(op.input).into(),
+                    ExpandElement::Plain(inst.out()).into(),
+                );
+                TransformAction::Replace(into_instructions(scope))
+            }
+            Bitwise::FindFirstSet(op) if is_u64(op.input) => {
+                let mut scope = scope.child();
+                scope.register_elem::<IntExpand<0>>(op.input.elem());
+                u64_ffs::expand::<IntExpand<0>>(
+                    &mut scope,
+                    ExpandElement::Plain(op.input).into(),
+                    ExpandElement::Plain(inst.out()).into(),
+                );
+                TransformAction::Replace(into_instructions(scope))
+            }
             _ => TransformAction::Ignore,
         }
     }
+}
+
+fn is_u64(var: Variable) -> bool {
+    matches!(
+        var.item.elem,
+        Elem::Int(IntKind::I64) | Elem::UInt(UIntKind::U64)
+    )
 }
 
 fn into_instructions(mut scope: Scope) -> Vec<Instruction> {

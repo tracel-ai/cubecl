@@ -16,7 +16,7 @@ macro_rules! constant {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(_context: &mut Scope) -> ExpandElementTyped<u32> {
+            pub fn expand(_scope: &mut Scope) -> ExpandElementTyped<u32> {
                 ExpandElementTyped::new(ExpandElement::Plain(crate::ir::Variable::builtin($var)))
             }
         }

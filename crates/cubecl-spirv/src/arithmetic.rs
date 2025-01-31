@@ -118,7 +118,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let lhs_id = self.read(&lhs);
                     let rhs_id = self.read(&rhs);
                     let out_id = self.write_id(&out);
-                    self.mark_uniform(out_id, uniform);
+                    self.mark_uniformity(out_id, uniform);
 
                     if matches!(lhs.elem(), Elem::Int(_, _)) {
                         self.capabilities.insert(Capability::DotProduct);
@@ -167,12 +167,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let b_id = self.read_as(&b, &out_ty);
                 let c_id = self.read_as(&c, &out_ty);
                 let out_id = self.write_id(&out);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 let ty = out_ty.id(self);
 
                 let mul = self.f_mul(ty, None, a_id, b_id).unwrap();
-                self.mark_uniform(mul, uniform);
+                self.mark_uniformity(mul, uniform);
                 self.f_add(ty, Some(out_id), mul, c_id).unwrap();
                 if relaxed {
                     self.decorate(mul, Decoration::RelaxedPrecision, []);
@@ -258,7 +258,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         Elem::Float(_) | Elem::Relaxed => b.f_add(ty, None, input, one).unwrap(),
                         _ => unreachable!(),
                     };
-                    b.mark_uniform(add, uniform);
+                    b.mark_uniformity(add, uniform);
                     if relaxed {
                         b.decorate(add, Decoration::RelaxedPrecision, []);
                         b.decorate(out, Decoration::RelaxedPrecision, []);
@@ -321,13 +321,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         default,
                     ];
                     for id in ids {
-                        b.mark_uniform(id, uniform);
+                        b.mark_uniformity(id, uniform);
                         if relaxed {
                             b.decorate(id, Decoration::RelaxedPrecision, []);
                         }
                     }
                     let sel1 = b.select(ty, None, cond2, pow2_neg, default).unwrap();
-                    b.mark_uniform(sel1, uniform);
+                    b.mark_uniformity(sel1, uniform);
                     b.select(ty, Some(out), is_zero, even, sel1).unwrap();
                 })
             }
@@ -374,7 +374,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let min = self.read_as(&min, &out_ty);
                 let max = self.read_as(&max, &out_ty);
                 let out_id = self.write_id(&out);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 let ty = out_ty.id(self);
 

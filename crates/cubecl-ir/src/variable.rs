@@ -1,9 +1,10 @@
-use std::num::NonZero;
-use std::{fmt::Display, hash::Hash};
+use core::num::NonZero;
+use core::{fmt::Display, hash::Hash};
+
+use crate::TypeHash;
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
-use type_hash::TypeHash;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
@@ -379,7 +380,7 @@ impl ConstantScalarValue {
 }
 
 impl Display for ConstantScalarValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ConstantScalarValue::Int(val, IntKind::I8) => write!(f, "{val}i8"),
             ConstantScalarValue::Int(val, IntKind::I16) => write!(f, "{val}i16"),
@@ -431,7 +432,7 @@ impl Variable {
 }
 
 impl Display for Variable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
             VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),

@@ -287,6 +287,55 @@ test_unary_impl_int!(test_reverse_bits, I, I::reverse_bits, [
     }
 ]);
 
+macro_rules! norm_lead {
+    ($value:expr) => {{
+        let shift = (size_of::<I>() - 1) * 8;
+        $value + shift as u32
+    }};
+}
+
+test_unary_impl_int_fixed!(test_leading_zeros, I, u32, I::leading_zeros, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111],
+        expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2)]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111, 0b1111_1111],
+        expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2), norm_lead!(0)]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b0010_1111, 0b1111_1111],
+        expected: &[norm_lead!(0), norm_lead!(8), norm_lead!(2), norm_lead!(0)]
+    }
+]);
+
+test_unary_impl_int_fixed!(test_find_first_set, I, u32, I::find_first_set, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111],
+        expected: &[2, 0, 1]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111, 0b1000_0000],
+        expected: &[2, 0, 1, 8]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![I: 0b1110_0010, 0b0000_0000, 0b1111_1111, 0b1000_0000],
+        expected: &[2, 0, 1, 8]
+    }
+]);
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_unary {
@@ -333,6 +382,8 @@ macro_rules! testgen_unary_int {
 
             add_test!(test_count_ones);
             add_test!(test_reverse_bits);
+            add_test!(test_leading_zeros);
+            add_test!(test_find_first_set);
         }
     };
 }

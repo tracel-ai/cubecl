@@ -1,9 +1,9 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use crate::OperationReflect;
 
 use super::{BinaryOperator, UnaryOperator};
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 /// All plane operations.
 ///
@@ -16,6 +16,7 @@ pub enum Plane {
     Elect,
     All(UnaryOperator),
     Any(UnaryOperator),
+    Ballot(UnaryOperator),
     Broadcast(BinaryOperator),
     Sum(UnaryOperator),
     Prod(UnaryOperator),
@@ -24,11 +25,12 @@ pub enum Plane {
 }
 
 impl Display for Plane {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Plane::Elect => writeln!(f, "plane_elect()"),
             Plane::All(op) => writeln!(f, "plane_all({})", op.input),
             Plane::Any(op) => writeln!(f, "plane_any({})", op.input),
+            Plane::Ballot(op) => writeln!(f, "plane_ballot({})", op.input),
             Plane::Broadcast(op) => {
                 writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
             }

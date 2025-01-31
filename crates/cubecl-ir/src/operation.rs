@@ -1,12 +1,17 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
+use crate::TypeHash;
 use crate::{
     comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
     OperationReflect, Operator,
 };
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use derive_more::derive::From;
-use type_hash::TypeHash;
 
 /// All operations that can be used in a GPU compute shader.
 ///
@@ -76,7 +81,7 @@ impl Instruction {
 }
 
 impl Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.operation {
             Operation::Operator(Operator::CopyMemory(op)) => write!(
                 f,
@@ -119,7 +124,7 @@ impl Display for Instruction {
 }
 
 impl Display for Operation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),

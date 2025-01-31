@@ -49,15 +49,15 @@ pub trait Numeric:
     fn min_value() -> Self;
     fn max_value() -> Self;
 
-    fn __expand_min_value(context: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(context);
+    fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+        let elem = Self::as_elem(scope);
         let var = elem.min_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
     }
 
-    fn __expand_max_value(context: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(context);
+    fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+        let elem = Self::as_elem(scope);
         let var = elem.max_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
@@ -80,33 +80,33 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(
-        context: &mut Scope,
+        scope: &mut Scope,
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(context);
+        let elem = Self::as_elem(scope);
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
     }
 
     fn __expand_from_vec<const D: usize>(
-        context: &mut Scope,
+        scope: &mut Scope,
         vec: [u32; D],
     ) -> <Self as CubeType>::ExpandType {
-        let new_var = context.create_local(Item::vectorized(
-            Self::as_elem(context),
+        let new_var = scope.create_local(Item::vectorized(
+            Self::as_elem(scope),
             NonZero::new(vec.len() as u8),
         ));
-        let elem = Self::as_elem(context);
+        let elem = Self::as_elem(scope);
 
         for (i, element) in vec.iter().enumerate() {
             let var: Variable = elem.constant_from_i64(*element as i64);
             let expand = ExpandElement::Plain(var);
 
             index_assign::expand::<u32>(
-                context,
+                scope,
                 new_var.clone().into(),
-                ExpandElementTyped::from_lit(context, i),
+                ExpandElementTyped::from_lit(scope, i),
                 expand.into(),
             );
         }

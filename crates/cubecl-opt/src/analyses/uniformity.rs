@@ -58,7 +58,8 @@ impl Uniformity {
                     | Plane::Min(_)
                     | Plane::Max(_)
                     | Plane::All(_)
-                    | Plane::Any(_) => self.mark_uniformity(out, true)?,
+                    | Plane::Any(_)
+                    | Plane::Ballot(_) => self.mark_uniformity(out, true)?,
                     // Broadcast maps to shuffle or broadcast, if id or value is uniform, so will
                     // the output, otherwise not.
                     Plane::Broadcast(op) => {

@@ -1,6 +1,8 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use type_hash::TypeHash;
+use alloc::{string::String, vec::Vec};
+
+use crate::TypeHash;
 
 use crate::{fmt_vararg, OperationCode, OperationReflect};
 
@@ -48,7 +50,7 @@ impl OperationReflect for NonSemantic {
 }
 
 impl Display for NonSemantic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             NonSemantic::Print {
                 format_string,

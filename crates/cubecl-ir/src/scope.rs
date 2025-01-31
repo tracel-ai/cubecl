@@ -1,8 +1,8 @@
-use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
+use alloc::{rc::Rc, vec::Vec};
+use core::{any::TypeId, cell::RefCell};
+use hashbrown::HashMap;
 
-use type_hash::TypeHash;
-
-use crate::{ExpandElement, Matrix};
+use crate::{ExpandElement, Matrix, TypeHash};
 
 use super::{
     processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -34,7 +34,6 @@ pub struct Scope {
     writes_global: Vec<(Variable, Variable, Variable)>,
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
-    #[type_hash(skip)]
     pub allocator: Allocator,
     pub debug_enabled: bool,
     #[type_hash(skip)]
@@ -134,9 +133,7 @@ impl Scope {
 
     /// Create a mutable variable of the given [item type](Item).
     pub fn create_local_mut<I: Into<Item>>(&mut self, item: I) -> ExpandElement {
-        let local = self.allocator.create_local_mut(item.into());
-        self.add_local_mut(*local);
-        local
+        self.allocator.create_local_mut(item.into())
     }
 
     /// Create a mutable variable of the given [item type](Item).
@@ -307,6 +304,8 @@ impl Scope {
         for op in self.operations.drain(..) {
             operations.push(op);
         }
+
+        variables.extend(self.allocator.take_variables());
 
         ScopeProcessing {
             variables,

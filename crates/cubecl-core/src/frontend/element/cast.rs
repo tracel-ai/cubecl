@@ -11,17 +11,17 @@ pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 
     fn __expand_cast_from<From: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
         if core::any::TypeId::of::<Self>() == core::any::TypeId::of::<From>() {
             return value.expand.into();
         }
-        let new_var = context.create_local(Item::vectorized(
-            <Self as CubePrimitive>::as_elem(context),
+        let new_var = scope.create_local(Item::vectorized(
+            <Self as CubePrimitive>::as_elem(scope),
             value.expand.item.vectorization,
         ));
-        cast::expand(context, value, new_var.clone().into());
+        cast::expand(scope, value, new_var.clone().into());
         new_var.into()
     }
 }
@@ -42,16 +42,16 @@ pub trait BitCast: CubePrimitive {
     }
 
     fn __expand_bitcast_from<From: CubePrimitive>(
-        context: &mut Scope,
+        scope: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
-        let new_var = context.create_local(Item::vectorized(
-            <Self as CubePrimitive>::as_elem(context),
+        let new_var = scope.create_local(Item::vectorized(
+            <Self as CubePrimitive>::as_elem(scope),
             var.item.vectorization,
         ));
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             Operator::Bitcast(UnaryOperator { input: *value }),
             *new_var.clone(),
         ));

@@ -3,6 +3,7 @@ use cubecl_ir::ExpandElement;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
+use crate::prelude::{FindFirstSet, LeadingZeros};
 use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
@@ -14,12 +15,17 @@ use super::{
     IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
 };
 
+mod typemap;
+pub use typemap::*;
+
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
     Numeric
     + CountOnes
     + ReverseBits
     + BitwiseNot
+    + LeadingZeros
+    + FindFirstSet
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
@@ -47,8 +53,8 @@ pub trait Int:
     const BITS: u32;
 
     fn new(val: i64) -> Self;
-    fn __expand_new(context: &mut Scope, val: i64) -> <Self as CubeType>::ExpandType {
-        __expand_new(context, val)
+    fn __expand_new(scope: &mut Scope, val: i64) -> <Self as CubeType>::ExpandType {
+        __expand_new(scope, val)
     }
 }
 
@@ -65,9 +71,9 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, context: &mut Scope) -> ExpandElementTyped<Self> {
+            fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
                 let expand: ExpandElementTyped<Self> = self.into();
-                Init::init(expand, context)
+                Init::init(expand, scope)
             }
         }
 
@@ -81,8 +87,8 @@ macro_rules! impl_int {
         }
 
         impl ExpandElementBaseInit for $type {
-            fn init_elem(context: &mut Scope, elem: ExpandElement) -> ExpandElement {
-                init_expand_element(context, elem)
+            fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+                init_expand_element(scope, elem)
             }
         }
 

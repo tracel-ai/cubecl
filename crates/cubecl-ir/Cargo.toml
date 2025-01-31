@@ -15,9 +15,10 @@ version.workspace = true
 
 
 [features]
-default = ["serde"]
+default = ["serde", "std"]
 
 serde = ["dep:serde"]
+std = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5" }
@@ -25,8 +26,11 @@ cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.5" }
 
 derive_more = { workspace = true, features = ["from"] }
 float-ord = "0.3"
+fnv = { workspace = true }
 half = { workspace = true }
 num-traits = { workspace = true }
-serde = { workspace = true, optional = true, features = ["std", "rc"] }
-smallvec = { workspace = true }
-type_hash = { workspace = true }
+serde = { workspace = true, optional = true, features = ["rc"] }
+variadics_please = { workspace = true }
+
+hashbrown = { workspace = true }
+portable-atomic = { workspace = true }

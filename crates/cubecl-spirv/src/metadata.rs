@@ -18,7 +18,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let pos = self.ext_pos(&var);
 
                 let out_id = self.write_id(&out);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 let offset = self.metadata.rank_index(pos);
                 self.load_const_metadata(offset, Some(out_id));
@@ -42,7 +42,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
 
                 let out_id = out.id(self);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 let pos = self.ext_pos(&var);
 
@@ -51,7 +51,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim_id = self.read(&dim);
 
                 let index = self.i_add(int, None, offset, dim_id).unwrap();
-                self.mark_uniform(index, uniform);
+                self.mark_uniformity(index, uniform);
                 let index = Variable::Id(index);
                 self.load_dyn_metadata(&index, &out);
             }
@@ -63,7 +63,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
 
                 let out_id = out.id(self);
-                self.mark_uniform(out_id, uniform);
+                self.mark_uniformity(out_id, uniform);
 
                 let pos = self.ext_pos(&var);
 
@@ -81,7 +81,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {
         let (out_id, out_ty) = if let Some(out) = out {
             let out_id = self.write_id(out);
-            self.mark_uniform(out_id, uniform);
+            self.mark_uniformity(out_id, uniform);
             let out_ty = out.elem().id(self);
             (Some(out_id), out_ty)
         } else {
@@ -127,7 +127,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn buffer_length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {
         let out_id = out.map(|it| self.write_id(it));
         if let Some(out_id) = out_id {
-            self.mark_uniform(out_id, uniform);
+            self.mark_uniformity(out_id, uniform);
         }
 
         let position = match var {
