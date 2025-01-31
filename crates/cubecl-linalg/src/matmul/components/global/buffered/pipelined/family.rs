@@ -30,7 +30,7 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> = PipelinedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = PipelinedMatmul<MP, SMM::Matmul<MP::State, MP::Out, MP::Acc>>;
 }
 
 impl<SMM> MatmulConfigFactory for PipelinedMatmulFamily<SMM>

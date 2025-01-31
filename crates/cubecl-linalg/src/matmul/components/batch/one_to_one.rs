@@ -71,7 +71,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     ) {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+        super::matmul::launch_unchecked::<MS::In, MS::State, MS::Acc, MS::Out, MS::Args, Self, R>(
             client, cube_count, cube_dim, input, output, config,
         );
     }
@@ -95,9 +95,9 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::In>,
+        rhs: VirtualTensor<MP::In>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();

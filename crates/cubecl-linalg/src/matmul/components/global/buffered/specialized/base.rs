@@ -32,7 +32,7 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<MP, SMM::Matmul<MP::State, MP::Out, MP::Acc>>;
 }
 
 impl<SMM> MatmulConfigFactory for SpecializedMatmulFamily<SMM>
@@ -90,7 +90,7 @@ where
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
+pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::State, MP::Out, MP::Acc>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -99,18 +99,18 @@ pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::E
 impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES>,
-        RhsReader = RhsBufferReader<MP::ES>,
+        MP::State,
+        MP::Out,
+        MP::Acc,
+        LhsReader = LhsBufferReader<MP::State>,
+        RhsReader = RhsBufferReader<MP::State>,
     >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::In, MP::State, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::In, MP::State, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::Out>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -170,7 +170,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -187,7 +187,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -204,7 +204,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -225,11 +225,11 @@ where
 impl<
         MP: MatmulPrecision,
         SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
-            LhsReader = LhsBufferReader<MP::ES>,
-            RhsReader = RhsBufferReader<MP::ES>,
+            MP::State,
+            MP::Out,
+            MP::Acc,
+            LhsReader = LhsBufferReader<MP::State>,
+            RhsReader = RhsBufferReader<MP::State>,
         >,
     > SpecializedMatmul<MP, SMM>
 {

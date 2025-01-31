@@ -146,8 +146,8 @@ impl MatmulConfigFactory for Accelerated {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MP::ES::as_elem_native().expect("to be a native type");
-        let o_elem = MP::EG::as_elem_native().expect("to be a native type");
+        let i_elem = MP::State::as_elem_native().expect("to be a native type");
+        let o_elem = MP::Out::as_elem_native().expect("to be a native type");
 
         let i_elem = match i_elem {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),

@@ -1,6 +1,6 @@
 use cubecl_core::{
     client::ComputeClient,
-    prelude::{Float, Numeric, TensorHandleRef},
+    prelude::{Numeric, TensorHandleRef},
     Runtime,
 };
 
@@ -30,14 +30,14 @@ pub enum Strategy {
     Auto,
 }
 
-pub fn launch<R: Runtime, EG: Float>(
+pub fn launch<R: Runtime, In: Numeric, Out: Numeric>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, EG>,
-    rhs: TensorHandle<R, EG>,
-    out: TensorHandle<R, EG>,
+    lhs: TensorHandle<R, In>,
+    rhs: TensorHandle<R, In>,
+    out: TensorHandle<R, Out>,
 ) -> Result<(), MatmulLaunchError> {
-    launch_ref::<R, EG>(
+    launch_ref::<R, In, Out>(
         strategy,
         client,
         &lhs.as_ref(),
@@ -46,7 +46,7 @@ pub fn launch<R: Runtime, EG: Float>(
     )
 }
 
-pub fn launch_ref<R: Runtime, EG: Numeric>(
+pub fn launch_ref<R: Runtime, In: Numeric, Out: Numeric>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<R>,
@@ -55,35 +55,38 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
 ) -> Result<(), MatmulLaunchError> {
     match strategy {
         Strategy::Standard => {
-            matmul::launch_ref::<R, EG, StandardSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, In, Out, StandardSelector<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::Pipelined => {
-            matmul::launch_ref::<R, EG, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, In, Out, PipelinedSelector<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::Specialized => {
-            matmul::launch_ref::<R, EG, SpecializedSelector<Accelerated>>(client, lhs, rhs, out)
-        }
-        #[cfg(any(test, feature = "export_tests"))]
-        Strategy::PlaneMma => {
-            matmul::launch_ref::<R, EG, StandardSelector<super::components::tile::plane::PlaneMma>>(
+            matmul::launch_ref::<R, In, Out, SpecializedSelector<Accelerated>>(
                 client, lhs, rhs, out,
             )
         }
+        #[cfg(any(test, feature = "export_tests"))]
+        Strategy::PlaneMma => matmul::launch_ref::<
+            R,
+            In,
+            Out,
+            StandardSelector<super::components::tile::plane::PlaneMma>,
+        >(client, lhs, rhs, out),
         Strategy::Tiling2D(config) => {
-            tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
+            tiling2d::launch_ref::<R, In>(client, lhs, rhs, out, config.clone());
             Ok(())
         }
         Strategy::Simple => {
-            simple::launch_ref::<R, EG>(client, lhs, rhs, out)?;
+            simple::launch_ref::<R, In>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) =
-                matmul::launch_ref::<R, EG, StandardSelector<Accelerated>>(client, lhs, rhs, out)
-            {
+            if let Err(err) = matmul::launch_ref::<R, In, Out, StandardSelector<Accelerated>>(
+                client, lhs, rhs, out,
+            ) {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
-                        tiling2d::launch_ref::<R, EG>(
+                        tiling2d::launch_ref::<R, In>(
                             client,
                             lhs,
                             rhs,

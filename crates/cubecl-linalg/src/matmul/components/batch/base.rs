@@ -34,9 +34,9 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::In>,
+        rhs: VirtualTensor<MP::In>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         #[comptime] config: Self::Config,
     );
 }
@@ -67,25 +67,26 @@ type Output<Args, EG> = <Args as MatmulArgs>::Output<EG>;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul<
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
+    In: Numeric,
+    State: Numeric,
+    Acc: Numeric,
+    Out: Numeric,
     Args: MatmulArgs,
     BMM: BatchMatmulFamily,
 >(
-    inputs: &Input<Args, EG>,
-    output: &mut Output<Args, EG>,
+    inputs: &Input<Args, In>,
+    output: &mut Output<Args, Out>,
     #[comptime] config: BMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EG, Args>::new(&mut state);
+    let lhs = TensorInput::<In, Out, Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<In, Out, Args>::new(&state, args::TensorInputIdent::Rhs);
+    let mut out = TensorOutput::<In, Out, Args>::new(&mut state);
 
-    let lhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&lhs);
-    let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
-    let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
+    let lhs = VirtualTensor::<In>::new::<TensorInput<In, Out, Args>>(&lhs);
+    let rhs = VirtualTensor::<In>::new::<TensorInput<In, Out, Args>>(&rhs);
+    let out = VirtualTensor::<Out, ReadWrite>::new::<TensorOutput<In, Out, Args>>(&mut out);
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, config);
+    BMM::Matmul::<(In, State, Acc, Out)>::execute(lhs, rhs, out, config);
 }

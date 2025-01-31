@@ -15,7 +15,10 @@ use super::loader::{LhsBufferLoader, RhsBufferLoader};
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on buffer A,
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
-pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>> {
+pub struct PipelinedMatmul<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP::State, MP::Out, MP::Acc>,
+> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -24,18 +27,18 @@ pub struct PipelinedMatmul<MP: MatmulPrecision, SMM: stage::StageMatmul<MP::ES, 
 impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for PipelinedMatmul<MP, SMM>
 where
     SMM: stage::StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES>,
-        RhsReader = RhsBufferReader<MP::ES>,
+        MP::State,
+        MP::Out,
+        MP::Acc,
+        LhsReader = LhsBufferReader<MP::State>,
+        RhsReader = RhsBufferReader<MP::State>,
     >,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::In, MP::State, SMM::Config>;
+    type RhsLoader = RhsBufferLoader<MP::In, MP::State, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::Out>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -130,7 +133,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -140,7 +143,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -150,7 +153,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

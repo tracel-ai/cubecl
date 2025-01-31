@@ -39,7 +39,7 @@ where
     RL: LoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
-        FullLoadMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>, LL, RL>;
+        FullLoadMatmul<MP, SMM::Matmul<MP::State, MP::Out, MP::Acc>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for FullLoadMatmulFamily<SMM, LL, RL>
@@ -94,7 +94,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct FullLoadMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: StageMatmul<MP::State, MP::Out, MP::Acc>,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 > {
@@ -108,20 +108,20 @@ pub struct FullLoadMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for FullLoadMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES>,
-        RhsReader = RhsReader<MP::ES>,
+        MP::State,
+        MP::Out,
+        MP::Acc,
+        LhsReader = LhsReader<MP::State>,
+        RhsReader = RhsReader<MP::State>,
     >,
     LL: LoadingStrategy,
     RL: LoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = LhsLoader<MP::In, MP::State, SMM::Config, LL>;
+    type RhsLoader = RhsLoader<MP::In, MP::State, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::Out>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -173,7 +173,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -183,7 +183,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::In>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -193,7 +193,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

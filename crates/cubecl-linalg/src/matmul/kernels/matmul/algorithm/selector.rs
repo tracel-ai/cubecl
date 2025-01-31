@@ -216,9 +216,9 @@ fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
             Some((
                 client.properties(),
                 (
-                    MS::ES::as_elem_native_unchecked(),
-                    MS::ES::as_elem_native_unchecked(),
-                    MS::EA::as_elem_native_unchecked(),
+                    MS::State::as_elem_native_unchecked(),
+                    MS::State::as_elem_native_unchecked(),
+                    MS::Acc::as_elem_native_unchecked(),
                 ),
             ))
         } else {

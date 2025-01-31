@@ -22,13 +22,13 @@ use super::Algorithm;
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
-pub fn launch<R: Runtime, EG: Numeric, S: MatmulSelector>(
+pub fn launch<R: Runtime, In: Numeric, Out: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, EG>,
-    rhs: TensorHandle<R, EG>,
-    out: TensorHandle<R, EG>,
-) -> Result<TensorHandle<R, EG>, MatmulLaunchError> {
-    let result = launch_ref::<R, EG, S>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
+    lhs: TensorHandle<R, In>,
+    rhs: TensorHandle<R, In>,
+    out: TensorHandle<R, Out>,
+) -> Result<TensorHandle<R, Out>, MatmulLaunchError> {
+    let result = launch_ref::<R, In, Out, S>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
 
     match result {
         Ok(_) => Ok(out),
@@ -40,7 +40,7 @@ pub fn launch<R: Runtime, EG: Numeric, S: MatmulSelector>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
-pub fn launch_ref<R: Runtime, EG: Numeric, S: MatmulSelector>(
+pub fn launch_ref<R: Runtime, In: Numeric, Out: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -59,38 +59,38 @@ pub fn launch_ref<R: Runtime, EG: Numeric, S: MatmulSelector>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (false, false) => matmul_cmma_ref_no_check::<R, In, Out, S>(
             client,
             lhs,
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (false, true) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (false, true) => matmul_cmma_ref_no_check::<R, In, Out, S>(
             client,
             lhs,
-            &into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, In>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, false) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (true, false) => matmul_cmma_ref_no_check::<R, In, Out, S>(
             client,
-            &into_contiguous::<R, EG>(client, lhs).as_ref(),
+            &into_contiguous::<R, In>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, true) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (true, true) => matmul_cmma_ref_no_check::<R, In, Out, S>(
             client,
-            &into_contiguous::<R, EG>(client, lhs).as_ref(),
-            &into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, In>(client, lhs).as_ref(),
+            &into_contiguous::<R, In>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
+fn matmul_cmma_ref_no_check<R: Runtime, In: Numeric, Out: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -98,7 +98,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
-    let eg_elem = EG::as_elem_native().expect("To be a native type");
+    let eg_elem = In::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
@@ -163,7 +163,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
         }
     };
 
-    matmul_launch_kernel::<R, EG, S>(
+    matmul_launch_kernel::<R, In, Out, S>(
         client,
         lhs,
         rhs,
@@ -174,7 +174,8 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
     )
 }
 
-fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
+// CONTINUE (add a branch for u8)
+fn matmul_launch_kernel<R: Runtime, In: Numeric, Out: Numeric, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -183,10 +184,10 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    if TypeId::of::<EG>() == TypeId::of::<half::f16>()
-        || TypeId::of::<EG>() == TypeId::of::<flex32>()
+    if TypeId::of::<In>() == TypeId::of::<half::f16>()
+        || TypeId::of::<In>() == TypeId::of::<flex32>()
     {
-        S::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<In, half::f16, f32, Out>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -196,8 +197,8 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             problem,
             plane_dim,
         )
-    } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
-        S::select_kernel::<SingleMatmulSpec<EG, half::bf16, f32>, R>(
+    } else if TypeId::of::<In>() == TypeId::of::<half::bf16>() {
+        S::select_kernel::<SingleMatmulSpec<In, half::bf16, f32, Out>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -208,7 +209,8 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             plane_dim,
         )
     } else if S::stage_tf32_supported() {
-        S::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
+        // Can we make the above condition const? It would allow for the whole if to be const.
+        S::select_kernel::<SingleMatmulSpec<In, tf32, f32, Out>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -219,7 +221,7 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             plane_dim,
         )
     } else {
-        S::select_kernel::<SingleMatmulSpec<EG, EG, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<In, In, f32, Out>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -274,7 +276,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
         &cube_count,
         &advanced_config,
     )?;
-    D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
+    D::check_availability::<R, (MS::In, MS::State, MS::Acc, MS::Out)>(client, &config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(

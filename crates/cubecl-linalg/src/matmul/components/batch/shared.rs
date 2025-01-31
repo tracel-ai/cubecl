@@ -8,9 +8,9 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
 pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<MP::EG>,
-    rhs: VirtualTensor<MP::EG>,
-    out: VirtualTensor<MP::EG, ReadWrite>,
+    lhs: VirtualTensor<MP::In>,
+    rhs: VirtualTensor<MP::In>,
+    out: VirtualTensor<MP::Out, ReadWrite>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,

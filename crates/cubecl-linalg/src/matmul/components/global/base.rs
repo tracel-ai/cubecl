@@ -36,10 +36,10 @@ pub trait GlobalMatmulFamily:
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
-    type LhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
-    type RhsLoader: InputLoader<MP::EG, MP::ES, Self::Config>;
+    type LhsLoader: InputLoader<MP::In, MP::State, Self::Config>;
+    type RhsLoader: InputLoader<MP::In, MP::State, Self::Config>;
     type AccumulatorLoader: CubeType;
-    type Out: OutputLoader<MP::EG>;
+    type Out: OutputLoader<MP::Out>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -59,7 +59,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::In>,
         m_offset: u32,
         k_offset: u32,
         batch_offset: u32,
@@ -68,7 +68,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::In>,
         k_offset: u32,
         n_offset: u32,
         batch_offset: u32,
@@ -77,7 +77,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::Out, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
         batch_offset: u32,

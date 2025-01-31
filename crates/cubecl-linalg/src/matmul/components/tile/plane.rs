@@ -400,8 +400,8 @@ impl MatmulConfigFactory for PlaneMma {
         client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MP::EG::as_elem_native_unchecked();
-        let o_elem = MP::EG::as_elem_native_unchecked();
+        let i_elem = MP::In::as_elem_native_unchecked();
+        let o_elem = MP::Out::as_elem_native_unchecked();
 
         if !client.properties().feature_enabled(Feature::Plane) {
             return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
