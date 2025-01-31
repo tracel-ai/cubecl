@@ -55,6 +55,7 @@ mod phi_frontiers;
 mod transformers;
 mod version;
 
+pub use analyses::uniformity::Uniformity;
 pub use block::*;
 pub use control_flow::*;
 pub use petgraph::graph::{EdgeIndex, NodeIndex};

@@ -843,11 +843,11 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::ShiftLeft { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {lhs} << {rhs};")
+                writeln!(f, "{out} = {lhs} << u32({rhs});")
             }
             Instruction::ShiftRight { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {lhs} >> {rhs};")
+                writeln!(f, "{out} = {lhs} >> u32({rhs});")
             }
             Instruction::BitwiseNot { input, out } => {
                 let out = out.fmt_left();

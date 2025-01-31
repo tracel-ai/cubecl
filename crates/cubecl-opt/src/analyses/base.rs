@@ -8,6 +8,7 @@ use super::{
     dominance::{Dominators, PostDominators},
     liveness::Liveness,
     post_order::PostOrder,
+    uniformity::Uniformity,
 };
 
 /// An analysis used by optimization passes. Unlike optimization passes, analyses can have state
@@ -62,5 +63,6 @@ impl Optimizer {
         self.invalidate_analysis::<Dominators>();
         self.invalidate_analysis::<PostDominators>();
         self.invalidate_analysis::<Liveness>();
+        self.invalidate_analysis::<Uniformity>();
     }
 }

@@ -9,7 +9,7 @@ use crate::{
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Variable>) {
+    pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match meta {
             Metadata::Rank { var } => {
@@ -17,7 +17,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out = self.compile_variable(out);
                 let pos = self.ext_pos(&var);
 
-                let out_id = self.read(&out);
+                let out_id = self.write_id(&out);
+                self.mark_uniformity(out_id, uniform);
 
                 let offset = self.metadata.rank_index(pos);
                 self.load_const_metadata(offset, Some(out_id));
@@ -26,12 +27,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Metadata::Length { var } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
-                self.length(&var, Some(&out));
+                self.length(&var, Some(&out), uniform);
             }
             Metadata::BufferLength { var } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
-                self.buffer_length(&var, Some(&out));
+                self.buffer_length(&var, Some(&out), uniform);
             }
             Metadata::Stride { dim, var } => {
                 let int = self.type_int(32, 0);
@@ -40,6 +41,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
 
+                let out_id = out.id(self);
+                self.mark_uniformity(out_id, uniform);
+
                 let pos = self.ext_pos(&var);
 
                 let offs_offset = self.metadata.stride_offset_index(pos);
@@ -47,6 +51,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let dim_id = self.read(&dim);
 
                 let index = self.i_add(int, None, offset, dim_id).unwrap();
+                self.mark_uniformity(index, uniform);
                 let index = Variable::Id(index);
                 self.load_dyn_metadata(&index, &out);
             }
@@ -56,6 +61,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let var = self.compile_variable(var);
                 let dim = self.compile_variable(dim);
                 let out = self.compile_variable(out);
+
+                let out_id = out.id(self);
+                self.mark_uniformity(out_id, uniform);
 
                 let pos = self.ext_pos(&var);
 
@@ -70,9 +78,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn length(&mut self, var: &Variable, out: Option<&Variable>) -> Word {
+    pub fn length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {
         let (out_id, out_ty) = if let Some(out) = out {
             let out_id = self.write_id(out);
+            self.mark_uniformity(out_id, uniform);
             let out_ty = out.elem().id(self);
             (Some(out_id), out_ty)
         } else {
@@ -85,7 +94,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.load_const_metadata(offset, out_id);
 
                 if let Some(out_id) = out_id {
-                    self.debug_name(out_id, format!("buffer_len({pos})"));
+                    self.debug_name(out_id, format!("len({pos})"));
                 }
                 id
             }
@@ -115,8 +124,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         id
     }
 
-    pub fn buffer_length(&mut self, var: &Variable, out: Option<&Variable>) -> Word {
+    pub fn buffer_length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {
         let out_id = out.map(|it| self.write_id(it));
+        if let Some(out_id) = out_id {
+            self.mark_uniformity(out_id, uniform);
+        }
 
         let position = match var {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,

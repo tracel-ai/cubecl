@@ -13,6 +13,7 @@ use crate::{
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
+        let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
                 let input = self.compile_variable(var);
@@ -22,16 +23,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
 
                 self.copy_object(ty, Some(out_id), in_id).unwrap();
+                self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
             }
-            Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out),
-            Operation::Comparison(operator) => self.compile_cmp(operator, inst.out),
-            Operation::Bitwise(operator) => self.compile_bitwise(operator, inst.out),
-            Operation::Operator(operator) => self.compile_operator(operator, inst.out),
+            Operation::Arithmetic(operator) => self.compile_arithmetic(operator, inst.out, uniform),
+            Operation::Comparison(operator) => self.compile_cmp(operator, inst.out, uniform),
+            Operation::Bitwise(operator) => self.compile_bitwise(operator, inst.out, uniform),
+            Operation::Operator(operator) => self.compile_operator(operator, inst.out, uniform),
             Operation::Atomic(atomic) => self.compile_atomic(atomic, inst.out),
             Operation::Branch(_) => unreachable!("Branches shouldn't exist in optimized IR"),
-            Operation::Metadata(meta) => self.compile_meta(meta, inst.out),
-            Operation::Plane(plane) => self.compile_plane(plane, inst.out),
+            Operation::Metadata(meta) => self.compile_meta(meta, inst.out, uniform),
+            Operation::Plane(plane) => self.compile_plane(plane, inst.out, uniform),
             Operation::Synchronization(sync) => self.compile_sync(sync),
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
@@ -39,11 +41,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_cmp(&mut self, op: Comparison, out: Option<core::Variable>) {
+    pub fn compile_cmp(&mut self, op: Comparison, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Comparison::Equal(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
@@ -58,7 +60,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Comparison::NotEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
@@ -73,7 +75,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Comparison::Lower(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
@@ -88,7 +90,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Comparison::LowerEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
@@ -103,7 +105,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Comparison::Greater(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
@@ -118,7 +120,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Comparison::GreaterEqual(op) => {
-                self.compile_binary_op_bool(op, out, |b, lhs_ty, ty, lhs, rhs, out| {
+                self.compile_binary_op_bool(op, out, uniform, |b, lhs_ty, ty, lhs, rhs, out| {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
@@ -135,7 +137,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>) {
+    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Operator::Index(op) => {
@@ -156,6 +158,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.merge_binding(out_id, ptr);
                 } else {
                     let out_id = self.read_indexed(&out, &value, &index);
+                    self.mark_uniformity(out_id, uniform);
                     self.write(&out, out_id);
                 }
             }
@@ -220,6 +223,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
                 let out_id = self.write_id(&out);
+                self.mark_uniformity(out_id, uniform);
 
                 if let Some(as_const) = input.as_const() {
                     let cast = self.static_cast(as_const, &input.elem(), &out.item());
@@ -231,23 +235,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::And(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.logical_and(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
             Operator::Or(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.logical_or(ty, Some(out), lhs, rhs).unwrap();
                 });
             }
             Operator::Not(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
-            Operator::Bitcast(op) => self.compile_unary_op(op, out, |b, _, ty, input, out| {
-                b.bitcast(ty, Some(out), input).unwrap();
-            }),
+            Operator::Bitcast(op) => {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.bitcast(ty, Some(out), input).unwrap();
+                })
+            }
             Operator::InitLine(op) => {
                 let values = op
                     .inputs
@@ -260,6 +266,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_item(out.item);
                 let out = self.compile_variable(out);
                 let out_id = self.write_id(&out);
+                self.mark_uniformity(out_id, uniform);
                 let ty = item.id(self);
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
@@ -310,7 +317,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap();
                 }
             }
-            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out),
+            Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }
     }
 
@@ -318,6 +325,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: UnaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
         let input = self.compile_variable(op.input);
@@ -326,6 +334,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read_as(&input, &out_ty);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -337,6 +346,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: UnaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
         let input = self.compile_variable(op.input);
@@ -345,6 +355,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read(&input);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -356,6 +367,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: UnaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
         let input = self.compile_variable(op.input);
@@ -364,6 +376,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let input_id = self.read(&input);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out.item().id(self);
 
@@ -375,6 +388,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: BinaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
         let lhs = self.compile_variable(op.lhs);
@@ -385,6 +399,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read_as(&lhs, &out_ty);
         let rhs_id = self.read_as(&rhs, &out_ty);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -396,6 +411,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: BinaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
         let lhs = self.compile_variable(op.lhs);
@@ -406,6 +422,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read(&lhs);
         let rhs_id = self.read(&rhs);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out_ty.id(self);
 
@@ -417,6 +434,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         &mut self,
         op: BinaryOperator,
         out: core::Variable,
+        uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
         let lhs = self.compile_variable(op.lhs);
@@ -427,6 +445,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs_id = self.read(&lhs);
         let rhs_id = self.read_as(&rhs, &lhs_ty);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         let ty = out.item().id(self);
 
@@ -440,6 +459,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         then: core::Variable,
         or_else: core::Variable,
         out: core::Variable,
+        uniform: bool,
     ) {
         let cond = self.compile_variable(cond);
         let then = self.compile_variable(then);
@@ -453,9 +473,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let then = self.read_as(&then, &out_ty);
         let or_else = self.read_as(&or_else, &out_ty);
         let out_id = self.write_id(&out);
+        self.mark_uniformity(out_id, uniform);
 
         self.select(ty, Some(out_id), cond_id, then, or_else)
             .unwrap();
         self.write(&out, out_id);
+    }
+
+    pub fn mark_uniformity(&mut self, id: Word, uniform: bool) {
+        if uniform {
+            self.decorate(id, Decoration::Uniform, []);
+        }
     }
 }
