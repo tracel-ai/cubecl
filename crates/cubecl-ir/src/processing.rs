@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{

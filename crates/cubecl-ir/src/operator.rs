@@ -1,4 +1,6 @@
-use std::fmt::Display;
+use core::fmt::Display;
+
+use alloc::{format, vec::Vec};
 
 use crate::TypeHash;
 
@@ -37,7 +39,7 @@ pub enum Operator {
 }
 
 impl Display for Operator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Operator::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
             Operator::CopyMemory(op) => {

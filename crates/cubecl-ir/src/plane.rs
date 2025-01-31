@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
 use crate::OperationReflect;
 
@@ -24,7 +24,7 @@ pub enum Plane {
 }
 
 impl Display for Plane {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Plane::Elect => writeln!(f, "plane_elect()"),
             Plane::All(op) => writeln!(f, "plane_all({})", op.input),

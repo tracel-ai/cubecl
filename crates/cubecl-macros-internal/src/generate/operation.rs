@@ -40,7 +40,7 @@ impl Operation {
             if variant.nested.is_present() {
                 quote![Self::#ident(child) => crate::OperationReflect::args(child)]
             } else if variant.fields.is_empty() {
-                quote![Self::#ident => Some(Vec::new())]
+                quote![Self::#ident => Some(alloc::vec::Vec::new())]
             } else if variant.fields.fields[0].ident.is_some() {
                 let names = variant
                     .fields
@@ -49,7 +49,7 @@ impl Operation {
                     .map(|it| it.ident.clone().unwrap())
                     .collect::<Vec<_>>();
                 let body = quote![{
-                    let mut args = Vec::new();
+                    let mut args = alloc::vec::Vec::new();
                     #(args.extend(crate::FromArgList::as_arg_list(#names));)*
                     Some(args)
                 }];
@@ -82,7 +82,7 @@ impl Operation {
                     .map(|it| it.ident.clone().unwrap())
                     .map(|it| quote![#it: crate::FromArgList::from_arg_list(&mut args)]);
                 quote![#opcode::#ident => {
-                    let mut args: std::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
+                    let mut args: alloc::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
                     Some(Self::#ident {
                         #(#fields),*
                     })
@@ -153,7 +153,7 @@ impl Operation {
             fn op_code(&self) -> Self::OpCode {
                 #opcode_impl
             }
-            fn args(&self) -> Option<Vec<crate::Variable>> {
+            fn args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
                 #args_impl
             }
             fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {

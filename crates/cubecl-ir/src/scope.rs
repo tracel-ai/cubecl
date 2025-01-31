@@ -1,4 +1,6 @@
-use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
+use alloc::{rc::Rc, vec::Vec};
+use core::{any::TypeId, cell::RefCell};
+use hashbrown::HashMap;
 
 use crate::{ExpandElement, Matrix, TypeHash};
 

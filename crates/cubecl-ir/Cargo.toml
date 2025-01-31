@@ -15,9 +15,10 @@ version.workspace = true
 
 
 [features]
-default = ["serde"]
+default = ["serde", "std"]
 
 serde = ["dep:serde"]
+std = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5" }
@@ -28,5 +29,8 @@ float-ord = "0.3"
 fnv = { workspace = true }
 half = { workspace = true }
 num-traits = { workspace = true }
-serde = { workspace = true, optional = true, features = ["std", "rc"] }
+serde = { workspace = true, optional = true, features = ["rc"] }
 variadics_please = { workspace = true }
+
+hashbrown = { workspace = true }
+portable-atomic = { workspace = true }

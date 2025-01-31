@@ -71,7 +71,9 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 strum = { version = "0.26.3", features = ["derive"] }
 tracel-xtask = { version = "=1.1.8" }
 
-portable-atomic = { version = "1.9" }
+portable-atomic = { version = "1.10", default-features = false, features = [
+    "serde",
+] }
 pretty_assertions = "1.4"
 
 # Async
