@@ -35,7 +35,7 @@ pub fn select_many<C: CubePrimitive>(
 pub mod select {
     use std::num::NonZero;
 
-    use cubecl_ir::Instruction;
+    use crate::ir::Instruction;
 
     use super::*;
 

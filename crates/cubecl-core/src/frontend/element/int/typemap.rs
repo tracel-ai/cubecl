@@ -49,7 +49,7 @@ use super::{init_expand_element, Int};
     BitOrAssign,
     Not,
 )]
-pub struct IntExpand<const POS: u8>(pub i64);
+pub struct IntExpand<const POS: u8>(i64);
 
 impl<const POS: u8> Mul for IntExpand<POS> {
     type Output = Self;

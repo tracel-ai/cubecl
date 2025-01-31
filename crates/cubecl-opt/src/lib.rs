@@ -212,9 +212,6 @@ impl Optimizer {
         }
 
         MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
-
-        // TO REMOVE, only for testing
-        //self.analysis::<Uniformity>();
     }
 
     /// The entry block of the program
