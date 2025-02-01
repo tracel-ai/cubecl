@@ -254,7 +254,11 @@ impl Optimizer {
             Plane::All(unary_operator)
             | Plane::Any(unary_operator)
             | Plane::Sum(unary_operator)
+            | Plane::InclusiveSum(unary_operator)
+            | Plane::ExclusiveSum(unary_operator)
             | Plane::Prod(unary_operator)
+            | Plane::InclusiveProd(unary_operator)
+            | Plane::ExclusiveProd(unary_operator)
             | Plane::Min(unary_operator)
             | Plane::Max(unary_operator)
             | Plane::Ballot(unary_operator) => self.visit_unop(unary_operator, visit_read),

@@ -87,6 +87,66 @@ pub mod plane_sum {
     }
 }
 
+/// Perform an inclusive sum operation across all units in a plane.
+#[allow(unused_variables)]
+pub fn plane_inclusive_sum<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_inclusive_sum()].
+pub mod plane_inclusive_sum {
+    use super::*;
+
+    /// Expand method of [plane_inclusive_sum()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::InclusiveSum(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform an exclusive sum operation across all units in a plane.
+#[allow(unused_variables)]
+pub fn plane_exclusive_sum<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_exclusive_sum()].
+pub mod plane_exclusive_sum {
+    use super::*;
+
+    /// Expand method of [plane_exclusive_sum()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::ExclusiveSum(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
 /// Perform a reduce prod operation across all units in a plane.
 pub fn plane_prod<E: CubePrimitive>(_elem: E) -> E {
     unexpanded!()
@@ -108,6 +168,66 @@ pub mod plane_prod {
         let input = *elem;
 
         scope.register(Instruction::new(Plane::Prod(UnaryOperator { input }), out));
+
+        output.into()
+    }
+}
+
+/// Perform an inclusive product operation across all units in a plane.
+#[allow(unused_variables)]
+pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_inclusive_prod()].
+pub mod plane_inclusive_prod {
+    use super::*;
+
+    /// Expand method of [plane_inclusive_prod()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::InclusiveProd(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform an exclusive product operation across all units in a plane.
+#[allow(unused_variables)]
+pub fn plane_exclusive_prod<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_exclusive_prod()].
+pub mod plane_exclusive_prod {
+    use super::*;
+
+    /// Expand method of [plane_exclusive_prod()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::ExclusiveProd(UnaryOperator { input }),
+            out,
+        ));
 
         output.into()
     }

@@ -28,7 +28,23 @@ pub enum Subgroup {
         input: Variable,
         out: Variable,
     },
+    ExclusiveSum {
+        input: Variable,
+        out: Variable,
+    },
+    InclusiveSum {
+        input: Variable,
+        out: Variable,
+    },
     Prod {
+        input: Variable,
+        out: Variable,
+    },
+    ExclusiveProd {
+        input: Variable,
+        out: Variable,
+    },
+    InclusiveProd {
         input: Variable,
         out: Variable,
     },
@@ -115,9 +131,25 @@ impl Display for Subgroup {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupAdd({input});")
             }
+            Subgroup::ExclusiveSum { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupExclusiveAdd({input});")
+            }
+            Subgroup::InclusiveSum { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupInclusiveAdd({input});")
+            }
             Subgroup::Prod { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupMul({input});")
+            }
+            Subgroup::ExclusiveProd { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupExclusiveMul({input});")
+            }
+            Subgroup::InclusiveProd { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupInclusiveMul({input});")
             }
             Subgroup::Min { input, out } => {
                 let out = out.fmt_left();

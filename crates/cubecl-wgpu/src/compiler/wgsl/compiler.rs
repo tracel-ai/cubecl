@@ -609,7 +609,23 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+            cube::Plane::ExclusiveSum(op) => Subgroup::ExclusiveSum {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::InclusiveSum(op) => Subgroup::InclusiveSum {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
             cube::Plane::Prod(op) => Subgroup::Prod {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ExclusiveProd(op) => Subgroup::ExclusiveProd {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::InclusiveProd(op) => Subgroup::InclusiveProd {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
