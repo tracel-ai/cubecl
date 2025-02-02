@@ -88,6 +88,10 @@ pub mod plane_sum {
 }
 
 /// Perform an inclusive sum operation across all units in a plane.
+/// This sums all values to the "left" of the unit, including this unit's value.
+///
+/// # Example
+/// `inclusive_sum([1, 2, 3, 4, 5]) == [1, 3, 6, 10, 15]`
 #[allow(unused_variables)]
 pub fn plane_inclusive_sum<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
@@ -118,6 +122,11 @@ pub mod plane_inclusive_sum {
 }
 
 /// Perform an exclusive sum operation across all units in a plane.
+/// This sums all values to the "left" of the unit, excluding this unit's value. The 0th unit will
+/// be set to `E::zero()`.
+///
+/// # Example
+/// `exclusive_sum([1, 2, 3, 4, 5]) == [0, 1, 3, 6, 10]`
 #[allow(unused_variables)]
 pub fn plane_exclusive_sum<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
@@ -174,6 +183,10 @@ pub mod plane_prod {
 }
 
 /// Perform an inclusive product operation across all units in a plane.
+/// This multiplies all values to the "left" of the unit, including this unit's value.
+///
+/// # Example
+/// `exclusive_sum([1, 2, 3, 4, 5]) == [1, 2, 6, 24, 120]`
 #[allow(unused_variables)]
 pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
@@ -204,6 +217,11 @@ pub mod plane_inclusive_prod {
 }
 
 /// Perform an exclusive product operation across all units in a plane.
+/// This multiplies all values to the "left" of the unit, excluding this unit's value. The 0th unit
+/// will be set to `E::one()`.
+///
+/// # Example
+/// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 1, 2, 6, 24]`
 #[allow(unused_variables)]
 pub fn plane_exclusive_prod<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
