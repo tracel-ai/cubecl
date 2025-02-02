@@ -307,9 +307,7 @@ impl Optimizer {
                 true => Comparison::LowerEqual,
                 false => Comparison::Lower,
             };
-            let tmp = *self
-                .allocator
-                .create_local_restricted(Item::new(Elem::Bool));
+            let tmp = *self.allocator.create_local(Item::new(Elem::Bool));
             self.program[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,
