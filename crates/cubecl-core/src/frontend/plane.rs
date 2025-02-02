@@ -186,7 +186,7 @@ pub mod plane_prod {
 /// This multiplies all values to the "left" of the unit, including this unit's value.
 ///
 /// # Example
-/// `exclusive_sum([1, 2, 3, 4, 5]) == [1, 2, 6, 24, 120]`
+/// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 2, 6, 24, 120]`
 #[allow(unused_variables)]
 pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
     unexpanded!()
