@@ -46,6 +46,9 @@ impl Expression {
                     }
                 }
             }
+            Expr::Lit(literal) if matches!(literal.lit, Lit::Str(_)) => Expression::Verbatim {
+                tokens: literal.to_token_stream(),
+            },
             Expr::Lit(literal) => {
                 let ty = lit_ty(&literal.lit)?;
                 Expression::Literal {
