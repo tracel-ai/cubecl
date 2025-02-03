@@ -43,23 +43,9 @@ impl LoadingValidation for CyclicLoading {
                 }
             }
             LoadMode::Window => {
-                // TODO: it might be fine to allow partial planes but will necessitate branching
                 let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
-                // if num_slices < total_units {
-                //     return Err(Box::new(
-                //         format!("There are less slices ({num_slices:?}) than units ({total_units:?}). Would require idle units. TODO: we probably want that"),
-                //     ));
-                // }
-                if num_slices >= total_units {
-                    if num_slices % total_units != 0 {
-                        return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
-                    }
-
-                    // if num_slices / total_units != 1 {
-                    //     return Err(Box::new(format!(
-                    //     "Number of slices ({num_slices:?}) is larger than number of units ({total_units:?}). TODO: support with for loop" ,
-                    // )));
-                    // }
+                if num_slices >= total_units && num_slices % total_units != 0 {
+                    return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
                 }
             }
         };
@@ -92,8 +78,6 @@ impl LoadingStrategy for CyclicLoading {
         };
         stage_dim.tile_size_x_dim();
         let num_slices = comptime!(num_slices_per_tile * stage_dim.num_tiles());
-        let _ = println!("NS: {num_slices:?}");
-        let _ = println!("TU: {total_units:?}");
         let num_slices_per_unit = num_slices.div_ceil(total_units);
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -119,22 +103,26 @@ impl LoadingStrategy for CyclicLoading {
 
             match config.transpose_load(ident) {
                 false => {
-                    let offset =
-                        (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
-
-                    let mut destination = slice.slice_mut(offset, offset + slice_length_in_lines);
-
                     if slice_index < num_slices {
                         let (source, this_slice_length) =
                             read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
 
+                        let slice_offset =
+                            (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
+
+                        let mut destination =
+                            slice.slice_mut(slice_offset, slice_offset + this_slice_length);
+                        let mut destination_pad = slice.slice_mut(
+                            slice_offset + this_slice_length,
+                            slice_offset + slice_length_in_lines,
+                        );
                         // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-                        for i in 0..slice_length_in_lines {
-                            if i < this_slice_length {
-                                destination[i] = Line::cast_from(source[i]);
-                            } else {
-                                destination[i] = Line::cast_from(0);
-                            }
+                        // pipeline.memcpy_async(zero_buffer.try_cast_unchecked(), destination_offseted);
+                        for i in 0..this_slice_length {
+                            destination[i] = Line::cast_from(source[i]);
+                        }
+                        for i in 0..slice_length_in_lines - this_slice_length {
+                            destination_pad[i] = Line::cast_from(0);
                         }
                     }
                 }
