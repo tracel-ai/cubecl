@@ -13,7 +13,7 @@ use std::{cell::RefCell, rc::Rc};
 /// All methods [push](Sequence::push), [index](Sequence::index) and
 /// [into_iter](Sequence::into_iter) are executed _during_ compilation and don't add any overhead
 /// on the generated kernel.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Sequence<T: CubeType> {
     values: Vec<T>,
 }
@@ -27,6 +27,14 @@ impl<T: CubeType> Default for Sequence<T> {
 impl<T: CubeType> Init for Sequence<T> {
     fn init(self, _scope: &mut Scope) -> Self {
         self
+    }
+}
+
+impl<T: CubeType + Clone> Sequence<T> {
+    pub fn rev(&self) -> Self {
+        Self {
+            values: self.values.iter().rev().cloned().collect(),
+        }
     }
 }
 
@@ -170,6 +178,10 @@ impl<T: CubeType> CubeType for Sequence<T> {
 }
 
 impl<T: CubeType> SequenceExpand<T> {
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        self.values.borrow().len() as u32
+    }
     /// Expand method of [push](Sequence::push).
     pub fn __expand_push_method(&mut self, _scope: &mut Scope, value: T::ExpandType) {
         self.values.borrow_mut().push(value);
