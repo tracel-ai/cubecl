@@ -93,13 +93,13 @@ pub struct PipelineExpand<C: CubePrimitive> {
 
 impl<C: CubePrimitive> Default for Pipeline<C> {
     fn default() -> Self {
-        Self::new()
+        Self::new(1)
     }
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new() -> Self {
+    pub fn new(num_steps: u32) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -133,9 +133,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope) -> PipelineExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, num_steps: u32) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(Item::new(elem));
+        let variable = scope.create_pipeline(Item::new(elem), num_steps as u8);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,

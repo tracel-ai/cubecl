@@ -1043,14 +1043,21 @@ impl<D: Dialect> CppCompiler<D> {
                     frag: self.compile_matrix(mat),
                 }
             }
-            gpu::VariableKind::Pipeline { id, item } => {
+            gpu::VariableKind::Pipeline {
+                id,
+                item,
+                num_steps,
+            } => {
                 self.pipeline = true;
                 let pipeline = Variable::Pipeline {
                     id,
                     item: self.compile_item(item),
                 };
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
-                    self.pipelines.push(PipelineOps::Init { pipeline });
+                    self.pipelines.push(PipelineOps::Init {
+                        pipeline,
+                        num_steps,
+                    });
                 }
                 pipeline
             }

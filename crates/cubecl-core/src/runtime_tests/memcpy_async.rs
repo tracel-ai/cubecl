@@ -34,7 +34,7 @@ fn computation<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
 
-    let pipeline = Pipeline::new();
+    let pipeline = Pipeline::new(1u32);
 
     pipeline.producer_acquire();
 
