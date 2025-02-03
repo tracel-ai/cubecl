@@ -34,7 +34,8 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         m: problem.m as usize,
         n: problem.n as usize,
         k: problem.k as usize,
-        batches: (vec![2], vec![2]),
+        // batches: (vec![2], vec![2]),
+        batches: (vec![1], vec![1]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
         lhs_line_size: 1, // Will be changed
@@ -135,6 +136,11 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
+        mod p16x16x16 {
+            use super::*;
+            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 16, n: 16, k: 16 });
+        }
+
         mod p32x32x32 {
             use super::*;
             $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 32, n: 32, k: 32 });

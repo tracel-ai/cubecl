@@ -29,21 +29,25 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
+    println!("{:?}", expected.len());
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
+        println!("Index={:?} Actual={:?} Expected={:?}", i, a, e);
 
-        if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
-            return Err(format!(
-            "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-            i,
-            *a,
-            *e,
-            f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-            epsilon
-            ));
-        }
+        // if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
+        //     return Err(format!(
+        //     "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+        //     i,
+        //     *a,
+        //     *e,
+        //     f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
+        //     epsilon
+        //     ));
+        // }
     }
+
+    return Err("".to_string());
 
     Ok(())
 }

@@ -211,6 +211,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
                     transpose::<EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
+            println!("LHS={:?}", data);
 
             TensorRawParts {
                 handle: client.create(EG::as_bytes(&data)),
@@ -228,6 +229,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
                     transpose::<EG>(&original_data, problem.num_batches(), problem.k, problem.n)
                 }
             };
+            println!("RHS={:?}", data);
 
             TensorRawParts {
                 handle: client.create(EG::as_bytes(&data)),
@@ -298,6 +300,7 @@ fn assert_result<
         }
     };
 
+    println!("{:?}", problem);
     let expected = matmul_cpu_reference(lhs, rhs, problem);
     if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
         panic!("{}", e);

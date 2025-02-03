@@ -147,12 +147,12 @@ where
             sync_units();
             pipeline.producer_acquire();
 
-            // Self::LhsLoader::fill_stage_window(&mut lhs_loader, config);
-            // Self::RhsLoader::fill_stage_window(&mut rhs_loader, config);
-            // sync_units();
-
-            Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
+            // Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
             Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
+
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            // Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            sync_units();
 
             pipeline.producer_commit();
 
