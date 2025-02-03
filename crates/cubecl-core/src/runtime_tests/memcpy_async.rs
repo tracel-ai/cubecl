@@ -8,8 +8,13 @@ fn tile_computation<F: Float>(
     rhs: Slice<Line<F>>,
     mut out: SliceMut<Line<F>>,
 ) {
-    for i in 0..lhs.len() {
-        out[i] = Line::cast_from(F::new(10.)) * lhs[i] + rhs[i];
+    if UNIT_POS_X == 0 {
+        for i in 0..2 {
+            out[i] = lhs[i];
+        }
+        for i in 0..2 {
+            out[i + 2] = rhs[i];
+        }
     }
 }
 
@@ -26,33 +31,33 @@ fn computation<F: Float>(
     rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
 ) {
-    let unit_id = UNIT_POS_X;
-    let mut lhs_smem = SharedMemory::<F>::new_lined(16u32, 1u32);
-    let mut rhs_smem = SharedMemory::<F>::new_lined(16u32, 1u32);
+    let mut lhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
+    let mut rhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
 
     let pipeline = Pipeline::new();
 
-    // Load Lhs to SMEM
-    pipeline.memcpy_async(
-        lhs.slice(unit_id * 2u32, unit_id * 2u32 + 2u32),
-        lhs_smem.slice_mut(unit_id * 2u32, unit_id * 2u32 + 2u32),
-    );
+    pipeline.producer_acquire();
 
-    // Load Rhs to SMEM
-    pipeline.memcpy_async(
-        rhs.slice(unit_id * 2u32, unit_id * 2u32 + 2u32),
-        rhs_smem.slice_mut(unit_id * 2u32, unit_id * 2u32 + 2u32),
-    );
+    let start = 0u32;
+    let end = 2u32;
+    if UNIT_POS_X == 0 {
+        pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    } else {
+        // pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    }
 
-    // sync
+    pipeline.producer_commit();
+
     sync_units();
 
+    pipeline.consumer_wait();
     // Perform matmul on SMEM
     tile_computation(
-        lhs_smem.slice(unit_id * 2u32, unit_id * 2u32 + 2u32),
-        rhs_smem.slice(unit_id * 2u32, unit_id * 2u32 + 2u32),
-        output.slice_mut(unit_id * 2u32, unit_id * 2u32 + 2u32),
+        lhs_smem.slice(start, end),
+        rhs_smem.slice(start, end),
+        output.slice_mut(start, end),
     );
+    pipeline.consumer_release();
 }
 
 pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
@@ -63,17 +68,15 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
     //     return;
     // }
 
-    let lhs = client
-        .create(as_bytes![F: 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.]);
-    let rhs = client
-        .create(as_bytes![F: 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.]);
-    let output = client.empty(16 * core::mem::size_of::<F>());
+    let lhs = client.create(as_bytes![F: 10., 11., 12., 13., 14., 15.]);
+    let rhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
+    let output = client.empty(4 * core::mem::size_of::<F>());
 
     unsafe {
         computation::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(8, 1, 1),
+            CubeDim::new(2, 1, 1),
             TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&rhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
@@ -83,22 +86,12 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
     let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
     let expected = [
-        F::new(0.0),
+        F::new(10.0),
         F::new(11.0),
-        F::new(22.0),
-        F::new(33.0),
-        F::new(44.0),
-        F::new(55.0),
-        F::new(66.0),
-        F::new(77.0),
-        F::new(88.0),
-        F::new(99.0),
-        F::new(110.0),
-        F::new(121.0),
-        F::new(132.0),
-        F::new(143.0),
-        F::new(154.0),
-        F::new(165.0),
+        F::new(12.0),
+        F::new(13.0),
+        F::new(14.0),
+        F::new(15.0),
     ];
 
     assert_eq!(actual, expected);
