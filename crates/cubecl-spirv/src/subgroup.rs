@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Plane, Variable};
+use cubecl_core::ir::{Plane, UnaryOperator, Variable};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
 use crate::{item::Elem, SpirvCompiler, SpirvTarget};
@@ -104,52 +104,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Plane::Sum(op) => {
-                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
-                    match out_ty.elem() {
-                        Elem::Int(_, _) => b.group_non_uniform_i_add(
-                            ty,
-                            Some(out),
-                            subgroup,
-                            GroupOperation::Reduce,
-                            input,
-                            None,
-                        ),
-                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_add(
-                            ty,
-                            Some(out),
-                            subgroup,
-                            GroupOperation::Reduce,
-                            input,
-                            None,
-                        ),
-                        elem => unreachable!("{elem}"),
-                    }
-                    .unwrap();
-                });
+                self.plane_sum(op, out, GroupOperation::Reduce, uniform);
+            }
+            Plane::ExclusiveSum(op) => {
+                self.plane_sum(op, out, GroupOperation::ExclusiveScan, uniform);
+            }
+            Plane::InclusiveSum(op) => {
+                self.plane_sum(op, out, GroupOperation::InclusiveScan, uniform);
             }
             Plane::Prod(op) => {
-                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
-                    match out_ty.elem() {
-                        Elem::Int(_, _) => b.group_non_uniform_i_mul(
-                            ty,
-                            Some(out),
-                            subgroup,
-                            GroupOperation::Reduce,
-                            input,
-                            None,
-                        ),
-                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_mul(
-                            ty,
-                            Some(out),
-                            subgroup,
-                            GroupOperation::Reduce,
-                            input,
-                            None,
-                        ),
-                        _ => unreachable!(),
-                    }
-                    .unwrap();
-                });
+                self.plane_prod(op, out, GroupOperation::Reduce, uniform);
+            }
+            Plane::ExclusiveProd(op) => {
+                self.plane_prod(op, out, GroupOperation::ExclusiveScan, uniform);
+            }
+            Plane::InclusiveProd(op) => {
+                self.plane_prod(op, out, GroupOperation::InclusiveScan, uniform);
             }
             Plane::Min(op) => {
                 self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
@@ -216,6 +186,50 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
         }
+    }
+
+    fn plane_sum(
+        &mut self,
+        op: UnaryOperator,
+        out: Variable,
+        action: GroupOperation,
+        uniform: bool,
+    ) {
+        let subgroup = self.subgroup();
+        self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
+            match out_ty.elem() {
+                Elem::Int(_, _) => {
+                    b.group_non_uniform_i_add(ty, Some(out), subgroup, action, input, None)
+                }
+                Elem::Float(_) | Elem::Relaxed => {
+                    b.group_non_uniform_f_add(ty, Some(out), subgroup, action, input, None)
+                }
+                elem => unreachable!("{elem}"),
+            }
+            .unwrap();
+        });
+    }
+
+    fn plane_prod(
+        &mut self,
+        op: UnaryOperator,
+        out: Variable,
+        action: GroupOperation,
+        uniform: bool,
+    ) {
+        let subgroup = self.subgroup();
+        self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
+            match out_ty.elem() {
+                Elem::Int(_, _) => {
+                    b.group_non_uniform_i_mul(ty, Some(out), subgroup, action, input, None)
+                }
+                Elem::Float(_) | Elem::Relaxed => {
+                    b.group_non_uniform_f_mul(ty, Some(out), subgroup, action, input, None)
+                }
+                _ => unreachable!(),
+            }
+            .unwrap();
+        });
     }
 
     fn subgroup(&mut self) -> Word {

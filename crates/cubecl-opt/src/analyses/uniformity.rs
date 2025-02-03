@@ -51,7 +51,12 @@ impl Uniformity {
             match &inst.operation {
                 Operation::Plane(plane) => match plane {
                     // Elect returns true on only one unit, so it's always non-uniform
-                    Plane::Elect => self.mark_uniformity(out, false)?,
+                    // Inclusive/exclusive scans are non-uniform by definition
+                    Plane::Elect
+                    | Plane::ExclusiveSum(_)
+                    | Plane::InclusiveSum(_)
+                    | Plane::ExclusiveProd(_)
+                    | Plane::InclusiveProd(_) => self.mark_uniformity(out, false)?,
                     // Reductions are always uniform if executed in uniform control flow
                     Plane::Sum(_)
                     | Plane::Prod(_)

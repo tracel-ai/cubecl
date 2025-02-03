@@ -32,6 +32,7 @@ pub trait Dialect:
     // warp instructions (all threads participating)
     fn warp_shuffle(var: &str, source: &str) -> String;
     fn warp_shuffle_xor(var: &str, offset: &str) -> String;
+    fn warp_shuffle_up(var: &str, offset: &str) -> String;
     fn warp_shuffle_down(var: &str, offset: &str) -> String;
     fn warp_all(var: &str) -> String;
     fn warp_any(var: &str) -> String;
@@ -250,8 +251,36 @@ impl<D: Dialect> CppCompiler<D> {
                             out,
                         }))
                     }
+                    gpu::Plane::InclusiveSum(op) => {
+                        self.settings.idx_global = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveSum {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ExclusiveSum(op) => {
+                        self.settings.idx_global = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveSum {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
                     gpu::Plane::Prod(op) => {
                         instructions.push(Instruction::Warp(WarpInstruction::ReduceProd {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::InclusiveProd(op) => {
+                        self.settings.idx_global = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveProd {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ExclusiveProd(op) => {
+                        self.settings.idx_global = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
