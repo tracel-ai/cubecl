@@ -80,6 +80,9 @@ impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
     fn warp_shuffle_xor(var: &str, offset: &str) -> String {
         format!("__shfl_xor_sync(-1, {var}, {offset})")
     }
+    fn warp_shuffle_up(var: &str, offset: &str) -> String {
+        format!("__shfl_up_sync(-1, {var}, {offset})")
+    }
     fn warp_shuffle_down(var: &str, offset: &str) -> String {
         format!("__shfl_down_sync(-1, {var}, {offset})")
     }

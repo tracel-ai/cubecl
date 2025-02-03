@@ -498,6 +498,27 @@ impl Expression {
             Expression::Terminate => {
                 quote![cubecl::frontend::branch::return_expand(context);]
             }
+            Expression::ExpressionMacro { ident, args } => {
+                let frontend_path = frontend_path();
+                let expand = format_ident!("{}_expand", ident);
+                let args = args
+                    .iter()
+                    .map(|expr| expr.to_tokens(context))
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        let name = format_ident!("_{i}");
+                        quote![let #name = #arg;]
+                    });
+                let arg_uses = (0..args.len()).map(|i| format_ident!("_{i}"));
+                quote! {
+                    {
+                        #(
+                            #args
+                        )*
+                        #frontend_path::#expand!(context, #(#arg_uses),*);
+                    }
+                }
+            }
         }
     }
 }

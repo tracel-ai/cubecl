@@ -17,8 +17,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     ) -> Word {
         let ty = item.id(self);
         let len = match arr.has_buffer_len() {
-            true => self.buffer_length(arr, None),
-            false => self.length(arr, None),
+            true => self.buffer_length(arr, None, false),
+            false => self.length(arr, None, false),
         };
         let bool = self.type_bool();
         let cond = self.u_less_than(bool, None, index, len).unwrap();
@@ -58,8 +58,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         write: impl FnOnce(&mut Self),
     ) {
         let len = match arr.has_buffer_len() {
-            true => self.buffer_length(arr, None),
-            false => self.length(arr, None),
+            true => self.buffer_length(arr, None, false),
+            false => self.length(arr, None, false),
         };
         let bool = self.type_bool();
         let cond = self.u_less_than(bool, None, index, len).unwrap();
@@ -91,12 +91,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         copy: impl FnOnce(&mut Self),
     ) {
         let in_len = match input.has_buffer_len() {
-            true => self.buffer_length(input, None),
-            false => self.length(input, None),
+            true => self.buffer_length(input, None, false),
+            false => self.length(input, None, false),
         };
         let out_len = match out.has_buffer_len() {
-            true => self.buffer_length(out, None),
-            false => self.length(out, None),
+            true => self.buffer_length(out, None, false),
+            false => self.length(out, None, false),
         };
 
         let bool = self.type_bool();

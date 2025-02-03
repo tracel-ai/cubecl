@@ -21,6 +21,7 @@ use crate::ReduceError;
 ///
 /// // Create input and output handles.
 /// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
+/// let output_handle = client.empty(size_of::<F>());
 /// let input = unsafe {
 ///     TensorHandleRef::<R>::from_raw_parts(
 ///         &input_handle,
@@ -29,9 +30,12 @@ use crate::ReduceError;
 ///         size_f32,
 ///     )
 /// };
+/// let output = unsafe {
+///     TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
+/// };
 ///
 /// // Here `R` is a `cubecl::Runtime`.
-/// let result = shared_sum::<R, f32>(&client, input, cube_count);
+/// let result = shared_sum::<R, f32>(&client, input, output, cube_count);
 ///
 /// if result.is_ok() {
 ///        let binding = output_handle.binding();
@@ -43,8 +47,9 @@ use crate::ReduceError;
 pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
+    output: TensorHandleRef<R>,
     cube_count: u32,
-) -> Result<N, ReduceError> {
+) -> Result<(), ReduceError> {
     // Check that the client supports atomic addition.
     let atomic_elem = Atomic::<N>::as_elem_native_unchecked();
     if !client
@@ -74,19 +79,6 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     let num_lines_per_unit = input_len.div_ceil(num_units * line_size);
     let cube_count = CubeCount::new_1d(cube_count);
 
-    // Generate output tensor.
-    let output_handle = client.create(N::as_bytes(&[N::from_int(0)]));
-    let output_shape = vec![1];
-    let output_stride = vec![1];
-    let output = unsafe {
-        TensorHandleRef::<R>::from_raw_parts(
-            &output_handle,
-            &output_stride,
-            &output_shape,
-            size_of::<N>(),
-        )
-    };
-
     // Launch kernel
     unsafe {
         shared_sum_kernel::launch_unchecked::<N, R>(
@@ -101,12 +93,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
         );
     }
 
-    // Extract sum from output.
-    let binding = output_handle.binding();
-    let bytes = client.read_one(binding);
-    let output_values = N::from_bytes(&bytes);
-
-    Ok(output_values[0])
+    Ok(())
 }
 
 #[cube(launch_unchecked)]

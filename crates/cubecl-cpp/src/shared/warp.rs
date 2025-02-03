@@ -10,7 +10,23 @@ pub enum WarpInstruction<D: Dialect> {
         input: Variable<D>,
         out: Variable<D>,
     },
+    InclusiveSum {
+        input: Variable<D>,
+        out: Variable<D>,
+    },
+    ExclusiveSum {
+        input: Variable<D>,
+        out: Variable<D>,
+    },
     ReduceProd {
+        input: Variable<D>,
+        out: Variable<D>,
+    },
+    InclusiveProd {
+        input: Variable<D>,
+        out: Variable<D>,
+    },
+    ExclusiveProd {
         input: Variable<D>,
         out: Variable<D>,
     },
@@ -77,6 +93,14 @@ unsigned int leader = __ffs(mask) - 1;
 {out} = threadIdx.x % warpSize == leader;
             "
             ),
+            WarpInstruction::InclusiveSum { input, out } => reduce_inclusive(f, input, out, "+="),
+            WarpInstruction::InclusiveProd { input, out } => reduce_inclusive(f, input, out, "*="),
+            WarpInstruction::ExclusiveSum { input, out } => {
+                reduce_exclusive(f, input, out, "+=", "0")
+            }
+            WarpInstruction::ExclusiveProd { input, out } => {
+                reduce_exclusive(f, input, out, "*=", "1")
+            }
         }
     }
 }
@@ -95,6 +119,69 @@ fn reduce_operator<D: Dialect>(
         let shfl_xor = D::warp_shuffle_xor(&acc_indexed, "offset");
         format!("{acc_indexed} {op} {shfl_xor};")
     })
+}
+
+fn reduce_inclusive<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    input: &Variable<D>,
+    out: &Variable<D>,
+    op: &str,
+) -> core::fmt::Result {
+    let in_optimized = input.optimized();
+    let acc_item = in_optimized.item();
+
+    reduce_with_loop(f, input, out, acc_item, |acc, index| {
+        let acc_indexed = maybe_index(acc, index);
+        let shfl_up = D::warp_shuffle_up(&acc_indexed, "offset");
+        let tmp = Variable::tmp(Item::scalar(acc_item.elem));
+        let lane_id = Variable::<D>::ThreadIdxWarp;
+        format!(
+            "
+{} = {shfl_up};
+if({lane_id} >= offset) {{
+    {acc_indexed} {op} {tmp};
+}}
+",
+            tmp.fmt_left()
+        )
+    })
+}
+
+fn reduce_exclusive<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    input: &Variable<D>,
+    out: &Variable<D>,
+    op: &str,
+    default: &str,
+) -> core::fmt::Result {
+    let in_optimized = input.optimized();
+    let acc_item = in_optimized.item();
+
+    let inclusive = Variable::tmp(acc_item);
+    reduce_inclusive(f, input, &inclusive, op)?;
+    let shfl = Variable::tmp(acc_item);
+    writeln!(f, "{} = {{", shfl.fmt_left())?;
+    for k in 0..acc_item.vectorization {
+        let inclusive_indexed = maybe_index(&inclusive, k);
+        writeln!(
+            f,
+            "{},",
+            D::warp_shuffle_up(&inclusive_indexed.to_string(), "1")
+        )?;
+    }
+    writeln!(f, "}};")?;
+    let lane_id = Variable::<D>::ThreadIdxWarp;
+
+    write!(
+        f,
+        "{} = ({lane_id} == 0) ? {}{{",
+        out.fmt_left(),
+        out.item(),
+    )?;
+    for _ in 0..out.item().vectorization {
+        write!(f, "{default},")?;
+    }
+    writeln!(f, "}} : {};", cast(&shfl, out.item()))
 }
 
 fn reduce_comparison<D: Dialect>(

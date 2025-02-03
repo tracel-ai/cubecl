@@ -28,6 +28,12 @@ macro_rules! declare_uint {
             }
         }
 
+        impl Init for $primitive {
+            fn init(self, _scope: &mut Scope) -> Self {
+                self
+            }
+        }
+
         impl IntoRuntime for $primitive {
             fn __expand_runtime_method(self, scope: &mut Scope) -> ExpandElementTyped<Self> {
                 let expand: ExpandElementTyped<Self> = self.into();

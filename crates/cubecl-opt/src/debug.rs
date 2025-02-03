@@ -4,7 +4,7 @@ use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    analyses::{const_len::Slices, integer_range::Ranges, liveness::Liveness},
+    analyses::{const_len::Slices, liveness::Liveness, uniformity::Uniformity},
     gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, Value, ValueTable},
     ControlFlow,
 };
@@ -17,7 +17,6 @@ const DEBUG_GVN: bool = false;
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let slices = self.analysis_cache.try_get::<Slices>().unwrap_or_default();
-        let ranges = self.analysis_cache.try_get::<Ranges>().unwrap_or_default();
 
         f.write_str("Slices:\n")?;
         for (var_id, slice) in slices.iter() {
@@ -41,6 +40,10 @@ impl Display for Optimizer {
             .analysis_cache
             .try_get::<Liveness>()
             .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
+        let uniformity = self
+            .analysis_cache
+            .try_get::<Uniformity>()
+            .unwrap_or_default();
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
@@ -50,7 +53,11 @@ impl Display for Optimizer {
         for node in self.program.node_indices() {
             let id = node.index();
             let bb = &self.program[node];
-            writeln!(f, "bb{id} {{")?;
+            let uniform = match uniformity.is_block_uniform(node) {
+                true => "uniform ",
+                false => "",
+            };
+            writeln!(f, "{uniform}bb{id} {{")?;
             if DEBUG_GVN {
                 let block_sets = &global_nums
                     .block_sets
@@ -74,7 +81,11 @@ impl Display for Optimizer {
                     write!(f, "[bb{}: ", entry.block.index())?;
                     write!(f, "{}]", entry.value)?;
                 }
-                f.write_str(";\n")?;
+                let is_uniform = match uniformity.is_var_uniform(phi.out) {
+                    true => " @ uniform",
+                    false => "",
+                };
+                writeln!(f, ";{is_uniform}\n")?;
             }
             if !bb.phi_nodes.borrow().is_empty() {
                 writeln!(f)?;
@@ -86,10 +97,15 @@ impl Display for Optimizer {
                     continue;
                 }
 
-                let range = op.out.map(|var| ranges.range_of(self, &var));
-                let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
-
-                writeln!(f, "    {op_fmt};{range}")?;
+                let is_uniform = match op
+                    .out
+                    .map(|out| uniformity.is_var_uniform(out))
+                    .unwrap_or(false)
+                {
+                    true => " @ uniform",
+                    false => "",
+                };
+                writeln!(f, "    {op_fmt};{is_uniform}")?;
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::IfElse {

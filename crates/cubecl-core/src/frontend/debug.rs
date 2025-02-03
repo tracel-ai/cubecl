@@ -84,9 +84,9 @@ macro_rules! debug_print {
 /// specific, but Vulkan and CUDA both use the C++ conventions. WGSL isn't currently supported.
 #[macro_export]
 macro_rules! debug_print_expand {
-    ($scope:expr, $format:literal, $($args:expr),*) => {
+    ($scope:expr, $format:expr, $($args:expr),*) => {
         {
-            let args = vec![$(*$args.expand),*];
+            let args = vec![$(*$crate::ir::ExpandElement::from($args)),*];
             $crate::frontend::printf_expand($scope, $format, args);
         }
     };

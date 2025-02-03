@@ -28,3 +28,5 @@ pub use options::*;
 pub use plane::*;
 pub use polyfills::*;
 pub use topology::*;
+
+pub use crate::{debug_print, debug_print_expand};

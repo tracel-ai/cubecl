@@ -1,12 +1,13 @@
 use cubecl_common::ExecutionMode;
 use cubecl_core::{ir as core, prelude::FastMath, Metadata};
-use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder};
+use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
     collections::HashSet,
     fmt::Debug,
     mem::take,
     ops::{Deref, DerefMut},
+    rc::Rc,
 };
 
 use cubecl_core::{compute::KernelDefinition, Compiler};
@@ -39,7 +40,8 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
-    pub opt: Optimizer,
+    pub opt: Rc<Optimizer>,
+    pub uniformity: Rc<Uniformity>,
     pub current_block: Option<NodeIndex>,
     pub visited: HashSet<NodeIndex>,
 
@@ -64,6 +66,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             num_workgroups: self.num_workgroups,
             setup_block: self.setup_block,
             opt: self.opt.clone(),
+            uniformity: self.uniformity.clone(),
             current_block: self.current_block,
 
             capabilities: self.capabilities.clone(),
@@ -91,6 +94,7 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             state: Default::default(),
             setup_block: Default::default(),
             opt: Default::default(),
+            uniformity: Default::default(),
             current_block: Default::default(),
             debug_symbols: DebugLogger::default().is_activated(),
             fp_math_mode: FPFastMathMode::NONE,
@@ -196,12 +200,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.init_state(kernel.clone());
 
-        let opt = OptimizerBuilder::default()
+        let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
             .optimize(kernel.body, kernel.cube_dim, self.mode);
         self.init_debug(options.kernel_name.clone(), &opt);
-        self.opt = opt;
+
+        self.uniformity = opt.analysis::<Uniformity>();
+        self.opt = Rc::new(opt);
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -251,13 +257,14 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         target.set_modes(self, main, builtins, cube_dims);
 
         let module = take(&mut self.builder).module();
-        (module, self.opt.clone())
+        (module, self.opt.as_ref().clone())
     }
 
     fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
 
-        for const_arr in self.opt.const_arrays() {
+        let opt = self.opt.clone();
+        for const_arr in opt.const_arrays() {
             self.register_const_array(const_arr);
         }
 
@@ -269,8 +276,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     #[track_caller]
-    pub fn current_block(&self) -> &BasicBlock {
-        self.opt.block(self.current_block.unwrap())
+    pub fn current_block(&self) -> BasicBlock {
+        self.opt.block(self.current_block.unwrap()).clone()
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -373,6 +380,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         for ty in scalars {
             self.execution_mode_id(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
         }
+    }
+
+    pub fn is_uniform_block(&self) -> bool {
+        self.uniformity
+            .is_block_uniform(self.current_block.unwrap())
     }
 }
 

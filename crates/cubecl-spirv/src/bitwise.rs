@@ -5,61 +5,67 @@ use cubecl_core::{cube, ir::Bitwise};
 use crate::{SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>) {
+    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Bitwise::BitwiseAnd(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.bitwise_and(ty, Some(out), lhs, rhs).unwrap();
                 })
             }
-            Bitwise::BitwiseOr(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
-            }),
+            Bitwise::BitwiseOr(op) => {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.bitwise_or(ty, Some(out), lhs, rhs).unwrap();
+                })
+            }
             Bitwise::BitwiseXor(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.bitwise_xor(ty, Some(out), lhs, rhs).unwrap();
                 })
             }
             Bitwise::BitwiseNot(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
                     b.not(ty, Some(out), input).unwrap();
                 });
             }
-            Bitwise::ShiftLeft(op) => self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
-                b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
-            }),
+            Bitwise::ShiftLeft(op) => {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.shift_left_logical(ty, Some(out), lhs, rhs).unwrap();
+                })
+            }
             Bitwise::ShiftRight(op) => {
-                self.compile_binary_op(op, out, |b, _, ty, lhs, rhs, out| {
+                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
                 })
             }
 
             Bitwise::CountOnes(op) => {
-                self.compile_unary_op_cast(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
                     b.bit_count(ty, Some(out), input).unwrap();
                 });
             }
             Bitwise::ReverseBits(op) => {
-                self.compile_unary_op(op, out, |b, _, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                     b.bit_reverse(ty, Some(out), input).unwrap();
                 });
             }
             Bitwise::LeadingZeros(op) => {
                 let width = op.input.item.elem.size() as u32 * 8;
-                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     // Indices are zero based, so subtract 1
                     let width = out_ty.const_u32(b, width - 1);
                     let msb = b.id();
                     T::find_msb(b, ty, input, msb);
+                    b.mark_uniformity(msb, uniform);
                     b.i_sub(ty, Some(out), width, msb).unwrap();
                 });
             }
             Bitwise::FindFirstSet(op) => {
-                self.compile_unary_op_cast(op, out, |b, out_ty, ty, input, out| {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     let one = out_ty.const_u32(b, 1);
                     let lsb = b.id();
                     T::find_lsb(b, ty, input, lsb);
+                    b.mark_uniformity(lsb, uniform);
                     // Normalize to CUDA/POSIX convention of 1 based index, with 0 meaning not found
                     b.i_add(ty, Some(out), lsb, one).unwrap();
                 });

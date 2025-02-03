@@ -504,6 +504,7 @@ impl TestCase {
         let client = R::client(device);
 
         let input_handle = client.create(F::as_bytes(&input_values));
+        let output_handle = client.empty(size_of::<F>());
 
         let input = unsafe {
             TensorHandleRef::<R>::from_raw_parts(
@@ -513,14 +514,19 @@ impl TestCase {
                 size_of::<F>(),
             )
         };
+        let output = unsafe {
+            TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
+        };
 
         let cube_count = 3;
-        let result = shared_sum::<R, F>(&client, input, cube_count);
+        let result = shared_sum::<R, F>(&client, input, output, cube_count);
 
         if result.is_err() {
             return; // don't execute the test in that case since atomic adds are not supported.
         }
-        assert_approx_equal(&[result.unwrap()], &[expected]);
+        let bytes = client.read_one(output_handle.binding());
+        let actual = F::from_bytes(&bytes);
+        assert_approx_equal(actual, &[expected]);
     }
 
     fn num_output_values(&self) -> usize {

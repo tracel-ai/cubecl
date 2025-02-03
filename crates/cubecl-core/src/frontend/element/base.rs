@@ -382,5 +382,7 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
     val: C,
 ) -> ExpandElementTyped<Out> {
     let input: ExpandElementTyped<C> = val.into();
-    <Out as super::Cast>::__expand_cast_from(scope, input)
+    let const_val = input.expand.as_const().unwrap();
+    let var = Variable::constant(const_val.cast_to(Out::as_elem(scope)));
+    ExpandElement::Plain(var).into()
 }

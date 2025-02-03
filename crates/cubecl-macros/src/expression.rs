@@ -78,6 +78,11 @@ pub enum Expression {
     VerbatimTerminated {
         tokens: TokenStream,
     },
+    #[allow(clippy::enum_variant_names)]
+    ExpressionMacro {
+        ident: Ident,
+        args: Vec<Expression>,
+    },
     Continue(Span),
     Return(Span),
     ForLoop {
@@ -171,6 +176,7 @@ impl Expression {
             Expression::Literal { ty, .. } => Some(ty.clone()),
             Expression::Assignment { ty, .. } => ty.clone(),
             Expression::Verbatim { .. } => None,
+            Expression::ExpressionMacro { .. } => None,
             Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
             Expression::Break { .. } => None,

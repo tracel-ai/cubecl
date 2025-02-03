@@ -87,6 +87,77 @@ pub mod plane_sum {
     }
 }
 
+/// Perform an inclusive sum operation across all units in a plane.
+/// This sums all values to the "left" of the unit, including this unit's value.
+/// Also known as "prefix sum" or "inclusive scan".
+///
+/// # Example
+/// `inclusive_sum([1, 2, 3, 4, 5]) == [1, 3, 6, 10, 15]`
+#[allow(unused_variables)]
+pub fn plane_inclusive_sum<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_inclusive_sum()].
+pub mod plane_inclusive_sum {
+    use super::*;
+
+    /// Expand method of [plane_inclusive_sum()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::InclusiveSum(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform an exclusive sum operation across all units in a plane.
+/// This sums all values to the "left" of the unit, excluding this unit's value. The 0th unit will
+/// be set to `E::zero()`.
+/// Also known as "exclusive prefix sum" or "exclusive scan".
+///
+/// # Example
+/// `exclusive_sum([1, 2, 3, 4, 5]) == [0, 1, 3, 6, 10]`
+#[allow(unused_variables)]
+pub fn plane_exclusive_sum<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_exclusive_sum()].
+pub mod plane_exclusive_sum {
+    use super::*;
+
+    /// Expand method of [plane_exclusive_sum()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::ExclusiveSum(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
 /// Perform a reduce prod operation across all units in a plane.
 pub fn plane_prod<E: CubePrimitive>(_elem: E) -> E {
     unexpanded!()
@@ -108,6 +179,77 @@ pub mod plane_prod {
         let input = *elem;
 
         scope.register(Instruction::new(Plane::Prod(UnaryOperator { input }), out));
+
+        output.into()
+    }
+}
+
+/// Perform an inclusive product operation across all units in a plane.
+/// This multiplies all values to the "left" of the unit, including this unit's value.
+/// Also known as "prefix product" or "inclusive scan".
+///
+/// # Example
+/// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 2, 6, 24, 120]`
+#[allow(unused_variables)]
+pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_inclusive_prod()].
+pub mod plane_inclusive_prod {
+    use super::*;
+
+    /// Expand method of [plane_inclusive_prod()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::InclusiveProd(UnaryOperator { input }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform an exclusive product operation across all units in a plane.
+/// This multiplies all values to the "left" of the unit, excluding this unit's value. The 0th unit
+/// will be set to `E::one()`.
+/// Also known as "exclusive prefix product" or "exclusive scan".
+///
+/// # Example
+/// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 1, 2, 6, 24]`
+#[allow(unused_variables)]
+pub fn plane_exclusive_prod<E: CubePrimitive>(value: E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_exclusive_prod()].
+pub mod plane_exclusive_prod {
+    use super::*;
+
+    /// Expand method of [plane_exclusive_prod()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        elem: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        let elem: ExpandElement = elem.into();
+        let output = scope.create_local(elem.item);
+
+        let out = *output;
+        let input = *elem;
+
+        scope.register(Instruction::new(
+            Plane::ExclusiveProd(UnaryOperator { input }),
+            out,
+        ));
 
         output.into()
     }

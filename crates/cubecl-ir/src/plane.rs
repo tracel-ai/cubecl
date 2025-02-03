@@ -19,7 +19,11 @@ pub enum Plane {
     Ballot(UnaryOperator),
     Broadcast(BinaryOperator),
     Sum(UnaryOperator),
+    InclusiveSum(UnaryOperator),
+    ExclusiveSum(UnaryOperator),
     Prod(UnaryOperator),
+    InclusiveProd(UnaryOperator),
+    ExclusiveProd(UnaryOperator),
     Min(UnaryOperator),
     Max(UnaryOperator),
 }
@@ -35,7 +39,11 @@ impl Display for Plane {
                 writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
             }
             Plane::Sum(op) => writeln!(f, "plane_sum({})", op.input),
+            Plane::InclusiveSum(op) => writeln!(f, "plane_inclusive_sum({})", op.input),
+            Plane::ExclusiveSum(op) => writeln!(f, "plane_exclusive_sum({})", op.input),
             Plane::Prod(op) => writeln!(f, "plane_product({})", op.input),
+            Plane::InclusiveProd(op) => writeln!(f, "plane_inclusive_product({})", op.input),
+            Plane::ExclusiveProd(op) => writeln!(f, "plane_exclusive_product({})", op.input),
             Plane::Min(op) => writeln!(f, "plane_min({})", op.input),
             Plane::Max(op) => writeln!(f, "plane_max({})", op.input),
         }
