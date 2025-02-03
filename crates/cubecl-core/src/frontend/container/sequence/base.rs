@@ -33,7 +33,7 @@ impl<T: CubeType> Init for Sequence<T> {
 impl<T: CubeType + Clone> Sequence<T> {
     pub fn rev(&self) -> Self {
         Self {
-            values: self.values.iter().rev().map(|a| a.clone()).collect(),
+            values: self.values.iter().rev().cloned().collect(),
         }
     }
 }
