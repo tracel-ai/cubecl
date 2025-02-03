@@ -59,7 +59,7 @@ impl LoadingStrategy for CyclicLoading {
     fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -116,11 +116,12 @@ impl LoadingStrategy for CyclicLoading {
                             slice_offset + this_slice_length,
                             slice_offset + slice_length_in_lines,
                         );
-                        // pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-                        // pipeline.memcpy_async(zero_buffer.try_cast_unchecked(), destination_offseted);
-                        for i in 0..this_slice_length {
-                            destination[i] = Line::cast_from(source[i]);
-                        }
+
+                        pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+
+                        // for i in 0..this_slice_length {
+                        //     destination[i] = Line::cast_from(source[i]);
+                        // }
                         for i in 0..slice_length_in_lines - this_slice_length {
                             destination_pad[i] = Line::cast_from(0);
                         }

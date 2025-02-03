@@ -49,7 +49,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
     }
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
     }
@@ -106,7 +106,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
     }
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
     }

@@ -54,7 +54,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, specia
     }
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: specialized::Config<S>,
     ) {
     }
@@ -116,7 +116,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, specia
 
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: specialized::Config<S>,
     ) {
     }

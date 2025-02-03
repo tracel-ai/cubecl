@@ -44,13 +44,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
 
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: full_load::Config<S>,
     ) {
         L::load_window::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
-            // pipeline,
+            pipeline,
             Ident::Lhs,
             config,
         );
@@ -103,13 +103,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
 
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: full_load::Config<S>,
     ) {
         L::load_window::<EG, ES, full_load::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
-            // pipeline,
+            pipeline,
             Ident::Rhs,
             config,
         );
@@ -157,7 +157,7 @@ pub trait LoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     fn load_window<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );

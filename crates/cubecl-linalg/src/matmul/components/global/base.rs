@@ -107,7 +107,7 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     /// Fills the stage at the current k offset.
     fn fill_stage_window(
         this: &mut Self,
-        // pipeline: Pipeline<ES>,
+        pipeline: Pipeline<ES>,
         #[comptime] config: G,
     );
 
