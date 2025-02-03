@@ -1,20 +1,36 @@
 [package]
-edition = "2021"
+authors = [
+    "nathanielsimard <nathaniel.simard.42@gmail.com>",
+    "louisfd <louisfd94@gmail.com",
+]
+categories = ["science"]
+description = "Intermediate representation for CubeCL"
+edition.workspace = true
+keywords = []
 license.workspace = true
 name = "cubecl-ir"
 readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-ir"
 version.workspace = true
 
+
 [features]
-default = ["serde"]
+default = ["serde", "std"]
 
 serde = ["dep:serde"]
+std = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5" }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.5" }
 
+derive_more = { workspace = true, features = ["from"] }
 float-ord = "0.3"
+fnv = { workspace = true }
 half = { workspace = true }
 num-traits = { workspace = true }
-serde = { workspace = true, optional = true, features = ["std", "rc"] }
-type_hash = { workspace = true }
+serde = { workspace = true, optional = true, features = ["rc"] }
+variadics_please = { workspace = true }
+
+hashbrown = { workspace = true }
+portable-atomic = { workspace = true }

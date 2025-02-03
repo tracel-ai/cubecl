@@ -1,9 +1,8 @@
-use quote::{format_ident, quote};
-use syn::{LitStr, Pat, Stmt, Type, TypeReference};
+use quote::format_ident;
+use syn::{parse_quote, ExprArray, LitStr, Pat, Stmt, Type, TypeReference};
 
 use crate::{
     expression::Expression,
-    paths::core_type,
     scope::Context,
     statement::{Pattern, Statement},
 };
@@ -46,11 +45,17 @@ impl Statement {
                         terminated: val.semi_token.is_some(),
                     }
                 } else if val.mac.path.is_ident("debug_print") {
-                    let expand = core_type("debug_print_expand");
                     let args = val.mac.tokens;
+                    let arg_exprs: ExprArray = parse_quote!([#args]);
+                    let args = arg_exprs
+                        .elems
+                        .into_iter()
+                        .map(|expr| Expression::from_expr(expr, context))
+                        .collect::<Result<_, _>>()?;
                     Statement::Expression {
-                        expression: Box::new(Expression::Verbatim {
-                            tokens: quote![#expand!(context, #args)],
+                        expression: Box::new(Expression::ExpressionMacro {
+                            ident: val.mac.path.get_ident().cloned().unwrap(),
+                            args,
                         }),
                         terminated: val.semi_token.is_some(),
                     }
@@ -58,6 +63,11 @@ impl Statement {
                     let content = syn::parse2::<LitStr>(val.mac.tokens)?;
                     Statement::Expression {
                         expression: Box::new(Expression::Comment { content }),
+                        terminated: val.semi_token.is_some(),
+                    }
+                } else if val.mac.path.is_ident("terminate") {
+                    Statement::Expression {
+                        expression: Box::new(Expression::Terminate),
                         terminated: val.semi_token.is_some(),
                     }
                 } else {

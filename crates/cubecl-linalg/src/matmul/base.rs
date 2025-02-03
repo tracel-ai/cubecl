@@ -1,6 +1,6 @@
 use cubecl_core::{
     client::ComputeClient,
-    prelude::{Float, TensorHandleRef},
+    prelude::{Float, Numeric, TensorHandleRef},
     Runtime,
 };
 
@@ -46,7 +46,7 @@ pub fn launch<R: Runtime, EG: Float>(
     )
 }
 
-pub fn launch_ref<R: Runtime, EG: Float>(
+pub fn launch_ref<R: Runtime, EG: Numeric>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<R>,

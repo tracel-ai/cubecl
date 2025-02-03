@@ -11,24 +11,24 @@ use super::{
 };
 
 #[cube]
-pub(crate) fn block_loop<F: Float>(
-    lhs: &Tensor<Line<F>>,
-    rhs: &Tensor<Line<F>>,
-    out: &mut Tensor<Line<F>>,
+pub(crate) fn block_loop<N: Numeric>(
+    lhs: &Tensor<Line<N>>,
+    rhs: &Tensor<Line<N>>,
+    out: &mut Tensor<Line<N>>,
     coordinates: Coordinates,
     offsets: BatchOffsets,
-    shared: SharedMemories<F>,
+    shared: SharedMemories<N>,
     #[comptime] config: CubeTiling2dConfig,
     dims: Dimensions,
 ) {
-    let mut results = init_results::<F>(config);
+    let mut results = init_results::<N>(config);
     let block_size_k = config.block_size_k;
     let n_loops = (dims.k + block_size_k - 1) / block_size_k;
 
     for k in 0..n_loops {
         let k = k * block_size_k;
 
-        load_to_shared_memories::<F, TileLoader<F>>(
+        load_to_shared_memories::<N, TileLoader<N>>(
             lhs,
             rhs,
             coordinates,
@@ -41,23 +41,23 @@ pub(crate) fn block_loop<F: Float>(
 
         sync_units();
 
-        compute_loop::<F>(coordinates, shared.lhs, shared.rhs, &mut results, config);
+        compute_loop::<N>(coordinates, shared.lhs, shared.rhs, &mut results, config);
 
         sync_units();
     }
 
-    write_to_output::<F, TileWriter<F>>(out, &results, coordinates, offsets.out, dims, config);
+    write_to_output::<N, TileWriter<N>>(out, &results, coordinates, offsets.out, dims, config);
 }
 
 #[cube]
-fn init_results<F: Float>(#[comptime] config: CubeTiling2dConfig) -> Array<F> {
+fn init_results<N: Numeric>(#[comptime] config: CubeTiling2dConfig) -> Array<N> {
     let tile_size = config.tile_size;
     let unroll = config.unroll_tile;
 
-    let mut results = Array::<F>::new(tile_size * tile_size);
+    let mut results = Array::<N>::new(tile_size * tile_size);
     #[unroll(unroll)]
     for i in 0..tile_size * tile_size {
-        results[i] = F::new(0.);
+        results[i] = N::from_int(0);
     }
 
     results

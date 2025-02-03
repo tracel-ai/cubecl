@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    AtomicOp, BinaryOperator, CoopMma, Instruction, Metadata, Operation, Operator, PipelineOps,
-    Plane, UnaryOperator, Variable,
+    Arithmetic, AtomicOp, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction, Metadata,
+    Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -25,7 +25,7 @@ impl Optimizer {
         visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         self.visit_out(&mut inst.out, visit_write);
-        self.visit_operation(&mut inst.operation, visit_read);
+        self.visit_operation(&mut inst.operation, &mut inst.out, visit_read);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -33,12 +33,16 @@ impl Optimizer {
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
+        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
+            Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
+            Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
+            Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) | Operation::NonSemantic(_) => {}
@@ -51,75 +55,113 @@ impl Optimizer {
 
     /// Visit an operator with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
+    pub fn visit_arithmetic(
+        &mut self,
+        op: &mut Arithmetic,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match op {
+            Arithmetic::Fma(fma_operator) => {
+                visit_read(self, &mut fma_operator.a);
+                visit_read(self, &mut fma_operator.b);
+                visit_read(self, &mut fma_operator.c);
+            }
+            Arithmetic::Add(binary_operator)
+            | Arithmetic::Sub(binary_operator)
+            | Arithmetic::Mul(binary_operator)
+            | Arithmetic::Div(binary_operator)
+            | Arithmetic::Powf(binary_operator)
+            | Arithmetic::Modulo(binary_operator)
+            | Arithmetic::Max(binary_operator)
+            | Arithmetic::Min(binary_operator)
+            | Arithmetic::Remainder(binary_operator)
+            | Arithmetic::Dot(binary_operator) => self.visit_binop(binary_operator, visit_read),
+
+            Arithmetic::Abs(unary_operator)
+            | Arithmetic::Exp(unary_operator)
+            | Arithmetic::Log(unary_operator)
+            | Arithmetic::Log1p(unary_operator)
+            | Arithmetic::Cos(unary_operator)
+            | Arithmetic::Sin(unary_operator)
+            | Arithmetic::Tanh(unary_operator)
+            | Arithmetic::Sqrt(unary_operator)
+            | Arithmetic::Round(unary_operator)
+            | Arithmetic::Floor(unary_operator)
+            | Arithmetic::Ceil(unary_operator)
+            | Arithmetic::Erf(unary_operator)
+            | Arithmetic::Recip(unary_operator)
+            | Arithmetic::Neg(unary_operator)
+            | Arithmetic::Magnitude(unary_operator)
+            | Arithmetic::Normalize(unary_operator) => self.visit_unop(unary_operator, visit_read),
+
+            Arithmetic::Clamp(clamp_operator) => {
+                visit_read(self, &mut clamp_operator.input);
+                visit_read(self, &mut clamp_operator.min_value);
+                visit_read(self, &mut clamp_operator.max_value);
+            }
+        }
+    }
+
+    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
+    pub fn visit_compare(
+        &mut self,
+        op: &mut Comparison,
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match op {
+            Comparison::Equal(binary_operator)
+            | Comparison::NotEqual(binary_operator)
+            | Comparison::LowerEqual(binary_operator)
+            | Comparison::Greater(binary_operator)
+            | Comparison::Lower(binary_operator)
+            | Comparison::GreaterEqual(binary_operator) => {
+                self.visit_binop(binary_operator, visit_read)
+            }
+        }
+    }
+
+    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
+    pub fn visit_bitwise(
+        &mut self,
+        op: &mut Bitwise,
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match op {
+            Bitwise::BitwiseAnd(binary_operator)
+            | Bitwise::BitwiseOr(binary_operator)
+            | Bitwise::BitwiseXor(binary_operator)
+            | Bitwise::ShiftLeft(binary_operator)
+            | Bitwise::ShiftRight(binary_operator) => self.visit_binop(binary_operator, visit_read),
+
+            Bitwise::CountOnes(unary_operator)
+            | Bitwise::BitwiseNot(unary_operator)
+            | Bitwise::ReverseBits(unary_operator)
+            | Bitwise::LeadingZeros(unary_operator)
+            | Bitwise::FindFirstSet(unary_operator) => self.visit_unop(unary_operator, visit_read),
+        }
+    }
+
+    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
     pub fn visit_operator(
         &mut self,
         op: &mut Operator,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operator::Fma(fma_operator) => {
-                visit_read(self, &mut fma_operator.a);
-                visit_read(self, &mut fma_operator.b);
-                visit_read(self, &mut fma_operator.c);
-            }
-            Operator::Add(binary_operator)
-            | Operator::Sub(binary_operator)
-            | Operator::Mul(binary_operator)
-            | Operator::Div(binary_operator)
-            | Operator::Powf(binary_operator)
-            | Operator::Equal(binary_operator)
-            | Operator::NotEqual(binary_operator)
-            | Operator::LowerEqual(binary_operator)
-            | Operator::UncheckedIndex(binary_operator)
+            Operator::UncheckedIndex(binary_operator)
             | Operator::UncheckedIndexAssign(binary_operator)
-            | Operator::Modulo(binary_operator)
             | Operator::Index(binary_operator)
             | Operator::IndexAssign(binary_operator)
             | Operator::And(binary_operator)
-            | Operator::Greater(binary_operator)
-            | Operator::Lower(binary_operator)
-            | Operator::Or(binary_operator)
-            | Operator::Max(binary_operator)
-            | Operator::Min(binary_operator)
-            | Operator::BitwiseAnd(binary_operator)
-            | Operator::BitwiseOr(binary_operator)
-            | Operator::BitwiseXor(binary_operator)
-            | Operator::ShiftLeft(binary_operator)
-            | Operator::ShiftRight(binary_operator)
-            | Operator::Remainder(binary_operator)
-            | Operator::Dot(binary_operator)
-            | Operator::GreaterEqual(binary_operator) => {
-                self.visit_binop(binary_operator, visit_read)
-            }
+            | Operator::Or(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
-            Operator::Abs(unary_operator)
-            | Operator::Exp(unary_operator)
-            | Operator::Log(unary_operator)
-            | Operator::Log1p(unary_operator)
-            | Operator::Cos(unary_operator)
-            | Operator::Sin(unary_operator)
-            | Operator::Tanh(unary_operator)
-            | Operator::Sqrt(unary_operator)
-            | Operator::Round(unary_operator)
-            | Operator::Floor(unary_operator)
-            | Operator::Ceil(unary_operator)
-            | Operator::Erf(unary_operator)
-            | Operator::Recip(unary_operator)
-            | Operator::Not(unary_operator)
-            | Operator::Neg(unary_operator)
+            Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
-            | Operator::Bitcast(unary_operator)
-            | Operator::Magnitude(unary_operator)
-            | Operator::Normalize(unary_operator)
-            | Operator::CountOnes(unary_operator)
-            | Operator::BitwiseNot(unary_operator)
-            | Operator::ReverseBits(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Operator::Bitcast(unary_operator) => self.visit_unop(unary_operator, visit_read),
 
-            Operator::Clamp(clamp_operator) => {
-                visit_read(self, &mut clamp_operator.input);
-                visit_read(self, &mut clamp_operator.min_value);
-                visit_read(self, &mut clamp_operator.max_value);
-            }
             Operator::Slice(slice_operator) => {
                 visit_read(self, &mut slice_operator.start);
                 visit_read(self, &mut slice_operator.end);
@@ -151,6 +193,7 @@ impl Optimizer {
     fn visit_atomic(
         &mut self,
         atomic: &mut AtomicOp,
+        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match atomic {
@@ -164,7 +207,11 @@ impl Optimizer {
             | AtomicOp::Swap(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read);
             }
-            AtomicOp::Load(unary_operator) | AtomicOp::Store(unary_operator) => {
+            AtomicOp::Load(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read);
+            }
+            AtomicOp::Store(unary_operator) => {
+                visit_read(self, out.as_mut().unwrap());
                 self.visit_unop(unary_operator, visit_read);
             }
             AtomicOp::CompareAndSwap(op) => {
@@ -209,7 +256,8 @@ impl Optimizer {
             | Plane::Sum(unary_operator)
             | Plane::Prod(unary_operator)
             | Plane::Min(unary_operator)
-            | Plane::Max(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            | Plane::Max(unary_operator)
+            | Plane::Ballot(unary_operator) => self.visit_unop(unary_operator, visit_read),
         }
     }
 

@@ -5,8 +5,8 @@ use super::{
     LaunchArgExpand, Numeric,
 };
 use crate::{
-    frontend::{CubeContext, CubePrimitive, CubeType},
-    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, UnaryOperator},
+    frontend::{CubePrimitive, CubeType},
+    ir::{BinaryOperator, CompareAndSwapOperator, Elem, Instruction, Item, Scope, UnaryOperator},
     prelude::KernelBuilder,
     unexpanded,
 };
@@ -65,12 +65,12 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_load(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let pointer: ExpandElement = pointer.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Load(UnaryOperator { input: *pointer }),
             *new_var,
         ));
@@ -78,27 +78,27 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_store(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        context.register(Instruction::new(
+        scope.register(Instruction::new(
             AtomicOp::Store(UnaryOperator { input: *value }),
             *ptr,
         ));
     }
 
     pub fn __expand_swap(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Swap(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -109,14 +109,14 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_add(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Add(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -127,14 +127,14 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_sub(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Sub(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -145,14 +145,14 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_max(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Max(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -163,14 +163,14 @@ impl<Inner: Numeric> Atomic<Inner> {
     }
 
     pub fn __expand_min(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Min(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -211,7 +211,7 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_compare_and_swap(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         cmp: <Inner as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
@@ -219,8 +219,8 @@ impl<Inner: Int> Atomic<Inner> {
         let pointer: ExpandElement = pointer.into();
         let cmp: ExpandElement = cmp.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::CompareAndSwap(CompareAndSwapOperator {
                 input: *pointer,
                 cmp: *cmp,
@@ -232,14 +232,14 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_and(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::And(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -250,14 +250,14 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_or(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Or(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -268,14 +268,14 @@ impl<Inner: Int> Atomic<Inner> {
     }
 
     pub fn __expand_xor(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         pointer: <Self as CubeType>::ExpandType,
         value: <Inner as CubeType>::ExpandType,
     ) -> <Inner as CubeType>::ExpandType {
         let ptr: ExpandElement = pointer.into();
         let value: ExpandElement = value.into();
-        let new_var = context.create_local(Item::new(Inner::as_elem(context)));
-        context.register(Instruction::new(
+        let new_var = scope.create_local(Item::new(Inner::as_elem(scope)));
+        scope.register(Instruction::new(
             AtomicOp::Xor(BinaryOperator {
                 lhs: *ptr,
                 rhs: *value,
@@ -291,7 +291,7 @@ impl<Inner: CubePrimitive> CubeType for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> IntoRuntime for Atomic<Inner> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Atomics don't exist at compile time")
     }
 }
@@ -307,8 +307,8 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
         }
     }
 
-    fn as_elem(context: &CubeContext) -> Elem {
-        match Inner::as_elem(context) {
+    fn as_elem(scope: &Scope) -> Elem {
+        match Inner::as_elem(scope) {
             Elem::Float(kind) => Elem::AtomicFloat(kind),
             Elem::Int(kind) => Elem::AtomicInt(kind),
             Elem::UInt(kind) => Elem::AtomicUInt(kind),
@@ -335,8 +335,8 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
 }
 
 impl<Inner: CubePrimitive> ExpandElementBaseInit for Atomic<Inner> {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement {
-        init_expand_element(context, elem)
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        init_expand_element(scope, elem)
     }
 }
 

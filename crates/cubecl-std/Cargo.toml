@@ -2,7 +2,7 @@
 authors = [
     "nathanielsimard <nathaniel.simard.42@gmail.com>",
     "louisfd <louisfd94@gmail.com>",
-    "maxtremblay <t.maxime@pm.me>"
+    "maxtremblay <t.maxime@pm.me>",
 ]
 categories = ["science", "mathematics", "algorithms"]
 description = "CubeCL Standard Library."
@@ -11,7 +11,7 @@ keywords = []
 license.workspace = true
 name = "cubecl-std"
 readme.workspace = true
-repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-std"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-std"
 version.workspace = true
 
 [dependencies]

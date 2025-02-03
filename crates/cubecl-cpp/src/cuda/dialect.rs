@@ -89,4 +89,7 @@ impl<M: WmmaCompiler<Self>> Dialect for CudaDialect<M> {
     fn warp_any(var: &str) -> String {
         format!("__any_sync(-1, {var})")
     }
+    fn warp_ballot(out: &str) -> String {
+        format!("__ballot_sync(-1, {out})")
+    }
 }

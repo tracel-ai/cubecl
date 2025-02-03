@@ -33,10 +33,10 @@ pub struct WgpuStream {
     pub timestamps: KernelTimestamps,
     tasks_count: usize,
     tasks_max: usize,
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     poll: WgpuPoll,
-    sync_buffer: Option<Arc<wgpu::Buffer>>,
+    sync_buffer: Option<wgpu::Buffer>,
     submission_load: SubmissionLoad,
 }
 
@@ -47,8 +47,8 @@ pub enum PipelineDispatch {
 
 impl WgpuStream {
     pub fn new(
-        device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timestamps: KernelTimestamps,
@@ -57,7 +57,7 @@ impl WgpuStream {
         let poll = WgpuPoll::new(device.clone());
 
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 32,
             usage: wgpu::BufferUsages::COPY_DST
@@ -65,7 +65,7 @@ impl WgpuStream {
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::INDIRECT,
             mapped_at_creation: false,
-        })));
+        }));
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
@@ -97,8 +97,10 @@ impl WgpuStream {
             &memory_properties,
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
-                    pool_type: memory_management::PoolType::ExclusivePages { min_alloc_size: 0 },
-                    dealloc_period: None,
+                    pool_type: memory_management::PoolType::ExclusivePages {
+                        max_alloc_size: SMALL_UNIFORMS_BUFFER_SIZE,
+                    },
+                    dealloc_period: Some(5000),
                 }],
             },
         );
@@ -206,7 +208,7 @@ impl WgpuStream {
 
     pub fn read_buffers(
         &mut self,
-        buffers: Vec<(Arc<wgpu::Buffer>, u64, u64)>,
+        buffers: Vec<(wgpu::Buffer, u64, u64)>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
         self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(buffers.len());
@@ -283,7 +285,7 @@ impl WgpuStream {
 
     pub fn read_buffer(
         &mut self,
-        buffer: Arc<wgpu::Buffer>,
+        buffer: wgpu::Buffer,
         offset: u64,
         size: u64,
     ) -> impl Future<Output = Vec<u8>> + 'static {
@@ -343,7 +345,7 @@ impl WgpuStream {
         match method {
             TimestampMethod::Buffer(resolved, size) => {
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffer(Arc::new(resolved), 0, size);
+                let fut = self.read_buffer(resolved, 0, size);
 
                 Box::pin(async move {
                     let data = fut

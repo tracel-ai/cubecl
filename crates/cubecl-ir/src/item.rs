@@ -1,7 +1,8 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
-use std::fmt::Display;
-use std::num::NonZero;
-use type_hash::TypeHash;
+use crate::TypeHash;
+use core::fmt::Display;
+use core::num::NonZero;
+use cubecl_common::{flex32, tf32};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -233,7 +234,7 @@ impl From<Elem> for Item {
 }
 
 impl Display for Elem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Float(kind) => match kind {
                 FloatKind::F16 => f.write_str("f16"),
@@ -303,12 +304,111 @@ impl Item {
 }
 
 impl Display for Item {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.vectorization {
             Some(vec) if vec.get() > 1 => {
                 write!(f, "vector{}<{}>", vec.get(), self.elem)
             }
             _ => write!(f, "{}", self.elem),
         }
+    }
+}
+
+impl From<bool> for Variable {
+    fn from(value: bool) -> Self {
+        Variable::constant(ConstantScalarValue::Bool(value))
+    }
+}
+
+impl From<i8> for Variable {
+    fn from(value: i8) -> Self {
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I8))
+    }
+}
+
+impl From<i16> for Variable {
+    fn from(value: i16) -> Self {
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I16))
+    }
+}
+
+impl From<i32> for Variable {
+    fn from(value: i32) -> Self {
+        Variable::constant(ConstantScalarValue::Int(value as i64, IntKind::I32))
+    }
+}
+
+impl From<i64> for Variable {
+    fn from(value: i64) -> Self {
+        Variable::constant(ConstantScalarValue::Int(value, IntKind::I64))
+    }
+}
+
+impl From<half::f16> for Variable {
+    fn from(value: half::f16) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::F16))
+    }
+}
+
+impl From<half::bf16> for Variable {
+    fn from(value: half::bf16) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::BF16))
+    }
+}
+
+impl From<flex32> for Variable {
+    fn from(value: flex32) -> Self {
+        Variable::constant(ConstantScalarValue::Float(
+            value.to_f64(),
+            FloatKind::Flex32,
+        ))
+    }
+}
+
+impl From<tf32> for Variable {
+    fn from(value: tf32) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value.to_f64(), FloatKind::TF32))
+    }
+}
+
+impl From<f32> for Variable {
+    fn from(value: f32) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value as f64, FloatKind::F32))
+    }
+}
+
+impl From<f64> for Variable {
+    fn from(value: f64) -> Self {
+        Variable::constant(ConstantScalarValue::Float(value, FloatKind::F64))
+    }
+}
+
+impl From<u8> for Variable {
+    fn from(value: u8) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U8))
+    }
+}
+
+impl From<u16> for Variable {
+    fn from(value: u16) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U16))
+    }
+}
+
+impl From<u32> for Variable {
+    fn from(value: u32) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
+    }
+}
+
+impl From<u64> for Variable {
+    fn from(value: u64) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value, UIntKind::U64))
+    }
+}
+
+impl From<usize> for Variable {
+    fn from(value: usize) -> Self {
+        Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32))
     }
 }

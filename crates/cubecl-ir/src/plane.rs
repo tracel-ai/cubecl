@@ -1,20 +1,22 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use crate::Operation;
+use crate::OperationReflect;
 
 use super::{BinaryOperator, UnaryOperator};
-use type_hash::TypeHash;
+use crate::TypeHash;
 
 /// All plane operations.
 ///
 /// Note that not all backends support plane (warp/subgroup) operations. Use the [runtime flag](crate::Feature::Plane).
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
+#[operation(opcode_name = PlaneOpCode)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Plane {
     Elect,
     All(UnaryOperator),
     Any(UnaryOperator),
+    Ballot(UnaryOperator),
     Broadcast(BinaryOperator),
     Sum(UnaryOperator),
     Prod(UnaryOperator),
@@ -23,11 +25,12 @@ pub enum Plane {
 }
 
 impl Display for Plane {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Plane::Elect => writeln!(f, "plane_elect()"),
             Plane::All(op) => writeln!(f, "plane_all({})", op.input),
             Plane::Any(op) => writeln!(f, "plane_any({})", op.input),
+            Plane::Ballot(op) => writeln!(f, "plane_ballot({})", op.input),
             Plane::Broadcast(op) => {
                 writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
             }
@@ -36,11 +39,5 @@ impl Display for Plane {
             Plane::Min(op) => writeln!(f, "plane_min({})", op.input),
             Plane::Max(op) => writeln!(f, "plane_max({})", op.input),
         }
-    }
-}
-
-impl From<Plane> for Operation {
-    fn from(value: Plane) -> Self {
-        Operation::Plane(value)
     }
 }

@@ -1,23 +1,17 @@
 use crate::frontend::operation::base::cmp_expand;
-use crate::frontend::{CubeContext, ExpandElementTyped};
-use crate::ir::Operator;
+use crate::frontend::ExpandElementTyped;
+use crate::ir::{Comparison, Scope};
 use crate::prelude::CubePrimitive;
 
 pub mod ne {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::NotEqual,
-        )
-        .into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::NotEqual).into()
     }
 }
 
@@ -25,17 +19,11 @@ pub mod gt {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::Greater,
-        )
-        .into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::Greater).into()
     }
 }
 
@@ -43,17 +31,11 @@ pub mod lt {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::Lower,
-        )
-        .into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::Lower).into()
     }
 }
 
@@ -61,17 +43,11 @@ pub mod ge {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::GreaterEqual,
-        )
-        .into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::GreaterEqual).into()
     }
 }
 
@@ -79,17 +55,11 @@ pub mod le {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::LowerEqual,
-        )
-        .into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::LowerEqual).into()
     }
 }
 
@@ -98,28 +68,10 @@ pub mod eq {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
+        scope: &mut Scope,
+        lhs: ExpandElementTyped<C>,
+        rhs: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<bool> {
-        cmp_expand(
-            context,
-            lhs.into().into(),
-            rhs.into().into(),
-            Operator::Equal,
-        )
-        .into()
-    }
-}
-
-pub mod add_assign {
-    use super::*;
-
-    pub fn expand<C: CubePrimitive>(
-        context: &mut CubeContext,
-        lhs: impl Into<ExpandElementTyped<C>>,
-        rhs: impl Into<ExpandElementTyped<C>>,
-    ) -> ExpandElementTyped<C> {
-        cmp_expand(context, lhs.into().into(), rhs.into().into(), Operator::Add).into()
+        cmp_expand(scope, lhs.into(), rhs.into(), Comparison::Equal).into()
     }
 }

@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 pub fn kernel_shape_dim_4(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<u32>) {
     if ABSOLUTE_POS >= out.len() {
-        return;
+        terminate!();
     }
 
     out[0] = lhs.shape(0);
@@ -25,7 +25,7 @@ pub fn kernel_shape_dim_4(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor
 #[cube(launch_unchecked)]
 pub fn kernel_shape_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<u32>) {
     if ABSOLUTE_POS >= out.len() {
-        return;
+        terminate!();
     }
 
     out[0] = lhs.shape(0);
@@ -45,7 +45,7 @@ pub fn kernel_shape_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &
 #[cube(launch_unchecked)]
 pub fn kernel_stride_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<u32>) {
     if ABSOLUTE_POS >= out.len() {
-        return;
+        terminate!();
     }
 
     out[0] = lhs.stride(0);
@@ -62,7 +62,7 @@ pub fn kernel_stride_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: 
 #[cube(launch_unchecked)]
 pub fn kernel_len_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<u32>) {
     if ABSOLUTE_POS >= out.len() {
-        return;
+        terminate!();
     }
 
     out[0] = lhs.len();
@@ -73,7 +73,7 @@ pub fn kernel_len_different_ranks(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mu
 #[cube(launch_unchecked)]
 pub fn kernel_buffer_len(out: &mut Tensor<u32>) {
     if ABSOLUTE_POS >= out.len() {
-        return;
+        terminate!();
     }
 
     out[0] = out.buffer_len();

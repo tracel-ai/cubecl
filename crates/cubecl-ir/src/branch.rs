@@ -1,12 +1,16 @@
-use std::fmt::Display;
+use alloc::{boxed::Box, format, vec::Vec};
+use core::fmt::Display;
 
-use super::{Elem, Item, Scope, UIntKind, Variable};
-use type_hash::TypeHash;
+use crate::OperationReflect;
+
+use super::{Elem, Item, OperationCode, Scope, UIntKind, Variable};
+use crate::TypeHash;
 
 /// All branching types.
 #[allow(clippy::large_enum_variant)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[operation(opcode_name = BranchOpCode)]
 pub enum Branch {
     /// An if statement.
     If(Box<If>),
@@ -24,8 +28,16 @@ pub enum Branch {
     Break,
 }
 
+impl OperationReflect for Branch {
+    type OpCode = BranchOpCode;
+
+    fn op_code(&self) -> Self::OpCode {
+        self.__match_opcode()
+    }
+}
+
 impl Display for Branch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Branch::If(if_) => write!(f, "if({})", if_.cond),
             Branch::IfElse(if_else) => write!(f, "if({})", if_else.cond),
@@ -69,15 +81,6 @@ pub struct IfElse {
     pub cond: Variable,
     pub scope_if: Scope,
     pub scope_else: Scope,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct Select {
-    pub cond: Variable,
-    pub then: Variable,
-    pub or_else: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -157,7 +160,7 @@ impl RangeLoop {
     ) {
         let mut scope = parent_scope.child();
         let index_ty = Item::new(Elem::UInt(UIntKind::U32));
-        let i = scope.create_local_restricted(index_ty);
+        let i = *scope.create_local_restricted(index_ty);
 
         func(i, &mut scope);
 

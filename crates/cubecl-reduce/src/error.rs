@@ -1,5 +1,7 @@
 use core::fmt;
 
+use cubecl_core::ir::Elem;
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ReduceError {
     /// Indicate that the hardware / API doesn't support SIMT plane instructions.
@@ -15,6 +17,8 @@ pub enum ReduceError {
         expected_shape: Vec<usize>,
         output_shape: Vec<usize>,
     },
+    /// Indicate that we can't launch a shared sum because the atomic addition is not supported.
+    MissingAtomicAdd(Elem),
 }
 
 impl fmt::Display for ReduceError {
@@ -27,8 +31,8 @@ impl fmt::Display for ReduceError {
             Self::MismatchShape { expected_shape, output_shape } => {
                 write!(f, "The output shape (currently {output_shape:?}) should be {expected_shape:?}.")
             }
+            Self::MissingAtomicAdd(elem) =>
+                        write!(f, "Atomic add not supported by the client for {elem}")
         }
     }
 }
-
-impl std::error::Error for ReduceError {}

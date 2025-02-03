@@ -207,6 +207,43 @@ impl<D: Dialect> Unary<D> for ReverseBits {
     }
 }
 
+pub struct LeadingZeros;
+
+impl<D: Dialect> Unary<D> for LeadingZeros {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            elem => write!(
+                f,
+                "__clz({}) - {}",
+                zero_extend(input),
+                (size_of::<u32>() - elem.size()) * 8
+            ),
+        }
+    }
+}
+
+pub struct FindFirstSet;
+
+impl<D: Dialect> Unary<D> for FindFirstSet {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            _ => write!(f, "__ffs({}({input}))", Elem::<D>::U32,),
+        }
+    }
+}
+
 pub struct BitwiseNot;
 
 impl<D: Dialect> Unary<D> for BitwiseNot {

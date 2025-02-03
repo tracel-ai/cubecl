@@ -33,6 +33,10 @@ pub enum WarpInstruction<D: Dialect> {
         input: Variable<D>,
         out: Variable<D>,
     },
+    Ballot {
+        input: Variable<D>,
+        out: Variable<D>,
+    },
     Broadcast {
         input: Variable<D>,
         id: Variable<D>,
@@ -49,6 +53,21 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ReduceMin { input, out } => reduce_comparison(f, input, out, "min"),
             WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::warp_all),
             WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::warp_any),
+            WarpInstruction::Ballot { input, out } => {
+                assert_eq!(
+                    input.item().vectorization,
+                    1,
+                    "Ballot can't support vectorized input"
+                );
+                let rhs = D::warp_ballot(&format!("{input}"));
+                let out_fmt = out.fmt_left();
+                write!(
+                    f,
+                    "
+{out_fmt} = {{ {rhs}, 0, 0, 0 }};
+            "
+                )
+            }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
             WarpInstruction::Elect { out } => write!(
                 f,

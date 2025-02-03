@@ -76,11 +76,11 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
         Array::new(config.size.k)
     }
 
-    fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
         Array::new(config.size.k * config.size.n / config.plane_dim())
     }
 
@@ -220,7 +220,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn init_accumulator(#[comptime] config: Config) -> Self::Accumulator {
+    fn allocate_accumulator(#[comptime] config: Config) -> Self::Accumulator {
         let len = config.size.m * config.size.n / (config.plane_dim());
         Array::new(len)
     }

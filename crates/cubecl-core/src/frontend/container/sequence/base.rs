@@ -1,9 +1,8 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
 use crate::frontend::{
-    branch::Iterable, indexation::Index, CubeContext, CubeType, ExpandElementTyped, Init,
-    IntoRuntime,
+    branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -26,7 +25,7 @@ impl<T: CubeType> Default for Sequence<T> {
 }
 
 impl<T: CubeType> Init for Sequence<T> {
-    fn init(self, _context: &mut CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -81,7 +80,7 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [new](Self::new).
-    pub fn __expand_new(_context: &mut CubeContext) -> SequenceExpand<T> {
+    pub fn __expand_new(_scope: &mut Scope) -> SequenceExpand<T> {
         SequenceExpand {
             values: Rc::new(RefCell::new(Vec::new())),
         }
@@ -94,30 +93,26 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [push](Self::push).
-    pub fn __expand_push(
-        context: &mut CubeContext,
-        expand: &mut SequenceExpand<T>,
-        value: T::ExpandType,
-    ) {
-        expand.__expand_push_method(context, value)
+    pub fn __expand_push(scope: &mut Scope, expand: &mut SequenceExpand<T>, value: T::ExpandType) {
+        expand.__expand_push_method(scope, value)
     }
 
     /// Expand function of [index](Self::index).
     pub fn __expand_index(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         expand: SequenceExpand<T>,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
-        expand.__expand_index_method(context, index)
+        expand.__expand_index_method(scope, index)
     }
 
     /// Expand function of [index_mut](Self::index_mut).
     pub fn __expand_index_mut(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         expand: SequenceExpand<T>,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
-        expand.__expand_index_mut_method(context, index)
+        expand.__expand_index_mut_method(scope, index)
     }
 }
 
@@ -129,27 +124,23 @@ pub struct SequenceExpand<T: CubeType> {
 }
 
 impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
-    fn expand(
-        self,
-        context: &mut CubeContext,
-        func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
-    ) {
-        self.expand_unroll(context, func);
+    fn expand(self, scope: &mut Scope, func: impl FnMut(&mut Scope, <T as CubeType>::ExpandType)) {
+        self.expand_unroll(scope, func);
     }
 
     fn expand_unroll(
         self,
-        context: &mut CubeContext,
-        mut func: impl FnMut(&mut CubeContext, <T as CubeType>::ExpandType),
+        scope: &mut Scope,
+        mut func: impl FnMut(&mut Scope, <T as CubeType>::ExpandType),
     ) {
         for elem in self {
-            func(context, elem);
+            func(scope, elem);
         }
     }
 }
 
 impl<T: CubeType> Init for SequenceExpand<T> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -192,14 +183,14 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow().len() as u32
     }
     /// Expand method of [push](Sequence::push).
-    pub fn __expand_push_method(&mut self, _context: &mut CubeContext, value: T::ExpandType) {
+    pub fn __expand_push_method(&mut self, _scope: &mut Scope, value: T::ExpandType) {
         self.values.borrow_mut().push(value);
     }
 
     /// Expand method of [insert](Sequence::insert).
     pub fn __expand_insert_method(
         &self,
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         index: ExpandElementTyped<u32>,
         value: T::ExpandType,
     ) {
@@ -220,7 +211,7 @@ impl<T: CubeType> SequenceExpand<T> {
     /// Expand method of [index](Sequence::index).
     pub fn __expand_index_method(
         &self,
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
         let index = index
@@ -234,7 +225,7 @@ impl<T: CubeType> SequenceExpand<T> {
     /// Expand method of [index_mut](Sequence::index_mut).
     pub fn __expand_index_mut_method(
         &self,
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType {
         let index = index
@@ -245,14 +236,14 @@ impl<T: CubeType> SequenceExpand<T> {
         self.values.borrow()[index].clone()
     }
 
-    pub fn __expand_len_method(&self, _context: &mut CubeContext) -> u32 {
+    pub fn __expand_len_method(&self, _scope: &mut Scope) -> u32 {
         let values = self.values.borrow();
         values.len() as u32
     }
 }
 
 impl<T: CubeType> IntoRuntime for Sequence<T> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> SequenceExpand<T> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> SequenceExpand<T> {
         unimplemented!("Sequence doesn't exist at compile time");
     }
 }

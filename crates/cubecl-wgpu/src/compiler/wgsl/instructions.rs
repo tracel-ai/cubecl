@@ -137,10 +137,6 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Erf {
-        input: Variable,
-        out: Variable,
-    },
     Recip {
         input: Variable,
         out: Variable,
@@ -253,6 +249,14 @@ pub enum Instruction {
         out: Variable,
     },
     BitwiseNot {
+        input: Variable,
+        out: Variable,
+    },
+    LeadingZeros {
+        input: Variable,
+        out: Variable,
+    },
+    FindFirstSet {
         input: Variable,
         out: Variable,
     },
@@ -651,10 +655,6 @@ impl Display for Instruction {
 
                 result
             }
-            Instruction::Erf { input, out } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = erf({input});")
-            }
             Instruction::Recip { input, out } => {
                 let out = out.fmt_left();
                 write!(f, "{out} = 1.0 / {input};")
@@ -843,15 +843,39 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::ShiftLeft { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {lhs} << {rhs};")
+                writeln!(f, "{out} = {lhs} << u32({rhs});")
             }
             Instruction::ShiftRight { lhs, rhs, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {lhs} >> {rhs};")
+                writeln!(f, "{out} = {lhs} >> u32({rhs});")
             }
             Instruction::BitwiseNot { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ~{input};")
+            }
+            Instruction::LeadingZeros { input, out } => {
+                let u32_ty = match input.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::U32),
+                    Item::Vec3(_) => Item::Vec3(Elem::U32),
+                    Item::Vec2(_) => Item::Vec2(Elem::U32),
+                    Item::Scalar(_) => Item::Scalar(Elem::U32),
+                };
+
+                let input = input.fmt_cast_to(u32_ty);
+                let out = out.fmt_left();
+                writeln!(f, "{out} = countLeadingZeros({input});")
+            }
+            Instruction::FindFirstSet { input, out } => {
+                let u32_ty = match input.item() {
+                    Item::Vec4(_) => Item::Vec4(Elem::U32),
+                    Item::Vec3(_) => Item::Vec3(Elem::U32),
+                    Item::Vec2(_) => Item::Vec2(Elem::U32),
+                    Item::Scalar(_) => Item::Scalar(Elem::U32),
+                };
+
+                let input = input.fmt_cast_to(u32_ty);
+                let out = out.fmt_left();
+                writeln!(f, "{out} = firstTrailingBit({input}) + 1;")
             }
             Instruction::Round { input, out } => {
                 let out = out.fmt_left();
@@ -956,7 +980,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let item = out.item();
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {item}({})", inputs.join(", "))
+                writeln!(f, "{out} = {item}({});", inputs.join(", "))
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
