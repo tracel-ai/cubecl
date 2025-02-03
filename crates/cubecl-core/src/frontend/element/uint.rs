@@ -29,7 +29,7 @@ macro_rules! declare_uint {
         }
 
         impl Init for $primitive {
-            fn init(self, _context: &mut CubeContext) -> Self {
+            fn init(self, _scope: &mut Scope) -> Self {
                 self
             }
         }
