@@ -76,7 +76,7 @@ impl<D: Dialect> Display for PipelineOps<D> {
                     write!(
                             f,
                             "
-        __shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_thread, {num_stages}> {pipeline}_state;
+        cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
         auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
                         "
                         )
