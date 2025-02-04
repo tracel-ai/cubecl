@@ -4,6 +4,8 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
+use crate::pipeline;
+
 use super::{Item, Matrix, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
@@ -96,13 +98,14 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_pipeline(&self, item: Item, num_stages: u8) -> ExpandElement {
+    pub fn create_pipeline(&self, item: Item, num_stages: u8, pipeline_group: u8) -> ExpandElement {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Pipeline {
                 id,
                 item,
                 num_stages,
+                pipeline_group,
             },
             item,
         );

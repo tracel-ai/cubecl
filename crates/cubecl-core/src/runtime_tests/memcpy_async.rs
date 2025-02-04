@@ -1,6 +1,6 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
-use pipeline::Pipeline;
+use pipeline::{Pipeline, PipelineGroup};
 
 #[cube]
 fn memcpy_sync<F: Float>(source: Slice<Line<F>>, mut destination: SliceMut<Line<F>>) {
@@ -13,7 +13,7 @@ fn memcpy_sync<F: Float>(source: Slice<Line<F>>, mut destination: SliceMut<Line<
 fn computation<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let pipeline = Pipeline::new(2u32);
+    let pipeline = Pipeline::new(2u32, PipelineGroup::Unit);
 
     let start = UNIT_POS_X * 2u32;
     let end = start + 2u32;

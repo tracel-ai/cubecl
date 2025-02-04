@@ -112,13 +112,18 @@ pub struct PipelineExpand<C: CubePrimitive> {
 
 impl<C: CubePrimitive> Default for Pipeline<C> {
     fn default() -> Self {
-        Self::new(1)
+        Self::new(1, PipelineGroup::Unit)
     }
+}
+
+pub enum PipelineGroup {
+    Unit,
+    Cube,
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new(_num_stages: u32) -> Self {
+    pub fn new(_num_stages: u32, _group: PipelineGroup) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -152,9 +157,20 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope, num_stages: u32) -> PipelineExpand<C> {
+    pub fn __expand_new(
+        scope: &mut Scope,
+        num_stages: u32,
+        pipeline_group: PipelineGroup,
+    ) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(Item::new(elem), num_stages as u8);
+        let variable = scope.create_pipeline(
+            Item::new(elem),
+            num_stages as u8,
+            match pipeline_group {
+                PipelineGroup::Unit => 0,
+                PipelineGroup::Cube => 1,
+            },
+        );
         PipelineExpand {
             elem: variable,
             _c: PhantomData,
