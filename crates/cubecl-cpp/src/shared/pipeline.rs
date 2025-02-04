@@ -6,7 +6,7 @@ use super::{Component, Dialect, Variable};
 pub enum PipelineOps<D: Dialect> {
     Init {
         pipeline: Variable<D>,
-        num_steps: u8,
+        num_stages: u8,
     },
     MemCopyAsync {
         pipeline: Variable<D>,
@@ -56,12 +56,14 @@ cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {sour
             }
             PipelineOps::Init {
                 pipeline,
-                num_steps,
+                num_stages,
             } => {
+                // cuda::thread_scope::thread_scope_block -> sync only within thread_block, no gmem sync
+                // cooperative_groups::this_thread_block() -> each thread in threadblock has its pipeline instance
                 write!(
                     f,
                     "
-__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_steps}> {pipeline}_state;
+__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
 auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
                 "
                 )

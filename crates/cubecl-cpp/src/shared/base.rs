@@ -1046,7 +1046,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Pipeline {
                 id,
                 item,
-                num_steps,
+                num_stages,
             } => {
                 self.pipeline = true;
                 let pipeline = Variable::Pipeline {
@@ -1056,7 +1056,7 @@ impl<D: Dialect> CppCompiler<D> {
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
                     self.pipelines.push(PipelineOps::Init {
                         pipeline,
-                        num_steps,
+                        num_stages,
                     });
                 }
                 pipeline

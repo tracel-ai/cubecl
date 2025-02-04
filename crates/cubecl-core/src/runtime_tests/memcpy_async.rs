@@ -3,19 +3,52 @@ use cubecl::prelude::*;
 use pipeline::Pipeline;
 
 #[cube]
-fn tile_computation<F: Float>(
+fn tile_computation_1<F: Float>(
     lhs: Slice<Line<F>>,
     rhs: Slice<Line<F>>,
     mut out: SliceMut<Line<F>>,
 ) {
-    if UNIT_POS_X == 0 {
-        for i in 0..2 {
-            out[i] = lhs[i];
-        }
-        for i in 0..2 {
-            out[i + 2] = rhs[i];
-        }
+    for i in 0..2 {
+        out[i] = Line::cast_from(10u32) * lhs[i];
     }
+    for i in 0..2 {
+        out[i] += rhs[i];
+    }
+}
+
+#[cube]
+fn tile_computation_2<F: Float>(
+    lhs: &SharedMemory<Line<F>>,
+    rhs: &SharedMemory<Line<F>>,
+    out: &mut Tensor<Line<F>>,
+    start: u32,
+    end: u32,
+) {
+    for i in start..end {
+        out[i] = Line::cast_from(10u32) * lhs[i];
+    }
+    for i in start..end {
+        out[i] += rhs[i];
+    }
+}
+
+#[cube]
+fn tile_computation_3<F: Float>(
+    lhs: &SharedMemory<Line<F>>,
+    rhs: &SharedMemory<Line<F>>,
+    out: &mut Tensor<Line<F>>,
+    start: u32,
+    end: u32,
+    pipeline: Pipeline<F>,
+) {
+    pipeline.consumer_wait();
+    for i in start..end {
+        out[i] = Line::cast_from(10u32) * lhs[i];
+    }
+    for i in start..end {
+        out[i] += rhs[i];
+    }
+    pipeline.consumer_release();
 }
 
 #[cube]
@@ -31,33 +64,47 @@ fn computation<F: Float>(
     rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
 ) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
-    let mut rhs_smem = SharedMemory::<F>::new_lined(2u32, 1u32);
+    let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
+    let mut rhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let pipeline = Pipeline::new(1u32);
+    let pipeline = Pipeline::new(2u32);
+
+    let start = UNIT_POS_X * 2u32;
+    let end = start + 2u32;
 
     pipeline.producer_acquire();
-
-    let start = 0u32;
-    let end = 2u32;
-    if UNIT_POS_X == 0 {
-        pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    } else {
-        // pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
-    }
-
+    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    // memcpy_sync(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
-    sync_units();
+    pipeline.producer_acquire();
+    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    // memcpy_sync(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    pipeline.producer_commit();
 
-    pipeline.consumer_wait();
-    // Perform matmul on SMEM
-    tile_computation(
-        lhs_smem.slice(start, end),
-        rhs_smem.slice(start, end),
-        output.slice_mut(start, end),
-    );
-    pipeline.consumer_release();
+    // tile_computation_0: inline
+    // pipeline.consumer_wait();
+    // for i in start..end {
+    //     output[i] = Line::cast_from(10u32) * lhs[i];
+    // }
+    // for i in start..end {
+    //     output[i] += rhs[i];
+    // }
+    // pipeline.consumer_release();
+
+    // pipeline.consumer_wait();
+    // tile_computation_1(
+    //     lhs_smem.slice(start, end),
+    //     rhs_smem.slice(start, end),
+    //     output.slice_mut(start, end),
+    // );
+    // pipeline.consumer_release();
+
+    // pipeline.consumer_wait();
+    // tile_computation_2(&lhs_smem, &rhs_smem, output, start, end);
+    // pipeline.consumer_release();
+
+    tile_computation_3(&lhs_smem, &rhs_smem, output, start, end, pipeline);
 }
 
 pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
@@ -68,7 +115,7 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
     //     return;
     // }
 
-    let lhs = client.create(as_bytes![F: 10., 11., 12., 13., 14., 15.]);
+    let lhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
     let rhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
     let output = client.empty(4 * core::mem::size_of::<F>());
 
@@ -85,14 +132,7 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
 
     let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
-    let expected = [
-        F::new(10.0),
-        F::new(11.0),
-        F::new(12.0),
-        F::new(13.0),
-        F::new(14.0),
-        F::new(15.0),
-    ];
+    let expected = [F::new(110.0), F::new(121.0), F::new(132.0), F::new(143.0)];
 
     assert_eq!(actual, expected);
 }
