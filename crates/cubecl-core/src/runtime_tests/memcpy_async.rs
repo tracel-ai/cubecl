@@ -61,11 +61,11 @@ fn memcpy_sync<F: Float>(source: Slice<Line<F>>, mut destination: SliceMut<Line<
 #[cube(launch)]
 fn computation<F: Float>(
     lhs: &Tensor<Line<F>>,
-    rhs: &Tensor<Line<F>>,
+    // rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
 ) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
-    let mut rhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
+    // let mut rhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
     let pipeline = Pipeline::new(2u32);
 
@@ -74,21 +74,24 @@ fn computation<F: Float>(
 
     pipeline.producer_acquire();
     pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    // memcpy_sync(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
-    pipeline.producer_acquire();
-    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
-    // memcpy_sync(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
-    pipeline.producer_commit();
+    pipeline.consumer_wait();
+    for i in start..end {
+        output[i] = lhs_smem[i];
+    }
+    pipeline.consumer_release();
+
+    // pipeline.producer_acquire();
+    // pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    // // memcpy_sync(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    // pipeline.producer_commit();
 
     // tile_computation_0: inline
+
     // pipeline.consumer_wait();
     // for i in start..end {
-    //     output[i] = Line::cast_from(10u32) * lhs[i];
-    // }
-    // for i in start..end {
-    //     output[i] += rhs[i];
+    //     output[i] += rhs_smem[i];
     // }
     // pipeline.consumer_release();
 
@@ -104,7 +107,7 @@ fn computation<F: Float>(
     // tile_computation_2(&lhs_smem, &rhs_smem, output, start, end);
     // pipeline.consumer_release();
 
-    tile_computation_3(&lhs_smem, &rhs_smem, output, start, end, pipeline);
+    // tile_computation_3(&lhs_smem, &rhs_smem, output, start, end, pipeline);
 }
 
 pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
@@ -123,9 +126,9 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
         computation::launch::<F, R>(
             &client,
             CubeCount::Static(1, 1, 1),
-            CubeDim::new(2, 1, 1),
+            CubeDim::new(1, 1, 1),
             TensorArg::from_raw_parts::<F>(&lhs, &[4, 1], &[4, 4], 1),
-            TensorArg::from_raw_parts::<F>(&rhs, &[4, 1], &[4, 4], 1),
+            // TensorArg::from_raw_parts::<F>(&rhs, &[4, 1], &[4, 4], 1),
             TensorArg::from_raw_parts::<F>(&output, &[4, 1], &[4, 4], 1),
         )
     };
@@ -135,6 +138,7 @@ pub fn test_memcpy<R: Runtime, F: Float + CubeElement>(
     let expected = [F::new(110.0), F::new(121.0), F::new(132.0), F::new(143.0)];
 
     assert_eq!(actual, expected);
+    assert!(false);
 }
 
 #[allow(missing_docs)]
