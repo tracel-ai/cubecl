@@ -40,6 +40,8 @@ impl<D: Dialect> PipelineOps<D> {
     }
 }
 
+const PER_THREAD: bool = false;
+
 impl<D: Dialect> Display for PipelineOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -50,21 +52,37 @@ impl<D: Dialect> Display for PipelineOps<D> {
             } => {
                 let item = source.item();
                 let size = item.elem().size() * item.vectorization;
-                write!(f, "
-cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
+                if PER_THREAD {
+                    write!(f, "
+                cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
+                                ")
+                } else {
+                    write!(f, "
+cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
                 ")
+                }
             }
             PipelineOps::Init {
                 pipeline,
                 num_stages,
             } => {
-                write!(
-                    f,
-                    "
+                if PER_THREAD {
+                    write!(
+                        f,
+                        "
 cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
 auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
                 "
-                )
+                    )
+                } else {
+                    write!(
+                        f,
+                        "
+__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
+auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
+                "
+                    )
+                }
             }
             PipelineOps::ProducerAcquire { pipeline } => {
                 write!(

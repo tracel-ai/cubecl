@@ -11,9 +11,16 @@ fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let start = UNIT_POS_X * 2u32;
     let end = start + 2u32;
 
+    for i in start..end {
+        lhs_smem[i] = Line::cast_from(8u32);
+        output[i] = Line::cast_from(0u32);
+    }
+
     pipeline.producer_acquire();
     pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
+
+    sync_units();
 
     pipeline.consumer_wait();
     for i in start..end {
