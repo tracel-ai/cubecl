@@ -46,6 +46,9 @@ impl Expression {
                     }
                 }
             }
+            Expr::Lit(literal) if matches!(literal.lit, Lit::Str(_)) => Expression::Verbatim {
+                tokens: literal.to_token_stream(),
+            },
             Expr::Lit(literal) => {
                 let ty = lit_ty(&literal.lit)?;
                 Expression::Literal {
@@ -161,6 +164,7 @@ impl Expression {
                 tokens: quote![#block],
             },
             Expr::Continue(cont) => Expression::Continue(cont.span()),
+            Expr::Return(ret) => Expression::Return(ret.span()),
             Expr::ForLoop(for_loop) => expand_for_loop(for_loop, context)?,
             Expr::Loop(loop_expr) => expand_loop(loop_expr, context)?,
             Expr::If(if_expr) => expand_if(if_expr, context)?,
@@ -198,18 +202,6 @@ impl Expression {
             }
             Expr::Group(group) => Expression::from_expr(*group.expr, context)?,
             Expr::Paren(paren) => Expression::from_expr(*paren.expr, context)?,
-            Expr::Return(ret) => {
-                let span = ret.expr.span();
-                Expression::Return {
-                    expr: ret
-                        .expr
-                        .map(|expr| Expression::from_expr(*expr, context))
-                        .transpose()?
-                        .map(Box::new),
-                    span,
-                    _ty: context.return_type.clone(),
-                }
-            }
             Expr::Array(array) => {
                 let span = array.span();
                 let elements = array

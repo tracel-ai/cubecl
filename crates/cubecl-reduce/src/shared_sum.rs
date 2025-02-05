@@ -2,6 +2,10 @@ use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use cubecl_core::prelude::*;
+
+use crate::ReduceError;
+
 /// Sum all the elements of the input tensor distributed over `cube_count` cubes.
 ///
 /// This is an optimized version for summing large tensors using multiple cubes.
@@ -20,6 +24,7 @@ use cubecl_core::{self as cubecl};
 ///
 /// // Create input and output handles.
 /// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
+/// let output_handle = client.empty(size_of::<F>());
 /// let input = unsafe {
 ///     TensorHandleRef::<R>::from_raw_parts(
 ///         &input_handle,
@@ -28,9 +33,12 @@ use cubecl_core::{self as cubecl};
 ///         size_f32,
 ///     )
 /// };
+/// let output = unsafe {
+///     TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
+/// };
 ///
 /// // Here `R` is a `cubecl::Runtime`.
-/// let result = shared_sum::<R, f32>(&client, input, cube_count);
+/// let result = shared_sum::<R, f32>(&client, input, output, cube_count);
 ///
 /// if result.is_ok() {
 ///        let binding = output_handle.binding();
@@ -42,8 +50,9 @@ use cubecl_core::{self as cubecl};
 pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
+    output: TensorHandleRef<R>,
     cube_count: u32,
-) -> Result<N, MissingAtomicAdd> {
+) -> Result<(), ReduceError> {
     // Check that the client supports atomic addition.
     let atomic_elem = Atomic::<N>::as_elem_native_unchecked();
     if !client
@@ -55,7 +64,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
                 cubecl_core::AtomicFeature::Add,
             ))
     {
-        return Err(MissingAtomicAdd(atomic_elem));
+        return Err(ReduceError::MissingAtomicAdd(N::as_elem_native_unchecked()));
     }
 
     let input_len = input.shape.iter().map(|s| *s as u32).product::<u32>();
@@ -73,19 +82,6 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     let num_lines_per_unit = input_len.div_ceil(num_units * line_size);
     let cube_count = CubeCount::new_1d(cube_count);
 
-    // Generate output tensor.
-    let output_handle = client.create(N::as_bytes(&[N::from_int(0)]));
-    let output_shape = vec![1];
-    let output_stride = vec![1];
-    let output = unsafe {
-        TensorHandleRef::<R>::from_raw_parts(
-            &output_handle,
-            &output_stride,
-            &output_shape,
-            size_of::<N>(),
-        )
-    };
-
     // Launch kernel
     unsafe {
         shared_sum_kernel::launch_unchecked::<N, R>(
@@ -100,12 +96,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
         );
     }
 
-    // Extract sum from output.
-    let binding = output_handle.binding();
-    let bytes = client.read_one(binding);
-    let output_values = N::from_bytes(&bytes);
-
-    Ok(output_values[0])
+    Ok(())
 }
 
 #[cube(launch_unchecked)]
@@ -139,7 +130,7 @@ fn shared_sum_kernel<N: Numeric>(
     let mut sum = N::from_int(0);
     #[unroll]
     for k in 0..line_size {
-        sum[k] += line[k];
+        sum += line[k];
     }
 
     // Add the sum for the current cube to the output.
@@ -169,17 +160,3 @@ fn sum_shared_memory<N: Numeric>(accumulator: &mut SharedMemory<Line<N>>) -> Lin
     }
     accumulator[0]
 }
-
-/// An error returns when we can't launch a shared sum because the atomic
-/// addition is not supported.
-#[derive(Debug)]
-pub struct MissingAtomicAdd(Elem);
-
-impl std::fmt::Display for MissingAtomicAdd {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let elem = self.0;
-        write!(f, "Atomic add not supported by the client for {elem}")
-    }
-}
-
-impl std::error::Error for MissingAtomicAdd {}

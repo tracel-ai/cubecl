@@ -40,7 +40,7 @@ impl Expression {
                 let op = format_ident!("{}", operator.array_op_name());
                 let expand = with_span(
                     *span,
-                    quote![#frontend_path::#op::expand(context, _array, _index, _value)],
+                    quote![#frontend_path::#op::expand(context, _array.into(), _index.into(), _value.into())],
                 );
                 quote! {
                     {
@@ -64,7 +64,7 @@ impl Expression {
                 let right = right.to_tokens(context);
                 let expand = with_span(
                     *span,
-                    quote![#frontend_path::#op::expand(context, _lhs, _rhs)],
+                    quote![#frontend_path::#op::expand(context, _lhs.into(), _rhs.into())],
                 );
                 quote! {
                     {
@@ -88,7 +88,10 @@ impl Expression {
                 let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
                 let op = format_ident!("{}", operator.op_name());
-                let expand = with_span(*span, quote![#frontend_path::#op::expand(context, _inner)]);
+                let expand = with_span(
+                    *span,
+                    quote![#frontend_path::#op::expand(context, _inner.into())],
+                );
                 quote! {
                     {
                         let _inner = #input;
@@ -137,7 +140,7 @@ impl Expression {
                         let _array = #array;
                         let _index = #index;
                         let _value = #right;
-                        #frontend_path::index_assign::expand(context, _array, _index, _value)
+                        #frontend_path::index_assign::expand(context, _array.into(), _index.into(), _value.into())
                     }
                 }
             }
@@ -149,7 +152,7 @@ impl Expression {
                     {
                         let _var = #left;
                         let _value = #right;
-                        #frontend_path::assign::expand(context, _value, _var)
+                        #frontend_path::assign::expand(context, _value.into(), _var.into())
                     }
                 }
             }
@@ -157,7 +160,10 @@ impl Expression {
                 let expr = expr.to_tokens(context);
                 let index = index.to_tokens(context);
                 let index_fn = frontend_type("index");
-                let expand = with_span(*span, quote![#index_fn::expand(context, _array, _index)]);
+                let expand = with_span(
+                    *span,
+                    quote![#index_fn::expand(context, _array.into(), _index.into())],
+                );
                 quote! {
                     {
                         let _array = #expr;
@@ -244,13 +250,10 @@ impl Expression {
                 quote![#path::branch::break_expand(context);]
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
-            Expression::Return { expr, span, .. } => {
-                if expr.is_some() {
-                    error!(*span, "Only void return is supported.")
-                } else {
-                    quote![cubecl::frontend::branch::return_expand(context);]
-                }
-            }
+            Expression::Return(span) => error!(
+                *span,
+                "Return not supported yet. Consider using the terminate!() macro instead."
+            ),
             Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
                 let from = from.to_tokens(context);
@@ -491,6 +494,30 @@ impl Expression {
             Expression::Comment { content } => {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(context, #content)]
+            }
+            Expression::Terminate => {
+                quote![cubecl::frontend::branch::return_expand(context);]
+            }
+            Expression::ExpressionMacro { ident, args } => {
+                let frontend_path = frontend_path();
+                let expand = format_ident!("{}_expand", ident);
+                let args = args
+                    .iter()
+                    .map(|expr| expr.to_tokens(context))
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        let name = format_ident!("_{i}");
+                        quote![let #name = #arg;]
+                    });
+                let arg_uses = (0..args.len()).map(|i| format_ident!("_{i}"));
+                quote! {
+                    {
+                        #(
+                            #args
+                        )*
+                        #frontend_path::#expand!(context, #(#arg_uses),*);
+                    }
+                }
             }
         }
     }

@@ -14,8 +14,8 @@ use super::{
 
 // Transposed tensor's vectorization must be 1
 // Plain tensor's vectorization must equal tile size
-pub(crate) struct TileLoader<F: Float> {
-    _f: PhantomData<F>,
+pub(crate) struct TileLoader<N: Numeric> {
+    _f: PhantomData<N>,
 }
 
 #[derive(CubeType)]
@@ -44,10 +44,10 @@ pub(crate) struct ReadTileInfo {
 }
 
 #[cube]
-impl<F: Float> Loader<F> for TileLoader<F> {
-    fn load_lhs_plain<B: BlockLoader<F>>(
-        lhs: &Tensor<Line<F>>,
-        load_info: LoadInfo<F>,
+impl<N: Numeric> Loader<N> for TileLoader<N> {
+    fn load_lhs_plain<B: BlockLoader<N>>(
+        lhs: &Tensor<Line<N>>,
+        load_info: LoadInfo<N>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
         let dims = load_info.dims;
@@ -66,12 +66,12 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: coordinates.skip_row,
         };
 
-        load_plain::<F, B>(lhs, load_info, load_indices, check_bounds, config);
+        load_plain::<N, B>(lhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_lhs_transposed<B: BlockLoader<F>>(
-        lhs: &Tensor<Line<F>>,
-        load_info: LoadInfo<F>,
+    fn load_lhs_transposed<B: BlockLoader<N>>(
+        lhs: &Tensor<Line<N>>,
+        load_info: LoadInfo<N>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
         let dims = load_info.dims;
@@ -90,12 +90,12 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: load_info.k,
         };
 
-        load_transposed::<F, B>(lhs, load_info, load_indices, check_bounds, config);
+        load_transposed::<N, B>(lhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_rhs_plain<B: BlockLoader<F>>(
-        rhs: &Tensor<Line<F>>,
-        load_info: LoadInfo<F>,
+    fn load_rhs_plain<B: BlockLoader<N>>(
+        rhs: &Tensor<Line<N>>,
+        load_info: LoadInfo<N>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
         let coordinates = load_info.coordinates;
@@ -114,12 +114,12 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: coordinates.skip_col,
         };
 
-        load_plain::<F, B>(rhs, load_info, load_indices, check_bounds, config);
+        load_plain::<N, B>(rhs, load_info, load_indices, check_bounds, config);
     }
 
-    fn load_rhs_transposed<B: BlockLoader<F>>(
-        rhs: &Tensor<Line<F>>,
-        load_info: LoadInfo<F>,
+    fn load_rhs_transposed<B: BlockLoader<N>>(
+        rhs: &Tensor<Line<N>>,
+        load_info: LoadInfo<N>,
         #[comptime] config: CubeTiling2dConfig,
     ) {
         let dims = load_info.dims;
@@ -138,14 +138,14 @@ impl<F: Float> Loader<F> for TileLoader<F> {
             skip_col: load_info.k,
         };
 
-        load_transposed::<F, B>(rhs, load_info, load_indices, check_bounds, config);
+        load_transposed::<N, B>(rhs, load_info, load_indices, check_bounds, config);
     }
 }
 
 #[cube]
-pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
-    tensor: &Tensor<Line<F>>,
-    load_info: LoadInfo<F>,
+pub(crate) fn load_plain<N: Numeric, L: BlockLoader<N>>(
+    tensor: &Tensor<Line<N>>,
+    load_info: LoadInfo<N>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,
     #[comptime] config: CubeTiling2dConfig,
@@ -196,9 +196,9 @@ pub(crate) fn load_plain<F: Float, L: BlockLoader<F>>(
 }
 
 #[cube]
-pub(crate) fn load_transposed<F: Float, L: BlockLoader<F>>(
-    tensor: &Tensor<Line<F>>,
-    load_info: LoadInfo<F>,
+pub(crate) fn load_transposed<N: Numeric, L: BlockLoader<N>>(
+    tensor: &Tensor<Line<N>>,
+    load_info: LoadInfo<N>,
     load_indices: LoadIndices,
     check_bounds: CheckBounds,
     #[comptime] config: CubeTiling2dConfig,

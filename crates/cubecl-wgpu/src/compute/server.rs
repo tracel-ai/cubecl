@@ -27,7 +27,7 @@ use wgpu::ComputePipeline;
 /// Wgpu compute server.
 #[derive(Debug)]
 pub struct WgpuServer<C: WgpuCompiler> {
-    pub(crate) device: Arc<wgpu::Device>,
+    pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     logger: DebugLogger,
     duration_profiled: Option<Duration>,
@@ -42,8 +42,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         compilation_options: C::CompilationOptions,
-        device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
         tasks_max: usize,
     ) -> Self {
         let logger = DebugLogger::default();
@@ -64,7 +64,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         Self {
             compilation_options,
-            device: device.clone(),
+            device,
             pipelines: HashMap::new(),
             logger,
             duration_profiled: None,

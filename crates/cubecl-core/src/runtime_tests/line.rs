@@ -81,7 +81,7 @@ pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime
 pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    for line_size in R::line_size_elem(&F::as_elem(&Default::default())) {
+    for line_size in R::line_size_elem(&F::as_elem_native_unchecked()) {
         let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(

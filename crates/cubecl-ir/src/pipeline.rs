@@ -1,10 +1,13 @@
-use std::fmt::Display;
-use type_hash::TypeHash;
+use crate::TypeHash;
+use core::fmt::Display;
+
+use crate::OperationReflect;
 
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
+#[operation(opcode_name = PipelineOpCode)]
 /// Operations available on a pipeline
 pub enum PipelineOps {
     /// Copy source to destination
@@ -24,7 +27,7 @@ pub enum PipelineOps {
 }
 
 impl Display for PipelineOps {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             PipelineOps::MemCopyAsync {
                 pipeline,

@@ -1,9 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::Rc,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use alloc::{rc::Rc, vec::Vec};
+use core::cell::RefCell;
+
+use hashbrown::HashMap;
+use portable_atomic::{AtomicU32, Ordering};
 
 use super::{Item, Matrix, Variable, VariableKind};
 
@@ -26,7 +25,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 ///
 /// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
     #[cfg_attr(feature = "serde", serde(skip))]
     local_mut_pool: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
@@ -97,13 +96,13 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_pipeline(&self, item: Item, num_steps: u8) -> ExpandElement {
+    pub fn create_pipeline(&self, item: Item, num_stages: u8) -> ExpandElement {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Pipeline {
                 id,
                 item,
-                num_steps,
+                num_stages,
             },
             item,
         );
@@ -111,7 +110,7 @@ impl Allocator {
     }
 
     // Try to return a reusable mutable variable for the given `item` or `None` otherwise.
-    fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
+    pub fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
         // Among the candidates, take a variable if it's only referenced by the pool.
         // Arbitrarily takes the first it finds in reversed order.
         self.local_mut_pool.borrow().get(&item).and_then(|vars| {
@@ -137,8 +136,18 @@ impl Allocator {
     pub fn new_local_index(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::Release)
     }
+
+    pub fn take_variables(&self) -> Vec<Variable> {
+        self.local_mut_pool
+            .borrow_mut()
+            .drain()
+            .flat_map(|it| it.1)
+            .map(|it| *it)
+            .collect()
+    }
 }
 
+use cubecl_macros_internal::TypeHash;
 pub use expand_element::*;
 
 mod expand_element {
@@ -148,7 +157,7 @@ mod expand_element {
     use super::*;
 
     /// Reference to a JIT variable
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, TypeHash)]
     pub enum ExpandElement {
         /// Variable kept in the variable pool.
         Managed(Rc<Variable>),

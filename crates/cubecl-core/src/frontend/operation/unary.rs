@@ -1,9 +1,9 @@
+use cubecl_ir::{Bitwise, Operator};
 use half::{bf16, f16};
 
 use crate::{
     flex32,
-    frontend::CubeContext,
-    ir::{ExpandElement, Operator},
+    ir::{Arithmetic, ExpandElement, Scope},
     prelude::{CubePrimitive, ExpandElementTyped},
     tf32, unexpanded,
 };
@@ -13,24 +13,19 @@ use super::base::{unary_expand, unary_expand_fixed_output};
 pub mod not {
     use super::*;
 
-    pub fn expand(
-        context: &mut CubeContext,
-        x: ExpandElementTyped<bool>,
-    ) -> ExpandElementTyped<bool> {
-        unary_expand(context, x.into(), Operator::Not).into()
+    pub fn expand(scope: &mut Scope, x: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
+        unary_expand(scope, x.into(), Operator::Not).into()
     }
 }
 
 pub mod neg {
-    use crate::prelude::Numeric;
-
     use super::*;
 
-    pub fn expand<N: Numeric>(
-        context: &mut CubeContext,
-        x: ExpandElementTyped<N>,
-    ) -> ExpandElementTyped<N> {
-        unary_expand(context, x.into(), Operator::Neg).into()
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        x: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        unary_expand(scope, x.into(), Arithmetic::Neg).into()
     }
 }
 
@@ -42,8 +37,8 @@ macro_rules! impl_unary_func {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
-                unary_expand(context, x.into(), $operator).into()
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
+                unary_expand(scope, x.into(), $operator).into()
             }
         }
 
@@ -59,11 +54,11 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<Self> {
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item;
                 item.vectorization = $out_vectorization;
-                unary_expand_fixed_output(context, expand_element, item, $operator).into()
+                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
 
@@ -79,11 +74,11 @@ macro_rules! impl_unary_func_fixed_out_ty {
                 unexpanded!()
             }
 
-            fn $method_name_expand(context: &mut CubeContext, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
+            fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
                 let expand_element: ExpandElement = x.into();
                 let mut item = expand_element.item;
-                item.elem = <$out_ty as CubePrimitive>::as_elem(context);
-                unary_expand_fixed_output(context, expand_element, item, $operator).into()
+                item.elem = <$out_ty as CubePrimitive>::as_elem(scope);
+                unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
 
@@ -95,7 +90,7 @@ impl_unary_func!(
     Abs,
     abs,
     __expand_abs,
-    Operator::Abs,
+    Arithmetic::Abs,
     f16,
     bf16,
     flex32,
@@ -115,7 +110,7 @@ impl_unary_func!(
     Exp,
     exp,
     __expand_exp,
-    Operator::Exp,
+    Arithmetic::Exp,
     f16,
     bf16,
     flex32,
@@ -127,7 +122,7 @@ impl_unary_func!(
     Log,
     log,
     __expand_log,
-    Operator::Log,
+    Arithmetic::Log,
     f16,
     bf16,
     flex32,
@@ -139,7 +134,7 @@ impl_unary_func!(
     Log1p,
     log1p,
     __expand_log1p,
-    Operator::Log1p,
+    Arithmetic::Log1p,
     f16,
     bf16,
     flex32,
@@ -151,7 +146,7 @@ impl_unary_func!(
     Cos,
     cos,
     __expand_cos,
-    Operator::Cos,
+    Arithmetic::Cos,
     f16,
     bf16,
     flex32,
@@ -163,7 +158,7 @@ impl_unary_func!(
     Sin,
     sin,
     __expand_sin,
-    Operator::Sin,
+    Arithmetic::Sin,
     f16,
     bf16,
     flex32,
@@ -175,7 +170,7 @@ impl_unary_func!(
     Tanh,
     tanh,
     __expand_tanh,
-    Operator::Tanh,
+    Arithmetic::Tanh,
     f16,
     bf16,
     flex32,
@@ -187,7 +182,7 @@ impl_unary_func!(
     Sqrt,
     sqrt,
     __expand_sqrt,
-    Operator::Sqrt,
+    Arithmetic::Sqrt,
     f16,
     bf16,
     flex32,
@@ -199,7 +194,7 @@ impl_unary_func!(
     Round,
     round,
     __expand_round,
-    Operator::Round,
+    Arithmetic::Round,
     f16,
     bf16,
     flex32,
@@ -211,7 +206,7 @@ impl_unary_func!(
     Floor,
     floor,
     __expand_floor,
-    Operator::Floor,
+    Arithmetic::Floor,
     f16,
     bf16,
     flex32,
@@ -223,7 +218,7 @@ impl_unary_func!(
     Ceil,
     ceil,
     __expand_ceil,
-    Operator::Ceil,
+    Arithmetic::Ceil,
     f16,
     bf16,
     flex32,
@@ -235,7 +230,7 @@ impl_unary_func!(
     Erf,
     erf,
     __expand_erf,
-    Operator::Erf,
+    Arithmetic::Erf,
     f16,
     bf16,
     flex32,
@@ -247,7 +242,7 @@ impl_unary_func!(
     Recip,
     recip,
     __expand_recip,
-    Operator::Recip,
+    Arithmetic::Recip,
     f16,
     bf16,
     flex32,
@@ -259,7 +254,7 @@ impl_unary_func_fixed_out_vectorization!(
     Magnitude,
     magnitude,
     __expand_magnitude,
-    Operator::Magnitude,
+    Arithmetic::Magnitude,
     None,
     f16,
     bf16,
@@ -272,7 +267,7 @@ impl_unary_func!(
     Normalize,
     normalize,
     __expand_normalize,
-    Operator::Normalize,
+    Arithmetic::Normalize,
     f16,
     bf16,
     flex32,
@@ -285,7 +280,7 @@ impl_unary_func_fixed_out_ty!(
     count_ones,
     __expand_count_ones,
     u32,
-    Operator::CountOnes,
+    Bitwise::CountOnes,
     u8,
     i8,
     u16,
@@ -299,7 +294,7 @@ impl_unary_func!(
     ReverseBits,
     reverse_bits,
     __expand_reverse_bits,
-    Operator::ReverseBits,
+    Bitwise::ReverseBits,
     u8,
     i8,
     u16,
@@ -314,7 +309,37 @@ impl_unary_func!(
     BitwiseNot,
     bitwise_not,
     __expand_bitwise_not,
-    Operator::BitwiseNot,
+    Bitwise::BitwiseNot,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);
+impl_unary_func_fixed_out_ty!(
+    LeadingZeros,
+    leading_zeros,
+    __expand_leading_zeros,
+    u32,
+    Bitwise::LeadingZeros,
+    u8,
+    i8,
+    u16,
+    i16,
+    u32,
+    i32,
+    u64,
+    i64
+);
+impl_unary_func_fixed_out_ty!(
+    FindFirstSet,
+    find_first_set,
+    __expand_find_first_set,
+    u32,
+    Bitwise::FindFirstSet,
     u8,
     i8,
     u16,

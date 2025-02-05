@@ -1,17 +1,18 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Scope};
+use cubecl_runtime::debug::DebugLogger;
 
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
 use crate::KernelSettings;
-use crate::{frontend::CubeContext, InputInfo, KernelExpansion, KernelIntegrator, OutputInfo};
+use crate::{InputInfo, KernelExpansion, KernelIntegrator, OutputInfo};
 use std::collections::HashMap;
 
 use super::Visibility;
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {
-    /// Cube [context](CubeContext).
-    pub context: CubeContext,
+    /// Cube [scope](Scope).
+    pub context: Scope,
     inputs: Vec<InputInfo>,
     outputs: Vec<OutputInfo>,
     indices: HashMap<Elem, usize>,
@@ -110,7 +111,7 @@ impl KernelBuilder {
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(self, settings: KernelSettings) -> KernelDefinition {
         KernelIntegrator::new(KernelExpansion {
-            scope: self.context.into_scope(),
+            scope: self.context,
             inputs: self.inputs,
             outputs: self.outputs,
         })
@@ -119,7 +120,7 @@ impl KernelBuilder {
 
     pub fn new() -> Self {
         Self {
-            context: CubeContext::root(),
+            context: Scope::root(DebugLogger::default().is_activated()),
             inputs: Vec::new(),
             outputs: Vec::new(),
             indices: HashMap::new(),

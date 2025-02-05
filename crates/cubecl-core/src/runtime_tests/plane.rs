@@ -15,6 +15,22 @@ pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {
 }
 
 #[cube(launch)]
+pub fn kernel_inclusive_sum<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_inclusive_sum(val);
+
+    output[UNIT_POS] = val2;
+}
+
+#[cube(launch)]
+pub fn kernel_exclusive_sum<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_exclusive_sum(val);
+
+    output[UNIT_POS] = val2;
+}
+
+#[cube(launch)]
 pub fn kernel_prod<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS];
     let val2 = plane_prod(val);
@@ -22,6 +38,22 @@ pub fn kernel_prod<F: Float>(output: &mut Tensor<F>) {
     if UNIT_POS == 0 {
         output[0] = val2;
     }
+}
+
+#[cube(launch)]
+pub fn kernel_inclusive_prod<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_inclusive_prod(val);
+
+    output[UNIT_POS] = val2;
+}
+
+#[cube(launch)]
+pub fn kernel_exclusive_prod<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_exclusive_prod(val);
+
+    output[UNIT_POS] = val2;
 }
 
 #[cube(launch)]
@@ -76,6 +108,15 @@ pub fn kernel_broadcast<F: Float>(output: &mut Tensor<F>) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_ballot(output: &mut Tensor<Line<u32>>) {
+    let val2 = plane_ballot(UNIT_POS < 8);
+
+    if UNIT_POS == 0 {
+        output[0] = Line::cast_from(val2);
+    }
+}
+
 pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -104,6 +145,90 @@ pub fn test_plane_sum<
         client.clone(),
         |cube_count, handle| {
             kernel_sum::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_inclusive_sum<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = input.clone();
+
+    for k in 1..plane_size as usize {
+        let offs_out = k * vectorization as usize;
+        for k_1 in 0..k {
+            let offs_in = k_1 * vectorization as usize;
+            for v in 0..vectorization as usize {
+                expected[v + offs_out] += input[v + offs_in];
+            }
+        }
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_inclusive_sum::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_exclusive_sum<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = vec![0.0; input.len()];
+
+    for k in 1..plane_size as usize {
+        let offs_out = k * vectorization as usize;
+        for k_1 in 0..k {
+            let offs_in = k_1 * vectorization as usize;
+            for v in 0..vectorization as usize {
+                expected[v + offs_out] += input[v + offs_in];
+            }
+        }
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_exclusive_sum::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
                 CubeDim::new(plane_size, 1, 1),
@@ -146,6 +271,98 @@ pub fn test_plane_prod<
         client.clone(),
         |cube_count, handle| {
             kernel_prod::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_inclusive_prod<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| match x % 3 {
+            0 => 0.5,
+            1 => 1.25,
+            2 => 1.75,
+            _ => unreachable!(),
+        }) // keep the values relatively close to 1 to avoid overflow.
+        .collect();
+    let mut expected = input.clone();
+
+    for k in 1..plane_size as usize {
+        let offs_out = k * vectorization as usize;
+        for k_1 in 0..k {
+            let offs_in = k_1 * vectorization as usize;
+            for v in 0..vectorization as usize {
+                expected[v + offs_out] *= input[v + offs_in];
+            }
+        }
+    }
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_inclusive_prod::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_exclusive_prod<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| match x % 3 {
+            0 => 0.5,
+            1 => 1.25,
+            2 => 1.75,
+            _ => unreachable!(),
+        }) // keep the values relatively close to 1 to avoid overflow.
+        .collect();
+    let mut expected = vec![1.0; input.len()];
+
+    for k in 1..plane_size as usize {
+        let offs_out = k * vectorization as usize;
+        for k_1 in 0..k {
+            let offs_in = k_1 * vectorization as usize;
+            for v in 0..vectorization as usize {
+                expected[v + offs_out] *= input[v + offs_in];
+            }
+        }
+    }
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_exclusive_prod::launch::<F, TestRuntime>(
                 &client,
                 cube_count,
                 CubeDim::new(plane_size, 1, 1),
@@ -315,6 +532,32 @@ pub fn test_plane_any<
     );
 }
 
+pub fn test_plane_ballot<TestRuntime: Runtime>(
+    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+) {
+    if !client.properties().feature_enabled(Feature::Plane) {
+        // Can't execute the test.
+        return;
+    }
+
+    let handle = client.empty(size_of::<u32>() * 4);
+    let (shape, strides) = ([1], [1]);
+
+    unsafe {
+        kernel_ballot::launch::<TestRuntime>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(32, 1, 1),
+            TensorArg::from_raw_parts::<u32>(&handle, &strides, &shape, 4),
+        );
+    }
+
+    let expected = [0b1111_1111, 0, 0, 0];
+    let actual = client.read_one(handle.binding());
+
+    assert_eq!(u32::from_bytes(&actual), &expected);
+}
+
 pub fn test_plane_elect<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -439,6 +682,46 @@ macro_rules! testgen_plane {
             impl_test_plane_sum(4);
         }
 
+        fn impl_test_plane_inclusive_sum(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_inclusive_sum::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_inclusive_sum_vec1() {
+            impl_test_plane_inclusive_sum(1);
+        }
+        #[test]
+        fn test_plane_inclusive_sum_vec2() {
+            impl_test_plane_inclusive_sum(2);
+        }
+        #[test]
+        fn test_plane_inclusive_sum_vec4() {
+            impl_test_plane_inclusive_sum(4);
+        }
+
+        fn impl_test_plane_exclusive_sum(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_exclusive_sum::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_exclusive_sum_vec1() {
+            impl_test_plane_exclusive_sum(1);
+        }
+        #[test]
+        fn test_plane_exclusive_sum_vec2() {
+            impl_test_plane_exclusive_sum(2);
+        }
+        #[test]
+        fn test_plane_exclusive_sum_vec4() {
+            impl_test_plane_exclusive_sum(4);
+        }
+
         fn impl_test_plane_prod(vectorization: u8) {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::plane::test_plane_prod::<TestRuntime, FloatType>(
@@ -457,6 +740,46 @@ macro_rules! testgen_plane {
         #[test]
         fn test_plane_prod_vec4() {
             impl_test_plane_prod(4);
+        }
+
+        fn impl_test_plane_inclusive_prod(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_inclusive_prod::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_inclusive_prod_vec1() {
+            impl_test_plane_inclusive_prod(1);
+        }
+        #[test]
+        fn test_plane_inclusive_prod_vec2() {
+            impl_test_plane_inclusive_prod(2);
+        }
+        #[test]
+        fn test_plane_inclusive_prod_vec4() {
+            impl_test_plane_inclusive_prod(4);
+        }
+
+        fn impl_test_plane_exclusive_prod(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_exclusive_prod::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_exclusive_prod_vec1() {
+            impl_test_plane_exclusive_prod(1);
+        }
+        #[test]
+        fn test_plane_exclusive_prod_vec2() {
+            impl_test_plane_exclusive_prod(2);
+        }
+        #[test]
+        fn test_plane_exclusive_prod_vec4() {
+            impl_test_plane_exclusive_prod(4);
         }
 
         fn impl_test_plane_max(vectorization: u8) {
@@ -580,6 +903,12 @@ macro_rules! testgen_plane {
         #[test]
         fn test_plane_broadcast_vec4() {
             impl_test_plane_broadcast(4);
+        }
+
+        #[test]
+        fn test_plane_ballot() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_ballot::<TestRuntime>(client.clone());
         }
     };
 }

@@ -149,8 +149,8 @@ where
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
         (
-            TMM::init_lhs(config.to_tmm_config()),
-            TMM::init_rhs(config.to_tmm_config()),
+            TMM::allocate_lhs(config.to_tmm_config()),
+            TMM::allocate_rhs(config.to_tmm_config()),
         )
     }
 
@@ -159,7 +159,7 @@ where
 
         #[unroll]
         for _ in 0..config.num_stage.n {
-            accumulators.push(TMM::init_accumulator(config.to_tmm_config()));
+            accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
         accumulators

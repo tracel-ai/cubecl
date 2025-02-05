@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use cubecl_ir::{ConstantScalarValue, Instruction, Operation, VariableKind};
+use cubecl_ir::{ConstantScalarValue, Instruction, Operation, OperationReflect, VariableKind};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
@@ -28,6 +28,27 @@ impl OptimizerPass for EliminateUnusedVariables {
 fn search_loop(opt: &mut Optimizer) -> bool {
     for node in opt.program.node_indices().collect::<Vec<_>>() {
         let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
+
+        let phi = opt.block(node).phi_nodes.borrow().clone();
+        let filtered_phi = phi
+            .into_iter()
+            .filter(|phi| {
+                let used = AtomicBool::new(false);
+                opt.visit_all(
+                    |_, var| {
+                        if *var == phi.out {
+                            used.store(true, Ordering::Release);
+                        }
+                    },
+                    visit_noop,
+                );
+                used.load(Ordering::Acquire)
+            })
+            .collect::<Vec<_>>();
+        if opt.block(node).phi_nodes.borrow().len() != filtered_phi.len() {
+            *opt.block_mut(node).phi_nodes.borrow_mut() = filtered_phi;
+            return true;
+        }
 
         for idx in ops {
             let mut op = opt.program[node].ops.borrow()[idx].clone();

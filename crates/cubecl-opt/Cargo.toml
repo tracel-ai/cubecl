@@ -7,7 +7,7 @@ keywords = ["gpu", "compiler"]
 license.workspace = true
 name = "cubecl-opt"
 readme.workspace = true
-repository = "https://github.com/tracel-ai/cubecl/tree/main/cubecl-opt"
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-opt"
 version.workspace = true
 
 [features]
@@ -22,7 +22,7 @@ float-ord = "0.3"
 log = "0.4"
 num = "0.4"
 petgraph = { version = "0.6" }
-smallvec = { version = "1", features = ["union", "const_generics"] }
+smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
 

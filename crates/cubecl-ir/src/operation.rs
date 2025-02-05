@@ -1,11 +1,17 @@
-use std::fmt::Display;
+use core::fmt::Display;
 
-use super::{
-    Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Scope, Select, Synchronization,
-    Variable,
+use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
+use crate::TypeHash;
+use crate::{
+    comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
+    OperationReflect, Operator,
 };
-use crate::{cpa, AtomicOp, Elem, UIntKind};
-use type_hash::TypeHash;
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use derive_more::derive::From;
 
 /// All operations that can be used in a GPU compute shader.
 ///
@@ -15,19 +21,37 @@ use type_hash::TypeHash;
 /// Therefore, during tracing, only operators can be registered.
 ///
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, From, OperationReflect)]
+#[operation(opcode_name = OpCode)]
 #[allow(dead_code, missing_docs, clippy::large_enum_variant)] // Some variants might not be used with different flags
 pub enum Operation {
+    #[operation(pure)]
+    #[from(ignore)]
     Copy(Variable),
+    #[operation(nested)]
+    Arithmetic(Arithmetic),
+    #[operation(nested)]
+    Comparison(Comparison),
+    #[operation(nested)]
+    Bitwise(Bitwise),
+    #[operation(nested)]
     Operator(Operator),
+    #[operation(nested)]
     Atomic(AtomicOp),
+    #[operation(nested)]
     Metadata(Metadata),
+    #[operation(nested)]
     Branch(Branch),
+    #[operation(nested)]
     Synchronization(Synchronization),
+    #[operation(nested)]
     Plane(Plane),
+    #[operation(nested)]
     CoopMma(CoopMma),
+    #[operation(nested)]
     Pipeline(PipelineOps),
     /// Non-semantic instructions (i.e. comments, debug info)
+    #[operation(nested)]
     NonSemantic(NonSemantic),
 }
 
@@ -56,30 +80,8 @@ impl Instruction {
     }
 }
 
-impl Operation {
-    /// Whether this operation is pure, aka has no side effects. Pure operations can be removed
-    /// if their output is not needed, impure operations must be kept since their execution can
-    /// affect things down the line. e.g. atomics.
-    ///
-    /// Operations that operate across multiple units are always considered impure.
-    pub fn is_pure(&self) -> bool {
-        match self {
-            Operation::Copy(_) => true,
-            Operation::Operator(_) => true,
-            Operation::Atomic(_) => false,
-            Operation::Metadata(_) => true,
-            Operation::Branch(_) => false,
-            Operation::Synchronization(_) => false,
-            Operation::Plane(_) => false,
-            Operation::CoopMma(_) => false,
-            Operation::NonSemantic(_) => false,
-            Operation::Pipeline(_) => false,
-        }
-    }
-}
-
 impl Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.operation {
             Operation::Operator(Operator::CopyMemory(op)) => write!(
                 f,
@@ -122,8 +124,11 @@ impl Display for Instruction {
 }
 
 impl Display for Operation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
+            Operation::Comparison(comparison) => write!(f, "{comparison}"),
+            Operation::Bitwise(bitwise) => write!(f, "{bitwise}"),
             Operation::Operator(operator) => write!(f, "{operator}"),
             Operation::Atomic(atomic) => write!(f, "{atomic}"),
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
@@ -131,7 +136,7 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{variable}"),
+            Operation::Copy(variable) => write!(f, "{}", variable),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
         }
@@ -151,185 +156,8 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
     }
 }
 
-/// All operators that can be used in a GPU compute shader.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
-pub enum Operator {
-    Add(BinaryOperator),
-    Fma(FmaOperator),
-    Sub(BinaryOperator),
-    Mul(BinaryOperator),
-    Div(BinaryOperator),
-    Abs(UnaryOperator),
-    Exp(UnaryOperator),
-    Log(UnaryOperator),
-    Log1p(UnaryOperator),
-    Cos(UnaryOperator),
-    Sin(UnaryOperator),
-    Tanh(UnaryOperator),
-    Powf(BinaryOperator),
-    Sqrt(UnaryOperator),
-    Round(UnaryOperator),
-    Floor(UnaryOperator),
-    Ceil(UnaryOperator),
-    Erf(UnaryOperator),
-    Recip(UnaryOperator),
-    Equal(BinaryOperator),
-    NotEqual(BinaryOperator),
-    Lower(BinaryOperator),
-    Clamp(ClampOperator),
-    Greater(BinaryOperator),
-    LowerEqual(BinaryOperator),
-    GreaterEqual(BinaryOperator),
-    Cast(UnaryOperator),
-    Modulo(BinaryOperator),
-    Index(BinaryOperator),
-    CopyMemory(CopyMemoryOperator),
-    CopyMemoryBulk(CopyMemoryBulkOperator),
-    Slice(SliceOperator),
-    UncheckedIndex(BinaryOperator),
-    IndexAssign(BinaryOperator),
-    InitLine(LineInitOperator),
-    UncheckedIndexAssign(BinaryOperator),
-    And(BinaryOperator),
-    Or(BinaryOperator),
-    Not(UnaryOperator),
-    Neg(UnaryOperator),
-    Max(BinaryOperator),
-    Min(BinaryOperator),
-    BitwiseAnd(BinaryOperator),
-    BitwiseOr(BinaryOperator),
-    BitwiseXor(BinaryOperator),
-    ShiftLeft(BinaryOperator),
-    ShiftRight(BinaryOperator),
-    CountOnes(UnaryOperator),
-    ReverseBits(UnaryOperator),
-    BitwiseNot(UnaryOperator),
-    Remainder(BinaryOperator),
-    Bitcast(UnaryOperator),
-    Magnitude(UnaryOperator),
-    Normalize(UnaryOperator),
-    Dot(BinaryOperator),
-    // A select statement/ternary
-    Select(Select),
-}
-
-impl Display for Operator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Operator::Add(op) => write!(f, "{} + {}", op.lhs, op.rhs),
-            Operator::Fma(op) => write!(f, "{} * {} + {}", op.a, op.b, op.c),
-            Operator::Sub(op) => write!(f, "{} - {}", op.lhs, op.rhs),
-            Operator::Mul(op) => write!(f, "{} * {}", op.lhs, op.rhs),
-            Operator::Div(op) => write!(f, "{} / {}", op.lhs, op.rhs),
-            Operator::Abs(op) => write!(f, "{}.abs()", op.input),
-            Operator::Exp(op) => write!(f, "{}.exp()", op.input),
-            Operator::Log(op) => write!(f, "{}.log()", op.input),
-            Operator::Log1p(op) => write!(f, "{}.log_1p()", op.input),
-            Operator::Cos(op) => write!(f, "{}.cos()", op.input),
-            Operator::Sin(op) => write!(f, "{}.sin()", op.input),
-            Operator::Tanh(op) => write!(f, "{}.tanh()", op.input),
-            Operator::Powf(op) => write!(f, "{}.pow({})", op.lhs, op.rhs),
-            Operator::Sqrt(op) => write!(f, "{}.sqrt()", op.input),
-            Operator::Round(op) => write!(f, "{}.round()", op.input),
-            Operator::Floor(op) => write!(f, "{}.floor()", op.input),
-            Operator::Ceil(op) => write!(f, "{}.ceil()", op.input),
-            Operator::Erf(op) => write!(f, "{}.erf()", op.input),
-            Operator::Recip(op) => write!(f, "{}.recip()", op.input),
-            Operator::Equal(op) => write!(f, "{} == {}", op.lhs, op.rhs),
-            Operator::NotEqual(op) => write!(f, "{} != {}", op.lhs, op.rhs),
-            Operator::Lower(op) => write!(f, "{} < {}", op.lhs, op.rhs),
-            Operator::Clamp(op) => {
-                write!(f, "{}.clamp({}, {})", op.input, op.min_value, op.max_value)
-            }
-            Operator::Greater(op) => write!(f, "{} > {}", op.lhs, op.rhs),
-            Operator::LowerEqual(op) => write!(f, "{} <= {}", op.lhs, op.rhs),
-            Operator::GreaterEqual(op) => write!(f, "{} >= {}", op.lhs, op.rhs),
-            Operator::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
-            Operator::Index(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
-            Operator::CopyMemory(op) => {
-                write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
-            }
-            Operator::CopyMemoryBulk(op) => write!(
-                f,
-                "memcpy([{}], {}[{}], {})",
-                op.input, op.in_index, op.out_index, op.len
-            ),
-            Operator::Slice(op) => write!(f, "{}[{}..{}]", op.input, op.start, op.end),
-            Operator::UncheckedIndex(op) => {
-                write!(f, "unchecked {}[{}]", op.lhs, op.rhs)
-            }
-            Operator::IndexAssign(op) => write!(f, "[{}] = {}", op.lhs, op.rhs),
-            Operator::UncheckedIndexAssign(op) => {
-                write!(f, "unchecked [{}] = {}", op.lhs, op.rhs)
-            }
-            Operator::And(op) => write!(f, "{} && {}", op.lhs, op.rhs),
-            Operator::Or(op) => write!(f, "{} || {}", op.lhs, op.rhs),
-            Operator::Not(op) => write!(f, "!{}", op.input),
-            Operator::Neg(op) => write!(f, "-{}", op.input),
-            Operator::Max(op) => write!(f, "{}.max({})", op.lhs, op.rhs),
-            Operator::Min(op) => write!(f, "{}.min({})", op.lhs, op.rhs),
-            Operator::BitwiseAnd(op) => write!(f, "{} & {}", op.lhs, op.rhs),
-            Operator::BitwiseOr(op) => write!(f, "{} | {}", op.lhs, op.rhs),
-            Operator::BitwiseXor(op) => write!(f, "{} ^ {}", op.lhs, op.rhs),
-            Operator::CountOnes(op) => write!(f, "{}.count_bits()", op.input),
-            Operator::ReverseBits(op) => write!(f, "{}.reverse_bits()", op.input),
-            Operator::ShiftLeft(op) => write!(f, "{} << {}", op.lhs, op.rhs),
-            Operator::ShiftRight(op) => write!(f, "{} >> {}", op.lhs, op.rhs),
-            Operator::BitwiseNot(op) => write!(f, "!{}", op.input),
-            Operator::Remainder(op) => write!(f, "{} rem {}", op.lhs, op.rhs),
-            Operator::Magnitude(op) => write!(f, "{}.length()", op.input),
-            Operator::Normalize(op) => write!(f, "{}.normalize()", op.input),
-            Operator::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
-            Operator::InitLine(init) => {
-                let inits = init
-                    .inputs
-                    .iter()
-                    .map(|input| format!("{input}"))
-                    .collect::<Vec<_>>();
-                write!(f, "vec({})", inits.join(", "))
-            }
-            Operator::Select(op) => {
-                write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
-            }
-            Operator::Cast(op) => write!(f, "cast({})", op.input),
-            Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
-        }
-    }
-}
-
-/// All metadata that can be accessed in a shader.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub enum Metadata {
-    /// The rank of an array.
-    Rank { var: Variable },
-    /// The stride of an array at the given dimension.
-    Stride { dim: Variable, var: Variable },
-    /// The shape of an array at the given dimension.
-    Shape { dim: Variable, var: Variable },
-    /// The length of an array.
-    Length { var: Variable },
-    /// The length of an array's underlying buffer.
-    BufferLength { var: Variable },
-}
-
-impl Display for Metadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Metadata::Rank { var } => write!(f, "rank({})", var),
-            Metadata::Stride { dim, var } => write!(f, "{}.strides[{}]", var, dim),
-            Metadata::Shape { dim, var } => write!(f, "{}.shape[{}]", var, dim),
-            Metadata::Length { var } => write!(f, "{}.len()", var),
-            Metadata::BufferLength { var } => write!(f, "buffer_len({})", var),
-        }
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct BinaryOperator {
     pub lhs: Variable,
@@ -337,117 +165,10 @@ pub struct BinaryOperator {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct UnaryOperator {
     pub input: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct LineInitOperator {
-    pub inputs: Vec<Variable>,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct CopyMemoryOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct CopyMemoryBulkOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
-    pub len: u32,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct ClampOperator {
-    pub input: Variable,
-    pub min_value: Variable,
-    pub max_value: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct SliceOperator {
-    pub input: Variable,
-    pub start: Variable,
-    pub end: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct CompareAndSwapOperator {
-    pub input: Variable,
-    pub cmp: Variable,
-    pub val: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct ReadGlobalOperator {
-    pub variable: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct ReadGlobalWithLayoutOperator {
-    pub variable: Variable,
-    pub tensor_read_pos: usize,
-    pub tensor_layout_pos: usize,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct FmaOperator {
-    pub a: Variable,
-    pub b: Variable,
-    pub c: Variable,
-}
-
-#[allow(missing_docs)]
-pub fn expand_checked_index_assign(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    let array_len = scope.create_local(Item::new(Elem::UInt(UIntKind::U32)));
-    let inside_bound = scope.create_local(Item::new(Elem::Bool));
-
-    if out.has_buffer_length() {
-        cpa!(scope, array_len = buffer_len(out));
-    } else {
-        cpa!(scope, array_len = len(out));
-    }
-
-    cpa!(scope, inside_bound = lhs < array_len);
-    cpa!(scope, if(inside_bound).then(|scope| {
-        cpa!(scope, unchecked(out[lhs]) = rhs);
-    }));
-}
-
-impl From<Operator> for Operation {
-    fn from(val: Operator) -> Self {
-        Operation::Operator(val)
-    }
-}
-
-impl From<Branch> for Operation {
-    fn from(value: Branch) -> Self {
-        Self::Branch(value)
-    }
 }
 
 impl From<Branch> for Instruction {
@@ -459,30 +180,12 @@ impl From<Branch> for Instruction {
     }
 }
 
-impl From<Synchronization> for Operation {
-    fn from(value: Synchronization) -> Self {
-        Self::Synchronization(value)
-    }
-}
-
 impl From<Synchronization> for Instruction {
     fn from(value: Synchronization) -> Self {
         Instruction {
             out: None,
             operation: value.into(),
         }
-    }
-}
-
-impl From<Metadata> for Operation {
-    fn from(val: Metadata) -> Self {
-        Operation::Metadata(val)
-    }
-}
-
-impl From<NonSemantic> for Operation {
-    fn from(val: NonSemantic) -> Self {
-        Operation::NonSemantic(val)
     }
 }
 

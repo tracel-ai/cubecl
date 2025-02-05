@@ -8,18 +8,18 @@ pub(crate) const TILE_SIZE: usize = 4;
 
 #[cube(launch_unchecked)]
 #[allow(unused_mut)]
-pub fn tiling2d_cube_kernel<F: Float>(
-    lhs: &Tensor<Line<F>>,
-    rhs: &Tensor<Line<F>>,
-    out: &mut Tensor<Line<F>>,
+pub fn tiling2d_cube_kernel<N: Numeric>(
+    lhs: &Tensor<Line<N>>,
+    rhs: &Tensor<Line<N>>,
+    out: &mut Tensor<Line<N>>,
     #[comptime] config: CubeTiling2dConfig,
 ) {
-    let dims = get_dims::<F>(lhs, rhs);
+    let dims = get_dims::<N>(lhs, rhs);
     let coordinates = calculate_coordinates(CUBE_POS_X, CUBE_POS_Y, UNIT_POS, config);
-    let offsets = calculate_batch_offsets::<F>(lhs, rhs, out, CUBE_POS_Z);
-    let shared_memories = make_shared_memories::<F>(config);
+    let offsets = calculate_batch_offsets::<N>(lhs, rhs, out, CUBE_POS_Z);
+    let shared_memories = make_shared_memories::<N>(config);
 
-    block_loop::<F>(
+    block_loop::<N>(
         lhs,
         rhs,
         out,
@@ -41,9 +41,9 @@ pub(crate) struct Dimensions {
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub(crate) struct SharedMemories<F: Float> {
-    pub lhs: SharedMemory<Line<F>>,
-    pub rhs: SharedMemory<Line<F>>,
+pub(crate) struct SharedMemories<N: Numeric> {
+    pub lhs: SharedMemory<Line<N>>,
+    pub rhs: SharedMemory<Line<N>>,
 }
 
 #[derive(CubeType, Copy, Clone)]
@@ -64,7 +64,7 @@ pub(crate) struct Coordinates {
 }
 
 #[cube]
-fn get_dims<F: Float>(lhs: &Tensor<Line<F>>, rhs: &Tensor<Line<F>>) -> Dimensions {
+fn get_dims<N: Numeric>(lhs: &Tensor<Line<N>>, rhs: &Tensor<Line<N>>) -> Dimensions {
     let rank = lhs.rank();
     let first_dim = rank - 2;
     let second_dim = rank - 1;
@@ -106,10 +106,10 @@ fn calculate_coordinates(
 
 #[cube]
 #[allow(unused_mut)]
-fn calculate_batch_offsets<F: Float>(
-    lhs: &Tensor<Line<F>>,
-    rhs: &Tensor<Line<F>>,
-    out: &Tensor<Line<F>>,
+fn calculate_batch_offsets<N: Numeric>(
+    lhs: &Tensor<Line<N>>,
+    rhs: &Tensor<Line<N>>,
+    out: &Tensor<Line<N>>,
     batch_number: u32,
 ) -> BatchOffsets {
     let rank = out.rank();
@@ -137,14 +137,14 @@ fn calculate_batch_offsets<F: Float>(
 }
 
 #[cube]
-fn make_shared_memories<F: Float>(#[comptime] config: CubeTiling2dConfig) -> SharedMemories<F> {
+fn make_shared_memories<N: Numeric>(#[comptime] config: CubeTiling2dConfig) -> SharedMemories<N> {
     let tile_size = config.tile_size;
     let block_size_m = config.block_size_m;
     let block_size_k = config.block_size_k;
     let block_size_n = config.block_size_n;
 
-    let lhs = SharedMemory::<F>::new_lined(block_size_k * block_size_m / tile_size, tile_size);
-    let rhs = SharedMemory::<F>::new_lined(block_size_k * block_size_n / tile_size, tile_size);
+    let lhs = SharedMemory::<N>::new_lined(block_size_k * block_size_m / tile_size, tile_size);
+    let rhs = SharedMemory::<N>::new_lined(block_size_k * block_size_n / tile_size, tile_size);
 
-    SharedMemories::<F> { lhs, rhs }
+    SharedMemories::<N> { lhs, rhs }
 }

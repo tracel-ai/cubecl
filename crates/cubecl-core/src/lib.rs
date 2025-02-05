@@ -7,7 +7,7 @@ extern crate derive_new;
 pub mod frontend;
 
 /// Some future utilities that work across environments.
-pub use cubecl_common::future;
+pub use cubecl_common::{future, PLANE_DIM_APPROX};
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;
@@ -33,7 +33,9 @@ pub use cubecl_runtime::memory_management::MemoryUsage;
 use crate::compute::KernelDefinition;
 use frontend::LaunchArg;
 
+pub use cubecl_common::ExecutionMode;
 pub use cubecl_common::{flex32, tf32};
+
 pub use prelude::CubeCount;
 pub use prelude::CubeDim;
 

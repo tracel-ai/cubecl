@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantScalarValue, Operation, Variable, VariableKind},
-    prelude::{init_expand, CubeContext, KernelBuilder, KernelLauncher},
+    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
+    prelude::{init_expand, KernelBuilder, KernelLauncher},
     Runtime,
 };
 use cubecl_common::{flex32, tf32};
@@ -26,8 +26,8 @@ pub trait CubeType {
     type ExpandType: Clone + Init;
 
     /// Wrapper around the init method, necessary to type inference.
-    fn init(context: &mut CubeContext, expand: Self::ExpandType) -> Self::ExpandType {
-        expand.init(context)
+    fn init(scope: &mut Scope, expand: Self::ExpandType) -> Self::ExpandType {
+        expand.init(scope)
     }
 }
 
@@ -40,16 +40,16 @@ pub trait IntoRuntime: CubeType + Sized {
         self
     }
 
-    fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType;
+    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType;
 }
 
 /// Trait to be implemented by [cube types](CubeType) implementations.
 pub trait Init: Sized {
-    /// Initialize a type within a [context](CubeContext).
+    /// Initialize a type within a [scope](Scope).
     ///
     /// You can return the same value when the variable is a non-mutable data structure or
     /// if the type can not be deeply cloned/copied.
-    fn init(self, context: &mut CubeContext) -> Self;
+    fn init(self, scope: &mut Scope) -> Self;
 }
 
 /// Argument used during the compilation of kernels.
@@ -144,7 +144,7 @@ impl CubeType for () {
 }
 
 impl Init for () {
-    fn init(self, _context: &mut CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         self
     }
 }
@@ -154,7 +154,7 @@ impl<T: Clone> CubeType for PhantomData<T> {
 }
 
 impl<T: Clone> IntoRuntime for PhantomData<T> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {}
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {}
 }
 
 /// Defines the argument settings used to launch a kernel.
@@ -209,10 +209,10 @@ macro_rules! tuple_init {
     ($($P:ident),*) => {
         impl<$($P: Init),*> Init for ($($P,)*) {
             #[allow(non_snake_case)]
-            fn init(self, context: &mut CubeContext) -> Self {
+            fn init(self, scope: &mut Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
-                    $P.init(context),
+                    $P.init(scope),
                 )*)
             }
         }
@@ -222,10 +222,10 @@ macro_rules! tuple_runtime {
     ($($P:ident),*) => {
         impl<$($P: IntoRuntime),*> IntoRuntime for ($($P,)*) {
             #[allow(non_snake_case)]
-            fn __expand_runtime_method(self, context: &mut CubeContext) -> Self::ExpandType {
+            fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
                 let ($($P,)*) = self;
                 ($(
-                    $P.__expand_runtime_method(context),
+                    $P.__expand_runtime_method(scope),
                 )*)
             }
         }
@@ -254,18 +254,18 @@ tuple_runtime!(P1, P2, P3, P4, P5);
 tuple_runtime!(P1, P2, P3, P4, P5, P6);
 
 pub trait ExpandElementBaseInit: CubeType {
-    fn init_elem(context: &mut CubeContext, elem: ExpandElement) -> ExpandElement;
+    fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
 }
 
 impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
-    fn init(self, context: &mut CubeContext) -> Self {
-        <T as ExpandElementBaseInit>::init_elem(context, self.into()).into()
+    fn init(self, scope: &mut Scope) -> Self {
+        <T as ExpandElementBaseInit>::init_elem(scope, self.into()).into()
     }
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
     // Expanded version of vectorization factor.
-    pub fn __expand_vectorization_factor_method(self, _context: &mut CubeContext) -> u32 {
+    pub fn __expand_vectorization_factor_method(self, _scope: &mut Scope) -> u32 {
         self.expand
             .item
             .vectorization
@@ -300,9 +300,9 @@ impl<T: CubeType> From<ExpandElementTyped<T>> for ExpandElement {
 
 impl<T: CubePrimitive> ExpandElementTyped<T> {
     /// Create an [ExpandElementTyped] from a value that is normally a literal.
-    pub fn from_lit<L: Into<Variable>>(context: &CubeContext, lit: L) -> Self {
+    pub fn from_lit<L: Into<Variable>>(scope: &Scope, lit: L) -> Self {
         let variable: Variable = lit.into();
-        let variable = T::as_elem(context).from_constant(variable);
+        let variable = T::as_elem(scope).from_constant(variable);
 
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
@@ -317,7 +317,7 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
 }
 
 pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
-    context: &mut CubeContext,
+    scope: &mut Scope,
     element: E,
 ) -> ExpandElement {
     let elem = element.into();
@@ -327,7 +327,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         return elem;
     }
 
-    let mut init = |elem: ExpandElement| init_expand(context, elem, Operation::Copy);
+    let mut init = |elem: ExpandElement| init_expand(scope, elem, Operation::Copy);
 
     match elem.kind {
         VariableKind::GlobalScalar { .. } => init(elem),
@@ -351,14 +351,14 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
 }
 
 impl Init for ExpandElement {
-    fn init(self, context: &mut CubeContext) -> Self {
-        init_expand_element(context, self)
+    fn init(self, scope: &mut Scope) -> Self {
+        init_expand_element(scope, self)
     }
 }
 
 impl<T: Init> Init for Option<T> {
-    fn init(self, context: &mut CubeContext) -> Self {
-        self.map(|o| Init::init(o, context))
+    fn init(self, scope: &mut Scope) -> Self {
+        self.map(|o| Init::init(o, scope))
     }
 }
 
@@ -371,16 +371,18 @@ impl<T: CubeType> CubeType for &mut Vec<T> {
 }
 
 impl<T: Init> Init for Vec<T> {
-    fn init(self, context: &mut CubeContext) -> Self {
-        self.into_iter().map(|e| e.init(context)).collect()
+    fn init(self, scope: &mut Scope) -> Self {
+        self.into_iter().map(|e| e.init(scope)).collect()
     }
 }
 
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
-    context: &mut CubeContext,
+    scope: &mut Scope,
     val: C,
 ) -> ExpandElementTyped<Out> {
     let input: ExpandElementTyped<C> = val.into();
-    <Out as super::Cast>::__expand_cast_from(context, input)
+    let const_val = input.expand.as_const().unwrap();
+    let var = Variable::constant(const_val.cast_to(Out::as_elem(scope)));
+    ExpandElement::Plain(var).into()
 }

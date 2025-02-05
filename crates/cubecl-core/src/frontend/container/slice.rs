@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Operator};
 
 use crate::{
     frontend::{indexation::Index, Tensor},
-    ir::{self, Operator},
-    prelude::{CubeContext, IntoRuntime},
+    ir::{self, Scope},
+    prelude::IntoRuntime,
     unexpanded,
 };
 use crate::{
@@ -84,16 +84,16 @@ mod metadata {
     }
 
     impl<C: CubeType> ExpandElementTyped<Slice<C>> {
-        /// Expand method of [len](Slice::len).
-        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        // Expand method of [len](Slice::len).
+        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
-            elem.__expand_len_method(context)
+            elem.__expand_len_method(scope)
         }
 
         /// Expand method of [len](Slice::to_aligned).
         pub fn __expand_to_aligned_method(
             self,
-            _context: &mut CubeContext,
+            _scope: &mut Scope,
         ) -> ExpandElementTyped<Slice<Line<C>>>
         where
             C: CubePrimitive,
@@ -104,24 +104,20 @@ mod metadata {
         /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
         pub fn __expand_try_cast_unchecked_method<T>(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
         ) -> ExpandElementTyped<Slice<T>>
         where
             C: CubePrimitive,
             T: CubePrimitive,
         {
-            if T::as_elem(context) != C::as_elem(context) {
+            if T::as_elem(scope) != C::as_elem(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 
             self.expand.into()
         }
 
-        /// Expand method of [clone](Clone::clone).
-        pub fn __expand_clone_method(
-            self,
-            _context: &mut CubeContext,
-        ) -> ExpandElementTyped<Slice<Line<C>>>
+        pub fn __expand_clone_method(self, _scope: &mut Scope) -> ExpandElementTyped<Slice<Line<C>>>
         where
             C: CubePrimitive,
         {
@@ -130,16 +126,16 @@ mod metadata {
     }
 
     impl<C: CubeType> ExpandElementTyped<SliceMut<C>> {
-        /// Expand method of [len](SliceMut::len).
-        pub fn __expand_len_method(self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
+        // Expand method of [len](SliceMut::len).
+        pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
-            elem.__expand_len_method(context)
+            elem.__expand_len_method(scope)
         }
 
         /// Expand method of [len](SliceMut::into_aligned).
         pub fn __expand_into_aligned_method(
             self,
-            _context: &mut CubeContext,
+            _scope: &mut Scope,
         ) -> ExpandElementTyped<SliceMut<Line<C>>>
         where
             C: CubePrimitive,
@@ -151,10 +147,11 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
+    use cubecl_ir::Operator;
     use ir::Instruction;
 
     use crate::{
-        ir::{BinaryOperator, Operator},
+        ir::BinaryOperator,
         prelude::{CubeIndex, CubeIndexMut},
     };
 
@@ -203,11 +200,11 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<Slice<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local(self.expand.item);
-            context.register(Instruction::new(
+            let out = scope.create_local(self.expand.item);
+            scope.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
@@ -221,11 +218,11 @@ mod indexation {
     impl<E: CubePrimitive> ExpandElementTyped<SliceMut<E>> {
         pub fn __expand_index_unchecked_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<E> {
-            let out = context.create_local(self.expand.item);
-            context.register(Instruction::new(
+            let out = scope.create_local(self.expand.item);
+            scope.register(Instruction::new(
                 Operator::UncheckedIndex(BinaryOperator {
                     lhs: *self.expand,
                     rhs: i.expand.consume(),
@@ -237,11 +234,11 @@ mod indexation {
 
         pub fn __expand_index_assign_unchecked_method(
             self,
-            context: &mut CubeContext,
+            scope: &mut Scope,
             i: ExpandElementTyped<u32>,
             value: ExpandElementTyped<E>,
         ) {
-            context.register(Instruction::new(
+            scope.register(Instruction::new(
                 Operator::UncheckedIndexAssign(BinaryOperator {
                     lhs: i.expand.consume(),
                     rhs: value.expand.consume(),
@@ -257,7 +254,7 @@ impl<E: CubeType> CubeType for Slice<E> {
 }
 
 impl<C: CubeType> Init for ExpandElementTyped<Slice<C>> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         // The type can't be deeply cloned/copied.
         self
     }
@@ -272,7 +269,7 @@ impl<E: CubeType> CubeType for &mut SliceMut<E> {
 }
 
 impl<C: CubeType> Init for ExpandElementTyped<SliceMut<C>> {
-    fn init(self, _context: &mut crate::prelude::CubeContext) -> Self {
+    fn init(self, _scope: &mut Scope) -> Self {
         // The type can't be deeply cloned/copied.
         self
     }
@@ -302,12 +299,12 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
     /// Expand function of [SliceOperator::slice].
     fn __expand_slice(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         expand: Self::Expand,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<E>> {
-        expand.__expand_slice_method(context, start, end)
+        expand.__expand_slice_method(scope, start, end)
     }
 
     /// Return a read-write view of all elements comprise between the `start` and `end` indices.
@@ -320,12 +317,12 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
 
     /// Expand function of [SliceOperator::slice_mut].
     fn __expand_slice_mut(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         expand: Self::Expand,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<E>> {
-        expand.__expand_slice_mut_method(context, start, end)
+        expand.__expand_slice_mut_method(scope, start, end)
     }
 
     /// Reinterprete the current type as a read-only slice.
@@ -335,11 +332,8 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Expand function of [SliceOperator::to_slice].
-    fn __expand_to_slice(
-        context: &mut CubeContext,
-        expand: Self::Expand,
-    ) -> ExpandElementTyped<Slice<E>> {
-        expand.__expand_to_slice_method(context)
+    fn __expand_to_slice(scope: &mut Scope, expand: Self::Expand) -> ExpandElementTyped<Slice<E>> {
+        expand.__expand_to_slice_method(scope)
     }
 
     /// Reinterprete the current type as a read-write slice.
@@ -350,48 +344,45 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
 
     /// Expand function of [SliceOperator::to_slice_mut].
     fn __expand_to_slice_mut(
-        context: &mut CubeContext,
+        scope: &mut Scope,
         expand: Self::Expand,
     ) -> ExpandElementTyped<SliceMut<E>> {
-        expand.__expand_to_slice_mut_method(context)
+        expand.__expand_to_slice_mut_method(scope)
     }
 }
 
 pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
     fn slice_base<Start: Index, End: Index>(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         start: Start,
         end: End,
     ) -> ExpandElement;
 
     fn __expand_slice_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<E>> {
-        ExpandElementTyped::new(self.slice_base(context, start, end))
+        ExpandElementTyped::new(self.slice_base(scope, start, end))
     }
 
     fn __expand_slice_mut_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<SliceMut<E>> {
-        ExpandElementTyped::new(self.slice_base(context, start, end))
+        ExpandElementTyped::new(self.slice_base(scope, start, end))
     }
 
-    fn __expand_to_slice_method(&self, _context: &mut CubeContext) -> ExpandElementTyped<Slice<E>> {
+    fn __expand_to_slice_method(&self, _scope: &mut Scope) -> ExpandElementTyped<Slice<E>> {
         let expand = self.clone().into();
         ExpandElementTyped::new(expand)
     }
 
-    fn __expand_to_slice_mut_method(
-        &self,
-        _context: &mut CubeContext,
-    ) -> ExpandElementTyped<SliceMut<E>> {
+    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> ExpandElementTyped<SliceMut<E>> {
         let expand = self.clone().into();
         ExpandElementTyped::new(expand)
     }
@@ -406,11 +397,11 @@ macro_rules! slice_op {
         impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<E>> {
             fn slice_base<Start: Index, End: Index>(
                 &self,
-                context: &mut CubeContext,
+                scope: &mut Scope,
                 start: Start,
                 end: End,
             ) -> ExpandElement {
-                slice_expand(context, self.clone(), start, end)
+                slice_expand(scope, self.clone(), start, end)
             }
         }
     };
@@ -422,11 +413,11 @@ macro_rules! slice_op {
         impl<E: CubePrimitive> SliceOperatorExpand<E> for ExpandElementTyped<$type<E>> {
             fn slice_base<Start: Index, End: Index>(
                 &self,
-                context: &mut CubeContext,
+                scope: &mut Scope,
                 start: Start,
                 end: End,
             ) -> ExpandElement {
-                slice_expand(context, self.clone(), start, end)
+                slice_expand(scope, self.clone(), start, end)
             }
         }
     };
@@ -439,15 +430,15 @@ slice_op!(slice Slice);
 slice_op!(slice SliceMut);
 
 pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
-    context: &mut CubeContext,
+    scope: &mut Scope,
     input: I,
     start: S1,
     end: S2, // Todo use it to get the length.
 ) -> ExpandElement {
     let input = input.into();
-    let out = context.create_slice(input.item);
+    let out = scope.create_slice(input.item);
 
-    context.register(Instruction::new(
+    scope.register(Instruction::new(
         Operator::Slice(ir::SliceOperator {
             input: *input,
             start: start.value(),
@@ -460,13 +451,13 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
 }
 
 impl<E: CubePrimitive> IntoRuntime for Slice<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Array can't exist at compile time")
     }
 }
 
 impl<E: CubePrimitive> IntoRuntime for SliceMut<E> {
-    fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Array can't exist at compile time")
     }
 }

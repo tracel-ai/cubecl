@@ -102,6 +102,14 @@ impl Item {
         }
     }
 
+    pub fn same_vectorization(&self, elem: Elem) -> Item {
+        match self {
+            Item::Scalar(_) => Item::Scalar(elem),
+            Item::Vector(_, factor) => Item::Vector(elem, *factor),
+            _ => unreachable!(),
+        }
+    }
+
     pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         let scalar = self.elem().constant(b, value);
         b.get_or_insert_const(value, self.clone(), |b| {

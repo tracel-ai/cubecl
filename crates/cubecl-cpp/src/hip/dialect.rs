@@ -79,15 +79,21 @@ impl<M: WmmaCompiler<Self>> Dialect for HipDialect<M> {
         format!("__shfl({var}, {source})")
     }
     fn warp_shuffle_xor(var: &str, offset: &str) -> String {
-        format!("__shfl_xor_sync({var}, {offset})")
+        format!("__shfl_xor({var}, {offset})")
+    }
+    fn warp_shuffle_up(var: &str, offset: &str) -> String {
+        format!("__shfl_up({var}, {offset})")
     }
     fn warp_shuffle_down(var: &str, offset: &str) -> String {
-        format!("__shfl_down_sync({var}, {offset})")
+        format!("__shfl_down({var}, {offset})")
     }
     fn warp_all(var: &str) -> String {
         format!("__all({var})")
     }
     fn warp_any(out: &str) -> String {
         format!("__any({out})")
+    }
+    fn warp_ballot(out: &str) -> String {
+        format!("__ballot({out})")
     }
 }

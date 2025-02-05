@@ -169,6 +169,25 @@ pub fn comment(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
+/// Terminate the execution of the kernel for the current unit.
+///
+/// This terminates the execution of the unit even if nested inside many functions.
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn stop_if_more_than_ten(input: u32)  {
+///     if input > 10 {
+///         terminate!();
+///     }
+/// }
+/// ```
+#[proc_macro]
+pub fn terminate(input: TokenStream) -> TokenStream {
+    let tokens: proc_macro2::TokenStream = input.into();
+    quote![{ #tokens }].into()
+}
 /// Implements display and initialization for autotune keys.
 ///
 /// # Helper

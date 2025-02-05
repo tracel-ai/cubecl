@@ -83,7 +83,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperations<EG> for TensorOutput<E
 impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOutputExpand<EG, MA> {
     fn __expand_read_method(
         &self,
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Line<EG>> {
         panic!("Can't read output tensor");
@@ -91,7 +91,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
 
     fn __expand_read_window_method(
         &self,
-        _context: &mut CubeContext,
+        _context: &mut Scope,
         _start: ExpandElementTyped<u32>,
         _end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<Line<EG>>> {
@@ -100,45 +100,45 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
 
     fn __expand_write_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         index: ExpandElementTyped<u32>,
         value: ExpandElementTyped<Line<EG>>,
     ) {
-        TensorOutputExpand::__expand_write_method(self.clone(), context, index, value)
+        TensorOutputExpand::__expand_write_method(self.clone(), scope, index, value)
     }
 
     fn __expand_shape_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorOutputExpand::__expand_shape_method(self.clone(), context, axis)
+        TensorOutputExpand::__expand_shape_method(self.clone(), scope, axis)
     }
 
     fn __expand_stride_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorOutputExpand::__expand_stride_method(self.clone(), context, axis)
+        TensorOutputExpand::__expand_stride_method(self.clone(), scope, axis)
     }
 
-    fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-        TensorOutputExpand::__expand_rank_method(self.clone(), context)
+    fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_rank_method(self.clone(), scope)
     }
 }
 
 impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorInputExpand<EG, MA> {
     fn __expand_read_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Line<EG>> {
-        TensorInputExpand::__expand_read_method(self.clone(), context, index)
+        TensorInputExpand::__expand_read_method(self.clone(), scope, index)
     }
     fn __expand_read_window_method(
         &self,
-        context: &mut CubeContext,
+        context: &mut Scope,
         start: ExpandElementTyped<u32>,
         end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<Line<EG>>> {
@@ -147,7 +147,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
 
     fn __expand_write_method(
         &self,
-        _context: &mut CubeContext,
+        _scope: &mut Scope,
         _index: ExpandElementTyped<u32>,
         _value: ExpandElementTyped<Line<EG>>,
     ) {
@@ -156,22 +156,22 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
 
     fn __expand_shape_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_shape_method(self.clone(), context, axis)
+        TensorInputExpand::__expand_shape_method(self.clone(), scope, axis)
     }
 
     fn __expand_stride_method(
         &self,
-        context: &mut CubeContext,
+        scope: &mut Scope,
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_stride_method(self.clone(), context, axis)
+        TensorInputExpand::__expand_stride_method(self.clone(), scope, axis)
     }
 
-    fn __expand_rank_method(&self, context: &mut CubeContext) -> ExpandElementTyped<u32> {
-        TensorInputExpand::__expand_rank_method(self.clone(), context)
+    fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_rank_method(self.clone(), scope)
     }
 }
 
@@ -398,8 +398,8 @@ mod __input {
     }
 
     impl<EG: Numeric, GA: MatmulArgs> Init for TensorInputExpand<EG, GA> {
-        fn init(mut self, context: &mut CubeContext) -> Self {
-            self.state = self.state.init(context);
+        fn init(mut self, scope: &mut Scope) -> Self {
+            self.state = self.state.init(scope);
             self
         }
     }
@@ -411,7 +411,7 @@ mod __input {
     impl<EG: Numeric, GA: MatmulArgs> Copy for TensorInput<EG, GA> {}
 
     impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorInput<EG, GA> {
-        fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
             panic!("Can't exist at compile time");
         }
     }
@@ -439,8 +439,8 @@ mod __output {
     }
 
     impl<EG: Numeric, GA: MatmulArgs> Init for TensorOutputExpand<EG, GA> {
-        fn init(mut self, context: &mut CubeContext) -> Self {
-            self.state = self.state.init(context);
+        fn init(mut self, scope: &mut Scope) -> Self {
+            self.state = self.state.init(scope);
             self
         }
     }
@@ -448,7 +448,7 @@ mod __output {
     impl<EG: Numeric, GA: MatmulArgs> Copy for TensorOutput<EG, GA> {}
 
     impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorOutput<EG, GA> {
-        fn __expand_runtime_method(self, _context: &mut CubeContext) -> Self::ExpandType {
+        fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
             panic!("Can't exist at compile time");
         }
     }

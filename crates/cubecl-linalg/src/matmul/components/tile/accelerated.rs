@@ -41,33 +41,57 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         out: &mut Self::Accumulator,
         #[comptime] _config: Config,
     ) {
-        execute::<I, O>(lhs, rhs, out);
+        cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
     }
 
-    fn init_lhs(#[comptime] config: Config) -> Self::Lhs {
-        init_lhs(
-            config.layout(Ident::Lhs),
-            config.size.m,
-            config.size.n,
-            config.size.k,
-        )
+    fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
+        let size = config.size;
+        let layout = config.layout(Ident::Lhs);
+        unsafe {
+            cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::A, // Check versus Ident
+                size.m,
+                size.n,
+                size.k,
+                as_cmma_layout(layout),
+            )
+        }
     }
 
-    fn init_rhs(#[comptime] config: Config) -> Self::Rhs {
-        init_rhs(
-            config.layout(Ident::Rhs),
-            config.size.m,
-            config.size.n,
-            config.size.k,
-        )
+    fn allocate_rhs(#[comptime] config: Config) -> Self::Rhs {
+        let size = config.size;
+        let layout = config.layout(Ident::Rhs);
+        unsafe {
+            cmma::Matrix::<I>::uninitialized(
+                cmma::MatrixIdent::B,
+                size.m,
+                size.n,
+                size.k,
+                as_cmma_layout(layout),
+            )
+        }
     }
 
     fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        fill_lhs(slice, lhs, config, config.size.m, config.size.k);
+        cmma::load(
+            lhs,
+            slice,
+            match config.layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => config.size.k,
+                MatrixLayout::ColMajor => config.size.m,
+            },
+        );
     }
 
     fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        fill_rhs(slice, rhs, config, config.size.n, config.size.k);
+        cmma::load(
+            rhs,
+            slice,
+            match config.layout(Ident::Rhs) {
+                MatrixLayout::RowMajor => config.size.n,
+                MatrixLayout::ColMajor => config.size.k,
+            },
+        );
     }
 
     fn fill_accumulator(
@@ -76,7 +100,8 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         stride: u32,
         #[comptime] config: Config,
     ) {
-        fill_accumulator(slice, acc, stride, config);
+        let layout = comptime!(as_cmma_layout(config.layout(Ident::Out)));
+        cmma::load_with_layout(acc, slice, stride, layout);
     }
 
     fn read_accumulator<C: Numeric>(
@@ -84,11 +109,21 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Config,
     ) {
-        read_accumulator::<O, C>(out, slice, config.size.n);
+        let acc = cmma::cast::<O, C>(out);
+        cmma::store(slice, &acc, config.size.n, cmma::MatrixLayout::RowMajor);
     }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        init_output(config.size.m, config.size.n, config.size.k)
+    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        let size = config.size;
+        unsafe {
+            cmma::Matrix::<O>::uninitialized(
+                cmma::MatrixIdent::Accumulator,
+                size.m,
+                size.n,
+                size.k,
+                cmma::MatrixLayout::Undefined,
+            )
+        }
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
@@ -111,201 +146,76 @@ impl MatmulConfigFactory for Accelerated {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        check_availability::<MP::ES, MP::EG, R>(config.size.m, config.size.n, config.size.k, client)
+        let i_elem = MP::ES::as_elem_native().expect("to be a native type");
+        let o_elem = MP::EG::as_elem_native().expect("to be a native type");
+
+        let i_elem = match i_elem {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => i_elem,
+        };
+
+        let o_elem = match o_elem {
+            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            _ => o_elem,
+        };
+
+        let size = config.size;
+        if !client.properties().feature_enabled(Feature::Cmma {
+            a: i_elem,
+            b: i_elem,
+            c: o_elem,
+            m: size.m as u8,
+            k: size.k as u8,
+            n: size.n as u8,
+        }) {
+            return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
+                input: i_elem,
+                output: o_elem,
+                m: size.m,
+                n: size.n,
+                k: size.k,
+            });
+        }
+
+        if !(client.properties().feature_enabled(Feature::Type(i_elem))
+            && client.properties().feature_enabled(Feature::Type(o_elem)))
+        {
+            return Err(MatmulAvailabilityError::TypesUnavailable {
+                input: i_elem,
+                output: o_elem,
+            });
+        }
+
+        Ok(())
     }
 
     fn make_config(
         input: Self::Input,
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
-        cube_count: &CubeCount,
+        _cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
-        make_config(input, problem, cube_dim, cube_count, advanced_config)
-    }
-}
+        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+            Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
+            _ => (problem.lhs_layout, problem.lhs_line_size),
+        };
 
-#[cube]
-fn execute<I: Numeric, O: Numeric>(
-    lhs: &cmma::Matrix<I>,
-    rhs: &cmma::Matrix<I>,
-    out: &mut cmma::Matrix<O>,
-) {
-    cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
-}
+        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+            Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
+            _ => (problem.rhs_layout, problem.rhs_line_size),
+        };
 
-#[cube]
-fn init_lhs<I: Numeric>(
-    #[comptime] layout: MatrixLayout,
-    #[comptime] m: u32,
-    #[comptime] n: u32,
-    #[comptime] k: u32,
-) -> cmma::Matrix<I> {
-    unsafe {
-        cmma::Matrix::<I>::uninitialized(cmma::MatrixIdent::A, m, n, k, as_cmma_layout(layout))
-    }
-}
-
-#[cube]
-fn init_rhs<I: Numeric>(
-    #[comptime] layout: MatrixLayout,
-    #[comptime] m: u32,
-    #[comptime] n: u32,
-    #[comptime] k: u32,
-) -> cmma::Matrix<I> {
-    unsafe {
-        cmma::Matrix::<I>::uninitialized(cmma::MatrixIdent::B, m, n, k, as_cmma_layout(layout))
-    }
-}
-
-#[cube]
-fn fill_lhs<C: CubePrimitive, I: Numeric>(
-    slice: &Slice<C>,
-    lhs: &mut cmma::Matrix<I>,
-    #[comptime] config: Config,
-    #[comptime] m: u32,
-    #[comptime] k: u32,
-) {
-    cmma::load(
-        lhs,
-        slice,
-        match config.layout(Ident::Lhs) {
-            MatrixLayout::RowMajor => k,
-            MatrixLayout::ColMajor => m,
-        },
-    );
-}
-
-#[cube]
-fn fill_rhs<C: CubePrimitive, I: Numeric>(
-    slice: &Slice<C>,
-    rhs: &mut cmma::Matrix<I>,
-    #[comptime] config: Config,
-    #[comptime] n: u32,
-    #[comptime] k: u32,
-) {
-    cmma::load(
-        rhs,
-        slice,
-        match config.layout(Ident::Rhs) {
-            MatrixLayout::RowMajor => n,
-            MatrixLayout::ColMajor => k,
-        },
-    );
-}
-
-#[cube]
-fn fill_accumulator<C: CubePrimitive, O: Numeric>(
-    slice: &Slice<C>,
-    acc: &mut cmma::Matrix<O>,
-    stride: u32,
-    #[comptime] config: Config,
-) {
-    let layout = comptime!(as_cmma_layout(config.layout(Ident::Out)));
-    cmma::load_with_layout(acc, slice, stride, layout);
-}
-
-#[cube]
-fn init_output<O: Numeric>(
-    #[comptime] m: u32,
-    #[comptime] n: u32,
-    #[comptime] k: u32,
-) -> cmma::Matrix<O> {
-    unsafe {
-        cmma::Matrix::<O>::uninitialized(
-            cmma::MatrixIdent::Accumulator,
-            m,
-            n,
-            k,
-            cmma::MatrixLayout::Undefined,
+        Config::new(
+            input,
+            cube_dim.x,
+            lhs_tile_layout,
+            rhs_tile_layout,
+            lhs_tile_line_size as u32,
+            rhs_tile_line_size as u32,
+            problem.out_line_size as u32,
         )
     }
-}
-
-#[cube]
-fn read_accumulator<O: Numeric, C: Numeric>(
-    out: &cmma::Matrix<O>,
-    slice: &mut SliceMut<Line<C>>,
-    #[comptime] n: u32,
-) {
-    let acc = cmma::cast::<O, C>(out);
-    cmma::store(slice, &acc, n, cmma::MatrixLayout::RowMajor);
-}
-
-fn check_availability<I: Numeric, O: Numeric, R: Runtime>(
-    m: u32,
-    n: u32,
-    k: u32,
-    client: &ComputeClient<R::Server, R::Channel>,
-) -> Result<(), MatmulAvailabilityError> {
-    let i_elem = I::as_elem_native().expect("to be a native type");
-    let o_elem = O::as_elem_native().expect("to be a native type");
-
-    let i_elem = match i_elem {
-        Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-        _ => i_elem,
-    };
-
-    let o_elem = match o_elem {
-        Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-        _ => o_elem,
-    };
-
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: i_elem,
-        b: i_elem,
-        c: o_elem,
-        m: m as u8,
-        k: k as u8,
-        n: n as u8,
-    }) {
-        return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
-            input: i_elem,
-            output: o_elem,
-            m,
-            n,
-            k,
-        });
-    }
-
-    if !(client.properties().feature_enabled(Feature::Type(i_elem))
-        && client.properties().feature_enabled(Feature::Type(o_elem)))
-    {
-        return Err(MatmulAvailabilityError::TypesUnavailable {
-            input: i_elem,
-            output: o_elem,
-        });
-    }
-
-    Ok(())
-}
-
-fn make_config(
-    input: MatmulSize,
-    problem: &MatmulProblem,
-    cube_dim: &CubeDim,
-    _cube_count: &CubeCount,
-    advanced_config: &AdvancedConfig,
-) -> Config {
-    let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
-        Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
-        _ => (problem.lhs_layout, problem.lhs_line_size),
-    };
-
-    let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
-        Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
-        _ => (problem.rhs_layout, problem.rhs_line_size),
-    };
-
-    Config::new(
-        input,
-        cube_dim.x,
-        lhs_tile_layout,
-        rhs_tile_layout,
-        lhs_tile_line_size as u32,
-        rhs_tile_line_size as u32,
-        problem.out_line_size as u32,
-    )
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]

@@ -108,6 +108,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         let k_range = (0, lhs.shape(rank - 1));
 
         let gmm_config = config.to_gmm_config();
+
         gmm_execute::<MP, GMM>(
             lhs,
             rhs,

@@ -1,10 +1,9 @@
-use std::fmt::Display;
-
-use type_hash::TypeHash;
-
-use crate::Operation;
+use alloc::{format, string::String, vec, vec::Vec};
 
 use super::{Elem, Variable};
+use crate::TypeHash;
+use crate::{OperationCode, OperationReflect};
+use core::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -38,7 +37,8 @@ pub struct Matrix {
 
 /// Cooperative Matrix-Multiply and Accumulate Instruction.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[operation(opcode_name = CmmaOpCode)]
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
@@ -67,8 +67,32 @@ pub enum CoopMma {
     Cast { input: Variable },
 }
 
+impl OperationReflect for CoopMma {
+    type OpCode = CmmaOpCode;
+
+    fn op_code(&self) -> Self::OpCode {
+        self.__match_opcode()
+    }
+
+    fn args(&self) -> Option<Vec<Variable>> {
+        match self {
+            CoopMma::Fill { value } => Some(vec![*value]),
+            CoopMma::Load { .. } | CoopMma::Execute { .. } | CoopMma::Store { .. } => None,
+            CoopMma::Cast { input } => Some(vec![*input]),
+        }
+    }
+
+    fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
+        match op_code {
+            CmmaOpCode::Fill => Some(CoopMma::Fill { value: args[0] }),
+            CmmaOpCode::Load | CmmaOpCode::Execute | CmmaOpCode::Store => None,
+            CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
+        }
+    }
+}
+
 impl Display for CoopMma {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CoopMma::Fill { value } => write!(f, "{}", value),
             CoopMma::Load {
@@ -99,11 +123,5 @@ impl Display for CoopMma {
                 write!(f, "matrix_cast(input: {})", input)
             }
         }
-    }
-}
-
-impl From<CoopMma> for Operation {
-    fn from(value: CoopMma) -> Self {
-        Operation::CoopMma(value)
     }
 }

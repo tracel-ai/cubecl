@@ -127,6 +127,8 @@ pub enum Instruction<D: Dialect> {
     ShiftLeft(BinaryInstruction<D>),
     ShiftRight(BinaryInstruction<D>),
     BitwiseNot(UnaryInstruction<D>),
+    LeadingZeros(UnaryInstruction<D>),
+    FindFirstSet(UnaryInstruction<D>),
     Abs(UnaryInstruction<D>),
     Exp(UnaryInstruction<D>),
     Log(UnaryInstruction<D>),
@@ -152,7 +154,7 @@ pub enum Instruction<D: Dialect> {
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
-    Wrap(WarpInstruction<D>),
+    Warp(WarpInstruction<D>),
     Wmma(WmmaInstruction<D>),
     Bitcast(UnaryInstruction<D>),
     AtomicLoad(UnaryInstruction<D>),
@@ -241,6 +243,8 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::CountBits(it) => CountBits::format(f, &it.input, &it.out),
             Instruction::ReverseBits(it) => ReverseBits::format(f, &it.input, &it.out),
+            Instruction::LeadingZeros(it) => LeadingZeros::format(f, &it.input, &it.out),
+            Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
@@ -459,7 +463,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = {length};")
             }
 
-            Instruction::Wrap(it) => write!(f, "{it}"),
+            Instruction::Warp(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
@@ -580,7 +584,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(f, "{out} = atomicAdd({input}, 0);")
             }
             Instruction::AtomicStore(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
                 writeln!(f, "atomicExch({out}, {input});")
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),

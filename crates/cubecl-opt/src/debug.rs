@@ -4,8 +4,8 @@ use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
-    analyses::{const_len::Slices, integer_range::Ranges, liveness::Liveness},
-    gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, OpId, Value, ValueTable},
+    analyses::{const_len::Slices, liveness::Liveness, uniformity::Uniformity},
+    gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, Value, ValueTable},
     ControlFlow,
 };
 
@@ -17,7 +17,6 @@ const DEBUG_GVN: bool = false;
 impl Display for Optimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let slices = self.analysis_cache.try_get::<Slices>().unwrap_or_default();
-        let ranges = self.analysis_cache.try_get::<Ranges>().unwrap_or_default();
 
         f.write_str("Slices:\n")?;
         for (var_id, slice) in slices.iter() {
@@ -41,6 +40,10 @@ impl Display for Optimizer {
             .analysis_cache
             .try_get::<Liveness>()
             .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
+        let uniformity = self
+            .analysis_cache
+            .try_get::<Uniformity>()
+            .unwrap_or_default();
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
@@ -50,7 +53,11 @@ impl Display for Optimizer {
         for node in self.program.node_indices() {
             let id = node.index();
             let bb = &self.program[node];
-            writeln!(f, "bb{id} {{")?;
+            let uniform = match uniformity.is_block_uniform(node) {
+                true => "uniform ",
+                false => "",
+            };
+            writeln!(f, "{uniform}bb{id} {{")?;
             if DEBUG_GVN {
                 let block_sets = &global_nums
                     .block_sets
@@ -74,17 +81,31 @@ impl Display for Optimizer {
                     write!(f, "[bb{}: ", entry.block.index())?;
                     write!(f, "{}]", entry.value)?;
                 }
-                f.write_str(";\n")?;
+                let is_uniform = match uniformity.is_var_uniform(phi.out) {
+                    true => " @ uniform",
+                    false => "",
+                };
+                writeln!(f, ";{is_uniform}\n")?;
             }
             if !bb.phi_nodes.borrow().is_empty() {
                 writeln!(f)?;
             }
 
             for op in bb.ops.borrow_mut().values_mut() {
-                let range = op.out.map(|var| ranges.range_of(self, &var));
-                let range = range.map(|it| format!(" range: {it};")).unwrap_or_default();
+                let op_fmt = op.to_string();
+                if op_fmt.is_empty() {
+                    continue;
+                }
 
-                writeln!(f, "    {op};{range}")?;
+                let is_uniform = match op
+                    .out
+                    .map(|out| uniformity.is_var_uniform(out))
+                    .unwrap_or(false)
+                {
+                    true => " @ uniform",
+                    false => "",
+                };
+                writeln!(f, "    {op_fmt};{is_uniform}")?;
             }
             match &*bb.control_flow.borrow() {
                 ControlFlow::IfElse {
@@ -292,71 +313,6 @@ impl Display for Expression {
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let args = &self.args;
-        match self.op {
-            OpId::Add => write!(f, "{} + {}", args[0], args[1]),
-            OpId::Fma => write!(f, "fma({}, {}, {})", args[0], args[1], args[2]),
-            OpId::Sub => write!(f, "{} - {}", args[0], args[1]),
-            OpId::Mul => write!(f, "{} * {}", args[0], args[1]),
-            OpId::Div => write!(f, "{} / {}", args[0], args[1]),
-            OpId::Abs => write!(f, "{}.abs()", args[0]),
-            OpId::Exp => write!(f, "{}.exp()", args[0]),
-            OpId::Log => write!(f, "{}.log()", args[0]),
-            OpId::Log1p => write!(f, "{}.log1p()", args[0]),
-            OpId::Cos => write!(f, "{}.cos()", args[0]),
-            OpId::Sin => write!(f, "{}.sin()", args[0]),
-            OpId::Tanh => write!(f, "{}.tanh()", args[0]),
-            OpId::Powf => write!(f, "{}.powf()", args[0]),
-            OpId::Sqrt => write!(f, "{}.sqrt()", args[0]),
-            OpId::Round => write!(f, "{}.round()", args[0]),
-            OpId::Floor => write!(f, "{}.floor()", args[0]),
-            OpId::Ceil => write!(f, "{}.ceil()", args[0]),
-            OpId::Erf => write!(f, "{}.erf()", args[0]),
-            OpId::Recip => write!(f, "1.0 / {}", args[0]),
-            OpId::Equal => write!(f, "{} == {}", args[0], args[1]),
-            OpId::NotEqual => write!(f, "{} != {}", args[0], args[1]),
-            OpId::Lower => write!(f, "{} < {}", args[0], args[1]),
-            OpId::Clamp => write!(f, "clamp({}, {}, {})", args[0], args[1], args[2]),
-            OpId::Greater => write!(f, "{} > {}", args[0], args[1]),
-            OpId::LowerEqual => write!(f, "{} <= {}", args[0], args[1]),
-            OpId::GreaterEqual => write!(f, "{} >= {}", args[0], args[1]),
-            OpId::Modulo => write!(f, "{} % {}", args[0], args[1]),
-            OpId::Index => write!(f, "{}[{}]", args[0], args[1]),
-            OpId::InitLine => write!(
-                f,
-                "vec{}({})",
-                args.len(),
-                args.iter()
-                    .map(|it| it.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            OpId::And => write!(f, "{} && {}", args[0], args[1]),
-            OpId::Or => write!(f, "{} || {}", args[0], args[1]),
-            OpId::Not => write!(f, "!{}", args[0]),
-            OpId::Neg => write!(f, "-{}", args[0]),
-            OpId::Max => write!(f, "max({}, {})", args[0], args[1]),
-            OpId::Min => write!(f, "min({}, {})", args[0], args[1]),
-            OpId::BitwiseAnd => write!(f, "{} & {}", args[0], args[1]),
-            OpId::BitwiseOr => write!(f, "{} | {}", args[0], args[1]),
-            OpId::BitwiseXor => write!(f, "{} ^ {}", args[0], args[1]),
-            OpId::CountOnes => write!(f, "{}.count_ones()", args[0]),
-            OpId::ReverseBits => write!(f, "{}.reverse_bits()", args[0]),
-            OpId::ShiftLeft => write!(f, "{} << {}", args[0], args[1]),
-            OpId::ShiftRight => write!(f, "{} >> {}", args[0], args[1]),
-            OpId::Remainder => write!(f, "{} % {}", args[0], args[1]),
-            OpId::Magnitude => write!(f, "{}.length()", args[0]),
-            OpId::Normalize => write!(f, "{}.normalize()", args[0]),
-            OpId::Dot => write!(f, "dot({}, {})", args[0], args[1]),
-            OpId::Select => write!(f, "select({}, {}, {})", args[0], args[1], args[2]),
-            OpId::Bitcast => write!(f, "bitcast<{}>({})", self.item, args[0]),
-            OpId::Rank => write!(f, "{}.rank()", args[0]),
-            OpId::Length => write!(f, "{}.len()", args[0]),
-            OpId::BufferLength => write!(f, "buffer_len({})", args[0]),
-            OpId::Shape => write!(f, "{}.shape[{}]", args[0], args[1]),
-            OpId::Stride => write!(f, "{}.stride[{}]", args[0], args[1]),
-            OpId::Cast => write!(f, "cast<{}>({})", self.item, args[0]),
-            OpId::BitwiseNot => write!(f, "!{}", args[0]),
-        }
+        write!(f, "{:?}: [{:?}]", self.op, self.args)
     }
 }

@@ -48,16 +48,16 @@ pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call fill_lhs prior to execute.
-    fn init_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
+    /// Make sure to call [fill_lhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Create the container for RHS data
     ///
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call fill_rhs prior to execute.
-    fn init_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
+    /// Make sure to call [fill_rhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of LHS with data
     fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
@@ -80,15 +80,17 @@ pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    /// Create the container to receive the execution output.
+    /// Allocate the container to receive the execution output.
     ///
     /// # Safety
     ///
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    /// Make sure to call either [fill_accumulator](TileMatmul::fill_accumulator)
+    /// or [zero_accumulator](TileMatmul::zero_accumulator).
+    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    /// Set the accumulator to zeros
+    /// Fill the accumulator with zeros.
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 }
 

@@ -9,10 +9,10 @@ use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 use super::MatmulLaunchError;
 
 #[cube(launch_unchecked)]
-fn matmul_kernel<F: Float>(
-    lhs: &Tensor<Line<F>>,
-    rhs: &Tensor<Line<F>>,
-    out: &mut Tensor<F>,
+fn matmul_kernel<N: Numeric>(
+    lhs: &Tensor<Line<N>>,
+    rhs: &Tensor<Line<N>>,
+    out: &mut Tensor<N>,
     // number of dimensions not involved in the matmul
     #[comptime] num_batches: Option<u32>,
 ) {
@@ -29,7 +29,7 @@ fn matmul_kernel<F: Float>(
     let col = CUBE_DIM_Y * CUBE_POS_Y + UNIT_POS_Y;
 
     if row >= n_rows || col >= n_cols {
-        return;
+        terminate!();
     }
 
     let line_size = lhs.line_size();
@@ -49,7 +49,7 @@ fn matmul_kernel<F: Float>(
     offset_lhs /= line_size.runtime();
     offset_rhs /= line_size.runtime();
 
-    let mut sum = Line::empty(line_size).fill(F::from_int(0));
+    let mut sum = Line::empty(line_size).fill(N::from_int(0));
 
     k /= line_size.runtime();
 
@@ -65,7 +65,7 @@ fn matmul_kernel<F: Float>(
 
     let unroll_sum = line_size != 1;
     if unroll_sum {
-        let mut accum = F::new(0.);
+        let mut accum = N::from_int(0);
         // we unroll the loop to sum `vectorization_factor` elements at once, which lets us
         // use SIMD instructions to speed up the computation
         #[unroll]
@@ -80,7 +80,7 @@ fn matmul_kernel<F: Float>(
 }
 
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
-pub fn launch_ref<R: Runtime, E: Float>(
+pub fn launch_ref<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -94,7 +94,7 @@ pub fn launch_ref<R: Runtime, E: Float>(
     launch(client, lhs, rhs, out)
 }
 
-pub fn launch<R: Runtime, E: Float>(
+pub fn launch<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, E>,
     rhs: TensorHandle<R, E>,
