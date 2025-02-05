@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes};
+use crate::{self as cubecl, as_bytes, Feature};
 use cubecl::prelude::*;
 use pipeline::Pipeline;
 
@@ -99,6 +99,11 @@ fn two_independant_loads<F: Float>(
 pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
+    if !client.properties().feature_enabled(Feature::Pipeline) {
+        // We can't execute the test, skip.
+        return;
+    }
+
     let lhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
     let output = client.empty(4 * core::mem::size_of::<F>());
 
@@ -123,6 +128,11 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independant: bool,
     client: ComputeClient<R::Server, R::Channel>,
 ) {
+    if !client.properties().feature_enabled(Feature::Pipeline) {
+        // We can't execute the test, skip.
+        return;
+    }
+
     let num_data = 4;
     let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
     let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
