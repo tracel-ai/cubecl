@@ -12,7 +12,7 @@ fn pipelined_sum<F: Float>(
     let smem_size = 2 * batch_len;
     let num_batches = input.len() / batch_len;
     let mut shared_memory = SharedMemory::<F>::new_lined(smem_size, input.line_size());
-    let pipeline = Pipeline::new(2u32, pipeline::PipelineGroup::Cube);
+    let pipeline = Pipeline::new(2u32, pipeline::PipelineGroup::Unit);
 
     let mut sum = Line::<F>::empty(input.line_size()).fill(F::new(0.));
 
@@ -63,7 +63,7 @@ fn pipelined_sum<F: Float>(
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let pipeline = pipeline::Pipeline::<F>::new(2u32, pipeline::PipelineGroup::Cube);
+    let pipeline = pipeline::Pipeline::<F>::new(2u32, pipeline::PipelineGroup::Unit);
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     if UNIT_POS == 0 {
