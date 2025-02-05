@@ -56,12 +56,12 @@ impl<D: Dialect> Display for PipelineOps<D> {
                 match pipeline_group {
                     0 => {
                         write!(f, "
-                        cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
+cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
                                         ")
                     }
                     1 => {
                         write!(f, "
-                        cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
+cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
                                         ")
                     }
                     _ => unreachable!(),
@@ -74,19 +74,19 @@ impl<D: Dialect> Display for PipelineOps<D> {
             } => match pipeline_group {
                 0 => {
                     write!(
-                            f,
-                            "
-        cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
-        auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
+                        f,
                         "
-                        )
+cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
+auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
+                        "
+                    )
                 }
                 1 => {
                     write!(
                             f,
                             "
-        __shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
-        auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
+__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
+auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
                         "
                         )
                 }

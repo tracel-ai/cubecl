@@ -4,8 +4,6 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::pipeline;
-
 use super::{Item, Matrix, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
