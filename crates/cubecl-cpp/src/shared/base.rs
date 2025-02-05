@@ -361,7 +361,6 @@ impl<D: Dialect> CppCompiler<D> {
                         id: _,
                         item: _,
                         num_stages: _,
-                        pipeline_group,
                     } = pipeline.kind
                     {
                         instructions.push(Instruction::Pipeline(
@@ -369,7 +368,6 @@ impl<D: Dialect> CppCompiler<D> {
                                 pipeline: self.compile_variable(pipeline),
                                 source: self.compile_variable(source),
                                 destination: self.compile_variable(destination),
-                                pipeline_group,
                             },
                         ));
                     }
@@ -1056,7 +1054,6 @@ impl<D: Dialect> CppCompiler<D> {
                 id,
                 item,
                 num_stages,
-                pipeline_group,
             } => {
                 self.pipeline = true;
                 let pipeline = Variable::Pipeline {
@@ -1067,7 +1064,6 @@ impl<D: Dialect> CppCompiler<D> {
                     self.pipelines.push(PipelineOps::Init {
                         pipeline,
                         num_stages,
-                        pipeline_group,
                     });
                 }
                 pipeline

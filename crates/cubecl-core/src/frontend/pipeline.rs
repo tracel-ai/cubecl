@@ -157,20 +157,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(
-        scope: &mut Scope,
-        num_stages: u32,
-        pipeline_group: PipelineGroup,
-    ) -> PipelineExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, num_stages: u32) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(
-            Item::new(elem),
-            num_stages as u8,
-            match pipeline_group {
-                PipelineGroup::Unit => 0,
-                PipelineGroup::Cube => 1,
-            },
-        );
+        let variable = scope.create_pipeline(Item::new(elem), num_stages as u8);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,
