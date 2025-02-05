@@ -112,18 +112,13 @@ pub struct PipelineExpand<C: CubePrimitive> {
 
 impl<C: CubePrimitive> Default for Pipeline<C> {
     fn default() -> Self {
-        Self::new(1, PipelineGroup::Unit)
+        Self::new(1)
     }
-}
-
-pub enum PipelineGroup {
-    Unit,
-    Cube,
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new(_num_stages: u32, _group: PipelineGroup) -> Self {
+    pub fn new(_num_stages: u32) -> Self {
         Self { _c: PhantomData }
     }
 

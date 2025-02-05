@@ -357,20 +357,13 @@ impl<D: Dialect> CppCompiler<D> {
                     source,
                     destination,
                 } => {
-                    if let gpu::VariableKind::Pipeline {
-                        id: _,
-                        item: _,
-                        num_stages: _,
-                    } = pipeline.kind
-                    {
-                        instructions.push(Instruction::Pipeline(
-                            super::pipeline::PipelineOps::MemCopyAsync {
-                                pipeline: self.compile_variable(pipeline),
-                                source: self.compile_variable(source),
-                                destination: self.compile_variable(destination),
-                            },
-                        ));
-                    }
+                    instructions.push(Instruction::Pipeline(
+                        super::pipeline::PipelineOps::MemCopyAsync {
+                            pipeline: self.compile_variable(pipeline),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(destination),
+                        },
+                    ));
                 }
                 gpu::PipelineOps::ProducerAcquire { pipeline } => instructions.push(
                     Instruction::Pipeline(super::pipeline::PipelineOps::ProducerAcquire {
