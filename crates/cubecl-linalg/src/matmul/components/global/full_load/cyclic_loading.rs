@@ -110,14 +110,16 @@ impl LoadingStrategy for CyclicLoading {
                         let slice_offset =
                             (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
 
-                        let mut destination =
+                        let destination =
                             slice.slice_mut(slice_offset, slice_offset + this_slice_length);
                         let mut destination_pad = slice.slice_mut(
                             slice_offset + this_slice_length,
                             slice_offset + slice_length_in_lines,
                         );
 
+                        pipeline.producer_acquire();
                         pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+                        pipeline.producer_commit();
 
                         // for i in 0..this_slice_length {
                         //     destination[i] = Line::cast_from(source[i]);

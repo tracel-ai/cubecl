@@ -138,29 +138,26 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        let pipeline = Pipeline::<MP::ES>::new(1);
+        let pipeline = Pipeline::<MP::ES>::new(2);
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
-            sync_units();
-            pipeline.producer_acquire();
+            // sync_units();
 
-            // Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
             Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            // Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-            sync_units();
+            // sync_units();
 
-            pipeline.producer_commit();
-
-            pipeline.consumer_wait();
+            // pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
+            pipeline.consumer_wait();
+            pipeline.consumer_wait();
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
@@ -170,6 +167,7 @@ where
                 config.to_smm_config(),
             );
 
+            pipeline.consumer_release();
             pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
