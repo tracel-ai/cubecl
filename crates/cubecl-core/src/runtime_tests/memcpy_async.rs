@@ -124,8 +124,8 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     let num_data = 4;
-    let lhs_data = generate_random_data(num_data, 42);
-    let rhs_data = generate_random_data(num_data, 43);
+    let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
+    let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
 
     let lhs = client.create(F::as_bytes(&lhs_data));
     let rhs = client.create(F::as_bytes(&rhs_data));
@@ -175,23 +175,6 @@ fn dot<F: Float>(vec1: &[F], vec2: &[F]) -> F {
         sum += vec1[i] * vec2[i];
     }
     sum
-}
-
-// TODO tmp
-pub(crate) fn generate_random_data<F: Float + CubeElement>(
-    num_elements: usize,
-    mut seed: u64,
-) -> Vec<F> {
-    fn lcg(seed: &mut u64) -> f32 {
-        const A: u64 = 1664525;
-        const C: u64 = 1013904223;
-        const M: f64 = 2u64.pow(32) as f64;
-
-        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
-        (*seed as f64 / M * 2.0 - 1.0) as f32
-    }
-
-    (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
 #[allow(missing_docs)]
