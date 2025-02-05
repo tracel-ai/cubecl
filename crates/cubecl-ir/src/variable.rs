@@ -59,7 +59,7 @@ pub enum VariableKind {
     Matrix { id: Id, mat: Matrix },
     Slice { id: Id },
     Builtin(Builtin),
-    Pipeline { id: Id, item: Item },
+    Pipeline { id: Id, item: Item, num_stages: u8 },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

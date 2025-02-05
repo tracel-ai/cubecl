@@ -96,9 +96,16 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_pipeline(&self, item: Item) -> ExpandElement {
+    pub fn create_pipeline(&self, item: Item, num_stages: u8) -> ExpandElement {
         let id = self.new_local_index();
-        let variable = Variable::new(VariableKind::Pipeline { id, item }, item);
+        let variable = Variable::new(
+            VariableKind::Pipeline {
+                id,
+                item,
+                num_stages,
+            },
+            item,
+        );
         ExpandElement::Plain(variable)
     }
 

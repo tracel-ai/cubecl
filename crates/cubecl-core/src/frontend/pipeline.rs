@@ -76,12 +76,31 @@ use crate::{
     unexpanded,
 };
 
-use super::{CubePrimitive, ExpandElementTyped, Line, Slice, SliceMut};
+use super::{
+    CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice, SliceMut,
+};
 
 /// A mechanism for managing a sequence of `memcpy_async`
 /// For now, it only works at the Cube scope
+#[derive(Clone, Copy)]
 pub struct Pipeline<C: CubePrimitive> {
     _c: PhantomData<C>,
+}
+
+impl<C: CubePrimitive> IntoRuntime for Pipeline<C> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
+        panic!("Doesn't exist at runtime")
+    }
+}
+
+impl<C: CubePrimitive> CubeType for Pipeline<C> {
+    type ExpandType = PipelineExpand<C>;
+}
+
+impl<C: CubePrimitive> Init for PipelineExpand<C> {
+    fn init(self, _scope: &mut Scope) -> Self {
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -93,13 +112,13 @@ pub struct PipelineExpand<C: CubePrimitive> {
 
 impl<C: CubePrimitive> Default for Pipeline<C> {
     fn default() -> Self {
-        Self::new()
+        Self::new(1)
     }
 }
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new() -> Self {
+    pub fn new(_num_stages: u32) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -133,9 +152,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope) -> PipelineExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, num_stages: u32) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(Item::new(elem));
+        let variable = scope.create_pipeline(Item::new(elem), num_stages as u8);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,

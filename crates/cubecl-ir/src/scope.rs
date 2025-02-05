@@ -110,8 +110,8 @@ impl Scope {
     }
 
     /// Create a new pipeline element.
-    pub fn create_pipeline(&mut self, item: Item) -> ExpandElement {
-        let pipeline = self.allocator.create_pipeline(item);
+    pub fn create_pipeline(&mut self, item: Item, num_stages: u8) -> ExpandElement {
+        let pipeline = self.allocator.create_pipeline(item, num_stages);
         self.add_pipeline(*pipeline);
         pipeline
     }

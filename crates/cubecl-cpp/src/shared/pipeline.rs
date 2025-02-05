@@ -6,6 +6,7 @@ use super::{Component, Dialect, Variable};
 pub enum PipelineOps<D: Dialect> {
     Init {
         pipeline: Variable<D>,
+        num_stages: u8,
     },
     MemCopyAsync {
         pipeline: Variable<D>,
@@ -50,15 +51,18 @@ impl<D: Dialect> Display for PipelineOps<D> {
                 let item = source.item();
                 let size = item.elem().size() * item.vectorization;
                 write!(f, "
-cuda::memcpy_async(cooperative_groups::this_thread_block(), {destination}, {source}, {source}_length * {size}, {pipeline});
+cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
                 ")
             }
-            PipelineOps::Init { pipeline } => {
+            PipelineOps::Init {
+                pipeline,
+                num_stages,
+            } => {
                 write!(
                     f,
                     "
-__shared__ cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, 2> {pipeline}_state;
-auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread_block(), &{pipeline}_state);
+cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
+auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
                 "
                 )
             }
