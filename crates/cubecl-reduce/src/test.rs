@@ -504,7 +504,7 @@ impl TestCase {
         let client = R::client(device);
 
         let input_handle = client.create(F::as_bytes(&input_values));
-        let output_handle = client.empty(size_of::<F>());
+        let output_handle = client.create(F::as_bytes(&[F::from_int(0)]));
 
         let input = unsafe {
             TensorHandleRef::<R>::from_raw_parts(
