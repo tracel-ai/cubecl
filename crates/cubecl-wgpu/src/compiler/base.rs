@@ -6,7 +6,6 @@ use cubecl_core::{
     server::ComputeServer,
     Compiler, CompilerRepresentation, WgpuCompilationOptions,
 };
-use cubecl_spirv::{SpirvCompiler, SpirvKernel};
 use derive_more::derive::From;
 
 use crate::{WgpuServer, WgslCompiler};
@@ -16,18 +15,21 @@ use super::wgsl::ComputeShader;
 #[derive(Debug, Clone)]
 pub enum DynCompiler {
     Wgsl(WgslCompiler),
-    SpirV(SpirvCompiler),
+    #[cfg(feature = "spirv")]
+    SpirV(cubecl_spirv::SpirvCompiler),
 }
 
 #[derive(From)]
 #[allow(clippy::large_enum_variant)]
 pub enum DynRepresentation {
     Wgsl(ComputeShader),
-    SpirV(SpirvKernel),
+    #[cfg(feature = "spirv")]
+    SpirV(cubecl_spirv::SpirvKernel),
 }
 
+#[cfg(feature = "spirv")]
 impl DynRepresentation {
-    pub fn as_spirv(&self) -> Option<&SpirvKernel> {
+    pub fn as_spirv(&self) -> Option<&cubecl_spirv::SpirvKernel> {
         match self {
             DynRepresentation::SpirV(repr) => Some(repr),
             _ => None,
@@ -39,6 +41,7 @@ impl Display for DynRepresentation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DynRepresentation::Wgsl(compute_shader) => compute_shader.fmt(f),
+            #[cfg(feature = "spirv")]
             DynRepresentation::SpirV(spirv_kernel) => spirv_kernel.fmt(f),
         }
     }
@@ -65,6 +68,7 @@ impl Compiler for DynCompiler {
             DynCompiler::Wgsl(wgsl_compiler) => {
                 Compiler::compile(wgsl_compiler, kernel, compilation_options, mode).into()
             }
+            #[cfg(feature = "spirv")]
             DynCompiler::SpirV(spirv_compiler) => {
                 Compiler::compile(spirv_compiler, kernel, compilation_options, mode).into()
             }
@@ -74,6 +78,7 @@ impl Compiler for DynCompiler {
     fn elem_size(&self, elem: cubecl_core::ir::Elem) -> usize {
         match self {
             DynCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
+            #[cfg(feature = "spirv")]
             DynCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
         }
     }
@@ -90,8 +95,9 @@ impl DynCompiler {
             DynCompiler::Wgsl(_) => {
                 <WgslCompiler as WgpuCompiler>::compile(self, server, kernel, mode)
             }
+            #[cfg(feature = "spirv")]
             DynCompiler::SpirV(_) => {
-                <SpirvCompiler as WgpuCompiler>::compile(self, server, kernel, mode)
+                <super::spirv::VkSpirvCompiler as WgpuCompiler>::compile(self, server, kernel, mode)
             }
         }
     }
@@ -105,5 +111,3 @@ pub trait WgpuCompiler: Compiler {
         mode: ExecutionMode,
     ) -> CompiledKernel<DynCompiler>;
 }
-
-pub trait WgpuBackend {}

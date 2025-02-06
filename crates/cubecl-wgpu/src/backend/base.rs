@@ -3,14 +3,15 @@ use std::{borrow::Cow, sync::Arc};
 use cubecl_core::{prelude::CompiledKernel, ExecutionMode, Feature, WgpuCompilationOptions};
 use cubecl_runtime::DeviceProperties;
 use wgpu::{
-    hal, Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor,
-    ShaderModuleDescriptorSpirV, ShaderStages,
+    Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
+    ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
 
 use crate::{DynCompiler, DynRepresentation, WgpuServer};
 
-use super::{vulkan, wgsl};
+#[cfg(feature = "spirv")]
+use super::vulkan;
+use super::wgsl;
 
 impl WgpuServer {
     pub fn create_pipeline(
@@ -19,11 +20,12 @@ impl WgpuServer {
         mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let module = match &kernel.repr {
+            #[cfg(feature = "spirv")]
             Some(DynRepresentation::SpirV(repr)) => {
                 let spirv = repr.assemble();
                 unsafe {
                     self.device
-                        .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
+                        .create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
                             label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
@@ -56,13 +58,14 @@ impl WgpuServer {
         };
         let bindings = match &kernel.repr {
             Some(DynRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            #[cfg(feature = "spirv")]
             Some(DynRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
         };
         let layout = bindings.map(|bindings| {
             let bindings = bindings
                 .into_iter()
-                .map(|(i, visibility)| BindGroupLayoutEntry {
+                .map(|(i, _visibility)| BindGroupLayoutEntry {
                     binding: i as u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
@@ -70,7 +73,10 @@ impl WgpuServer {
                         ty: BufferBindingType::Storage { read_only: false },
                         #[cfg(exclusive_memory_only)]
                         ty: BufferBindingType::Storage {
-                            read_only: matches!(visibility, cubecl_core::compute::Visibility::Read),
+                            read_only: matches!(
+                                _visibility,
+                                cubecl_core::compute::Visibility::Read
+                            ),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,
@@ -147,5 +153,5 @@ pub fn register_features(
 
 #[cfg(feature = "spirv")]
 fn is_vulkan(adapter: &Adapter) -> bool {
-    unsafe { adapter.as_hal::<hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
+    unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
 }

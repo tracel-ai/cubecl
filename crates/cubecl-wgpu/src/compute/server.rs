@@ -21,7 +21,6 @@ use cubecl_runtime::{
     storage::BindingResource,
     TimestampsError, TimestampsResult,
 };
-use cubecl_spirv::SpirvCompiler;
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
@@ -279,7 +278,10 @@ impl ComputeServer for WgpuServer {
 
 fn compiler(backend: wgpu::Backend) -> DynCompiler {
     match backend {
-        wgpu::Backend::Vulkan => DynCompiler::SpirV(SpirvCompiler::default()),
+        #[cfg(feature = "spirv")]
+        wgpu::Backend::Vulkan => {
+            DynCompiler::SpirV(crate::compiler::spirv::VkSpirvCompiler::default())
+        }
         _ => DynCompiler::Wgsl(Default::default()),
     }
 }
