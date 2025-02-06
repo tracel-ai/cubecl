@@ -238,7 +238,7 @@ impl<
     }
 }
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the producer consumer global matmul
 pub struct Config<S: stage::StageConfig> {
     smm_config: S,

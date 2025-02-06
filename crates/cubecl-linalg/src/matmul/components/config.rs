@@ -58,7 +58,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
 ///
 /// Useful to aggregate many trait bounds
 pub trait MatmulConfig:
-    CubeType + Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug + IntoRuntime
+    Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug
 {
 }
 

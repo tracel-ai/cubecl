@@ -1,12 +1,9 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
 use crate::matmul::components::{
     stage::{self, TilingOrderConfig},
     Ident, MatmulConfig, MatrixLayout, StageDim,
 };
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
 pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,

@@ -1,6 +1,3 @@
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
-
 use crate::matmul::components::{
     tile::{TileConfig, TileMatmulFamily},
     Ident, InputIdent, LhsStageDim, MatmulConfig, MatmulSize, MatrixLayout, OutStageDim,
@@ -27,7 +24,7 @@ pub(super) fn stage_matmul_size<TMM: TileMatmulFamily>(
     }
 }
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
