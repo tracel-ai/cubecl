@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
-use crate::matmul::components::{MatmulPrecision, StageDim};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch};
+use crate::matmul::components::{MatmulPrecision, StageDim};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).

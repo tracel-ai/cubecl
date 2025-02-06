@@ -1,6 +1,6 @@
 use crate::matmul::components::stage;
-use crate::matmul::components::StageDim;
 use crate::matmul::components::MatrixLayout;
+use crate::matmul::components::StageDim;
 
 /// Configs that may impact performance
 pub struct AdvancedConfig {
