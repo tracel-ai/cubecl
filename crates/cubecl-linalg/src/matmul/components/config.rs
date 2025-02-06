@@ -122,46 +122,47 @@ pub struct StageDim {
 }
 
 impl StageDim {
-    /// Returns the total number of elements of the stage
+    /// Returns the total number of elements of the stage.
     pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
     }
 
-    /// Returns the number of elements across the x dimension
+    /// Returns the total number of rows of the stage.
     pub fn total_row(&self) -> u32 {
         self.tile_count_row() * self.tile_size_row()
     }
 
-    /// Returns the number of elements across the y dimension
+    /// Returns the total number of columns of the stage.
     pub fn total_col(&self) -> u32 {
         self.tile_count_col() * self.tile_size_col()
     }
 
-    /// Returns the number of elements within one tile
+    /// Returns the number of elements within one tile.
     pub fn tile_size(&self) -> u32 {
         self.tile_size_row() * self.tile_size_col()
     }
 
-    /// Returns the dimension of a tile across x dimension (rows)
+    /// Returns the size of the row axis of a tile.
     pub fn tile_size_row(&self) -> u32 {
         self.tile_size_row
     }
 
-    /// Returns the dimension of a tile across y dimension (col)
+    /// Returns the size of the column axis of a tile.
     pub fn tile_size_col(&self) -> u32 {
         self.tile_size_col
     }
 
+    /// Returns the number of tiles within the stage.
     pub fn tile_count(&self) -> u32 {
         self.tile_count_row() * self.tile_count_col()
     }
 
-    /// Returns the number of tiles across x dimension (rows)
+    /// Returns the number of tiles across the row axis of the stage.
     pub fn tile_count_row(&self) -> u32 {
         self.tile_count_row
     }
 
-    /// Returns the number of tiles across y dimension (cols)
+    /// Returns the number of tiles across the column axis of the stage.
     pub fn tile_count_col(&self) -> u32 {
         self.tile_count_col
     }
