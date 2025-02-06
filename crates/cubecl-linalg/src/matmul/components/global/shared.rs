@@ -37,7 +37,7 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
+    fn stage_dim(&self, ident: Ident) -> StageDim {
         self.smm_config.stage_dim(ident)
     }
 

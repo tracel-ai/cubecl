@@ -14,7 +14,7 @@ use crate::matmul::{
     components::{
         global::{self, AccumulatorLoader},
         stage::{self, StageConfig as _, StageWriter},
-        Ident, MatmulConfigFactory, MatmulProblem, StageDim,
+        Ident, MatmulConfigFactory, MatmulProblem,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };

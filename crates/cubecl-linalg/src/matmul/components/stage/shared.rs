@@ -1,7 +1,6 @@
 use crate::matmul::components::{
     tile::{TileConfig, TileMatmulFamily},
-    Ident, InputIdent, LhsStageDim, MatmulConfig, MatmulSize, MatrixLayout, OutStageDim,
-    RhsStageDim, StageDim,
+    Ident, InputIdent, MatmulConfig, MatmulSize, MatrixLayout, StageDim,
 };
 
 use super::{StageConfig, TilingOrderConfig};
@@ -29,9 +28,9 @@ pub(super) fn stage_matmul_size<TMM: TileMatmulFamily>(
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
     pub num_stage: MatmulSize,
-    pub lhs_stage_dim: LhsStageDim,
-    pub rhs_stage_dim: RhsStageDim,
-    pub out_stage_dim: OutStageDim,
+    pub lhs_stage_dim: StageDim,
+    pub rhs_stage_dim: StageDim,
+    pub out_stage_dim: StageDim,
     pub num_planes: u32,
     pub lhs_tiling_order: TilingOrderConfig,
     pub rhs_tiling_order: TilingOrderConfig,
@@ -48,11 +47,11 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
+    fn stage_dim(&self, ident: Ident) -> StageDim {
         match ident {
-            Ident::Lhs => Box::new(self.lhs_stage_dim),
-            Ident::Rhs => Box::new(self.rhs_stage_dim),
-            Ident::Out => Box::new(self.out_stage_dim),
+            Ident::Lhs => self.lhs_stage_dim,
+            Ident::Rhs => self.rhs_stage_dim,
+            Ident::Out => self.out_stage_dim,
         }
     }
 
@@ -87,9 +86,9 @@ impl<T: TileConfig> CommonStageConfig<T> {
     pub fn new(
         tmm_config: T,
         num_stage: MatmulSize,
-        lhs_stage_dim: LhsStageDim,
-        rhs_stage_dim: RhsStageDim,
-        out_stage_dim: OutStageDim,
+        lhs_stage_dim: StageDim,
+        rhs_stage_dim: StageDim,
+        out_stage_dim: StageDim,
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,

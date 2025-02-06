@@ -107,141 +107,70 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Aggregation of [StageDim]s for all stages
 pub struct StageDims {
-    pub lhs: LhsStageDim,
-    pub rhs: RhsStageDim,
-    pub out: OutStageDim,
+    pub lhs: StageDim,
+    pub rhs: StageDim,
+    pub out: StageDim,
 }
 
-pub trait StageDim: 'static + Send + Sync {
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for stage.
+pub struct StageDim {
+    pub tile_size_row: u32,
+    pub tile_size_col: u32,
+    pub tile_count_row: u32,
+    pub tile_count_col: u32,
+}
+
+impl StageDim {
     /// Returns the total number of elements of the stage
-    fn total_size(&self) -> u32 {
+    pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
     }
 
     /// Returns the number of elements across the x dimension
-    fn total_row(&self) -> u32 {
+    pub fn total_row(&self) -> u32 {
         self.tile_count_row() * self.tile_size_row()
     }
 
     /// Returns the number of elements across the y dimension
-    fn total_col(&self) -> u32 {
+    pub fn total_col(&self) -> u32 {
         self.tile_count_col() * self.tile_size_col()
     }
 
     /// Returns the number of elements within one tile
-    fn tile_size(&self) -> u32 {
+    pub fn tile_size(&self) -> u32 {
         self.tile_size_row() * self.tile_size_col()
     }
 
     /// Returns the dimension of a tile across x dimension (rows)
-    fn tile_size_row(&self) -> u32;
+    pub fn tile_size_row(&self) -> u32 {
+        self.tile_size_row
+    }
 
     /// Returns the dimension of a tile across y dimension (col)
-    fn tile_size_col(&self) -> u32;
+    pub fn tile_size_col(&self) -> u32 {
+        self.tile_size_col
+    }
 
-    fn tile_count(&self) -> u32 {
+    pub fn tile_count(&self) -> u32 {
         self.tile_count_row() * self.tile_count_col()
     }
 
     /// Returns the number of tiles across x dimension (rows)
-    fn tile_count_row(&self) -> u32;
+    pub fn tile_count_row(&self) -> u32 {
+        self.tile_count_row
+    }
 
     /// Returns the number of tiles across y dimension (cols)
-    fn tile_count_col(&self) -> u32;
-
-    /// Number of elements in a buffer
-    fn buffer_num_elements(&self) -> u32;
-}
-
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for lhs stage.
-pub struct LhsStageDim {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
-    pub tile_count_row: u32,
-    pub tile_count_col: u32,
-}
-
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for rhs stage.
-pub struct RhsStageDim {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
-    pub tile_count_row: u32,
-    pub tile_count_col: u32,
-}
-
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for out stage.
-pub struct OutStageDim {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
-    pub tile_count_row: u32,
-    pub tile_count_col: u32,
-}
-
-impl StageDim for LhsStageDim {
-    fn tile_count_row(&self) -> u32 {
-        self.tile_count_row
-    }
-
-    fn tile_count_col(&self) -> u32 {
+    pub fn tile_count_col(&self) -> u32 {
         self.tile_count_col
     }
 
-    fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
-    }
-
-    fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
-    }
-
-    fn buffer_num_elements(&self) -> u32 {
-        self.tile_count_row * self.tile_size()
-    }
-}
-
-impl StageDim for RhsStageDim {
-    fn tile_count_row(&self) -> u32 {
-        self.tile_count_row
-    }
-
-    fn tile_count_col(&self) -> u32 {
-        self.tile_count_col
-    }
-
-    fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
-    }
-
-    fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
-    }
-
-    fn buffer_num_elements(&self) -> u32 {
-        self.tile_count_col * self.tile_size()
-    }
-}
-
-impl StageDim for OutStageDim {
-    fn tile_count_row(&self) -> u32 {
-        self.tile_count_row
-    }
-
-    fn tile_count_col(&self) -> u32 {
-        self.tile_count_col
-    }
-
-    fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
-    }
-
-    fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
-    }
-
-    fn buffer_num_elements(&self) -> u32 {
-        panic!("Out stage has no concept of buffer")
+    /// Number of elements in a buffer.
+    pub fn buffer_size(&self, ident: InputIdent) -> u32 {
+        match ident {
+            InputIdent::Lhs => self.tile_count_row() * self.tile_size(),
+            InputIdent::Rhs => self.tile_count_col() * self.tile_size(),
+        }
     }
 }

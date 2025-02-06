@@ -152,7 +152,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     #[comptime] ident: Ident,
     #[comptime] config: specialized::Config<S>,
 ) {
-    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
+    let buffer_num_elements = config.stage_dim(ident).buffer_size(ident.as_input());
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 
