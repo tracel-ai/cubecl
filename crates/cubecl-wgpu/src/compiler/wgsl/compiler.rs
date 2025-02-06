@@ -1,30 +1,19 @@
-use std::{borrow::Cow, sync::Arc};
-
 use super::Subgroup;
 use super::{shader::ComputeShader, ConstantArray};
 use super::{Item, LocalArray, SharedMemory};
 use crate::{
     compiler::{base::WgpuCompiler, wgsl},
-    WgpuServer,
+    DynCompiler, WgpuServer,
 };
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
     compute,
-    ir::{self as cube, Scope, UIntKind},
+    ir::{self as cube, Scope},
     prelude::{expand_checked_index_assign, expand_erf, CompiledKernel},
     server::ComputeServer,
-    Feature, Metadata,
+    Metadata, WgpuCompilationOptions,
 };
-use cubecl_runtime::DeviceProperties;
-use wgpu::{
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, DeviceDescriptor, PipelineLayoutDescriptor, ShaderModuleDescriptor,
-    ShaderStages,
-};
-
-#[derive(Clone, Debug, Default)]
-pub struct CompilationOptions {}
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -48,7 +37,7 @@ pub struct WgslCompiler {
     const_arrays: Vec<ConstantArray>,
     local_arrays: Vec<LocalArray>,
     #[allow(dead_code)]
-    compilation_options: CompilationOptions,
+    compilation_options: WgpuCompilationOptions,
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
 }
@@ -61,176 +50,31 @@ impl core::fmt::Debug for WgslCompiler {
 
 impl cubecl_core::Compiler for WgslCompiler {
     type Representation = ComputeShader;
-    type CompilationOptions = CompilationOptions;
+    type CompilationOptions = WgpuCompilationOptions;
 
     fn compile(
+        &mut self,
         shader: compute::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
-        let mut compiler = Self {
-            compilation_options: compilation_options.clone(),
-            ..Self::default()
-        };
-        compiler.compile_shader(shader, mode)
+        self.compilation_options = compilation_options.clone();
+        self.compile_shader(shader, mode)
     }
 
-    fn elem_size(elem: cube::Elem) -> usize {
+    fn elem_size(&self, elem: cube::Elem) -> usize {
         Self::compile_elem(elem).size()
-    }
-
-    fn max_shared_memory_size() -> usize {
-        32768
     }
 }
 
 impl WgpuCompiler for WgslCompiler {
-    fn create_pipeline(
-        server: &mut WgpuServer<Self>,
-        kernel: CompiledKernel<Self>,
-        mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
-        let source = &kernel.source;
-
-        let checks = wgpu::ShaderRuntimeChecks {
-            // Cube does not need wgpu bounds checks - OOB behaviour is instead
-            // checked by cube (if enabled).
-            // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
-            bounds_checks: false,
-            // Loop bounds are only checked in checked mode.
-            force_loop_bounding: mode == ExecutionMode::Checked,
-        };
-
-        // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
-        // is only available through the use of unsafe code.
-        let module = unsafe {
-            server.device.create_shader_module_trusted(
-                ShaderModuleDescriptor {
-                    label: None,
-                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                },
-                checks,
-            )
-        };
-
-        let layout = kernel.repr.map(|repr| {
-            let bindings = repr
-                .inputs
-                .iter()
-                .chain(repr.outputs.iter())
-                .chain(repr.named.iter().map(|it| &it.1))
-                .enumerate();
-            let bindings = bindings
-                .map(|(i, _binding)| BindGroupLayoutEntry {
-                    binding: i as u32,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        #[cfg(not(exclusive_memory_only))]
-                        ty: BufferBindingType::Storage { read_only: false },
-                        #[cfg(exclusive_memory_only)]
-                        ty: BufferBindingType::Storage {
-                            read_only: matches!(
-                                _binding.visibility,
-                                super::shader::Visibility::Read
-                            ),
-                        },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                })
-                .collect::<Vec<_>>();
-            let layout = server
-                .device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: None,
-                    entries: &bindings,
-                });
-            server
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[&layout],
-                    push_constant_ranges: &[],
-                })
-        });
-
-        Arc::new(
-            server
-                .device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: None,
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
-    }
-
     fn compile(
-        server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        dyn_comp: &mut DynCompiler,
+        server: &mut WgpuServer,
+        kernel: <WgpuServer as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> CompiledKernel<Self> {
-        kernel.compile(&server.compilation_options, mode)
-    }
-
-    async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
-        let limits = adapter.limits();
-        adapter
-            .request_device(
-                &DeviceDescriptor {
-                    label: None,
-                    required_features: adapter.features(),
-                    required_limits: limits,
-                    // The default is MemoryHints::Performance, which tries to do some bigger
-                    // block allocations. However, we already batch allocations, so we
-                    // can use MemoryHints::MemoryUsage to lower memory usage.
-                    memory_hints: wgpu::MemoryHints::MemoryUsage,
-                },
-                None,
-            )
-            .await
-            .map_err(|err| {
-                format!(
-                    "Unable to request the device with the adapter {:?}, err {:?}",
-                    adapter.get_info(),
-                    err
-                )
-            })
-            .unwrap()
-    }
-
-    fn register_features(
-        _adapter: &wgpu::Adapter,
-        _device: &wgpu::Device,
-        props: &mut DeviceProperties<Feature>,
-        _comp_options: &mut Self::CompilationOptions,
-    ) {
-        register_types(props);
-    }
-}
-
-fn register_types(props: &mut DeviceProperties<Feature>) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind};
-
-    let supported_types = [
-        Elem::UInt(UIntKind::U32),
-        Elem::Int(IntKind::I32),
-        Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicUInt(UIntKind::U32),
-        Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Flex32),
-        Elem::Bool,
-    ];
-
-    for ty in supported_types {
-        props.register_feature(Feature::Type(ty));
+    ) -> CompiledKernel<DynCompiler> {
+        kernel.compile(dyn_comp, &server.compilation_options, mode)
     }
 }
 
@@ -1231,16 +1075,9 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_visibility(value: compute::Visibility) -> wgsl::Visibility {
-        match value {
-            compute::Visibility::Read => wgsl::Visibility::Read,
-            compute::Visibility::ReadWrite => wgsl::Visibility::ReadWrite,
-        }
-    }
-
     fn compile_binding(value: compute::Binding) -> wgsl::Binding {
         wgsl::Binding {
-            visibility: Self::compile_visibility(value.visibility),
+            visibility: value.visibility,
             location: Self::compile_location(value.location),
             item: Self::compile_item(value.item),
             size: value.size,

@@ -3,6 +3,7 @@ extern crate derive_new;
 
 extern crate alloc;
 
+mod backend;
 mod compiler;
 mod compute;
 mod device;
@@ -39,7 +40,7 @@ mod tests {
 #[cfg(all(test, feature = "spirv"))]
 #[allow(unexpected_cfgs)]
 mod tests_spirv {
-    pub type TestRuntime = crate::WgpuRuntime<crate::spirv::VkSpirvCompiler>;
+    pub type TestRuntime = crate::WgpuRuntime;
     use cubecl_core::flex32;
     use half::f16;
 

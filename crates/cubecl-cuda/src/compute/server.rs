@@ -336,7 +336,8 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        let mut kernel_compiled = kernel.compile(&self.compilation_options, mode);
+        let mut kernel_compiled =
+            kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -372,7 +373,9 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile(&self.compilation_options, mode).source;
+                let source = kernel
+                    .compile(&mut Default::default(), &self.compilation_options, mode)
+                    .source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()

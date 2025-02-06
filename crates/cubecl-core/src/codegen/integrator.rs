@@ -10,7 +10,6 @@ use super::Compiler;
 use crate::{
     compute::{Binding, KernelDefinition, Location, Visibility},
     prelude::FastMath,
-    Runtime,
 };
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
@@ -309,13 +308,13 @@ pub enum OutputInfo {
 
 impl OutputInfo {
     #[allow(dead_code)]
-    pub fn elem_size<R: Runtime>(&self) -> usize {
+    pub fn elem_size<C: Compiler>(&self, compiler: &C) -> usize {
         let elem = match self {
             OutputInfo::ArrayWrite { item, .. } => bool_elem(item.elem()),
             OutputInfo::InputArrayWrite { item, .. } => bool_elem(item.elem()),
             OutputInfo::Array { item, .. } => bool_elem(item.elem()),
         };
-        <R::Compiler as Compiler>::elem_size(elem)
+        compiler.elem_size(elem)
     }
 }
 

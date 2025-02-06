@@ -103,6 +103,8 @@ pub struct HardwareProperties {
     pub plane_size_max: u32,
     /// minimum number of bindings for a kernel that can be used at once.
     pub max_bindings: u32,
+    /// Maximum amount of shared memory, in bytes
+    pub max_shared_memory_size: usize,
 }
 
 impl HardwareProperties {
