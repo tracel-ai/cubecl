@@ -123,8 +123,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
-        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
+        let stage_x = config.stage_dim(Ident::Out).total_row();
+        let stage_y = config.stage_dim(Ident::Out).total_col();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();

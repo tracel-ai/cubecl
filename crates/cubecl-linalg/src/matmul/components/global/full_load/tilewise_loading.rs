@@ -20,7 +20,7 @@ impl LoadingValidation for TilewiseLoading {
         let line_size = config.global_line_size(ident);
 
         let num_planes = config.num_planes();
-        let num_tiles = stage_dim.num_tiles();
+        let num_tiles = stage_dim.tile_count();
 
         if num_planes != num_tiles {
             return Err(FormattedConfigError::new(move || {
@@ -58,7 +58,7 @@ impl LoadingStrategy for TilewiseLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_lines_per_tile = comptime!(stage_dim.tile_num_elements() / line_size);
+        let num_lines_per_tile = comptime!(stage_dim.tile_size() / line_size);
 
         let nth_tile = UNIT_POS_Y;
         let offset_base = num_lines_per_tile * nth_tile;
@@ -68,13 +68,13 @@ impl LoadingStrategy for TilewiseLoading {
         let (tile_x, tile_y) = match config.tiling_order(ident) {
             TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
                 nth_tile,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
+                stage_dim.tile_count_row(),
+                stage_dim.tile_count_col(),
             ),
             TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
                 nth_tile,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
+                stage_dim.tile_count_row(),
+                stage_dim.tile_count_col(),
             ),
         };
 

@@ -15,7 +15,7 @@ impl LoadingValidation for BufferLoading {
         let stage_dim = config.stage_dim(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_elements = stage_dim.total_elements();
+        let num_stage_elements = stage_dim.total_size();
         let total_units = config.num_planes() * config.plane_dim();
         let jump_length = total_units * line_size;
 
@@ -67,7 +67,7 @@ impl BufferLoading {
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
-            let tile_num_elements = stage_dim.tile_num_elements();
+            let tile_num_elements = stage_dim.tile_size();
             let nth_buffer_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 

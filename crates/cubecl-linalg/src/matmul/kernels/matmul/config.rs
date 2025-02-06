@@ -40,25 +40,29 @@ pub fn create_stage_dim(
     tile_size_n: u32,
     tile_size_k: u32,
 ) -> (LhsStageDim, RhsStageDim, OutStageDim) {
+    let count_m = stage_m / tile_size_m;
+    let count_k = stage_k / tile_size_k;
+    let count_n = stage_n / tile_size_n;
+
     let lhs_stage_dim = LhsStageDim {
-        tile_size_m,
-        tile_size_k,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_k: stage_k / tile_size_k,
+        tile_size_row: tile_size_m,
+        tile_size_col: tile_size_k,
+        tile_count_row: count_m,
+        tile_count_col: count_k,
     };
 
     let rhs_stage_dim = RhsStageDim {
-        tile_size_k,
-        tile_size_n,
-        num_tiles_k: stage_k / tile_size_k,
-        num_tiles_n: stage_n / tile_size_n,
+        tile_size_row: tile_size_k,
+        tile_size_col: tile_size_n,
+        tile_count_row: count_k,
+        tile_count_col: count_n,
     };
 
     let out_stage_dim = OutStageDim {
-        tile_size_m,
-        tile_size_n,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_n: stage_n / tile_size_n,
+        tile_size_row: tile_size_m,
+        tile_size_col: tile_size_n,
+        tile_count_row: count_m,
+        tile_count_col: count_n,
     };
 
     (lhs_stage_dim, rhs_stage_dim, out_stage_dim)
