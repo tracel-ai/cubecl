@@ -14,7 +14,7 @@ use crate::matmul::{
     components::{
         global::{self, AccumulatorLoader},
         stage::{self, StageConfig as _, StageWriter},
-        Ident, MatmulConfigFactory, MatmulProblem, StageDim,
+        Ident, MatmulConfigFactory, MatmulProblem,
     },
     kernels::matmul::{create_stage_dim, AdvancedConfig},
 };
@@ -88,7 +88,7 @@ where
             lhs_stage_dim,
             rhs_stage_dim,
             out_stage_dim,
-            lhs_stage_dim.num_tiles_x_dim(),
+            lhs_stage_dim.tile_count_row(),
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
         )
@@ -191,8 +191,7 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines =
-            stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
+        let num_tile_lines = stage_config.stage_dim(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<O>::new_lined(

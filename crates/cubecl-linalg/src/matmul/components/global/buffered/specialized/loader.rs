@@ -82,7 +82,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> LhsBufferLoader<EG, ES, S>
             tensor_view,
             stage,
             buffer_iter: 0u32.runtime(),
-            num_buffers: config.stage_dim(Ident::Lhs).num_tiles_y_dim(),
+            num_buffers: config.stage_dim(Ident::Lhs).tile_count_col(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }
@@ -137,7 +137,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> RhsBufferLoader<EG, ES, S>
             tensor_view,
             stage,
             buffer_iter: 0u32.runtime(),
-            num_buffers: config.stage_dim(Ident::Rhs).num_tiles_x_dim(),
+            num_buffers: config.stage_dim(Ident::Rhs).tile_count_row(),
             is_producer,
             _config: PhantomData::<S>.runtime(),
         }
@@ -152,7 +152,7 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     #[comptime] ident: Ident,
     #[comptime] config: specialized::Config<S>,
 ) {
-    let buffer_num_elements = config.stage_dim(ident).buffer_num_elements();
+    let buffer_num_elements = config.stage_dim(ident).buffer_size(ident.as_input());
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 

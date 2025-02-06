@@ -92,8 +92,8 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Line<EG> {
         let line_size = config.global_line_size(ident);
-        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
-        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+        let tile_size_x = config.stage_dim(ident).tile_size_row();
+        let tile_size_y = config.stage_dim(ident).tile_size_col();
 
         let view_tile_x = tile_x * tile_size_x + self.x_offset;
         let view_tile_y = tile_y * tile_size_y + self.y_offset;
@@ -179,11 +179,11 @@ impl<EG: Numeric> TensorWriter<EG> {
     ) {
         let stage_dim = config.stage_dim(Ident::Out);
 
-        let view_x = tile_x * stage_dim.tile_size_x_dim()
-            + unit_id / stage_dim.tile_size_y_dim()
+        let view_x = tile_x * stage_dim.tile_size_row()
+            + unit_id / stage_dim.tile_size_col()
             + self.x_offset;
-        let view_y = tile_y * stage_dim.tile_size_y_dim()
-            + unit_id % stage_dim.tile_size_y_dim()
+        let view_y = tile_y * stage_dim.tile_size_col()
+            + unit_id % stage_dim.tile_size_col()
             + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)

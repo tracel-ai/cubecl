@@ -1,8 +1,6 @@
 use crate::matmul::components::stage;
-use crate::matmul::components::LhsStageDim;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::OutStageDim;
-use crate::matmul::components::RhsStageDim;
+use crate::matmul::components::StageDim;
 
 /// Configs that may impact performance
 pub struct AdvancedConfig {
@@ -39,26 +37,30 @@ pub fn create_stage_dim(
     tile_size_m: u32,
     tile_size_n: u32,
     tile_size_k: u32,
-) -> (LhsStageDim, RhsStageDim, OutStageDim) {
-    let lhs_stage_dim = LhsStageDim {
-        tile_size_m,
-        tile_size_k,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_k: stage_k / tile_size_k,
+) -> (StageDim, StageDim, StageDim) {
+    let tile_count_m = stage_m / tile_size_m;
+    let tile_count_k = stage_k / tile_size_k;
+    let tile_count_n = stage_n / tile_size_n;
+
+    let lhs_stage_dim = StageDim {
+        tile_size_row: tile_size_m,
+        tile_size_col: tile_size_k,
+        tile_count_row: tile_count_m,
+        tile_count_col: tile_count_k,
     };
 
-    let rhs_stage_dim = RhsStageDim {
-        tile_size_k,
-        tile_size_n,
-        num_tiles_k: stage_k / tile_size_k,
-        num_tiles_n: stage_n / tile_size_n,
+    let rhs_stage_dim = StageDim {
+        tile_size_row: tile_size_k,
+        tile_size_col: tile_size_n,
+        tile_count_row: tile_count_k,
+        tile_count_col: tile_count_n,
     };
 
-    let out_stage_dim = OutStageDim {
-        tile_size_m,
-        tile_size_n,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_n: stage_n / tile_size_n,
+    let out_stage_dim = StageDim {
+        tile_size_row: tile_size_m,
+        tile_size_col: tile_size_n,
+        tile_count_row: tile_count_m,
+        tile_count_col: tile_count_n,
     };
 
     (lhs_stage_dim, rhs_stage_dim, out_stage_dim)

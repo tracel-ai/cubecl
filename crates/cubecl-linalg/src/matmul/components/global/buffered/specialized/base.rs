@@ -46,7 +46,7 @@ where
         if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }
-        if config.stage_dim(Ident::Lhs).num_tiles_y_dim() <= 1 {
+        if config.stage_dim(Ident::Lhs).tile_count_col() <= 1 {
             return Err(Box::new("Producer-consumer needs at least 2 buffers."));
         }
 
@@ -123,8 +123,8 @@ where
     ) {
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.stage_dim(Ident::Lhs).num_tiles_y_dim();
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_y_dim();
+        let num_buffers = config.stage_dim(Ident::Lhs).tile_count_col();
+        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
@@ -238,7 +238,7 @@ impl<
     }
 }
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the producer consumer global matmul
 pub struct Config<S: stage::StageConfig> {
     smm_config: S,
@@ -272,7 +272,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
+    fn stage_dim(&self, ident: Ident) -> StageDim {
         self.smm_config.stage_dim(ident)
     }
 

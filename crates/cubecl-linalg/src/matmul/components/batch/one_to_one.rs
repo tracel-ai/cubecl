@@ -101,8 +101,8 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
-        let x_offset = x_index * config.stage_dim(Ident::Lhs).num_elements_x_dim();
-        let y_offset = y_index * config.stage_dim(Ident::Rhs).num_elements_y_dim();
+        let x_offset = x_index * config.stage_dim(Ident::Lhs).total_row();
+        let y_offset = y_index * config.stage_dim(Ident::Rhs).total_col();
         let nth_batch = C::batch_index();
         let rank = lhs.rank();
         let k_range = (0, lhs.shape(rank - 1));
@@ -123,7 +123,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
     }
 }
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
@@ -138,16 +138,16 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
         self.gmm_config
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
+    fn stage_dim(&self, ident: Ident) -> StageDim {
         self.gmm_config.stage_dim(ident)
     }
 
     fn max_m(&self) -> u32 {
-        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).num_elements_x_dim()
+        C::max_x(self.cube_count) * self.stage_dim(Ident::Out).total_row()
     }
 
     fn max_n(&self) -> u32 {
-        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).num_elements_y_dim()
+        C::max_y(self.cube_count) * self.stage_dim(Ident::Out).total_col()
     }
 
     fn max_batches(&self) -> u32 {

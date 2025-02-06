@@ -23,7 +23,7 @@ impl TilewiseUnloading {
         let out_line_size = config.global_line_size(Ident::Out);
 
         let unit_step = config.plane_dim() * out_line_size;
-        let num_unit_writes = stage_dim.tile_num_elements() / unit_step;
+        let num_unit_writes = stage_dim.tile_size() / unit_step;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));

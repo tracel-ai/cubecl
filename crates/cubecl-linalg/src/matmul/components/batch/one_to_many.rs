@@ -123,8 +123,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_dim(Ident::Out).num_elements_x_dim();
-        let stage_y = config.stage_dim(Ident::Out).num_elements_y_dim();
+        let stage_x = config.stage_dim(Ident::Out).total_row();
+        let stage_y = config.stage_dim(Ident::Out).total_col();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
@@ -144,7 +144,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
     }
 }
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the OneToOneBatchMatmul
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
@@ -159,7 +159,7 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
         self.gmm_config
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
+    fn stage_dim(&self, ident: Ident) -> StageDim {
         self.gmm_config.stage_dim(ident)
     }
 

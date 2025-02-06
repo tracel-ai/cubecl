@@ -58,7 +58,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
 ///
 /// Useful to aggregate many trait bounds
 pub trait MatmulConfig:
-    CubeType + Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug + IntoRuntime
+    Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug
 {
 }
 
@@ -107,141 +107,71 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Aggregation of [StageDim]s for all stages
 pub struct StageDims {
-    pub lhs: LhsStageDim,
-    pub rhs: RhsStageDim,
-    pub out: OutStageDim,
+    pub lhs: StageDim,
+    pub rhs: StageDim,
+    pub out: StageDim,
 }
 
-pub trait StageDim: 'static + Send + Sync {
-    /// Returns the total number of elements of the stage
-    fn total_elements(&self) -> u32 {
-        self.num_elements_x_dim() * self.num_elements_y_dim()
-    }
-
-    /// Returns the number of elements within one tile
-    fn tile_num_elements(&self) -> u32 {
-        self.tile_size_x_dim() * self.tile_size_y_dim()
-    }
-
-    /// Returns the number of elements across the x dimension
-    fn num_elements_x_dim(&self) -> u32 {
-        self.num_tiles_x_dim() * self.tile_size_x_dim()
-    }
-
-    /// Returns the number of elements across the y dimension
-    fn num_elements_y_dim(&self) -> u32 {
-        self.num_tiles_y_dim() * self.tile_size_y_dim()
-    }
-
-    fn num_tiles(&self) -> u32 {
-        self.num_tiles_x_dim() * self.num_tiles_y_dim()
-    }
-
-    /// Number of elements in a buffer
-    fn buffer_num_elements(&self) -> u32;
-
-    /// Returns the number of tiles across x dimension (rows)
-    fn num_tiles_x_dim(&self) -> u32;
-
-    /// Returns the number of tiles across y dimension (cols)
-    fn num_tiles_y_dim(&self) -> u32;
-
-    /// Returns the dimension of a tile across x dimension (rows)
-    fn tile_size_x_dim(&self) -> u32;
-
-    /// Returns the dimension of a tile across y dimension (col)
-    fn tile_size_y_dim(&self) -> u32;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for stage.
+pub struct StageDim {
+    pub tile_size_row: u32,
+    pub tile_size_col: u32,
+    pub tile_count_row: u32,
+    pub tile_count_col: u32,
 }
 
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for lhs stage.
-pub struct LhsStageDim {
-    pub tile_size_m: u32,
-    pub tile_size_k: u32,
-    pub num_tiles_m: u32,
-    pub num_tiles_k: u32,
-}
-
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for rhs stage.
-pub struct RhsStageDim {
-    pub tile_size_k: u32,
-    pub tile_size_n: u32,
-    pub num_tiles_k: u32,
-    pub num_tiles_n: u32,
-}
-
-#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Dimensions for out stage.
-pub struct OutStageDim {
-    pub tile_size_m: u32,
-    pub tile_size_n: u32,
-    pub num_tiles_m: u32,
-    pub num_tiles_n: u32,
-}
-
-impl StageDim for LhsStageDim {
-    fn num_tiles_x_dim(&self) -> u32 {
-        self.num_tiles_m
+impl StageDim {
+    /// Returns the total number of elements of the stage.
+    pub fn total_size(&self) -> u32 {
+        self.total_row() * self.total_col()
     }
 
-    fn num_tiles_y_dim(&self) -> u32 {
-        self.num_tiles_k
+    /// Returns the total number of rows of the stage.
+    pub fn total_row(&self) -> u32 {
+        self.tile_count_row() * self.tile_size_row()
     }
 
-    fn tile_size_x_dim(&self) -> u32 {
-        self.tile_size_m
+    /// Returns the total number of columns of the stage.
+    pub fn total_col(&self) -> u32 {
+        self.tile_count_col() * self.tile_size_col()
     }
 
-    fn tile_size_y_dim(&self) -> u32 {
-        self.tile_size_k
+    /// Returns the number of elements within one tile.
+    pub fn tile_size(&self) -> u32 {
+        self.tile_size_row() * self.tile_size_col()
     }
 
-    fn buffer_num_elements(&self) -> u32 {
-        self.num_tiles_m * self.tile_num_elements()
-    }
-}
-
-impl StageDim for RhsStageDim {
-    fn num_tiles_x_dim(&self) -> u32 {
-        self.num_tiles_k
+    /// Returns the size of the row axis of a tile.
+    pub fn tile_size_row(&self) -> u32 {
+        self.tile_size_row
     }
 
-    fn num_tiles_y_dim(&self) -> u32 {
-        self.num_tiles_n
+    /// Returns the size of the column axis of a tile.
+    pub fn tile_size_col(&self) -> u32 {
+        self.tile_size_col
     }
 
-    fn tile_size_x_dim(&self) -> u32 {
-        self.tile_size_k
+    /// Returns the number of tiles within the stage.
+    pub fn tile_count(&self) -> u32 {
+        self.tile_count_row() * self.tile_count_col()
     }
 
-    fn tile_size_y_dim(&self) -> u32 {
-        self.tile_size_n
+    /// Returns the number of tiles across the row axis of the stage.
+    pub fn tile_count_row(&self) -> u32 {
+        self.tile_count_row
     }
 
-    fn buffer_num_elements(&self) -> u32 {
-        self.num_tiles_n * self.tile_num_elements()
-    }
-}
-
-impl StageDim for OutStageDim {
-    fn num_tiles_x_dim(&self) -> u32 {
-        self.num_tiles_m
+    /// Returns the number of tiles across the column axis of the stage.
+    pub fn tile_count_col(&self) -> u32 {
+        self.tile_count_col
     }
 
-    fn num_tiles_y_dim(&self) -> u32 {
-        self.num_tiles_n
-    }
-
-    fn tile_size_x_dim(&self) -> u32 {
-        self.tile_size_m
-    }
-
-    fn tile_size_y_dim(&self) -> u32 {
-        self.tile_size_n
-    }
-
-    fn buffer_num_elements(&self) -> u32 {
-        panic!("Out stage has no concept of buffer")
+    /// Number of elements in a buffer.
+    pub fn buffer_size(&self, ident: InputIdent) -> u32 {
+        match ident {
+            InputIdent::Lhs => self.tile_count_row() * self.tile_size(),
+            InputIdent::Rhs => self.tile_count_col() * self.tile_size(),
+        }
     }
 }

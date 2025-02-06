@@ -51,7 +51,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         check_num_planes(
-            config.stage_dim(Ident::Lhs).num_tiles_x_dim(),
+            config.stage_dim(Ident::Lhs).tile_count_row(),
             config.num_planes(),
         )?;
         TMM::check_config(&config.to_tmm_config())
@@ -172,8 +172,7 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines =
-            stage_config.stage_dim(Ident::Out).tile_num_elements() / out_smem_line_size;
+        let num_tile_lines = stage_config.stage_dim(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<O>::new_lined(
