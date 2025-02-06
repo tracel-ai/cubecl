@@ -204,6 +204,7 @@ fn request_device(
     mut features: Features,
     limits: Limits,
 ) -> (wgpu::Device, wgpu::Queue) {
+    let full_feat = features;
     // This registers only f16 but not u8/i8, so remove so we can manually add them
     features.remove(Features::SHADER_F16);
     // Skip float features since we already register a more general version manually
@@ -253,7 +254,7 @@ fn request_device(
                 vk_device,
                 None,
                 &extensions,
-                features,
+                full_feat,
                 &wgpu::MemoryHints::MemoryUsage,
                 family_info.queue_family_index,
                 0,
@@ -263,7 +264,7 @@ fn request_device(
 
     let descriptor = DeviceDescriptor {
         label: None,
-        required_features: features,
+        required_features: full_feat,
         required_limits: limits,
         // The default is MemoryHints::Performance, which tries to do some bigger
         // block allocations. However, we already batch allocations, so we
@@ -469,31 +470,32 @@ fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl
     };
 
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
-        let name = name
-            .split("<")
-            .take_while(|it| !it.ends_with("Runtime"))
-            .map(|it| it.split(">").next().unwrap())
-            .map(|it| it.split("::").last().unwrap())
-            .collect::<Vec<_>>()
-            .join("_");
-        let mut hash = DefaultHasher::new();
-        id.hash(&mut hash);
-        let id = hash.finish();
-        let name = sanitize_filename::sanitize_with_options(
-            format!("{name}_{id:#x}"),
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let repr = compiled.repr.as_ref().unwrap();
-        let kernel = repr.assemble().into_iter();
-        let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
-        fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
-        fs::write(
-            format!("{dir}/{name}.ir.txt"),
-            format!("{}", repr.optimizer),
-        )
-        .unwrap();
+        if let Some(repr) = compiled.repr.as_ref() {
+            let name = name
+                .split("<")
+                .take_while(|it| !it.ends_with("Runtime"))
+                .map(|it| it.split(">").next().unwrap())
+                .map(|it| it.split("::").last().unwrap())
+                .collect::<Vec<_>>()
+                .join("_");
+            let mut hash = DefaultHasher::new();
+            id.hash(&mut hash);
+            let id = hash.finish();
+            let name = sanitize_filename::sanitize_with_options(
+                format!("{name}_{id:#x}"),
+                sanitize_filename::Options {
+                    replacement: "_",
+                    ..Default::default()
+                },
+            );
+            let kernel = repr.assemble().into_iter();
+            let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
+            fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.txt"),
+                format!("{}", repr.optimizer),
+            )
+            .unwrap();
+        }
     }
 }

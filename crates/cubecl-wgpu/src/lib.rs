@@ -10,6 +10,7 @@ mod element;
 mod graphics;
 mod runtime;
 
+pub use compiler::base::*;
 pub use compiler::wgsl::WgslCompiler;
 pub use compute::*;
 pub use device::*;
