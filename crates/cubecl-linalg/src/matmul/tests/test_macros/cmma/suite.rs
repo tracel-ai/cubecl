@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
-use crate::matmul::components::stage::CommonStageInput;
-use crate::matmul::components::{MatmulProblem, MatrixLayout};
+use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -46,7 +45,7 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         tile_count,
         plane_dim,
     };
-    let config_input = CommonStageInput {
+    let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };

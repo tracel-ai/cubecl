@@ -5,7 +5,7 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        batch::TransposedDispatch, stage::*, tile::TileMatmulFamily, InputRuntimeArg,
+        batch::TransposedDispatch, tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg,
         MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
@@ -51,7 +51,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
+        let config_input = CompleteStageTiling {
             tile_shape: selection.tile_shape,
             tile_count: selection.tile_count,
         };
@@ -80,7 +80,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
+        let config_input = CompleteStageTiling {
             tile_shape: selection.tile_shape,
             tile_count: selection.tile_count,
         };
@@ -109,7 +109,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
+        let config_input = CompleteStageTiling {
             tile_shape: selection.tile_shape,
             tile_count: selection.tile_count,
         };

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::shared::{CommonStageConfig, CommonStageInput};
+use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
@@ -44,7 +44,7 @@ impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
 where
     TMM: TileMatmulFamily,
 {
-    type Input = CommonStageInput;
+    type Input = CompleteStageTiling;
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {

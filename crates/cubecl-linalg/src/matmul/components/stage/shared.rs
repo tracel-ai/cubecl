@@ -5,20 +5,11 @@ use crate::matmul::components::{
 
 use super::{StageConfig, TilingOrderConfig};
 
-pub struct CommonStageInput {
-    pub tile_shape: MatmulSize,
-    pub tile_count: MatmulSize,
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
     pub tiling: CompleteStageTiling,
-    // TODO
-    // pub lhs_stage_tiling: StageTiling,
-    // pub rhs_stage_tiling: StageTiling,
-    // pub out_stage_tiling: StageTiling,
     pub num_planes: u32,
     pub lhs_tiling_order: TilingOrderConfig,
     pub rhs_tiling_order: TilingOrderConfig,

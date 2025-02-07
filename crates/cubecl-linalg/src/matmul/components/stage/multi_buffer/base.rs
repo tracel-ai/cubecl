@@ -4,7 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::AccumulatorLoader;
-use crate::matmul::components::stage::shared::{CommonStageConfig, CommonStageInput};
+use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
@@ -43,7 +43,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
-    type Input = CommonStageInput;
+    type Input = CompleteStageTiling;
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
