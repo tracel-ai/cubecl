@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     stage::{self, TilingOrderConfig},
-    Ident, MatmulConfig, MatrixLayout, StageDim,
+    Ident, MatmulConfig, MatrixLayout, StageTiling,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -37,8 +37,8 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
-        self.smm_config.stage_dim(ident)
+    fn stage_tiling(&self, ident: Ident) -> StageTiling {
+        self.smm_config.tiling(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

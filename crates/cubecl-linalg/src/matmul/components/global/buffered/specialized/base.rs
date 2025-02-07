@@ -6,7 +6,7 @@ use crate::matmul::components::stage::single_buffer::{
     LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
 };
 use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
-use crate::matmul::components::StageDim;
+use crate::matmul::components::StageTiling;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{stage, MatmulPrecision};
@@ -46,7 +46,7 @@ where
         if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }
-        if config.stage_dim(Ident::Lhs).tile_count_col() <= 1 {
+        if config.stage_tiling(Ident::Lhs).tile_count_col() <= 1 {
             return Err(Box::new("Producer-consumer needs at least 2 buffers."));
         }
 
@@ -123,8 +123,8 @@ where
     ) {
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.stage_dim(Ident::Lhs).tile_count_col();
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_shape_col();
+        let num_buffers = config.stage_tiling(Ident::Lhs).tile_count_col();
+        let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
@@ -272,8 +272,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
-        self.smm_config.stage_dim(ident)
+    fn stage_tiling(&self, ident: Ident) -> StageTiling {
+        self.smm_config.tiling(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

@@ -4,13 +4,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::AccumulatorLoader;
-use crate::matmul::components::stage::shared::{
-    stage_matmul_size, CommonStageConfig, CommonStageInput,
-};
+use crate::matmul::components::stage::shared::{CommonStageConfig, CommonStageInput};
 use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
-    InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
@@ -19,7 +17,7 @@ use crate::matmul::{
         stage::{StageConfig as _, StageWriter},
         tile, Ident, MatmulProblem,
     },
-    kernels::matmul::{create_stage_dim, AdvancedConfig},
+    kernels::matmul::AdvancedConfig,
 };
 
 use super::reader::{LhsReader, RhsReader};
@@ -31,12 +29,11 @@ pub struct MultiBufferMatmulFamily<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
     fn size(config: &Self::Config) -> MatmulSize {
-        let tmm_config = config.to_tmm_config();
-        stage_matmul_size::<TMM>(&tmm_config, &config.tile_count)
+        config.tiling.total_shape()
     }
 
     fn num(config: &Self::Config) -> MatmulSize {
-        config.tile_count
+        config.tiling.tile_count
     }
 
     type LhsReader = LhsReaderFamily;
@@ -51,7 +48,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         check_num_planes(
-            config.stage_dim(Ident::Lhs).tile_count_row(),
+            config.tiling(Ident::Lhs).tile_count_row(),
             config.num_planes(),
         )?;
         TMM::check_config(&config.to_tmm_config())
@@ -77,21 +74,14 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         let tmm_config =
             TMM::make_config(tile_shape, problem, cube_dim, cube_count, advanced_config);
 
-        let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) = create_stage_dim(
-            tile_count.m,
-            tile_count.n,
-            tile_count.k,
-            tile_shape.m,
-            tile_shape.n,
-            tile_shape.k,
-        );
+        let tiling = CompleteStageTiling {
+            tile_shape,
+            tile_count,
+        };
 
         CommonStageConfig::new(
             tmm_config,
-            input.tile_count,
-            lhs_stage_dim,
-            rhs_stage_dim,
-            out_stage_dim,
+            tiling,
             cube_dim.y,
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
@@ -137,7 +127,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
-        for buffer_iter in 0..config.tile_count.k {
+        for buffer_iter in 0..config.tile_count().k {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
             TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
@@ -172,7 +162,7 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines = stage_config.stage_dim(Ident::Out).tile_size() / out_smem_line_size;
+        let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<O>::new_lined(
@@ -199,7 +189,7 @@ where
         let mut acc = Sequence::<TMM::Accumulator>::new();
 
         #[unroll]
-        for _ in 0..config.tile_count.n {
+        for _ in 0..config.tile_count().n {
             acc.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
@@ -208,7 +198,7 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         #[unroll]
-        for i in 0..config.tile_count.n {
+        for i in 0..config.tile_count().n {
             TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
         }
     }
@@ -219,7 +209,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
-        for i in 0..config.tile_count.n {
+        for i in 0..config.tile_count().n {
             let acc = acc.index_mut(i);
             L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
         }

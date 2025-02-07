@@ -5,7 +5,7 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulSize, StageDim};
+use crate::matmul::components::{MatmulSize, StageTiling};
 
 use super::tiling_order::TilingOrderConfig;
 
@@ -13,6 +13,7 @@ pub trait ReaderFamily {
     type Reader<I: Numeric>: CubeType;
 }
 
+// TODO Bad names and doc
 pub trait StageMatmulFamily:
     MatmulConfigFactory<Config: StageConfig> + Send + Sync + 'static
 {
@@ -137,7 +138,7 @@ pub trait StageConfig: MatmulConfig {
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> StageDim;
+    fn tiling(&self, ident: Ident) -> StageTiling;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;

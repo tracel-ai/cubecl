@@ -6,7 +6,7 @@ use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
 use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
-use crate::matmul::components::StageDim;
+use crate::matmul::components::StageTiling;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{stage, InvalidConfigError};
@@ -244,8 +244,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
-        self.smm_config.stage_dim(ident)
+    fn stage_tiling(&self, ident: Ident) -> StageTiling {
+        self.smm_config.tiling(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

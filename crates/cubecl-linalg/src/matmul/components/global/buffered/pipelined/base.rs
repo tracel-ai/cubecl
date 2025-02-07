@@ -47,7 +47,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_shape_col();
+        let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;
