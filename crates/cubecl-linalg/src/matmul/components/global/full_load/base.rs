@@ -6,7 +6,7 @@ use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
 use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
-use crate::matmul::components::StageDim;
+use crate::matmul::components::StageTiling;
 use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
 use crate::matmul::components::{global, MatmulProblem};
 use crate::matmul::components::{stage, InvalidConfigError};
@@ -72,19 +72,19 @@ where
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
         let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
-        let size = SMM::size(&smm_config);
+        let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
             smm_config,
-            problem.m as u32 % size.m != 0,
-            problem.n as u32 % size.n != 0,
-            problem.k as u32 % size.k != 0,
+            problem.m as u32 % stage_shape.m != 0,
+            problem.n as u32 % stage_shape.n != 0,
+            problem.k as u32 % stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
-            size.k,
+            stage_shape.k,
         )
     }
 }
@@ -244,8 +244,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
-        self.smm_config.stage_dim(ident)
+    fn stage_tiling(&self, ident: Ident) -> StageTiling {
+        self.smm_config.tiling(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

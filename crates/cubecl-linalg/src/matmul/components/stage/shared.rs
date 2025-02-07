@@ -1,36 +1,15 @@
 use crate::matmul::components::{
-    tile::{TileConfig, TileMatmulFamily},
-    Ident, InputIdent, MatmulConfig, MatmulSize, MatrixLayout, StageDim,
+    tile::TileConfig, CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulSize,
+    MatrixLayout, StageTiling,
 };
 
 use super::{StageConfig, TilingOrderConfig};
-
-pub struct CommonStageInput<TMM: TileMatmulFamily> {
-    pub tile: TMM::Input,
-    pub num_stages: MatmulSize,
-}
-
-pub(super) fn stage_matmul_size<TMM: TileMatmulFamily>(
-    config: &TMM::Config,
-    num_stage: &MatmulSize,
-) -> MatmulSize {
-    let size = TMM::size(config);
-
-    MatmulSize {
-        m: num_stage.m * size.m,
-        n: num_stage.n * size.n,
-        k: num_stage.k * size.k,
-    }
-}
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
-    pub num_stage: MatmulSize,
-    pub lhs_stage_dim: StageDim,
-    pub rhs_stage_dim: StageDim,
-    pub out_stage_dim: StageDim,
+    pub tiling: CompleteStageTiling,
     pub num_planes: u32,
     pub lhs_tiling_order: TilingOrderConfig,
     pub rhs_tiling_order: TilingOrderConfig,
@@ -47,12 +26,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> StageDim {
-        match ident {
-            Ident::Lhs => self.lhs_stage_dim,
-            Ident::Rhs => self.rhs_stage_dim,
-            Ident::Out => self.out_stage_dim,
-        }
+    fn tiling(&self, ident: Ident) -> StageTiling {
+        self.tiling.get(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {
@@ -74,8 +49,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         }
     }
 
-    fn num_stages(&self) -> &MatmulSize {
-        &self.num_stage
+    fn tile_count(&self) -> &MatmulSize {
+        &self.tiling.tile_count
     }
 }
 
@@ -85,20 +60,14 @@ impl<T: TileConfig> CommonStageConfig<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tmm_config: T,
-        num_stage: MatmulSize,
-        lhs_stage_dim: StageDim,
-        rhs_stage_dim: StageDim,
-        out_stage_dim: StageDim,
+        tiling: CompleteStageTiling,
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,
     ) -> Self {
         Self {
-            num_stage,
             tmm_config,
-            lhs_stage_dim,
-            rhs_stage_dim,
-            out_stage_dim,
+            tiling,
             num_planes,
             lhs_tiling_order,
             rhs_tiling_order,

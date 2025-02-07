@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 
-use super::{MatmulPrecision, MatmulProblem};
+use super::{MatmulPrecision, MatmulProblem, MatmulSize};
 
 pub type InvalidConfigError = Box<dyn Display>;
 
@@ -105,23 +105,55 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-/// Aggregation of [StageDim]s for all stages
-pub struct StageDims {
-    pub lhs: StageDim,
-    pub rhs: StageDim,
-    pub out: StageDim,
+/// Aggregation of [StageTiling]s for all components.
+pub struct CompleteStageTiling {
+    pub tile_shape: MatmulSize,
+    pub tile_count: MatmulSize,
+}
+
+impl CompleteStageTiling {
+    pub fn get(&self, ident: Ident) -> StageTiling {
+        match ident {
+            Ident::Lhs => StageTiling {
+                tile_shape_row: self.tile_shape.m,
+                tile_shape_col: self.tile_shape.k,
+                tile_count_row: self.tile_count.m,
+                tile_count_col: self.tile_count.k,
+            },
+            Ident::Rhs => StageTiling {
+                tile_shape_row: self.tile_shape.k,
+                tile_shape_col: self.tile_shape.n,
+                tile_count_row: self.tile_count.k,
+                tile_count_col: self.tile_count.n,
+            },
+            Ident::Out => StageTiling {
+                tile_shape_row: self.tile_shape.m,
+                tile_shape_col: self.tile_shape.n,
+                tile_count_row: self.tile_count.m,
+                tile_count_col: self.tile_count.n,
+            },
+        }
+    }
+
+    pub fn total_shape(&self) -> MatmulSize {
+        MatmulSize {
+            m: self.tile_shape.m * self.tile_count.m,
+            n: self.tile_shape.n * self.tile_count.n,
+            k: self.tile_shape.k * self.tile_count.k,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
-pub struct StageDim {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
+pub struct StageTiling {
+    pub tile_shape_row: u32,
+    pub tile_shape_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
 
-impl StageDim {
+impl StageTiling {
     /// Returns the total number of elements of the stage.
     pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
@@ -129,27 +161,27 @@ impl StageDim {
 
     /// Returns the total number of rows of the stage.
     pub fn total_row(&self) -> u32 {
-        self.tile_count_row() * self.tile_size_row()
+        self.tile_count_row() * self.tile_shape_row()
     }
 
     /// Returns the total number of columns of the stage.
     pub fn total_col(&self) -> u32 {
-        self.tile_count_col() * self.tile_size_col()
+        self.tile_count_col() * self.tile_shape_col()
     }
 
     /// Returns the number of elements within one tile.
     pub fn tile_size(&self) -> u32 {
-        self.tile_size_row() * self.tile_size_col()
+        self.tile_shape_row() * self.tile_shape_col()
     }
 
     /// Returns the size of the row axis of a tile.
-    pub fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
+    pub fn tile_shape_row(&self) -> u32 {
+        self.tile_shape_row
     }
 
     /// Returns the size of the column axis of a tile.
-    pub fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
+    pub fn tile_shape_col(&self) -> u32 {
+        self.tile_shape_col
     }
 
     /// Returns the number of tiles within the stage.

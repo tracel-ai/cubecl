@@ -45,16 +45,16 @@ where
         check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
 
         let tmm_config = config.smm_config.to_tmm_config();
-        let tmm_size = tmm_config.size();
+        let tile_shape = tmm_config.tile_shape();
 
-        if tmm_size.m != tmm_size.n || tmm_size.n != tmm_size.k {
+        if tile_shape.m != tile_shape.n || tile_shape.n != tile_shape.k {
             return Err(Box::new("Only support square tiling"));
         }
 
         BufferLoading::check::<Self::Config>(config, Ident::Lhs)?;
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
 
-        if config.stage_dim(Ident::Lhs).tile_count_col() != 2 {
+        if config.stage_tiling(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
         }
 
@@ -76,13 +76,13 @@ where
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
         let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
-        let size = SMM::size(&smm_config);
+        let stage_shape = SMM::stage_shape(&smm_config);
 
         CommonGlobalConfig::new(
             smm_config,
-            problem.m as u32 % size.m != 0,
-            problem.n as u32 % size.n != 0,
-            problem.k as u32 % size.k != 0,
+            problem.m as u32 % stage_shape.m != 0,
+            problem.n as u32 % stage_shape.n != 0,
+            problem.k as u32 % stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,

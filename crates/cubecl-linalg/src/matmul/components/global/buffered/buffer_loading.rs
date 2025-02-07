@@ -12,10 +12,10 @@ pub struct BufferLoading {}
 
 impl LoadingValidation for BufferLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let stage_dim = config.stage_dim(ident);
+        let tiling = config.stage_tiling(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_elements = stage_dim.total_size();
+        let num_stage_elements = tiling.total_size();
         let total_units = config.num_planes() * config.plane_dim();
         let jump_length = total_units * line_size;
 
@@ -46,10 +46,10 @@ impl BufferLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_dim(ident);
+        let tiling = config.stage_tiling(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_buffer_elements = stage_dim.buffer_size(ident.as_input());
+        let num_buffer_elements = tiling.buffer_size(ident.as_input());
 
         let total_units = comptime!(num_producer_planes * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);
@@ -67,7 +67,7 @@ impl BufferLoading {
         for i in 0..num_loads_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
-            let tile_num_elements = stage_dim.tile_size();
+            let tile_num_elements = tiling.tile_size();
             let nth_buffer_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
