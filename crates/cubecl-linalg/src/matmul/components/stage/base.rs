@@ -138,7 +138,7 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
 
-    /// Returns the [StageDim] for the given ident
+    /// Returns the [StageTiling] for the given ident
     fn tiling(&self, ident: Ident) -> StageTiling;
 
     /// Returns the [MatrixLayout] for the given ident
