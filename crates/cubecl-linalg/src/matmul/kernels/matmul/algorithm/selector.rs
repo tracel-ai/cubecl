@@ -52,8 +52,8 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, StandardAlgorithm<TMM>>(
@@ -81,8 +81,8 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, PipelinedAlgorithm<TMM>>(
@@ -110,8 +110,8 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stagess,
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, SpecializedAlgorithm<TMM>>(

@@ -9,9 +9,9 @@ use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
-    type StageMatmul: stage::StageMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
+    type StageMatmul: stage::StageMatmulFamily<Input = CommonStageInput>;
     type GlobalMatmul: global::GlobalMatmulFamily;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = CommonStageInput>;
     type Selection;
 
     fn cube_dim(selection: &Self::Selection) -> CubeDim;

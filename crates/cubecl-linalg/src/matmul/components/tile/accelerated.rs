@@ -15,12 +15,8 @@ pub struct Accelerated;
 impl TileMatmulFamily for Accelerated {
     type Matmul<I: Numeric, O: Numeric> = Accelerated;
 
-    fn size(config: &Self::Config) -> MatmulSize {
+    fn tile_shape(config: &Self::Config) -> MatmulSize {
         config.size
-    }
-
-    fn input(tile_size: MatmulSize) -> Self::Input {
-        tile_size
     }
 
     fn requires_tensor_cores() -> bool {
@@ -251,7 +247,7 @@ impl TileConfig for Config {
         }
     }
 
-    fn size(&self) -> &MatmulSize {
+    fn tile_shape(&self) -> &MatmulSize {
         &self.size
     }
 }
