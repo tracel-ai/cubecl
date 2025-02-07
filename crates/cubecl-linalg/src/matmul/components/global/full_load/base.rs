@@ -72,19 +72,19 @@ where
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
         let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config);
-        let size = SMM::size(&smm_config);
+        let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
             smm_config,
-            problem.m as u32 % size.m != 0,
-            problem.n as u32 % size.n != 0,
-            problem.k as u32 % size.k != 0,
+            problem.m as u32 % stage_shape.m != 0,
+            problem.n as u32 % stage_shape.n != 0,
+            problem.k as u32 % stage_shape.k != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
-            size.k,
+            stage_shape.k,
         )
     }
 }

@@ -13,16 +13,17 @@ pub trait ReaderFamily {
     type Reader<I: Numeric>: CubeType;
 }
 
-// TODO Bad names and doc
 pub trait StageMatmulFamily:
     MatmulConfigFactory<Config: StageConfig> + Send + Sync + 'static
 {
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
 
-    fn size(config: &Self::Config) -> MatmulSize;
-    /// Return the number of matmuls computed by the stage.
-    fn num(config: &Self::Config) -> MatmulSize;
+    /// Returns the shape of the stage. This is the number of elements per axis.
+    fn stage_shape(config: &Self::Config) -> MatmulSize;
+
+    /// Returns the number of tiles in each axis of the stage.
+    fn tile_count(config: &Self::Config) -> MatmulSize;
 
     type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: StageMatmul<
         I,

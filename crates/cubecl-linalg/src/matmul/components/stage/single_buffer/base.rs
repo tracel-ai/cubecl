@@ -26,11 +26,11 @@ pub struct SingleBufferMatmulFamily<TMM: TileMatmulFamily> {
 }
 
 impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> {
-    fn size(config: &Self::Config) -> MatmulSize {
+    fn stage_shape(config: &Self::Config) -> MatmulSize {
         config.tiling.total_shape()
     }
 
-    fn num(config: &Self::Config) -> MatmulSize {
+    fn tile_count(config: &Self::Config) -> MatmulSize {
         config.tiling.tile_count
     }
 
