@@ -179,12 +179,10 @@ impl<EG: Numeric> TensorWriter<EG> {
     ) {
         let tiling = config.stage_tiling(Ident::Out);
 
-        let view_x = tile_x * tiling.tile_shape_row()
-            + unit_id / tiling.tile_shape_col()
-            + self.x_offset;
-        let view_y = tile_y * tiling.tile_shape_col()
-            + unit_id % tiling.tile_shape_col()
-            + self.y_offset;
+        let view_x =
+            tile_x * tiling.tile_shape_row() + unit_id / tiling.tile_shape_col() + self.x_offset;
+        let view_y =
+            tile_y * tiling.tile_shape_col() + unit_id % tiling.tile_shape_col() + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);
