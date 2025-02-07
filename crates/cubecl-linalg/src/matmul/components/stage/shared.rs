@@ -5,16 +5,16 @@ use crate::matmul::components::{
 
 use super::{StageConfig, TilingOrderConfig};
 
-pub struct CommonStageInput<TMM: TileMatmulFamily> {
-    pub tile: TMM::Input,
-    pub num_stages: MatmulSize,
+pub struct CommonStageInput {
+    pub tile_shape: MatmulSize,
+    pub tile_count: MatmulSize,
 }
 
 pub(super) fn stage_matmul_size<TMM: TileMatmulFamily>(
     config: &TMM::Config,
     num_stage: &MatmulSize,
 ) -> MatmulSize {
-    let size = TMM::size(config);
+    let size = TMM::tile_shape(config);
 
     MatmulSize {
         m: num_stage.m * size.m,
@@ -27,7 +27,7 @@ pub(super) fn stage_matmul_size<TMM: TileMatmulFamily>(
 /// Configuration for the single buffer matmul
 pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
-    pub num_stage: MatmulSize,
+    pub tile_count: MatmulSize,
     pub lhs_stage_dim: StageDim,
     pub rhs_stage_dim: StageDim,
     pub out_stage_dim: StageDim,
@@ -74,8 +74,8 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         }
     }
 
-    fn num_stages(&self) -> &MatmulSize {
-        &self.num_stage
+    fn tile_count(&self) -> &MatmulSize {
+        &self.tile_count
     }
 }
 
@@ -94,7 +94,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         rhs_tiling_order: TilingOrderConfig,
     ) -> Self {
         Self {
-            num_stage,
+            tile_count: num_stage,
             tmm_config,
             lhs_stage_dim,
             rhs_stage_dim,

@@ -86,12 +86,12 @@ impl LoadingStrategy for CyclicLoading {
                 true => {
                     let tile_offset = nth_tile * tile_num_lines * line_size;
 
-                    let tile_size_x = config.stage_dim(ident).tile_size_row();
-                    let tile_size_y = config.stage_dim(ident).tile_size_col();
+                    let tile_shape_x = config.stage_dim(ident).tile_shape_row();
+                    let tile_shape_y = config.stage_dim(ident).tile_shape_col();
 
                     let (height, width) = match config.layout(ident) {
-                        MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
-                        MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
+                        MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),
+                        MatrixLayout::ColMajor => (tile_shape_y, tile_shape_x),
                     };
 
                     let global_strided_idx = pos_within_tile / width;

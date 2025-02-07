@@ -32,11 +32,11 @@ pub struct MultiBufferMatmulFamily<TMM: TileMatmulFamily> {
 impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
     fn size(config: &Self::Config) -> MatmulSize {
         let tmm_config = config.to_tmm_config();
-        stage_matmul_size::<TMM>(&tmm_config, &config.num_stage)
+        stage_matmul_size::<TMM>(&tmm_config, &config.tile_count)
     }
 
     fn num(config: &Self::Config) -> MatmulSize {
-        config.num_stage
+        config.tile_count
     }
 
     type LhsReader = LhsReaderFamily;
@@ -46,7 +46,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
-    type Input = CommonStageInput<TMM>;
+    type Input = CommonStageInput;
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -71,24 +71,24 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
-        let tile = input.tile;
-        let tmm_config = TMM::make_config(tile, problem, cube_dim, cube_count, advanced_config);
-        let tmm_size = TMM::size(&tmm_config);
-        let stage_size = stage_matmul_size::<TMM>(&tmm_config, &input.num_stages);
+        let tile_shape = input.tile_shape;
+        let tmm_config =
+            TMM::make_config(tile_shape, problem, cube_dim, cube_count, advanced_config);
+        let stage_size = stage_matmul_size::<TMM>(&tmm_config, &input.tile_count);
 
-        let (tile_m, tile_n, tile_k) = (tmm_size.m, tmm_size.n, tmm_size.k);
+        // TODO Clean
         let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) = create_stage_dim(
             stage_size.m,
             stage_size.n,
             stage_size.k,
-            tile_m,
-            tile_n,
-            tile_k,
+            tile_shape.m,
+            tile_shape.n,
+            tile_shape.k,
         );
 
         CommonStageConfig::new(
             tmm_config,
-            input.num_stages,
+            input.tile_count,
             lhs_stage_dim,
             rhs_stage_dim,
             out_stage_dim,
@@ -137,7 +137,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
-        for buffer_iter in 0..config.num_stage.k {
+        for buffer_iter in 0..config.tile_count.k {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
             TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
@@ -199,7 +199,7 @@ where
         let mut acc = Sequence::<TMM::Accumulator>::new();
 
         #[unroll]
-        for _ in 0..config.num_stage.n {
+        for _ in 0..config.tile_count.n {
             acc.push(TMM::allocate_accumulator(config.to_tmm_config()));
         }
 
@@ -208,7 +208,7 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         #[unroll]
-        for i in 0..config.num_stage.n {
+        for i in 0..config.tile_count.n {
             TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
         }
     }
@@ -219,7 +219,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
-        for i in 0..config.num_stage.n {
+        for i in 0..config.tile_count.n {
             let acc = acc.index_mut(i);
             L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
         }

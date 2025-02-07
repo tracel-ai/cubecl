@@ -45,9 +45,9 @@ where
         check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
 
         let tmm_config = config.smm_config.to_tmm_config();
-        let tmm_size = tmm_config.size();
+        let tile_shape = tmm_config.tile_shape();
 
-        if tmm_size.m != tmm_size.n || tmm_size.n != tmm_size.k {
+        if tile_shape.m != tile_shape.n || tile_shape.n != tile_shape.k {
             return Err(Box::new("Only support square tiling"));
         }
 

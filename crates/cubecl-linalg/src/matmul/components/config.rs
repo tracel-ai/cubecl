@@ -115,8 +115,8 @@ pub struct StageDims {
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
 pub struct StageDim {
-    pub tile_size_row: u32,
-    pub tile_size_col: u32,
+    pub tile_shape_row: u32,
+    pub tile_shape_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
@@ -129,27 +129,27 @@ impl StageDim {
 
     /// Returns the total number of rows of the stage.
     pub fn total_row(&self) -> u32 {
-        self.tile_count_row() * self.tile_size_row()
+        self.tile_count_row() * self.tile_shape_row()
     }
 
     /// Returns the total number of columns of the stage.
     pub fn total_col(&self) -> u32 {
-        self.tile_count_col() * self.tile_size_col()
+        self.tile_count_col() * self.tile_shape_col()
     }
 
     /// Returns the number of elements within one tile.
     pub fn tile_size(&self) -> u32 {
-        self.tile_size_row() * self.tile_size_col()
+        self.tile_shape_row() * self.tile_shape_col()
     }
 
     /// Returns the size of the row axis of a tile.
-    pub fn tile_size_row(&self) -> u32 {
-        self.tile_size_row
+    pub fn tile_shape_row(&self) -> u32 {
+        self.tile_shape_row
     }
 
     /// Returns the size of the column axis of a tile.
-    pub fn tile_size_col(&self) -> u32 {
-        self.tile_size_col
+    pub fn tile_shape_col(&self) -> u32 {
+        self.tile_shape_col
     }
 
     /// Returns the number of tiles within the stage.

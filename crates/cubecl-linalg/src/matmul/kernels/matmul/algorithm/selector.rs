@@ -239,12 +239,12 @@ fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
     );
 
     MatmulSelection {
-        tile: MatmulSize {
+        tile_shape: MatmulSize {
             m: instruction_m as u32,
             n: instruction_n as u32,
             k: instruction_k as u32,
         },
-        num_stagess: MatmulSize {
+        tile_count: MatmulSize {
             m: stage_size_m_n as u32,
             n: stage_size_m_n as u32,
             k: 2,

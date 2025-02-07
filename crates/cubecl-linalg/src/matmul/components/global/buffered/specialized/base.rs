@@ -124,7 +124,7 @@ where
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.stage_dim(Ident::Lhs).tile_count_col();
-        let buffer_step = config.stage_dim(Ident::Lhs).tile_size_col();
+        let buffer_step = config.stage_dim(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;

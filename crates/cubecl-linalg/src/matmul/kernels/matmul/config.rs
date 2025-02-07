@@ -34,31 +34,31 @@ pub fn create_stage_dim(
     stage_m: u32,
     stage_n: u32,
     stage_k: u32,
-    tile_size_m: u32,
-    tile_size_n: u32,
-    tile_size_k: u32,
+    tile_shape_m: u32,
+    tile_shape_n: u32,
+    tile_shape_k: u32,
 ) -> (StageDim, StageDim, StageDim) {
-    let tile_count_m = stage_m / tile_size_m;
-    let tile_count_k = stage_k / tile_size_k;
-    let tile_count_n = stage_n / tile_size_n;
+    let tile_count_m = stage_m / tile_shape_m;
+    let tile_count_k = stage_k / tile_shape_k;
+    let tile_count_n = stage_n / tile_shape_n;
 
     let lhs_stage_dim = StageDim {
-        tile_size_row: tile_size_m,
-        tile_size_col: tile_size_k,
+        tile_shape_row: tile_shape_m,
+        tile_shape_col: tile_shape_k,
         tile_count_row: tile_count_m,
         tile_count_col: tile_count_k,
     };
 
     let rhs_stage_dim = StageDim {
-        tile_size_row: tile_size_k,
-        tile_size_col: tile_size_n,
+        tile_shape_row: tile_shape_k,
+        tile_shape_col: tile_shape_n,
         tile_count_row: tile_count_k,
         tile_count_col: tile_count_n,
     };
 
     let out_stage_dim = StageDim {
-        tile_size_row: tile_size_m,
-        tile_size_col: tile_size_n,
+        tile_shape_row: tile_shape_m,
+        tile_shape_col: tile_shape_n,
         tile_count_row: tile_count_m,
         tile_count_col: tile_count_n,
     };
