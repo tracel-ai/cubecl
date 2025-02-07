@@ -9,6 +9,7 @@ use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+    MatrixLayout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
@@ -213,6 +214,29 @@ where
             let acc = acc.index_mut(i);
             L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
         }
+    }
+
+    fn init_acc_sum_lhs_rows(#[comptime] config: Self::Config) -> SharedMemory<Line<EA>> {
+        SharedMemory::new_lined(1, 1)
+        // TODO
+    }
+
+    fn sums_lhs_rows(
+        lhs: &Self::LhsReader,
+        acc: &mut SliceMut<Line<EA>>,
+        #[comptime] config: Self::Config,
+    ) {
+        // TODO
+    }
+
+    fn write_output_quantized<Out: StageWriter<O>, G: global::GlobalConfig>(
+        acc: &Self::Accumulator,
+        sums_lhs_rows: &SharedMemory<Line<EA>>,
+        out: &mut Out,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        // TODO
     }
 }
 

@@ -4,16 +4,17 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::StageMatmulFamily;
+use crate::matmul::components::stage::StageConfig as _;
+use crate::matmul::components::stage::{StageConfig, StageMatmulFamily};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
+    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize, MatrixLayout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
         global::{self, AccumulatorLoader},
-        stage::{self, StageConfig as _, StageWriter},
+        stage::{self, StageWriter},
         Ident, MatmulConfigFactory, MatmulProblem,
     },
     kernels::matmul::AdvancedConfig,
@@ -204,4 +205,172 @@ where
             );
         }
     }
+
+    fn init_acc_sum_lhs_rows(#[comptime] config: Self::Config) -> SharedMemory<Line<EA>> {
+        let line_size = match comptime!(config.layout(Ident::Lhs)) {
+            MatrixLayout::RowMajor => comptime!(1),
+            MatrixLayout::ColMajor => config.line_size(Ident::Lhs),
+        };
+        SharedMemory::new_lined(
+            config.tiling.get(Ident::Lhs).total_row() / line_size,
+            line_size,
+        )
+    }
+
+    fn sums_lhs_rows(
+        lhs: &Self::LhsReader,
+        acc: &mut SliceMut<Line<EA>>,
+        #[comptime] config: Self::Config,
+    ) {
+        let tiling = config.tiling.get(Ident::Lhs);
+        let num_rows = tiling.tile_shape_row();
+        let num_cols = tiling.tile_shape_col();
+        let line_size = config.line_size(Ident::Lhs);
+
+        match comptime!(config.layout(Ident::Lhs)) {
+            MatrixLayout::RowMajor => {
+                let num_sums_per_unit = num_rows / config.plane_dim(); // TODO Is this always an exact division?
+
+                for k in 0..num_sums_per_unit {
+                    let row = UNIT_POS_X * num_sums_per_unit + k;
+                    if row < num_rows {
+                        let start = row * num_cols;
+                        let end = start + num_cols;
+
+                        let tile =
+                            LhsBufferReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, config);
+
+                        acc[row + UNIT_POS_Y * num_rows] +=
+                            sum_range_parallel(&tile, start, end, line_size);
+                    }
+                }
+            }
+            MatrixLayout::ColMajor => {
+                // TODO Are these always exact divisions?
+                let num_lines_row_axis = num_rows / line_size;
+                let num_sums_per_unit = num_lines_row_axis / config.plane_dim();
+
+                for k in 0..num_sums_per_unit {
+                    let start = UNIT_POS_X * num_sums_per_unit + k;
+                    if start < num_lines_row_axis {
+                        let stride = num_lines_row_axis;
+
+                        let tile =
+                            LhsBufferReader::read_tile::<TMM::Config>(lhs, UNIT_POS_Y, config);
+
+                        acc[start] += sum_range_perpendicular(&tile, start, stride, line_size);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reads the result of the accumulator and hands it to the stage writer
+    fn write_output_quantized<SW: StageWriter<O>, G: global::GlobalConfig>(
+        acc: &Self::Accumulator,
+        sums_lhs_rows: &SharedMemory<Line<EA>>,
+        out: &mut SW,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
+        let line_count_per_tile = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
+
+        let start = line_count_per_tile * UNIT_POS_Y;
+        let mut acc_smem = SharedMemory::<EA>::new_lined(
+            line_count_per_tile * stage_config.num_planes(),
+            out_smem_line_size,
+        );
+
+        let mut out_smem = SharedMemory::<O>::new_lined(
+            line_count_per_tile * stage_config.num_planes(),
+            out_smem_line_size,
+        );
+
+        #[unroll]
+        for accumulator_iter in 0..acc.len() {
+            let accumulator = acc.index(accumulator_iter);
+            let mut acc_slice = acc_smem.slice_mut(start, start + line_count_per_tile);
+            let mut out_slice = out_smem.slice_mut(start, start + line_count_per_tile);
+
+            TMM::read_accumulator(accumulator, &mut acc_slice, stage_config.to_tmm_config());
+
+            match stage_config.layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => {
+                    // Add lhs_row_sums to acc_slice.
+                    let row_tile = UNIT_POS_X;
+                    if row_tile < stage_config.tiling.get(Ident::Out).tile_shape_row() {
+                        let row = row_tile
+                            + UNIT_POS_Y * stage_config.tiling.get(Ident::Out).tile_shape_row();
+                        let line_count_per_col =
+                            stage_config.tiling.get(Ident::Out).tile_shape_col()
+                                / out_smem_line_size;
+                        for col in 0..line_count_per_col {
+                            acc_slice[row * line_count_per_col + col] =
+                                Line::empty(out_smem_line_size).fill(sums_lhs_rows[row][0]);
+                            // sums_lhs_rows line size == 1.
+                        }
+                    }
+
+                    // Convert acc_slice to out_slice. For now use a dummy technic for testing.
+                    // TODO Check out-of-bound.
+                    let cast_per_unit = line_count_per_tile / stage_config.plane_dim();
+                    for k in 0..cast_per_unit {
+                        let index = UNIT_POS_X * cast_per_unit + k;
+                        out_slice[index] = Line::cast_from(acc_slice[index]);
+                    }
+
+                }
+                MatrixLayout::ColMajor => {
+                    // TODO
+                }
+            }
+
+            SW::write::<O, G>(
+                out,
+                out_slice.to_slice(),
+                UNIT_POS_Y,
+                accumulator_iter,
+                global_config,
+            );
+        }
+    }
+}
+
+#[cube]
+fn sum_range_parallel<In: Numeric, Acc: Numeric>(
+    slice: &Slice<Line<In>>,
+    start: u32,
+    end: u32,
+    #[comptime] line_size: u32,
+) -> Line<Acc> {
+    // Sum all lines together
+    let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
+    for index in start..end {
+        acc += Line::<Acc>::cast_from(slice[index]);
+    }
+
+    // Sum the elements withing the final line.
+    let mut sum = Acc::from_int(0);
+    #[unroll]
+    for k in 0..line_size {
+        sum += acc[k];
+    }
+
+    // Cast to a line with a size of 1 for type compatibility.
+    Line::empty(1).fill(sum)
+}
+
+#[cube]
+fn sum_range_perpendicular<In: Numeric, Acc: Numeric>(
+    slice: &Slice<Line<In>>,
+    start: u32,
+    stride: u32,
+    #[comptime] line_size: u32,
+) -> Line<Acc> {
+    let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
+    for index in range_stepped(start, slice.len(), stride) {
+        acc += Line::<Acc>::cast_from(slice[index]);
+    }
+    acc
 }

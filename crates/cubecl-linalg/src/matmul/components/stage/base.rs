@@ -95,6 +95,25 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
+
+    // Quantization stuff
+
+    fn init_acc_sum_lhs_rows(#[comptime] config: Self::Config) -> SharedMemory<Line<Acc>>;
+
+    fn sums_lhs_rows(
+        lhs: &Self::LhsReader,
+        acc: &mut SliceMut<Line<Acc>>,
+        #[comptime] config: Self::Config,
+    );
+
+    /// Reads the result of the accumulator and hands it to the stage writer
+    fn write_output_quantized<Out: StageWriter<O>, G: global::GlobalConfig>(
+        acc: &Self::Accumulator,
+        sums_lhs_rows: &SharedMemory<Line<Acc>>,
+        out: &mut Out,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 }
 
 #[cube]
