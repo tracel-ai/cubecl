@@ -72,15 +72,15 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         advanced_config: &AdvancedConfig,
     ) -> Self::Config {
         let tile_shape = input.tile_shape;
+        let tile_count = input.tile_count;
+
         let tmm_config =
             TMM::make_config(tile_shape, problem, cube_dim, cube_count, advanced_config);
-        let stage_size = stage_matmul_size::<TMM>(&tmm_config, &input.tile_count);
 
-        // TODO Clean
         let (lhs_stage_dim, rhs_stage_dim, out_stage_dim) = create_stage_dim(
-            stage_size.m,
-            stage_size.n,
-            stage_size.k,
+            tile_count.m,
+            tile_count.n,
+            tile_count.k,
             tile_shape.m,
             tile_shape.n,
             tile_shape.k,
