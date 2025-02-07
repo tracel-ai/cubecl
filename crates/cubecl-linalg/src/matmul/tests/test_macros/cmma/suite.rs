@@ -13,7 +13,7 @@ use cubecl_core::{CubeElement, Runtime};
 pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R: Runtime>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
-    stage_count: MatmulSize,
+    tile_count: MatmulSize,
     problem: MatmulSize,
 ) {
     let client = R::client(&Default::default());
@@ -43,7 +43,7 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
 
     let selection = MatmulSelection {
         tile_shape,
-        tile_count: stage_count,
+        tile_count,
         plane_dim,
     };
     let config_input = CommonStageInput {
