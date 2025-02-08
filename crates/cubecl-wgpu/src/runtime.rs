@@ -1,7 +1,7 @@
 use crate::{
     backend,
     compute::{WgpuServer, WgpuStorage},
-    AutoGraphicsApi, DynCompiler, GraphicsApi, WgpuDevice,
+    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use cubecl_common::future;
 use cubecl_core::{
@@ -32,7 +32,7 @@ static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> 
     ComputeRuntime::new();
 
 impl Runtime for WgpuRuntime {
-    type Compiler = DynCompiler;
+    type Compiler = AutoCompiler;
     type Server = WgpuServer;
 
     type Channel = MutexComputeChannel<WgpuServer>;

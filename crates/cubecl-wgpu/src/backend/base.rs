@@ -7,7 +7,7 @@ use wgpu::{
     ComputePipeline, Device, PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderStages,
 };
 
-use crate::{DynCompiler, DynRepresentation, WgpuServer};
+use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -16,12 +16,12 @@ use super::wgsl;
 impl WgpuServer {
     pub fn create_pipeline(
         &mut self,
-        kernel: CompiledKernel<DynCompiler>,
+        kernel: CompiledKernel<AutoCompiler>,
         mode: ExecutionMode,
     ) -> Arc<ComputePipeline> {
         let module = match &kernel.repr {
             #[cfg(feature = "spirv")]
-            Some(DynRepresentation::SpirV(repr)) => {
+            Some(AutoRepresentation::SpirV(repr)) => {
                 let spirv = repr.assemble();
                 unsafe {
                     self.device
@@ -57,9 +57,9 @@ impl WgpuServer {
             }
         };
         let bindings = match &kernel.repr {
-            Some(DynRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(feature = "spirv")]
-            Some(DynRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
+            Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
         };
         let layout = bindings.map(|bindings| {
@@ -135,7 +135,7 @@ pub fn register_features(
     props: &mut DeviceProperties<Feature>,
     _comp_options: &mut WgpuCompilationOptions,
 ) {
-    wgsl::register_types(props);
+    wgsl::register_default_types(props);
 }
 
 #[cfg(feature = "spirv")]
@@ -147,7 +147,7 @@ pub fn register_features(
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);
     } else {
-        wgsl::register_types(props);
+        wgsl::register_default_types(props);
     }
 }
 

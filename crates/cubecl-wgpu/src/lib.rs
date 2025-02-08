@@ -20,7 +20,7 @@ pub use graphics::*;
 pub use runtime::*;
 
 #[cfg(feature = "spirv")]
-pub use compiler::spirv;
+pub use backend::vulkan;
 
 #[cfg(all(test, not(feature = "spirv")))]
 #[allow(unexpected_cfgs)]

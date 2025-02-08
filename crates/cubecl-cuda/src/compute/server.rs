@@ -347,9 +347,10 @@ impl CudaContext {
             }
         }
 
-        let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
+        let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
+        let shared_mem_bytes = compute_kernel.shared_memory_size();
         let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = kernel_compiled.repr.as_ref().unwrap().fast_math;
+        let fast_math = compute_kernel.fast_math;
         let arch = format!("--gpu-architecture=sm_{}", self.arch);
 
         let include_path = include_path();

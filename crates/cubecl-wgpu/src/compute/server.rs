@@ -5,7 +5,7 @@ use super::{
     WgpuStorage,
 };
 use crate::{timestamps::KernelTimestamps, AutoGraphicsApi};
-use crate::{DynCompiler, GraphicsApi};
+use crate::{AutoCompiler, GraphicsApi};
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
@@ -86,7 +86,7 @@ impl WgpuServer {
         }
 
         let mut compiler = compiler(self.backend);
-        let mut compile = compiler.compile_dyn(self, kernel, mode);
+        let mut compile = compiler.compile(self, kernel, mode);
 
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
@@ -102,7 +102,7 @@ impl WgpuServer {
 }
 
 impl ComputeServer for WgpuServer {
-    type Kernel = Box<dyn CubeTask<DynCompiler>>;
+    type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
 
@@ -276,12 +276,10 @@ impl ComputeServer for WgpuServer {
     }
 }
 
-fn compiler(backend: wgpu::Backend) -> DynCompiler {
+fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan => {
-            DynCompiler::SpirV(crate::compiler::spirv::VkSpirvCompiler::default())
-        }
-        _ => DynCompiler::Wgsl(Default::default()),
+        wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        _ => AutoCompiler::Wgsl(Default::default()),
     }
 }

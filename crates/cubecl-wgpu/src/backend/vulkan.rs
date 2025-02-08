@@ -1,14 +1,19 @@
 use ash::{
     khr::cooperative_matrix,
-    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
+    vk::{
+        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, EXT_ROBUSTNESS2_NAME,
+        TRUE,
+    },
 };
 use cubecl_core::{
     compute::Visibility,
     ir::{Elem, FloatKind, IntKind, UIntKind},
-    AtomicFeature, Feature, WgpuCompilationOptions,
+    prelude::CompiledKernel,
+    server::ComputeServer,
+    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
 };
 use cubecl_runtime::DeviceProperties;
-use cubecl_spirv::SpirvKernel;
+use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use wgpu::{
     hal::{
@@ -18,7 +23,11 @@ use wgpu::{
     DeviceDescriptor, Features, Limits,
 };
 
+use crate::{AutoCompiler, WgpuServer};
+
 mod features;
+
+pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
 pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
     repr.bindings
@@ -104,6 +113,10 @@ fn request_device(
             .expect("Failed to create Vulkan device")
     };
 
+    // The default is MemoryHints::Performance, which tries to do some bigger
+    // block allocations. However, we already batch allocations, so we
+    // can use MemoryHints::MemoryUsage to lower memory usage.
+    let memory_hints = wgpu::MemoryHints::MemoryUsage;
     let device = unsafe {
         adapter
             .device_from_raw(
@@ -111,7 +124,7 @@ fn request_device(
                 None,
                 &extensions,
                 full_feat,
-                &wgpu::MemoryHints::MemoryUsage,
+                &memory_hints,
                 family_info.queue_family_index,
                 0,
             )
@@ -122,10 +135,7 @@ fn request_device(
         label: None,
         required_features: full_feat,
         required_limits: limits,
-        // The default is MemoryHints::Performance, which tries to do some bigger
-        // block allocations. However, we already batch allocations, so we
-        // can use MemoryHints::MemoryUsage to lower memory usage.
-        memory_hints: wgpu::MemoryHints::MemoryUsage,
+        memory_hints,
     };
 
     unsafe {
@@ -241,9 +251,9 @@ fn register_cmma(
         })
         .filter_map(|it| {
             Some(Feature::Cmma {
-                a: conv_type(it.a_type)?,
-                b: conv_type(it.b_type)?,
-                c: conv_type(it.c_type)?,
+                a: convert_type(it.a_type)?,
+                b: convert_type(it.b_type)?,
+                c: convert_type(it.c_type)?,
                 m: it.m_size as u8,
                 k: it.k_size as u8,
                 n: it.n_size as u8,
@@ -256,7 +266,7 @@ fn register_cmma(
     }
 }
 
-fn conv_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
+fn convert_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
     let ty = match vk_ty {
         ComponentTypeKHR::FLOAT16 => Elem::Float(FloatKind::F16),
         ComponentTypeKHR::FLOAT32 => Elem::Float(FloatKind::F32),
@@ -272,4 +282,74 @@ fn conv_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
         _ => None?,
     };
     Some(ty)
+}
+
+/// Check robustness, compile, and optionally dump SPIR-V
+pub(crate) fn compile(
+    dyn_comp: &mut AutoCompiler,
+    server: &mut WgpuServer,
+    kernel: <WgpuServer as ComputeServer>::Kernel,
+    mode: ExecutionMode,
+) -> CompiledKernel<AutoCompiler> {
+    // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
+    // unchecked execution if robustness is enabled and let Vulkan handle it
+    let mode = if is_robust(&server.device) {
+        ExecutionMode::Unchecked
+    } else {
+        mode
+    };
+    log::debug!("Compiling {}", kernel.name());
+    let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode);
+    #[cfg(feature = "spirv-dump")]
+    dump_spirv(&compiled, kernel.name(), kernel.id());
+    compiled
+}
+
+fn is_robust(device: &wgpu::Device) -> bool {
+    fn is_robust(device: &vulkan::Device) -> bool {
+        device
+            .enabled_device_extensions()
+            .contains(&EXT_ROBUSTNESS2_NAME)
+    }
+    unsafe {
+        device.as_hal::<hal::api::Vulkan, _, _>(|device| device.map(is_robust).unwrap_or(false))
+    }
+}
+
+#[cfg(feature = "spirv-dump")]
+fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_core::KernelId) {
+    use std::{
+        fs,
+        hash::{DefaultHasher, Hash, Hasher},
+    };
+
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
+        if let Some(repr) = compiled.repr.as_ref().and_then(|repr| repr.as_spirv()) {
+            let name = name
+                .split("<")
+                .take_while(|it| !it.ends_with("Runtime"))
+                .map(|it| it.split(">").next().unwrap())
+                .map(|it| it.split("::").last().unwrap())
+                .collect::<Vec<_>>()
+                .join("_");
+            let mut hash = DefaultHasher::new();
+            id.hash(&mut hash);
+            let id = hash.finish();
+            let name = sanitize_filename::sanitize_with_options(
+                format!("{name}_{id:#x}"),
+                sanitize_filename::Options {
+                    replacement: "_",
+                    ..Default::default()
+                },
+            );
+            let kernel = repr.assemble().into_iter();
+            let kernel = kernel.flat_map(|it| it.to_le_bytes()).collect::<Vec<_>>();
+            fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
+            fs::write(
+                format!("{dir}/{name}.ir.txt"),
+                format!("{}", repr.optimizer),
+            )
+            .unwrap();
+        }
+    }
 }

@@ -1,17 +1,13 @@
 use super::Subgroup;
 use super::{shader::ComputeShader, ConstantArray};
 use super::{Item, LocalArray, SharedMemory};
-use crate::{
-    compiler::{base::WgpuCompiler, wgsl},
-    DynCompiler, WgpuServer,
-};
+use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
     compute,
     ir::{self as cube, Scope},
-    prelude::{expand_checked_index_assign, expand_erf, CompiledKernel},
-    server::ComputeServer,
+    prelude::{expand_checked_index_assign, expand_erf},
     Metadata, WgpuCompilationOptions,
 };
 
@@ -64,17 +60,6 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn elem_size(&self, elem: cube::Elem) -> usize {
         Self::compile_elem(elem).size()
-    }
-}
-
-impl WgpuCompiler for WgslCompiler {
-    fn compile(
-        dyn_comp: &mut DynCompiler,
-        server: &mut WgpuServer,
-        kernel: <WgpuServer as ComputeServer>::Kernel,
-        mode: ExecutionMode,
-    ) -> CompiledKernel<DynCompiler> {
-        kernel.compile(dyn_comp, &server.compilation_options, mode)
     }
 }
 

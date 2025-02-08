@@ -1,5 +1,5 @@
 use super::{Body, Extension, Item, Variable};
-use cubecl_core::{compute::Visibility, ir::Id, CompilerRepresentation, CubeDim};
+use cubecl_core::{compute::Visibility, ir::Id, CubeDim};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -260,12 +260,5 @@ impl Display for Location {
             Location::Storage => f.write_str("storage"),
             Location::Workgroup => f.write_str("workgroup"),
         }
-    }
-}
-
-impl CompilerRepresentation for ComputeShader {
-    fn shared_memory_size(&self) -> usize {
-        // not used in wgsl compiler
-        0
     }
 }

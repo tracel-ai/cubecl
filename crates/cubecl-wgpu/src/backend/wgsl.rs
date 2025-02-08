@@ -40,7 +40,7 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
         .unwrap()
 }
 
-pub fn register_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_default_types(props: &mut DeviceProperties<Feature>) {
     use cubecl_core::ir::{Elem, FloatKind, IntKind};
 
     let supported_types = [
