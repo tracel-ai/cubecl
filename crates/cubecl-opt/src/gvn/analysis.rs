@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, LinkedList},
+    ops::Deref,
 };
 
 use crate::{analyses::Analysis, NodeIndex};
@@ -15,7 +16,16 @@ use super::{convert::value_of_var, Expression, Value, ValueTable};
 
 const MAX_SET_PASSES: usize = 10;
 
+#[derive(Default)]
 pub struct GlobalValues(pub RefCell<GvnState>);
+
+impl Deref for GlobalValues {
+    type Target = RefCell<GvnState>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct GvnState {
@@ -56,7 +66,7 @@ impl GvnState {
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
     ///     block
     pub fn build_sets(&mut self, opt: &mut Optimizer) {
-        self.build_block_sets_fwd(opt, opt.entry(), HashMap::new());
+        self.build_block_sets_fwd(opt, opt.entry(), HashMap::new(), HashSet::new());
         let mut build_passes = 0;
         while self.build_block_sets_bckwd(opt, opt.ret) && build_passes < MAX_SET_PASSES {
             build_passes += 1;
@@ -90,6 +100,7 @@ impl GvnState {
         opt: &mut Optimizer,
         block: NodeIndex,
         mut leaders: HashMap<u32, Value>,
+        tmp_gen: HashSet<Value>,
     ) {
         // Expressions generated (used on the right hand side of an instruction) in this block
         let mut exp_gen = LinkedList::new();
@@ -97,7 +108,7 @@ impl GvnState {
         let mut phi_gen = HashMap::new();
         // Temporaries/variables that are generated with a volatile expression on the right hand
         // side. Used to kill all expressions that depend on them.
-        let mut tmp_gen = HashSet::new();
+        let mut tmp_gen = tmp_gen;
         // Values already added in this block. Used to deduplicate locally.
         let mut added_exprs = HashSet::new();
 
@@ -131,7 +142,7 @@ impl GvnState {
         let sets = BlockSets {
             exp_gen,
             phi_gen,
-            tmp_gen,
+            tmp_gen: tmp_gen.clone(),
             leaders: leaders.clone(),
 
             antic_out: Default::default(),
@@ -142,7 +153,7 @@ impl GvnState {
         for successor in successors {
             // Work around dominator bug
             if successor != block {
-                self.build_block_sets_fwd(opt, successor, leaders.clone());
+                self.build_block_sets_fwd(opt, successor, leaders.clone(), tmp_gen.clone());
             }
         }
     }
@@ -192,7 +203,11 @@ impl GvnState {
             self.block_sets.get_mut(&current).unwrap().antic_out = result;
         }
 
-        let mut killed = HashSet::new();
+        let mut killed = self.block_sets[&current]
+            .tmp_gen
+            .iter()
+            .map(|tmp| self.values.lookup_or_add_value(*tmp))
+            .collect::<HashSet<_>>();
         let cleaned = self.block_sets[&current]
             .exp_gen
             .iter()
