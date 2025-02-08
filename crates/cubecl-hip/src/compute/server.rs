@@ -468,7 +468,7 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim: jitc_kernel.cube_dim,
-                shared_mem_bytes: jitc_kernel.shared_mem_bytes,
+                shared_mem_bytes: jitc_kernel.repr.as_ref().unwrap().shared_memory_size(),
             },
         );
     }
