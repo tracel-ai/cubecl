@@ -191,7 +191,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         props.register_feature(Feature::Type(elem));
     };
 
-    let supported_types = [
+    let default_types = [
         Elem::UInt(UIntKind::U16),
         Elem::UInt(UIntKind::U32),
         Elem::UInt(UIntKind::U64),
@@ -207,7 +207,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         Elem::Bool,
     ];
 
-    for ty in supported_types {
+    for ty in default_types {
         register(ty);
     }
 

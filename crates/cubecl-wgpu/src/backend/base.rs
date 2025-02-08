@@ -135,7 +135,7 @@ pub fn register_features(
     props: &mut DeviceProperties<Feature>,
     _comp_options: &mut WgpuCompilationOptions,
 ) {
-    wgsl::register_default_types(props);
+    wgsl::register_types(props);
 }
 
 #[cfg(feature = "spirv")]
@@ -147,7 +147,7 @@ pub fn register_features(
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);
     } else {
-        wgsl::register_default_types(props);
+        wgsl::register_types(props);
     }
 }
 
