@@ -184,6 +184,7 @@ pub struct KernelFn {
     pub body: KernelBody,
     pub full_name: String,
     pub span: Span,
+    pub source_text: String,
     pub context: Context,
 }
 
@@ -356,8 +357,8 @@ impl KernelFn {
         mut block: syn::Block,
         full_name: String,
     ) -> syn::Result<Self> {
-        // Use span of first token since we only care about the start line/col
-        let span = vis.span();
+        let source_text = construct_source_text(&vis, &sig, &block);
+        let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
@@ -371,9 +372,28 @@ impl KernelFn {
             body: KernelBody::Block(block),
             full_name,
             span,
+            source_text,
             context,
         })
     }
+}
+
+/// Construct approximate source text on stable
+fn construct_source_text(vis: &Visibility, sig: &Signature, block: &syn::Block) -> String {
+    fn src(span: Span) -> String {
+        span.source_text().unwrap_or_default()
+    }
+    format!(
+        "{}\n {} {} {} {} {} {} {}",
+        src(Span::call_site()),
+        vis.to_token_stream(),
+        src(sig.fn_token.span()),
+        src(sig.ident.span()),
+        src(sig.generics.span()),
+        src(sig.paren_token.span.join()),
+        sig.output.to_token_stream(),
+        src(block.brace_token.span.join())
+    )
 }
 
 impl Launch {

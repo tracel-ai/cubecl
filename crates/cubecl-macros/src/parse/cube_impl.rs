@@ -132,6 +132,7 @@ impl CubeImplItem {
             full_name: func.full_name.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
+            source_text: func.source_text.clone(),
         }
     }
 
@@ -184,6 +185,7 @@ impl CubeImplItem {
             full_name: func.full_name.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
+            source_text: func.source_text.clone(),
         }
     }
 }

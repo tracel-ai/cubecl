@@ -12,6 +12,7 @@ impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
         let debug_source = frontend_type("debug_source_expand");
+        let source_text = &self.source_text;
 
         let vis = &self.vis;
         let sig = &self.sig;
@@ -21,7 +22,7 @@ impl KernelFn {
         };
         let name = &self.full_name;
         let debug_source = quote_spanned! {self.span=>
-            #debug_source(context, #name, file!(), line!(), column!())
+            #debug_source(context, #name, file!(), #source_text, line!(), column!())
         };
 
         let out = quote! {

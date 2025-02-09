@@ -204,10 +204,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_transformer(ErfTransform)
             .with_transformer(BitwiseTransform)
             .optimize(kernel.body, kernel.cube_dim, self.mode);
-        self.init_debug(options.kernel_name.clone(), &opt);
 
         self.uniformity = opt.analysis::<Uniformity>();
         self.opt = Rc::new(opt);
+
+        self.init_debug();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -251,8 +252,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 id
             })
             .collect::<Vec<_>>();
-
-        self.finish_debug();
 
         target.set_modes(self, main, builtins, cube_dims);
 
@@ -301,7 +300,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.begin_block(Some(label)).unwrap();
         let block_id = self.selected_block().unwrap();
 
-        self.debug_scope();
+        self.debug_start_block();
 
         let operations = self.current_block().ops.borrow().clone();
         for (_, operation) in operations {

@@ -1,4 +1,4 @@
-use crate::TypeHash;
+use crate::{Instruction, TypeHash};
 use core::fmt::Display;
 
 use crate::OperationReflect;
@@ -42,5 +42,11 @@ impl Display for PipelineOps {
             PipelineOps::ConsumerWait { pipeline } => write!(f, "consumer_wait({pipeline})"),
             PipelineOps::ConsumerRelease { pipeline } => write!(f, "consumer_release({pipeline})"),
         }
+    }
+}
+
+impl From<PipelineOps> for Instruction {
+    fn from(value: PipelineOps) -> Self {
+        Instruction::no_out(value)
     }
 }

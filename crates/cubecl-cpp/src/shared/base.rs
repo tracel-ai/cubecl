@@ -329,11 +329,6 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
             gpu::Operation::NonSemantic(debug) => match debug {
-                // No good way to attach debug info
-                gpu::NonSemantic::BeginCall { .. }
-                | gpu::NonSemantic::EndCall
-                | gpu::NonSemantic::Source { .. }
-                | gpu::NonSemantic::Line { .. } => {}
                 gpu::NonSemantic::Print {
                     format_string,
                     args,
@@ -350,6 +345,8 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::NonSemantic::Comment { content } => {
                     instructions.push(Instruction::Comment { content })
                 }
+                // Don't need to handle scopes
+                _ => {}
             },
             gpu::Operation::Pipeline(pipeline_ops) => match pipeline_ops {
                 gpu::PipelineOps::MemCopyAsync {

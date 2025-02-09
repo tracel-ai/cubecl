@@ -72,7 +72,7 @@ use std::marker::PhantomData;
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Instruction, Item, Operation, PipelineOps, Scope},
+    ir::{Item, PipelineOps, Scope},
     unexpanded,
 };
 
@@ -204,38 +204,23 @@ impl<C: CubePrimitive> PipelineExpand<C> {
             destination,
         };
 
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(mem_copy),
-        });
+        scope.register(mem_copy);
     }
 
     pub fn __expand_producer_acquire_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ProducerAcquire { pipeline }),
-        });
+        scope.register(PipelineOps::ProducerAcquire { pipeline });
     }
     pub fn __expand_producer_commit_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
-        });
+        scope.register(PipelineOps::ProducerCommit { pipeline });
     }
     pub fn __expand_consumer_wait_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ConsumerWait { pipeline }),
-        });
+        scope.register(PipelineOps::ConsumerWait { pipeline });
     }
     pub fn __expand_consumer_release_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ConsumerRelease { pipeline }),
-        });
+        scope.register(PipelineOps::ConsumerRelease { pipeline });
     }
 }
