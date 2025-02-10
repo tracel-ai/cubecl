@@ -1,5 +1,3 @@
-use std::{borrow::Cow, sync::Arc};
-
 use ash::{
     khr::cooperative_matrix,
     vk::{
@@ -7,193 +5,60 @@ use ash::{
         TRUE,
     },
 };
-use cubecl_common::ExecutionMode;
 use cubecl_core::{
-    channel::MutexComputeChannel,
-    client::ComputeClient,
-    future,
+    compute::Visibility,
     ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
-    AtomicFeature, Feature, Runtime,
+    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
 };
-use cubecl_runtime::{ComputeRuntime, DeviceProperties};
-use cubecl_spirv::CompilationOptions;
+use cubecl_runtime::DeviceProperties;
+use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use wgpu::{
     hal::{
         self,
         vulkan::{self, InstanceShared},
     },
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    ComputePipeline, DeviceDescriptor, Features, Limits, PipelineLayoutDescriptor,
-    ShaderModuleDescriptorSpirV, ShaderStages,
+    DeviceDescriptor, Features, Limits,
 };
 
-use crate::{
-    create_client_on_setup, create_setup_for_device, RuntimeOptions, Vulkan, WgpuDevice,
-    WgpuRuntime, WgpuServer,
-};
-
-use super::base::WgpuCompiler;
-
-pub use cubecl_spirv::{GLCompute, SpirvCompiler};
+use crate::{AutoCompiler, WgpuServer};
 
 mod features;
 
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
-type Server = WgpuServer<SpirvCompiler<GLCompute>>;
+pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
+    repr.bindings
+        .iter()
+        .enumerate()
+        .map(|it| (it.0, it.1.visibility))
+        .collect()
+}
 
-/// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
-    ComputeRuntime::new();
-
-impl WgpuCompiler for SpirvCompiler<GLCompute> {
-    fn create_pipeline(
-        server: &mut WgpuServer<Self>,
-        kernel: CompiledKernel<Self>,
-        mode: ExecutionMode,
-    ) -> Arc<ComputePipeline> {
-        let (module, layout) = kernel
-            .repr
-            .map(|repr| {
-                let bindings = repr
-                    .bindings
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _binding)| BindGroupLayoutEntry {
-                        binding: i as u32,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            #[cfg(not(exclusive_memory_only))]
-                            ty: BufferBindingType::Storage { read_only: false },
-                            #[cfg(exclusive_memory_only)]
-                            ty: BufferBindingType::Storage {
-                                read_only: matches!(
-                                    _binding.visibility,
-                                    cubecl_core::compute::Visibility::Read
-                                ),
-                            },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    })
-                    .collect::<Vec<_>>();
-                let layout = server
-                    .device
-                    .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                        label: Some(&kernel.entrypoint_name),
-                        entries: &bindings,
-                    });
-                let layout = server
-                    .device
-                    .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: Some(&kernel.entrypoint_name),
-                        bind_group_layouts: &[&layout],
-                        push_constant_ranges: &[],
-                    });
-
-                let spirv = repr.assemble();
-
-                let module = unsafe {
-                    server
-                        .device
-                        .create_shader_module_spirv(&ShaderModuleDescriptorSpirV {
-                            label: Some(&kernel.entrypoint_name),
-                            source: Cow::Borrowed(&spirv),
-                        })
-                };
-                (module, Some(layout))
-            })
-            .unwrap_or_else(|| {
-                let source = &kernel.source;
-
-                let checks = wgpu::ShaderRuntimeChecks {
-                    // Cube does not need wgpu bounds checks - OOB behaviour is instead
-                    // checked by cube (if enabled).
-                    // This is because the WebGPU specification only makes loose guarantees that Cube can't rely on.
-                    bounds_checks: false,
-                    // Loop bounds are only checked in checked mode.
-                    force_loop_bounding: mode == ExecutionMode::Checked,
-                };
-
-                // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
-                // is only available through the use of unsafe code.
-                let module = unsafe {
-                    server.device.create_shader_module_trusted(
-                        wgpu::ShaderModuleDescriptor {
-                            label: None,
-                            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-                        },
-                        checks,
-                    )
-                };
-
-                (module, None)
-            });
-
-        Arc::new(
-            server
-                .device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
+pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
+    let limits = adapter.limits();
+    let features = adapter.features();
+    unsafe {
+        adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
+            request_device(adapter, hal_adapter.unwrap(), features, limits)
+        })
     }
+}
 
-    fn compile(
-        server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
-    ) -> CompiledKernel<Self> {
-        // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
-        // unchecked execution if robustness is enabled and let Vulkan handle it
-        let mode = if is_robust(&server.device) {
-            ExecutionMode::Unchecked
-        } else {
-            mode
-        };
-        log::debug!("Compiling {}", kernel.name());
-        let compiled = kernel.compile(&server.compilation_options, mode);
-        #[cfg(feature = "spirv-dump")]
-        dump_spirv(&compiled, kernel.name(), kernel.id());
-        compiled
-    }
-
-    async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
-        let limits = adapter.limits();
-        let features = adapter.features();
-        unsafe {
-            adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
-                request_device(adapter, hal_adapter.unwrap(), features, limits)
-            })
-        }
-    }
-
-    fn register_features(
-        adapter: &wgpu::Adapter,
-        _device: &wgpu::Device,
-        props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
-        comp_options: &mut Self::CompilationOptions,
-    ) {
-        let features = adapter.features();
-        unsafe {
-            adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
-                if let Some(adapter) = hal_adapter {
-                    register_features(adapter, props, features, comp_options);
-                }
-            })
-        }
+pub fn register_vulkan_features(
+    adapter: &wgpu::Adapter,
+    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    comp_options: &mut WgpuCompilationOptions,
+) {
+    let features = adapter.features();
+    unsafe {
+        adapter.as_hal::<hal::api::Vulkan, _, _>(|hal_adapter| {
+            if let Some(adapter) = hal_adapter {
+                register_features(adapter, props, features, comp_options);
+            }
+        })
     }
 }
 
@@ -248,6 +113,10 @@ fn request_device(
             .expect("Failed to create Vulkan device")
     };
 
+    // The default is MemoryHints::Performance, which tries to do some bigger
+    // block allocations. However, we already batch allocations, so we
+    // can use MemoryHints::MemoryUsage to lower memory usage.
+    let memory_hints = wgpu::MemoryHints::MemoryUsage;
     let device = unsafe {
         adapter
             .device_from_raw(
@@ -255,7 +124,7 @@ fn request_device(
                 None,
                 &extensions,
                 full_feat,
-                &wgpu::MemoryHints::MemoryUsage,
+                &memory_hints,
                 family_info.queue_family_index,
                 0,
             )
@@ -266,10 +135,7 @@ fn request_device(
         label: None,
         required_features: full_feat,
         required_limits: limits,
-        // The default is MemoryHints::Performance, which tries to do some bigger
-        // block allocations. However, we already batch allocations, so we
-        // can use MemoryHints::MemoryUsage to lower memory usage.
-        memory_hints: wgpu::MemoryHints::MemoryUsage,
+        memory_hints,
     };
 
     unsafe {
@@ -284,7 +150,7 @@ fn register_features(
     adapter: &vulkan::Adapter,
     props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
     features: Features,
-    comp_options: &mut CompilationOptions,
+    comp_options: &mut WgpuCompilationOptions,
 ) {
     let ash = adapter.shared_instance();
     let extended_feat = ExtendedFeatures::from_adapter(ash.raw_instance(), adapter, features);
@@ -325,7 +191,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         props.register_feature(Feature::Type(elem));
     };
 
-    let supported_types = [
+    let default_types = [
         Elem::UInt(UIntKind::U16),
         Elem::UInt(UIntKind::U32),
         Elem::UInt(UIntKind::U64),
@@ -341,7 +207,7 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         Elem::Bool,
     ];
 
-    for ty in supported_types {
+    for ty in default_types {
         register(ty);
     }
 
@@ -385,9 +251,9 @@ fn register_cmma(
         })
         .filter_map(|it| {
             Some(Feature::Cmma {
-                a: conv_type(it.a_type)?,
-                b: conv_type(it.b_type)?,
-                c: conv_type(it.c_type)?,
+                a: convert_type(it.a_type)?,
+                b: convert_type(it.b_type)?,
+                c: convert_type(it.c_type)?,
                 m: it.m_size as u8,
                 k: it.k_size as u8,
                 n: it.n_size as u8,
@@ -400,7 +266,7 @@ fn register_cmma(
     }
 }
 
-fn conv_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
+fn convert_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
     let ty = match vk_ty {
         ComponentTypeKHR::FLOAT16 => Elem::Float(FloatKind::F16),
         ComponentTypeKHR::FLOAT32 => Elem::Float(FloatKind::F32),
@@ -418,6 +284,27 @@ fn conv_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
     Some(ty)
 }
 
+/// Check robustness, compile, and optionally dump SPIR-V
+pub(crate) fn compile(
+    dyn_comp: &mut AutoCompiler,
+    server: &mut WgpuServer,
+    kernel: <WgpuServer as ComputeServer>::Kernel,
+    mode: ExecutionMode,
+) -> CompiledKernel<AutoCompiler> {
+    // `wgpu` currently always enables `robustness2` on Vulkan if available, so default to
+    // unchecked execution if robustness is enabled and let Vulkan handle it
+    let mode = if is_robust(&server.device) {
+        ExecutionMode::Unchecked
+    } else {
+        mode
+    };
+    log::debug!("Compiling {}", kernel.name());
+    let compiled = kernel.compile(dyn_comp, &server.compilation_options, mode);
+    #[cfg(feature = "spirv-dump")]
+    dump_spirv(&compiled, kernel.name(), kernel.id());
+    compiled
+}
+
 fn is_robust(device: &wgpu::Device) -> bool {
     fn is_robust(device: &vulkan::Device) -> bool {
         device
@@ -429,48 +316,15 @@ fn is_robust(device: &wgpu::Device) -> bool {
     }
 }
 
-impl Runtime for WgpuRuntime<VkSpirvCompiler> {
-    type Compiler = VkSpirvCompiler;
-    type Server = WgpuServer<VkSpirvCompiler>;
-
-    type Channel = MutexComputeChannel<WgpuServer<VkSpirvCompiler>>;
-    type Device = WgpuDevice;
-
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        RUNTIME.client(device, move || {
-            let setup =
-                future::block_on(create_setup_for_device::<Vulkan, VkSpirvCompiler>(device));
-            create_client_on_setup(setup, RuntimeOptions::default())
-        })
-    }
-
-    fn name() -> &'static str {
-        "wgpu<spirv>"
-    }
-
-    fn supported_line_sizes() -> &'static [u8] {
-        &[4, 2]
-    }
-
-    fn extension() -> &'static str {
-        "spv"
-    }
-
-    fn max_cube_count() -> (u32, u32, u32) {
-        let max_dim = u16::MAX as u32;
-        (max_dim, max_dim, max_dim)
-    }
-}
-
 #[cfg(feature = "spirv-dump")]
-fn dump_spirv(compiled: &CompiledKernel<VkSpirvCompiler>, name: &str, id: cubecl_core::KernelId) {
+fn dump_spirv(compiled: &CompiledKernel<AutoCompiler>, name: &str, id: cubecl_core::KernelId) {
     use std::{
         fs,
         hash::{DefaultHasher, Hash, Hasher},
     };
 
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
-        if let Some(repr) = compiled.repr.as_ref() {
+        if let Some(repr) = compiled.repr.as_ref().and_then(|repr| repr.as_spirv()) {
             let name = name
                 .split("<")
                 .take_while(|it| !it.ends_with("Runtime"))

@@ -107,6 +107,8 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
         // This is a guess - not clear if ROCM has a limit on the number of bindings,
         // but it's dubious it's more than this.
         max_bindings: 1024,
+        // Minimum supported
+        max_shared_memory_size: 49152,
     };
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);

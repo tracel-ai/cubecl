@@ -39,6 +39,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         plane_size_min: 32,
         plane_size_max: 32,
         max_bindings: 32,
+        max_shared_memory_size: 48000,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,

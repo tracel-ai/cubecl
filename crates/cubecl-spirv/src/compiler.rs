@@ -1,5 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{ir as core, prelude::FastMath, Metadata};
+use cubecl_core::{ir as core, prelude::FastMath, Metadata, WgpuCompilationOptions};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -25,11 +25,6 @@ use crate::{
     SpirvKernel,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct CompilationOptions {
-    pub supports_fp_fast_math: bool,
-}
-
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     builder: Builder,
@@ -50,7 +45,7 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub ext_meta_pos: Vec<u32>,
     pub metadata: Metadata,
     pub debug_info: Option<DebugInfo>,
-    compilation_options: CompilationOptions,
+    compilation_options: WgpuCompilationOptions,
 }
 
 unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
@@ -123,9 +118,10 @@ impl<T: SpirvTarget> DerefMut for SpirvCompiler<T> {
 
 impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     type Representation = SpirvKernel;
-    type CompilationOptions = CompilationOptions;
+    type CompilationOptions = WgpuCompilationOptions;
 
     fn compile(
+        &mut self,
         value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
@@ -148,14 +144,12 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             }
         }
 
-        let (module, optimizer) = Self {
-            mode,
-            metadata: Metadata::new(num_meta as u32, num_ext),
-            compilation_options: compilation_options.clone(),
-            ext_meta_pos,
-            ..Default::default()
-        }
-        .compile_kernel(value);
+        self.mode = mode;
+        self.metadata = Metadata::new(num_meta as u32, num_ext);
+        self.compilation_options = compilation_options.clone();
+        self.ext_meta_pos = ext_meta_pos;
+
+        let (module, optimizer) = self.compile_kernel(value);
         SpirvKernel {
             module,
             optimizer,
@@ -163,12 +157,8 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         }
     }
 
-    fn elem_size(elem: core::Elem) -> usize {
+    fn elem_size(&self, elem: core::Elem) -> usize {
         elem.size()
-    }
-
-    fn max_shared_memory_size() -> usize {
-        32768
     }
 }
 

@@ -78,26 +78,21 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     type CompilationOptions = CompilationOptions;
 
     fn compile(
+        &mut self,
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
-        let compiler = Self {
-            compilation_options: compilation_options.clone(),
-            strategy,
-            ..Self::default()
-        };
-        let ir = compiler.compile_ir(kernel);
+        self.compilation_options = compilation_options.clone();
+        self.strategy = strategy;
+
+        let ir = self.clone().compile_ir(kernel);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
         ir
     }
 
-    fn elem_size(elem: gpu::Elem) -> usize {
+    fn elem_size(&self, elem: gpu::Elem) -> usize {
         elem.size()
-    }
-
-    fn max_shared_memory_size() -> usize {
-        49152
     }
 }
 

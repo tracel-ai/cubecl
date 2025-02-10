@@ -1,6 +1,6 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use crate::{codegen::CompilerRepresentation, Compiler, Kernel, KernelId, KernelOptions};
+use crate::{Compiler, Kernel, KernelId, KernelOptions};
 use alloc::sync::Arc;
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{Item, Scope};
@@ -44,8 +44,6 @@ pub struct CompiledKernel<C: Compiler> {
     pub repr: Option<C::Representation>,
     /// Size of a cube for the compiled kernel
     pub cube_dim: CubeDim,
-    /// The number of bytes used by the share memory
-    pub shared_mem_bytes: usize,
     /// Extra debugging information about the compiled kernel.
     pub debug_info: Option<DebugInformation>,
 }
@@ -90,9 +88,8 @@ impl<C: Compiler> Display for CompiledKernel<C> {
 
         f.write_fmt(format_args!(
             "
-cube_dim: ({}, {}, {})
-shared_memory: {} bytes",
-            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z, self.shared_mem_bytes,
+cube_dim: ({}, {}, {})",
+            self.cube_dim.x, self.cube_dim.y, self.cube_dim.z,
         ))?;
 
         if let Some(info) = &self.debug_info {
@@ -240,6 +237,7 @@ pub trait CubeTask<C: Compiler>: Send + Sync {
     /// Compile the kernel into source
     fn compile(
         &self,
+        compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
     ) -> CompiledKernel<C>;
@@ -258,14 +256,14 @@ pub struct KernelTask<C: Compiler, K: Kernel> {
 impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
     fn compile(
         &self,
+        compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
     ) -> CompiledKernel<C> {
         let gpu_ir = self.kernel_definition.define();
         let entrypoint_name = gpu_ir.options.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = C::compile(gpu_ir, compilation_options, mode);
-        let shared_mem_bytes = lower_level_ir.shared_memory_size();
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode);
 
         CompiledKernel {
             entrypoint_name,
@@ -273,7 +271,6 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
             source: lower_level_ir.to_string(),
             repr: Some(lower_level_ir),
             cube_dim,
-            shared_mem_bytes,
             debug_info: None,
         }
     }
@@ -290,10 +287,11 @@ impl<C: Compiler, K: Kernel> CubeTask<C> for KernelTask<C, K> {
 impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
     fn compile(
         &self,
+        compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
     ) -> CompiledKernel<C> {
-        self.as_ref().compile(compilation_options, mode)
+        self.as_ref().compile(compiler, compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {
@@ -307,10 +305,11 @@ impl<C: Compiler> CubeTask<C> for Arc<dyn CubeTask<C>> {
 impl<C: Compiler> CubeTask<C> for Box<dyn CubeTask<C>> {
     fn compile(
         &self,
+        compiler: &mut C,
         compilation_options: &C::CompilationOptions,
         mode: ExecutionMode,
     ) -> CompiledKernel<C> {
-        self.as_ref().compile(compilation_options, mode)
+        self.as_ref().compile(compiler, compilation_options, mode)
     }
 
     fn id(&self) -> KernelId {

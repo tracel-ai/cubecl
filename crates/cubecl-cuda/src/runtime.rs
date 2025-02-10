@@ -72,6 +72,9 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
+    let max_shared = unsafe {
+        cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,).unwrap() as usize
+    };
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
@@ -89,6 +92,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         plane_size_min: warp_size as u32,
         plane_size_max: warp_size as u32,
         max_bindings: crate::device::CUDA_MAX_BINDINGS,
+        max_shared_memory_size: max_shared,
     };
 
     let memory_management =

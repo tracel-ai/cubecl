@@ -29,7 +29,7 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
         let mut expected = vec![F::new(0.0); line_size as usize];
         expected[0] = F::new(5.0);
 
-        assert_eq!(actual, expected);
+        assert_eq!(&actual[..line_size as usize], expected);
     }
 }
 
@@ -62,7 +62,7 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
         let mut expected = vec![F::new(0.0); line_size as usize];
         expected[0] = F::new(5.0);
 
-        assert_eq!(actual, expected);
+        assert_eq!(&actual[..line_size as usize], expected);
     }
 }
 
@@ -100,7 +100,7 @@ pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
             .map(|x| F::from_int(x))
             .collect::<Vec<_>>();
 
-        assert_eq!(actual, expected);
+        assert_eq!(&actual[..line_size as usize], expected);
     }
 }
 

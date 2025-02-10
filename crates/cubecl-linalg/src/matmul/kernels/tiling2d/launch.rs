@@ -1,6 +1,6 @@
 use std::cmp::max;
 
-use cubecl_core::{prelude::*, Compiler};
+use cubecl_core::prelude::*;
 
 use crate::{
     matmul::kernels::tiling2d::{
@@ -35,7 +35,10 @@ pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
 ) {
     assert!(
         N::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
-            <= <R::Compiler as Compiler>::max_shared_memory_size(),
+            <= client
+                .properties()
+                .hardware_properties()
+                .max_shared_memory_size,
         "Shared memory limit will be busted. "
     );
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
