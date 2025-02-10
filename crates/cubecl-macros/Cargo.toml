@@ -18,6 +18,7 @@ proc-macro = true
 
 [features]
 default = []
+nightly = []
 std = []
 
 [dependencies]

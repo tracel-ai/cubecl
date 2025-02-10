@@ -1,7 +1,6 @@
 use core::fmt::Display;
-use std::borrow::Cow;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 
 use crate::TypeHash;
 

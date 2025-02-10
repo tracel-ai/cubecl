@@ -2,10 +2,13 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::prelude::{expand_checked_index_assign, FastMath, KernelDefinition};
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
+};
+use cubecl_core::{
+    ir::{Operation, SourceLoc},
+    prelude::{expand_checked_index_assign, FastMath, KernelDefinition},
 };
 use cubecl_runtime::DeviceProperties;
 
@@ -71,6 +74,7 @@ pub struct CppCompiler<D: Dialect> {
     strategy: ExecutionMode,
     settings: VariableSettings,
     compilation_options: CompilationOptions,
+    source_loc: Option<SourceLoc>,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
@@ -222,6 +226,7 @@ impl<D: Dialect> CppCompiler<D> {
         instruction: gpu::Instruction,
         scope: &mut gpu::Scope,
     ) {
+        self.update_debug_loc(instructions, &instruction);
         let out = instruction.out;
         match instruction.operation {
             gpu::Operation::Copy(variable) => {
@@ -385,6 +390,25 @@ impl<D: Dialect> CppCompiler<D> {
                     }),
                 ),
             },
+        }
+    }
+
+    fn update_debug_loc(
+        &mut self,
+        instructions: &mut Vec<Instruction<D>>,
+        inst: &gpu::Instruction,
+    ) {
+        if !matches!(inst.operation, Operation::NonSemantic(_)) {
+            match &inst.source_loc {
+                Some(loc) if Some(loc) != self.source_loc.as_ref() => {
+                    self.source_loc = Some(loc.clone());
+                    instructions.push(Instruction::Line {
+                        file: loc.source.file.clone(),
+                        line: loc.line,
+                    });
+                }
+                _ => {}
+            }
         }
     }
 

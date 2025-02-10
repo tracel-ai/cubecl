@@ -77,7 +77,8 @@ use crate::{
 };
 
 use super::{
-    CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice, SliceMut,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice,
+    SliceMut,
 };
 
 /// A mechanism for managing a sequence of `memcpy_async`
@@ -100,6 +101,12 @@ impl<C: CubePrimitive> CubeType for Pipeline<C> {
 impl<C: CubePrimitive> Init for PipelineExpand<C> {
     fn init(self, _scope: &mut Scope) -> Self {
         self
+    }
+}
+
+impl<C: CubePrimitive> CubeDebug for PipelineExpand<C> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.elem, name);
     }
 }
 

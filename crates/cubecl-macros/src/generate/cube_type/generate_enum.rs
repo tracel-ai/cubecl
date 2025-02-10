@@ -52,6 +52,7 @@ impl CubeTypeEnum {
         let context = prelude_type("Scope");
         let into_runtime = prelude_type("IntoRuntime");
         let init = prelude_type("Init");
+        let debug = prelude_type("CubeDebug");
 
         let name = &self.ident;
         let name_expand = &self.name_expand;
@@ -79,6 +80,8 @@ impl CubeTypeEnum {
                     #body_init
                 }
             }
+
+            impl #generics #debug for #name_expand #generic_names #where_clause {}
 
             impl #generics #into_runtime for #name #generic_names #where_clause {
                 fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {

@@ -5,7 +5,7 @@ use quote::{quote, ToTokens};
 use std::{collections::HashMap, iter};
 use syn::{
     parse_quote, punctuated::Punctuated, spanned::Spanned, visit_mut::VisitMut, Expr, FnArg,
-    Generics, Ident, ItemFn, ReturnType, Signature, TraitItemFn, Type, Visibility,
+    Generics, Ident, ItemFn, LitStr, ReturnType, Signature, TraitItemFn, Type, Visibility,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -18,6 +18,7 @@ pub(crate) struct KernelArgs {
     pub fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
+    pub src_file: Option<LitStr>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
@@ -184,8 +185,8 @@ pub struct KernelFn {
     pub body: KernelBody,
     pub full_name: String,
     pub span: Span,
-    pub source_text: String,
     pub context: Context,
+    pub src_file: Option<LitStr>,
 }
 
 #[derive(Clone)]
@@ -200,6 +201,12 @@ pub struct KernelSignature {
     pub parameters: Vec<KernelParam>,
     pub returns: KernelReturns,
     pub generics: Generics,
+}
+
+impl KernelSignature {
+    pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
+        self.parameters.iter().filter(|it| !it.is_const)
+    }
 }
 
 #[derive(Clone)]
@@ -356,8 +363,8 @@ impl KernelFn {
         sig: Signature,
         mut block: syn::Block,
         full_name: String,
+        src_file: Option<LitStr>,
     ) -> syn::Result<Self> {
-        let source_text = construct_source_text(&vis, &sig, &block);
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
@@ -372,28 +379,10 @@ impl KernelFn {
             body: KernelBody::Block(block),
             full_name,
             span,
-            source_text,
+            src_file,
             context,
         })
     }
-}
-
-/// Construct approximate source text on stable
-fn construct_source_text(vis: &Visibility, sig: &Signature, block: &syn::Block) -> String {
-    fn src(span: Span) -> String {
-        span.source_text().unwrap_or_default()
-    }
-    format!(
-        "{}\n {} {} {} {} {} {} {}",
-        src(Span::call_site()),
-        vis.to_token_stream(),
-        src(sig.fn_token.span()),
-        src(sig.ident.span()),
-        src(sig.generics.span()),
-        src(sig.paren_token.span.join()),
-        sig.output.to_token_stream(),
-        src(block.brace_token.span.join())
-    )
 }
 
 impl Launch {
@@ -412,6 +401,7 @@ impl Launch {
             function.sig,
             *function.block,
             full_name,
+            args.src_file.clone(),
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.

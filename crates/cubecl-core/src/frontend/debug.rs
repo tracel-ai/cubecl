@@ -2,6 +2,8 @@ use cubecl_ir::CubeSource;
 
 use crate::ir::{NonSemantic, Scope, Variable};
 
+use super::CubeDebug;
+
 /// Calls a function and inserts debug symbols if debug is enabled.
 #[track_caller]
 pub fn debug_call_expand<C>(
@@ -11,12 +13,12 @@ pub fn debug_call_expand<C>(
     call: impl FnOnce(&mut Scope) -> C,
 ) -> C {
     // Save source_loc before the call so it can be restored once the call returns
-    let source_loc = scope.source_loc.take();
+    let source_loc = scope.debug.source_loc.take();
     scope.update_span(line, col);
     scope.register(NonSemantic::DebugScopeStart);
     let ret = call(scope);
     scope.register(NonSemantic::DebugScopeEnd);
-    scope.source_loc = source_loc;
+    scope.debug.source_loc = source_loc;
     ret
 }
 
@@ -50,6 +52,13 @@ pub fn debug_source_expand(
         line,
         column,
     });
+}
+
+/// Registers name for an expand if possible
+#[track_caller]
+pub fn debug_var_expand<E: CubeDebug>(scope: &mut Scope, name: &'static str, expand: E) -> E {
+    expand.set_debug_name(scope, name);
+    expand
 }
 
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.

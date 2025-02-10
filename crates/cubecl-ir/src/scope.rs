@@ -1,4 +1,4 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
 use hashbrown::{HashMap, HashSet};
 
@@ -35,13 +35,21 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     pub allocator: Allocator,
-    pub debug_enabled: bool,
-    pub sources: Rc<RefCell<HashSet<CubeSource>>>,
-    pub source_loc: Option<SourceLoc>,
-    pub entry_loc: Option<SourceLoc>,
+    pub debug: DebugInfo,
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
+}
+
+/// Debug related fields, most of these are global
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct DebugInfo {
+    pub enabled: bool,
+    pub sources: Rc<RefCell<HashSet<CubeSource>>>,
+    pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
+    pub source_loc: Option<SourceLoc>,
+    pub entry_loc: Option<SourceLoc>,
 }
 
 impl core::hash::Hash for Scope {
@@ -96,10 +104,13 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             allocator: Allocator::default(),
-            debug_enabled,
-            sources: Default::default(),
-            source_loc: None,
-            entry_loc: None,
+            debug: DebugInfo {
+                enabled: debug_enabled,
+                sources: Default::default(),
+                variable_names: Default::default(),
+                source_loc: None,
+                entry_loc: None,
+            },
             typemap: Default::default(),
         }
     }
@@ -244,7 +255,7 @@ impl Scope {
     /// Register an [operation](Operation) into the scope.
     pub fn register<T: Into<Instruction>>(&mut self, operation: T) {
         let mut inst = operation.into();
-        inst.source_loc = self.source_loc.clone();
+        inst.source_loc = self.debug.source_loc.clone();
         self.operations.push(inst)
     }
 
@@ -281,10 +292,7 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             allocator: self.allocator.clone(),
-            debug_enabled: self.debug_enabled,
-            sources: self.sources.clone(),
-            source_loc: self.source_loc.clone(),
-            entry_loc: self.entry_loc.clone(),
+            debug: self.debug.clone(),
             typemap: self.typemap.clone(),
         }
     }
@@ -424,23 +432,32 @@ impl Scope {
     }
 
     pub fn update_source(&mut self, source: CubeSource) {
-        if self.debug_enabled {
-            self.sources.borrow_mut().insert(source.clone());
-            self.source_loc = Some(SourceLoc {
+        if self.debug.enabled {
+            self.debug.sources.borrow_mut().insert(source.clone());
+            self.debug.source_loc = Some(SourceLoc {
                 line: source.line,
                 column: 0,
                 source,
             });
-            if self.entry_loc.is_none() {
-                self.entry_loc = self.source_loc.clone();
+            if self.debug.entry_loc.is_none() {
+                self.debug.entry_loc = self.debug.source_loc.clone();
             }
         }
     }
 
     pub fn update_span(&mut self, line: u32, col: u32) {
-        if let Some(loc) = self.source_loc.as_mut() {
+        if let Some(loc) = self.debug.source_loc.as_mut() {
             loc.line = line;
             loc.column = col;
+        }
+    }
+
+    pub fn update_variable_name(&self, variable: Variable, name: impl Into<Cow<'static, str>>) {
+        if self.debug.enabled {
+            self.debug
+                .variable_names
+                .borrow_mut()
+                .insert(variable, name.into());
         }
     }
 }

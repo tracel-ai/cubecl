@@ -179,7 +179,7 @@ impl Expression {
             Expression::ExpressionMacro { .. } => None,
             Expression::Block(block) => block.ty.clone(),
             Expression::FunctionCall { .. } => None,
-            Expression::Break { .. } => None,
+            Expression::Break => None,
             Expression::Cast { to, .. } => Some(to.clone()),
             Expression::Continue { .. } => None,
             Expression::Return { .. } => None,

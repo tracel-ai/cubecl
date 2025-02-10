@@ -12,7 +12,21 @@ impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
         let debug_source = frontend_type("debug_source_expand");
-        let source_text = &self.source_text;
+        let cube_debug = frontend_type("CubeDebug");
+        let src_file = self.src_file.as_ref().map(|file| file.value());
+        #[cfg(nightly)]
+        let src_file = {
+            src_file.or_else(|| {
+                let span: proc_macro::Span = self.span.unwrap();
+                let source_path = span.source_file().path();
+                let source_file = source_path.file_name();
+                source_file.map(|file| file.to_string_lossy().into())
+            })
+        };
+        let source_text = match src_file {
+            Some(file) => quote![include_str!(#file)],
+            None => quote![""],
+        };
 
         let vis = &self.vis;
         let sig = &self.sig;
@@ -24,10 +38,15 @@ impl KernelFn {
         let debug_source = quote_spanned! {self.span=>
             #debug_source(context, #name, file!(), #source_text, line!(), column!())
         };
+        let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
+            let name_str = name.to_string();
+            quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
+        });
 
         let out = quote! {
             #vis #sig {
                 #debug_source;
+                #(#debug_params)*
                 use #prelude_path::IntoRuntime as _;
 
                 #body

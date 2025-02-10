@@ -16,13 +16,13 @@
 //! All debug instructions are deduplicated to ensure minimal binary size when functions are called
 //! in a loop or other similar situations.
 
-use std::iter;
+use std::borrow::Cow;
 
-use cubecl_core::ir::{self as core, CubeSource, SourceLoc};
+use cubecl_core::ir::{self as core, CubeSource, SourceLoc, Variable};
 use hashbrown::HashMap;
 use rspirv::{
     dr::{Instruction, Operand},
-    spirv::{FunctionControl, Op, SourceLanguage, Word},
+    spirv::{FunctionControl, Op, Word},
 };
 
 use crate::{
@@ -38,7 +38,6 @@ pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PK
 pub struct FunctionDefinition {
     id: Word,
     name: Word,
-    file_name: Word,
     source: SourceFile,
     line: u32,
     col: u32,
@@ -95,7 +94,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let return_ty = self.type_void();
             let function_ty =
                 self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
-            let entry_loc = self.opt.root_scope.entry_loc.clone().unwrap();
+            let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
 
             self.debug_info = Some(DebugInfo {
                 function_ty,
@@ -124,25 +123,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     /// Collect sources ahead of time so line numbers and source file names are correct
     fn collect_sources(&mut self) {
-        let cube_fns = self.opt.root_scope.sources.borrow().clone();
-        let mut sources = HashMap::<_, String>::new();
+        let cube_fns = self.opt.root_scope.debug.sources.borrow().clone();
+        let mut sources = HashMap::new();
         for cube_fn in cube_fns.iter() {
-            let source = sources.entry(cube_fn.file.clone()).or_default();
-            let fn_lines = cube_fn.source_text.lines().count();
-            let last_line = cube_fn.line as usize + fn_lines;
-            let mut lines = source.lines().map(|it| it.to_string()).collect::<Vec<_>>();
-            if lines.len() < last_line {
-                lines.extend(iter::repeat(String::new()).take(last_line - lines.len()));
+            // If source is missing, don't override since it might exist from another function in the
+            // same file. If it's not empty, just override since they're identical.
+            if cube_fn.source_text.is_empty() {
+                sources
+                    .entry(cube_fn.file.clone())
+                    .or_insert(cube_fn.source_text.clone());
+            } else {
+                sources.insert(cube_fn.file.clone(), cube_fn.source_text.clone());
             }
-            for (line, fn_text) in lines
-                .iter_mut()
-                .skip(cube_fn.line as usize)
-                .take(fn_lines)
-                .zip(cube_fn.source_text.lines())
-            {
-                *line = fn_text.to_string();
-            }
-            *source = lines.join("\n");
         }
 
         for (file, source_text) in sources {
@@ -154,7 +146,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let function = FunctionDefinition {
                 id: self.id(),
                 name: self.debug_string(cube_fn.function_name.as_ref()),
-                file_name: self.debug_string(cube_fn.file.as_ref()),
                 source,
                 line: cube_fn.line,
                 col: cube_fn.column,
@@ -204,8 +195,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let setup = move |b: &mut Self| {
             if let Some(func_id) = func_id {
-                let scope = b.void_op(Instructions::DebugScope, [func_id]);
-                b.stack_top().scope = scope;
+                b.debug_start_block();
                 b.void_op(Instructions::DebugFunctionDefinition, [func_id, main]);
             }
         };
@@ -222,8 +212,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         self.update_call(loc.clone(), prev);
                         self.debug_start_block();
                     } else {
-                        let file_name = self.debug_string(loc.source.file.as_ref());
-                        self.line(file_name, loc.line, loc.column);
+                        let source = self.stack_top().definition.source.id;
+                        self.debug_line(source, loc.line, loc.column);
                     }
                 }
                 _ => {}
@@ -235,8 +225,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let is_inlined = self.stack().len() > 1;
         let call_fn = self.definitions().functions[&loc.source];
         let inlined_at = is_inlined.then(|| {
-            let parent = self.stack_top().inlined_at;
-            self.inlined_at(call_fn.id, prev.line, parent)
+            let parent = self.stack_prev().clone();
+            self.inlined_at(parent.definition.id, prev.line, parent.inlined_at)
         });
         self.stack_top().definition = call_fn;
         self.stack_top().inlined_at = inlined_at;
@@ -288,6 +278,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.debug_info().stack.last_mut().unwrap()
     }
 
+    fn stack_prev(&mut self) -> &mut FunctionCall {
+        self.debug_info().stack.iter_mut().nth_back(1).unwrap()
+    }
+
     // Deduplicated inlined_at
     fn inlined_at(&mut self, func: Word, line: u32, parent: Option<Word>) -> Word {
         let existing = self.definitions().inlined_at.get(&(func, line, parent));
@@ -318,13 +312,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let file_id = self.debug_string(file.as_ref());
             let source_id = self.debug_string(source_text.as_ref());
 
-            self.source(
-                SourceLanguage::Unknown,
-                1,
-                Some(file_id),
-                Some(source_text.as_ref()),
-            );
-
             let source = self.void_debug(None, Instructions::DebugSource, [file_id, source_id]);
             let comp_unit = self.debug_compilation_unit(source);
             let source_file = SourceFile {
@@ -341,7 +328,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn debug_compilation_unit(&mut self, source: Word) -> Word {
         let version = self.const_u32(1);
         let dwarf = self.const_u32(4);
-        let language = self.const_u32(SourceLanguage::Unknown as u32);
+        // Rust, not yet supported in tooling but doesn't break things either so we can replace
+        // this with the enum once it's added in rspirv.
+        let language = self.const_u32(13);
         self.void_debug(
             None,
             Instructions::DebugCompilationUnit,
@@ -357,7 +346,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let compilation_unit = function.source.compilation_unit;
         let line = self.const_u32(function.line);
         let col = self.const_u32(function.col);
-        let zero = self.const_u32(0);
         self.void_debug(
             Some(function.id),
             Instructions::DebugFunction,
@@ -370,7 +358,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 compilation_unit,
                 name_id,
                 flags,
-                zero,
+                line,
             ],
         );
     }
@@ -398,13 +386,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let loc = self.debug_info().previous_loc.clone().unwrap();
             let func = self.stack_top().definition;
             let inlined = self.stack_top().inlined_at;
-            let line = loc.line;
-            let col = loc.column;
 
-            self.line(func.file_name, line, col);
-            let scope = self.void_op(Instructions::DebugScope, [func.id]);
+            let scope = if let Some(inlined) = inlined {
+                self.void_op(Instructions::DebugScope, [func.id, inlined])
+            } else {
+                self.void_op(Instructions::DebugScope, [func.id])
+            };
             self.stack_top().scope = scope;
+            self.debug_line(func.source.id, loc.line, loc.column);
         }
+    }
+
+    fn debug_line(&mut self, source: Word, line: u32, column: u32) {
+        let line = self.const_u32(line);
+        let col = self.const_u32(column);
+        self.void_op(Instructions::DebugLine, [source, line, line, col, col]);
     }
 
     fn void_debug<const N: usize>(
@@ -438,5 +434,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     #[track_caller]
     pub fn debug_info(&mut self) -> &mut DebugInfo {
         self.debug_info.as_mut().unwrap()
+    }
+
+    pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
+        if self.debug_symbols {
+            self.name(var, name);
+        }
+    }
+
+    pub fn debug_var_name(&mut self, id: Word, var: Variable) {
+        if self.debug_symbols {
+            let name = self.name_of_var(var);
+            self.debug_name(id, name);
+        }
+    }
+
+    pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
+        let var_names = self.opt.root_scope.debug.variable_names.clone();
+        let debug_name = var_names.borrow().get(&var).cloned();
+        debug_name.unwrap_or_else(|| var.to_string().into())
     }
 }

@@ -352,18 +352,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn declare_shared_memories(&mut self) {
         let shared_memories = self.state.shared_memories.clone();
-        for (id, memory) in shared_memories {
+        for (_, memory) in shared_memories {
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
 
-            self.debug_name(memory.id, format!("shared({id})"));
+            self.debug_var_name(memory.id, memory.var);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
-    }
-
-    pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
-        if self.debug_symbols {
-            self.name(var, name);
         }
     }
 
