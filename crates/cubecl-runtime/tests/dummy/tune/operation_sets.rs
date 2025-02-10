@@ -1,5 +1,5 @@
 #[cfg(autotune_persistent_cache)]
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use std::sync::Arc;
 
 use cubecl_runtime::{
@@ -82,7 +82,7 @@ pub fn cache_test_set(
     .with_tunable(tunable(client.clone(), CacheTestSlowOn3, bindings.clone()).ok());
     if generate_random_checksum {
         set = set.with_custom_checksum(|_| {
-            let rand_string: String = rand::thread_rng()
+            let rand_string: String = rand::rng()
                 .sample_iter(&Alphanumeric)
                 .take(16)
                 .map(char::from)
