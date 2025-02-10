@@ -37,7 +37,7 @@ derive_more = { workspace = true, features = [
 half = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, features = ["thread_rng"] }
 serde = { workspace = true, optional = true }
 spin = { workspace = true } # using in place of use std::sync::Mutex;
 
