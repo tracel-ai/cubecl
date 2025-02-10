@@ -3,6 +3,7 @@ extern crate derive_new;
 
 extern crate alloc;
 
+mod backend;
 mod compiler;
 mod compute;
 mod device;
@@ -19,12 +20,12 @@ pub use graphics::*;
 pub use runtime::*;
 
 #[cfg(feature = "spirv")]
-pub use compiler::spirv;
+pub use backend::vulkan;
 
 #[cfg(all(test, not(feature = "spirv")))]
 #[allow(unexpected_cfgs)]
 mod tests {
-    pub type TestRuntime = crate::WgpuRuntime<crate::WgslCompiler>;
+    pub type TestRuntime = crate::WgpuRuntime;
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_matmul_plane!([f32]);
@@ -39,7 +40,7 @@ mod tests {
 #[cfg(all(test, feature = "spirv"))]
 #[allow(unexpected_cfgs)]
 mod tests_spirv {
-    pub type TestRuntime = crate::WgpuRuntime<crate::spirv::VkSpirvCompiler>;
+    pub type TestRuntime = crate::WgpuRuntime;
     use cubecl_core::flex32;
     use half::f16;
 

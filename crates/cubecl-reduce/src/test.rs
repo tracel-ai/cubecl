@@ -2,7 +2,7 @@
 
 use cubecl_core::prelude::*;
 use rand::{
-    distributions::{Distribution, Uniform},
+    distr::{Distribution, Uniform},
     rngs::StdRng,
     SeedableRng,
 };
@@ -587,7 +587,7 @@ impl TestCase {
     fn random_input_values<F: Float>(&self) -> Vec<F> {
         let size = self.input_size();
         let rng = StdRng::seed_from_u64(self.pseudo_random_seed());
-        let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION);
+        let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION).unwrap();
         let factor = 1.0 / (PRECISION as f32);
         distribution
             .sample_iter(rng)

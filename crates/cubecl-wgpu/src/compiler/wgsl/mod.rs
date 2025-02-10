@@ -3,7 +3,7 @@ mod body;
 mod compiler;
 mod extension;
 mod instructions;
-mod shader;
+pub(crate) mod shader;
 mod subgroup;
 
 pub(crate) use base::*;

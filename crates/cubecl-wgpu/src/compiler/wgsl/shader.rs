@@ -1,17 +1,11 @@
 use super::{Body, Extension, Item, Variable};
-use cubecl_core::{ir::Id, CompilerRepresentation, CubeDim};
+use cubecl_core::{compute::Visibility, ir::Id, CubeDim};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Location {
     Storage,
     Workgroup,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Visibility {
-    Read,
-    ReadWrite,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -241,13 +235,19 @@ impl ComputeShader {
             None => format!("array<{}>", binding.item),
         };
 
+        let visibility = match binding.visibility {
+            #[cfg(exclusive_memory_only)]
+            Visibility::Read => "read",
+            _ => "read_write",
+        };
+
         write!(
             f,
             "@group(0)
 @binding({})
 var<{}, {}> {}: {};
 \n",
-            num_entry, binding.location, binding.visibility, name, ty
+            num_entry, binding.location, visibility, name, ty
         )?;
 
         Ok(())
@@ -260,22 +260,5 @@ impl Display for Location {
             Location::Storage => f.write_str("storage"),
             Location::Workgroup => f.write_str("workgroup"),
         }
-    }
-}
-
-impl Display for Visibility {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            #[cfg(exclusive_memory_only)]
-            Visibility::Read => f.write_str("read"),
-            _ => f.write_str("read_write"),
-        }
-    }
-}
-
-impl CompilerRepresentation for ComputeShader {
-    fn shared_memory_size(&self) -> usize {
-        // not used in wgsl compiler
-        0
     }
 }
