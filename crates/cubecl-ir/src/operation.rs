@@ -1,11 +1,11 @@
 use core::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
-use crate::TypeHash;
 use crate::{
     comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
     OperationReflect, Operator,
 };
+use crate::{SourceLoc, TypeHash};
 use alloc::{
     format,
     string::{String, ToString},
@@ -60,6 +60,7 @@ pub enum Operation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
 pub struct Instruction {
     pub out: Option<Variable>,
+    pub source_loc: Option<SourceLoc>,
     pub operation: Operation,
 }
 
@@ -68,6 +69,15 @@ impl Instruction {
         Instruction {
             out: Some(out),
             operation: operation.into(),
+            source_loc: None,
+        }
+    }
+
+    pub fn no_out(operation: impl Into<Operation>) -> Self {
+        Instruction {
+            out: None,
+            operation: operation.into(),
+            source_loc: None,
         }
     }
 
@@ -173,27 +183,18 @@ pub struct UnaryOperator {
 
 impl From<Branch> for Instruction {
     fn from(value: Branch) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }
 
 impl From<Synchronization> for Instruction {
     fn from(value: Synchronization) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }
 
 impl From<NonSemantic> for Instruction {
     fn from(value: NonSemantic) -> Self {
-        Instruction {
-            out: None,
-            operation: value.into(),
-        }
+        Instruction::no_out(value)
     }
 }

@@ -1,8 +1,8 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
-use crate::{ExpandElement, Matrix, TypeHash};
+use crate::{CubeSource, ExpandElement, Matrix, SourceLoc, TypeHash};
 
 use super::{
     processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -35,10 +35,21 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     pub allocator: Allocator,
-    pub debug_enabled: bool,
+    pub debug: DebugInfo,
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
+}
+
+/// Debug related fields, most of these are global
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct DebugInfo {
+    pub enabled: bool,
+    pub sources: Rc<RefCell<HashSet<CubeSource>>>,
+    pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
+    pub source_loc: Option<SourceLoc>,
+    pub entry_loc: Option<SourceLoc>,
 }
 
 impl core::hash::Hash for Scope {
@@ -93,7 +104,13 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             allocator: Allocator::default(),
-            debug_enabled,
+            debug: DebugInfo {
+                enabled: debug_enabled,
+                sources: Default::default(),
+                variable_names: Default::default(),
+                source_loc: None,
+                entry_loc: None,
+            },
             typemap: Default::default(),
         }
     }
@@ -237,7 +254,9 @@ impl Scope {
 
     /// Register an [operation](Operation) into the scope.
     pub fn register<T: Into<Instruction>>(&mut self, operation: T) {
-        self.operations.push(operation.into())
+        let mut inst = operation.into();
+        inst.source_loc = self.debug.source_loc.clone();
+        self.operations.push(inst)
     }
 
     /// Resolve the element type of the given generic type.
@@ -273,7 +292,7 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             allocator: self.allocator.clone(),
-            debug_enabled: self.debug_enabled,
+            debug: self.debug.clone(),
             typemap: self.typemap.clone(),
         }
     }
@@ -410,5 +429,35 @@ impl Scope {
 
     pub fn add_local_array(&mut self, var: Variable) {
         self.local_arrays.push(var);
+    }
+
+    pub fn update_source(&mut self, source: CubeSource) {
+        if self.debug.enabled {
+            self.debug.sources.borrow_mut().insert(source.clone());
+            self.debug.source_loc = Some(SourceLoc {
+                line: source.line,
+                column: source.column,
+                source,
+            });
+            if self.debug.entry_loc.is_none() {
+                self.debug.entry_loc = self.debug.source_loc.clone();
+            }
+        }
+    }
+
+    pub fn update_span(&mut self, line: u32, col: u32) {
+        if let Some(loc) = self.debug.source_loc.as_mut() {
+            loc.line = line;
+            loc.column = col;
+        }
+    }
+
+    pub fn update_variable_name(&self, variable: Variable, name: impl Into<Cow<'static, str>>) {
+        if self.debug.enabled {
+            self.debug
+                .variable_names
+                .borrow_mut()
+                .insert(variable, name.into());
+        }
     }
 }

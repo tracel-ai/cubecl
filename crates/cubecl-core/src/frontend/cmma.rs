@@ -53,7 +53,9 @@ use crate::{
     unexpanded,
 };
 
-use super::{CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut};
+use super::{
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut,
+};
 
 use cubecl_ir::{ExpandElement, Scope};
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -97,6 +99,12 @@ impl<C: CubeType> IntoRuntime for Matrix<C> {
 impl<C: CubeType> Init for MatrixExpand<C> {
     fn init(self, _scope: &mut Scope) -> Self {
         self
+    }
+}
+
+impl<C: CubeType> CubeDebug for MatrixExpand<C> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.elem, name);
     }
 }
 
@@ -465,3 +473,5 @@ impl Init for MatrixLayout {
         self
     }
 }
+
+impl CubeDebug for MatrixLayout {}
