@@ -436,7 +436,7 @@ impl Scope {
             self.debug.sources.borrow_mut().insert(source.clone());
             self.debug.source_loc = Some(SourceLoc {
                 line: source.line,
-                column: 0,
+                column: source.column,
                 source,
             });
             if self.debug.entry_loc.is_none() {
