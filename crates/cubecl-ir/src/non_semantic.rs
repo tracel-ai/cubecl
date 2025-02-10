@@ -16,15 +16,20 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
 #[operation(opcode_name = NonSemanticOpCode)]
 pub enum NonSemantic {
-    DebugScopeStart,
-    DebugScopeEnd,
+    /// Enter a new debug scope, this happens recursively when a cube function is called and
+    /// inlined into the kernel. Should push a new frame onto the debug call stack.
+    EnterDebugScope,
+    /// Exit a debug scope and resume execution at the previous stack frame.
+    ExitDebugScope,
+    /// Print a formatted string with arguments to the backend's debugging facilit
+    /// (i.e. validation layer). The syntax of the format string depends on the backend, but tends
+    /// to follow C++ convention.
     Print {
         format_string: String,
         args: Vec<Variable>,
     },
-    Comment {
-        content: String,
-    },
+    /// Insert a comment into the compiled source
+    Comment { content: String },
 }
 
 impl OperationReflect for NonSemantic {

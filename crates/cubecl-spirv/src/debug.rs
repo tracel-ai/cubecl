@@ -255,11 +255,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 core::NonSemantic::Comment { .. } => {
                     // Comments not supported for SPIR-V
                 }
-                core::NonSemantic::DebugScopeStart => {
+                core::NonSemantic::EnterDebugScope => {
                     let new_top = self.stack_top().clone();
                     self.stack().push(new_top);
                 }
-                core::NonSemantic::DebugScopeEnd => {
+                core::NonSemantic::ExitDebugScope => {
                     self.stack().pop();
                 }
             };

@@ -15,9 +15,9 @@ pub fn debug_call_expand<C>(
     // Save source_loc before the call so it can be restored once the call returns
     let source_loc = scope.debug.source_loc.take();
     scope.update_span(line, col);
-    scope.register(NonSemantic::DebugScopeStart);
+    scope.register(NonSemantic::EnterDebugScope);
     let ret = call(scope);
-    scope.register(NonSemantic::DebugScopeEnd);
+    scope.register(NonSemantic::ExitDebugScope);
     scope.debug.source_loc = source_loc;
     ret
 }
