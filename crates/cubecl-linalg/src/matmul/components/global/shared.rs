@@ -1,13 +1,11 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::{
     stage::{self, TilingOrderConfig},
-    Ident, MatmulConfig, MatrixLayout, StageDim,
+    Ident, MatmulConfig, MatrixLayout, StageTiling,
 };
 
-#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+use super::full_load::LoadMode;
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
 pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub smm_config: S,
@@ -41,8 +39,8 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim> {
-        self.smm_config.stage_dim(ident)
+    fn stage_tiling(&self, ident: Ident) -> StageTiling {
+        self.smm_config.tiling(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

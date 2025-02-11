@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use cubecl_core::{compute::Binding, CompilerRepresentation};
+use cubecl_core::compute::Binding;
 use cubecl_opt::Optimizer;
 use rspirv::{
     binary::{Assemble, Disassemble},
@@ -34,13 +34,6 @@ pub struct SpirvKernel {
     pub module: Module,
     pub optimizer: Optimizer,
     pub bindings: Vec<Binding>,
-}
-
-impl CompilerRepresentation for SpirvKernel {
-    fn shared_memory_size(&self) -> usize {
-        // not used in wgsl compiler
-        0
-    }
 }
 
 impl Display for SpirvKernel {

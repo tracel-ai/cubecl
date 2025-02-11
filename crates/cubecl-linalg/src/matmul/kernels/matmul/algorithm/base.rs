@@ -1,17 +1,17 @@
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::stage::{self, CommonStageInput};
-use crate::matmul::components::{batch, global, tile, MatmulPrecision};
-use crate::matmul::components::{MatmulConfigFactory, MatmulProblem};
-use crate::matmul::kernels::matmul::AdvancedConfig;
-use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::matmul::components::{
+    batch, global, stage, tile, CompleteStageTiling, MatmulConfigFactory, MatmulPrecision,
+    MatmulProblem,
+};
+use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError, MatmulLaunchError};
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
-    type StageMatmul: stage::StageMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
+    type StageMatmul: stage::StageMatmulFamily<Input = CompleteStageTiling>;
     type GlobalMatmul: global::GlobalMatmulFamily;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = CommonStageInput<Self::TileMatmul>>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = CompleteStageTiling>;
     type Selection;
 
     fn cube_dim(selection: &Self::Selection) -> CubeDim;

@@ -5,7 +5,7 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        batch::TransposedDispatch, stage::*, tile::TileMatmulFamily, InputRuntimeArg,
+        batch::TransposedDispatch, tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg,
         MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
@@ -51,9 +51,9 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stages,
+        let config_input = CompleteStageTiling {
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, StandardAlgorithm<TMM>>(
@@ -80,9 +80,9 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stages,
+        let config_input = CompleteStageTiling {
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, PipelinedAlgorithm<TMM>>(
@@ -109,9 +109,9 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
         plane_dim: u32,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CommonStageInput {
-            tile: TMM::input(selection.tile),
-            num_stages: selection.num_stages,
+        let config_input = CompleteStageTiling {
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
         };
 
         matmul_cube_preparation::<MS, R, SpecializedAlgorithm<TMM>>(
@@ -239,12 +239,12 @@ fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
     );
 
     MatmulSelection {
-        tile: MatmulSize {
+        tile_shape: MatmulSize {
             m: instruction_m as u32,
             n: instruction_n as u32,
             k: instruction_k as u32,
         },
-        num_stages: MatmulSize {
+        tile_count: MatmulSize {
             m: stage_size_m_n as u32,
             n: stage_size_m_n as u32,
             k: 2,

@@ -13,6 +13,13 @@ use crate::ReduceError;
 ///
 /// Return an error if atomic addition is not supported for the type `N`.
 ///
+/// # Important
+///
+/// This doesn't set the value of output to 0 before computing the sums.
+/// It is the responsability of the caller to ensure that ouput is set to
+/// the proper value. Basically, the behavior of this kernel is akin to the AddAssign operator
+/// as it update the output instead of overwriting it.
+///
 /// # Example
 ///
 /// This examples show how to sum all the elements of a small `2 x 2` matrix.

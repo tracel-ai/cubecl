@@ -11,8 +11,8 @@ pub struct MatmulSize {
 }
 
 pub struct MatmulSelection {
-    pub tile: MatmulSize,
-    pub num_stages: MatmulSize,
+    pub tile_shape: MatmulSize,
+    pub tile_count: MatmulSize,
     pub plane_dim: u32,
 }
 

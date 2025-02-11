@@ -1,13 +1,13 @@
 pub use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use rand::distributions::Standard;
+use rand::distr::StandardUniform;
 use rand::prelude::Distribution;
 
 /// Returns a seeded random number generator using entropy.
 #[cfg(feature = "std")]
 #[inline(always)]
 pub fn get_seeded_rng() -> StdRng {
-    StdRng::from_entropy()
+    StdRng::from_os_rng()
 }
 
 /// Returns a seeded random number generator using a pre-generated seed.
@@ -23,9 +23,9 @@ pub fn get_seeded_rng() -> StdRng {
 #[inline]
 pub fn gen_random<T>() -> T
 where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
-    rand::thread_rng().gen()
+    rand::rng().random()
 }
 
 /// Generates random data from a mutex-protected RNG.
@@ -33,7 +33,7 @@ where
 #[inline]
 pub fn gen_random<T>() -> T
 where
-    Standard: Distribution<T>,
+    StandardUniform: Distribution<T>,
 {
     use crate::stub::Mutex;
     static RNG: Mutex<Option<StdRng>> = Mutex::new(None);
@@ -41,5 +41,5 @@ where
     if rng.is_none() {
         *rng = Some(get_seeded_rng());
     }
-    rng.as_mut().unwrap().gen()
+    rng.as_mut().unwrap().random()
 }

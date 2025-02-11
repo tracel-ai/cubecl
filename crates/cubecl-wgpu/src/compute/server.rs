@@ -1,18 +1,18 @@
-use std::{future::Future, marker::PhantomData, time::Duration};
+use std::{future::Future, time::Duration};
 
 use super::{
     stream::{PipelineDispatch, WgpuStream},
     WgpuStorage,
 };
-use crate::compiler::base::WgpuCompiler;
-use crate::timestamps::KernelTimestamps;
+use crate::{timestamps::KernelTimestamps, AutoGraphicsApi};
+use crate::{AutoCompiler, GraphicsApi};
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
     compute::DebugInformation,
     prelude::*,
     server::{Binding, Handle},
-    Feature, KernelId, MemoryConfiguration,
+    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
 };
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
@@ -26,22 +26,22 @@ use wgpu::ComputePipeline;
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer<C: WgpuCompiler> {
+pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
     logger: DebugLogger,
     duration_profiled: Option<Duration>,
     stream: WgpuStream,
-    pub compilation_options: C::CompilationOptions,
-    _compiler: PhantomData<C>,
+    pub compilation_options: WgpuCompilationOptions,
+    pub(crate) backend: wgpu::Backend,
 }
 
-impl<C: WgpuCompiler> WgpuServer<C> {
+impl WgpuServer {
     /// Create a new server.
     pub fn new(
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        compilation_options: C::CompilationOptions,
+        compilation_options: WgpuCompilationOptions,
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
@@ -69,7 +69,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             logger,
             duration_profiled: None,
             stream,
-            _compiler: PhantomData,
+            backend: AutoGraphicsApi::backend(),
         }
     }
 
@@ -85,14 +85,15 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             return pipeline.clone();
         }
 
-        let mut compile = <C as WgpuCompiler>::compile(self, kernel, mode);
+        let mut compiler = compiler(self.backend);
+        let mut compile = compiler.compile(self, kernel, mode);
 
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
         }
 
         let compile = self.logger.debug(compile);
-        let pipeline = C::create_pipeline(self, compile, mode);
+        let pipeline = self.create_pipeline(compile, mode);
 
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
@@ -100,8 +101,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     }
 }
 
-impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
-    type Kernel = Box<dyn CubeTask<C>>;
+impl ComputeServer for WgpuServer {
+    type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
 
@@ -272,5 +273,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         if self.logger.profile_level().is_none() {
             self.stream.timestamps.disable();
         }
+    }
+}
+
+fn compiler(backend: wgpu::Backend) -> AutoCompiler {
+    match backend {
+        #[cfg(feature = "spirv")]
+        wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        _ => AutoCompiler::Wgsl(Default::default()),
     }
 }

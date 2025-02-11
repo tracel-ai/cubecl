@@ -1,9 +1,7 @@
-use std::marker::PhantomData;
-
 use crate::{
-    compiler::{base::WgpuCompiler, wgsl::WgslCompiler},
+    backend,
     compute::{WgpuServer, WgpuStorage},
-    AutoGraphicsApi, GraphicsApi, WgpuDevice,
+    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use cubecl_common::future;
 use cubecl_core::{
@@ -25,26 +23,24 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
 #[derive(Debug)]
-pub struct WgpuRuntime<C: WgpuCompiler = WgslCompiler>(PhantomData<C>);
+pub struct WgpuRuntime;
 
-type Server = WgpuServer<WgslCompiler>;
+type Server = WgpuServer;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
 static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
     ComputeRuntime::new();
 
-impl Runtime for WgpuRuntime<WgslCompiler> {
-    type Compiler = WgslCompiler;
-    type Server = WgpuServer<WgslCompiler>;
+impl Runtime for WgpuRuntime {
+    type Compiler = AutoCompiler;
+    type Server = WgpuServer;
 
-    type Channel = MutexComputeChannel<WgpuServer<WgslCompiler>>;
+    type Channel = MutexComputeChannel<WgpuServer>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi, WgslCompiler>(
-                device,
-            ));
+            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi>(device));
             create_client_on_setup(setup, RuntimeOptions::default())
         })
     }
@@ -156,17 +152,17 @@ pub async fn init_setup_async<G: GraphicsApi>(
     device: &WgpuDevice,
     options: RuntimeOptions,
 ) -> WgpuSetup {
-    let setup = create_setup_for_device::<G, WgslCompiler>(device).await;
+    let setup = create_setup_for_device::<G>(device).await;
     let return_setup = setup.clone();
     let client = create_client_on_setup(setup, options);
     RUNTIME.register(device, client);
     return_setup
 }
 
-pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
+pub(crate) fn create_client_on_setup(
     setup: WgpuSetup,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer<C>, MutexComputeChannel<WgpuServer<C>>> {
+) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
     let limits = setup.device.limits();
     let adapter_limits = setup.adapter.limits();
 
@@ -178,6 +174,7 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
         plane_size_min: adapter_limits.min_subgroup_size,
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
+        max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
     };
 
     let mut compilation_options = Default::default();
@@ -197,12 +194,7 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
     {
         device_props.register_feature(Feature::Plane);
     }
-    C::register_features(
-        &setup.adapter,
-        &setup.device,
-        &mut device_props,
-        &mut compilation_options,
-    );
+    backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
     let server = WgpuServer::new(
         mem_props,
@@ -225,11 +217,9 @@ pub(crate) fn create_client_on_setup<C: WgpuCompiler>(
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
-pub(crate) async fn create_setup_for_device<G: GraphicsApi, C: WgpuCompiler>(
-    device: &WgpuDevice,
-) -> WgpuSetup {
+pub(crate) async fn create_setup_for_device<G: GraphicsApi>(device: &WgpuDevice) -> WgpuSetup {
     let (instance, adapter) = request_adapter::<G>(device).await;
-    let (device, queue) = C::request_device(&adapter).await;
+    let (device, queue) = backend::request_device(&adapter).await;
 
     log::info!(
         "Created wgpu compute server on device {:?} => {:?}",

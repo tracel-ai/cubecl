@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
-use crate::matmul::components::stage::CommonStageInput;
-use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{MatmulProblem, MatrixLayout};
+use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -13,8 +11,8 @@ use cubecl_core::{CubeElement, Runtime};
 
 pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R: Runtime>(
     layouts: (MatrixLayout, MatrixLayout),
-    tile: MatmulSize,
-    stage: MatmulSize,
+    tile_shape: MatmulSize,
+    tile_count: MatmulSize,
     problem: MatmulSize,
 ) {
     let client = R::client(&Default::default());
@@ -44,13 +42,13 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
     };
 
     let selection = MatmulSelection {
-        tile,
-        num_stages: stage,
+        tile_shape,
+        tile_count,
         plane_dim,
     };
-    let config_input = CommonStageInput {
-        tile: A::TileMatmul::input(selection.tile),
-        num_stages: selection.num_stages,
+    let config_input = CompleteStageTiling {
+        tile_shape: selection.tile_shape,
+        tile_count: selection.tile_count,
     };
 
     test_matmul_algorithm::<A, P::EG, P::ES, R>(client, problem, config_input, selection);

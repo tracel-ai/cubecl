@@ -1,31 +1,94 @@
-use std::sync::Arc;
+use std::fmt::Display;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::{prelude::CompiledKernel, server::ComputeServer, Compiler, Feature};
-use cubecl_runtime::DeviceProperties;
-use wgpu::{Adapter, ComputePipeline, Device, Queue};
+use cubecl_core::{
+    prelude::{CompiledKernel, KernelDefinition},
+    server::ComputeServer,
+    Compiler, WgpuCompilationOptions,
+};
+use derive_more::derive::From;
 
-use crate::WgpuServer;
+use crate::{WgpuServer, WgslCompiler};
 
-pub trait WgpuCompiler: Compiler {
+use super::wgsl::ComputeShader;
+
+#[derive(Debug, Clone)]
+pub enum AutoCompiler {
+    Wgsl(WgslCompiler),
+    #[cfg(feature = "spirv")]
+    SpirV(cubecl_spirv::SpirvCompiler),
+}
+
+#[derive(From)]
+#[allow(clippy::large_enum_variant)]
+pub enum AutoRepresentation {
+    Wgsl(ComputeShader),
+    #[cfg(feature = "spirv")]
+    SpirV(cubecl_spirv::SpirvKernel),
+}
+
+#[cfg(feature = "spirv")]
+impl AutoRepresentation {
+    pub fn as_spirv(&self) -> Option<&cubecl_spirv::SpirvKernel> {
+        match self {
+            AutoRepresentation::SpirV(repr) => Some(repr),
+            _ => None,
+        }
+    }
+}
+
+impl Display for AutoRepresentation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AutoRepresentation::Wgsl(compute_shader) => compute_shader.fmt(f),
+            #[cfg(feature = "spirv")]
+            AutoRepresentation::SpirV(spirv_kernel) => spirv_kernel.fmt(f),
+        }
+    }
+}
+
+impl Compiler for AutoCompiler {
+    type Representation = AutoRepresentation;
+
+    type CompilationOptions = WgpuCompilationOptions;
+
     fn compile(
-        server: &mut WgpuServer<Self>,
-        kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
+        &mut self,
+        kernel: KernelDefinition,
+        compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
-    ) -> CompiledKernel<Self>;
+    ) -> Self::Representation {
+        match self {
+            AutoCompiler::Wgsl(wgsl_compiler) => {
+                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode).into()
+            }
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(spirv_compiler) => {
+                Compiler::compile(spirv_compiler, kernel, compilation_options, mode).into()
+            }
+        }
+    }
 
-    fn create_pipeline(
-        server: &mut WgpuServer<Self>,
-        kernel: CompiledKernel<Self>,
+    fn elem_size(&self, elem: cubecl_core::ir::Elem) -> usize {
+        match self {
+            AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
+        }
+    }
+}
+
+impl AutoCompiler {
+    pub fn compile(
+        &mut self,
+        server: &mut WgpuServer,
+        kernel: <WgpuServer as ComputeServer>::Kernel,
         mode: ExecutionMode,
-    ) -> Arc<ComputePipeline>;
-
-    #[allow(async_fn_in_trait)]
-    async fn request_device(adapter: &Adapter) -> (Device, Queue);
-    fn register_features(
-        adapter: &Adapter,
-        device: &Device,
-        props: &mut DeviceProperties<Feature>,
-        comp_options: &mut Self::CompilationOptions,
-    );
+    ) -> CompiledKernel<Self> {
+        match self {
+            AutoCompiler::Wgsl(_) => kernel.compile(self, &server.compilation_options, mode),
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, mode),
+        }
+    }
 }

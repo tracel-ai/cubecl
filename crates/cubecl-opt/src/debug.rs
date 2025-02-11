@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 
 use crate::{
     analyses::{const_len::Slices, liveness::Liveness, uniformity::Uniformity},
-    gvn::{BlockSets, Constant, Expression, GvnState, Instruction, Local, Value, ValueTable},
+    gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
     ControlFlow,
 };
 
@@ -34,7 +34,7 @@ impl Display for Optimizer {
 
         let global_nums = self
             .analysis_cache
-            .try_get::<GvnState>()
+            .try_get::<GlobalValues>()
             .unwrap_or_default();
         let liveness = self
             .analysis_cache
@@ -47,7 +47,7 @@ impl Display for Optimizer {
 
         if DEBUG_GVN {
             writeln!(f, "# Value Table:")?;
-            writeln!(f, "{}", global_nums.values)?;
+            writeln!(f, "{}", global_nums.borrow().values)?;
         }
 
         for node in self.program.node_indices() {
@@ -60,6 +60,7 @@ impl Display for Optimizer {
             writeln!(f, "{uniform}bb{id} {{")?;
             if DEBUG_GVN {
                 let block_sets = &global_nums
+                    .borrow()
                     .block_sets
                     .get(&node)
                     .cloned()

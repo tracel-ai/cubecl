@@ -336,7 +336,8 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        let mut kernel_compiled = kernel.compile(&self.compilation_options, mode);
+        let mut kernel_compiled =
+            kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
         if logger.is_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
@@ -346,9 +347,10 @@ impl CudaContext {
             }
         }
 
-        let shared_mem_bytes = kernel_compiled.shared_mem_bytes;
+        let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
+        let shared_mem_bytes = compute_kernel.shared_memory_size();
         let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = kernel_compiled.repr.as_ref().unwrap().fast_math;
+        let fast_math = compute_kernel.fast_math;
         let arch = format!("--gpu-architecture=sm_{}", self.arch);
 
         let include_path = include_path();
@@ -372,7 +374,9 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
-                let source = kernel.compile(&self.compilation_options, mode).source;
+                let source = kernel
+                    .compile(&mut Default::default(), &self.compilation_options, mode)
+                    .source;
                 panic!("{message}\n[Source]  \n{source}");
             };
             cudarc::nvrtc::result::get_ptx(program).unwrap()

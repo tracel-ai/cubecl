@@ -22,10 +22,10 @@ pub enum LoadMode {
 
 impl LoadingValidation for CyclicLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let stage_dim = config.stage_dim(ident);
+        let tiling = config.stage_tiling(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_stage_lines = stage_dim.total_elements() / line_size;
+        let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
         match config.load_mode() {
@@ -43,7 +43,7 @@ impl LoadingValidation for CyclicLoading {
                 }
             }
             LoadMode::Window => {
-                let num_slices = stage_dim.tile_size_x_dim() * stage_dim.num_tiles();
+                let num_slices = tiling.tile_shape_row() * tiling.tile_count();
                 if num_slices >= total_units && num_slices % total_units != 0 {
                     return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
                 }
@@ -63,21 +63,21 @@ impl LoadingStrategy for CyclicLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_dim(ident);
+        let stage_dim = config.stage_tiling(ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
         let (num_slices_per_tile, slice_length_in_lines) = match config.layout(ident) {
             MatrixLayout::RowMajor => (
-                stage_dim.tile_size_x_dim(),
-                stage_dim.tile_size_y_dim() / line_size,
+                stage_dim.tile_shape_row(),
+                stage_dim.tile_shape_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                stage_dim.tile_size_y_dim(),
-                stage_dim.tile_size_x_dim() / line_size,
+                stage_dim.tile_shape_col(),
+                stage_dim.tile_shape_row() / line_size,
             ),
         };
-        stage_dim.tile_size_x_dim();
-        let num_slices = comptime!(num_slices_per_tile * stage_dim.num_tiles());
+        stage_dim.tile_shape_row();
+        let num_slices = comptime!(num_slices_per_tile * stage_dim.tile_count());
         let num_slices_per_unit = num_slices.div_ceil(total_units);
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -90,13 +90,13 @@ impl LoadingStrategy for CyclicLoading {
             let (tile_x, tile_y) = match config.tiling_order(ident) {
                 TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
                     nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
+                    stage_dim.tile_count_row(),
+                    stage_dim.tile_count_col(),
                 ),
                 TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
                     nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
+                    stage_dim.tile_count_row(),
+                    stage_dim.tile_count_col(),
                 ),
             };
             let nth_slice = slice_index % num_slices_per_tile;
@@ -139,10 +139,10 @@ impl LoadingStrategy for CyclicLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_dim(ident);
+        let tiling = config.stage_tiling(ident);
         let line_size = config.global_line_size(ident);
-        let num_stage_lines = stage_dim.total_elements() / line_size;
-        let tile_num_lines = stage_dim.tile_num_elements() / line_size;
+        let num_stage_lines = tiling.total_size() / line_size;
+        let tile_num_lines = tiling.tile_size() / line_size;
         let jump_length = comptime!(config.num_planes() * config.plane_dim());
         let num_loads_per_unit = comptime!(num_stage_lines / jump_length);
 
@@ -155,13 +155,13 @@ impl LoadingStrategy for CyclicLoading {
             let (tile_x, tile_y) = match config.tiling_order(ident) {
                 TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
                     nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
+                    tiling.tile_count_row(),
+                    tiling.tile_count_col(),
                 ),
                 TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
                     nth_tile,
-                    stage_dim.num_tiles_x_dim(),
-                    stage_dim.num_tiles_y_dim(),
+                    tiling.tile_count_row(),
+                    tiling.tile_count_col(),
                 ),
             };
 
@@ -177,12 +177,12 @@ impl LoadingStrategy for CyclicLoading {
                 true => {
                     let tile_offset = nth_tile * tile_num_lines * line_size;
 
-                    let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
-                    let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+                    let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
+                    let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
 
                     let (height, width) = match config.layout(ident) {
-                        MatrixLayout::RowMajor => (tile_size_x, tile_size_y),
-                        MatrixLayout::ColMajor => (tile_size_y, tile_size_x),
+                        MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),
+                        MatrixLayout::ColMajor => (tile_shape_y, tile_shape_x),
                     };
 
                     let global_strided_idx = pos_within_tile / width;
