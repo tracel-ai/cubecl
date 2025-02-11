@@ -118,24 +118,26 @@ impl CastInto<flex32> for f32 {
     }
 }
 
-/// Generates num_elements random floats for tests.
-///
-/// This is a naive CPU implementation with fixed seed,
-/// not designed to be used for other purposes than testing.
-pub(crate) fn generate_random_data<F: Float + CubeElement>(
-    num_elements: usize,
-    mut seed: u64,
-) -> Vec<F> {
-    fn lcg(seed: &mut u64) -> f32 {
-        const A: u64 = 1664525;
-        const C: u64 = 1013904223;
-        const M: f64 = 2u64.pow(32) as f64;
+pub trait Sample: Sized {
+    fn sample(num_elements: usize, seed: u64) -> Vec<Self>;
+}
 
-        *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
-        (*seed as f64 / M * 2.0 - 1.0) as f32
+impl<F> Sample for F
+where
+    F: Float,
+{
+    fn sample(num_elements: usize, mut seed: u64) -> Vec<Self> {
+        fn lcg(seed: &mut u64) -> f32 {
+            const A: u64 = 1664525;
+            const C: u64 = 1013904223;
+            const M: f64 = 2u64.pow(32) as f64;
+
+            *seed = (A.wrapping_mul(*seed).wrapping_add(C)) % (1u64 << 32);
+            (*seed as f64 / M * 2.0 - 1.0) as f32
+        }
+
+        (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
     }
-
-    (0..num_elements).map(|_| F::new(lcg(&mut seed))).collect()
 }
 
 /// Solves a matmul problem with EG inputs, multiplied as ES
@@ -245,21 +247,21 @@ impl MatmulTestCase {
         out
     }
 
-    pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement>(
+    pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.m, self.k])
     }
 
-    pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement>(
+    pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.k, self.n])
     }
 
-    pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement>(
+    pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
@@ -269,12 +271,12 @@ impl MatmulTestCase {
         )
     }
 
-    pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement>(
+    pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
-        let data = generate_random_data::<F>(shape.iter().product(), 999);
+        let data = F::sample(shape.iter().product(), 999);
         let handle = client.create(bytemuck::cast_slice(&data));
         TensorHandle::new_contiguous(shape, handle)
     }

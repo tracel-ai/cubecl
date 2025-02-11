@@ -19,10 +19,10 @@ use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::kernels::matmul::StandardSelector;
 use crate::matmul::tests::test_utils::CastInto;
+use crate::matmul::tests::test_utils::Sample;
 use crate::tensor::TensorHandle;
 
 use crate::matmul::tests::test_utils::assert_equals_approx;
-use crate::matmul::tests::test_utils::generate_random_data;
 use crate::matmul::tests::test_utils::matmul_cpu_reference;
 
 struct TensorRawParts<F: Float + CubeElement> {
@@ -43,7 +43,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     selection: A::Selection,
 ) where
     A: Algorithm,
-    EG: Float + CubeElement + Display + CastInto<ES>,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sample,
     ES: Float + CubeElement + Display + CastInto<EG>,
     R: Runtime,
 {
@@ -149,7 +149,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
 
 /// Test the correctness of the high-level Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: Runtime>(
+pub fn test_matmul_launch<EG: Float + CubeElement + Display + Sample, R: Runtime>(
     problem: MatmulProblem,
     device: &R::Device,
 ) {
@@ -196,15 +196,14 @@ pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: R
     );
 }
 
-fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
+fn tensor_raw_parts<EG: Float + CubeElement + Sample, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     ident: Ident,
 ) -> TensorRawParts<EG> {
     match ident {
         Ident::Lhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Lhs), 1234);
+            let original_data = EG::sample(tensor_size(problem, Ident::Lhs), 1234);
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
@@ -220,8 +219,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Rhs), 5678);
+            let original_data = EG::sample(tensor_size(problem, Ident::Rhs), 5678);
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {

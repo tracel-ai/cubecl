@@ -4,7 +4,7 @@ use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
-use crate::matmul::tests::test_utils::CastInto;
+use crate::matmul::tests::test_utils::{CastInto, Sample};
 
 use cubecl_core::prelude::Float;
 use cubecl_core::{CubeElement, Runtime};
@@ -202,13 +202,13 @@ macro_rules! matmul_standard_tests {
 }
 
 pub trait TestPrecision {
-    type EG: Float + CubeElement + Display + CastInto<Self::ES>;
+    type EG: Float + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Float + CubeElement + Display + CastInto<Self::EG>;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
 where
-    EG: Float + CubeElement + Display + CastInto<ES>,
+    EG: Float + CubeElement + Display + CastInto<ES> + Sample,
     ES: Float + CubeElement + Display + CastInto<EG>,
 {
     type EG = EG;
