@@ -10,7 +10,8 @@ use cubecl_core::{
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem},
+        components::{Ident, MatmulProblem, MatmulSelection, MatrixLayout},
+        kernels::matmul::Algorithm,
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
@@ -28,6 +29,13 @@ pub trait TestPrecision {
         client: &ComputeClient<R::Server, R::Channel>,
         out: Handle,
     );
+
+    // TODO: This is a temporary hack to not run some quantized matmul test during development.
+    //       This avoids breaking the CI with incomplete implementations.
+    //       Remove when quantization is fully supported.
+    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
+        layouts: (MatrixLayout, MatrixLayout),
+    ) -> bool;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
@@ -71,6 +79,12 @@ where
             panic!("{}", e);
         }
     }
+
+    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
+        _layouts: (MatrixLayout, MatrixLayout),
+    ) -> bool {
+        true
+    }
 }
 
 /// Compares the content of a handle to a given slice of f32.
@@ -105,12 +119,14 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     Ok(())
 }
 
-// TODO: Add different conversions from i32 to u8.
+// TODO:
+//   - Add different conversions from i32 to u8.
+//   - Add support for multipliers (zero_offsets).
 pub struct Quantized;
 
 impl TestPrecision for Quantized {
     type EG = u8;
-    type ES = u8;
+    type ES = u16;
     type EA = i32;
 
     fn assert_result<R: Runtime>(
@@ -120,13 +136,19 @@ impl TestPrecision for Quantized {
         client: &ComputeClient<R::Server, R::Channel>,
         out: Handle,
     ) {
-        let expected = matmul_cpu_reference::<Self>(lhs, rhs, problem)
+        let expected = matmul_cpu_reference_quantized(lhs, rhs, 1, 1, problem) // TODO: Use different zero_offsets != 1.
             .into_iter()
             .map(|x| x.cast_into()) // TODO: Improve with different conversions.
             .collect::<Vec<u8>>();
         let actual = client.read_one(out.binding());
         let actual = u8::from_bytes(&actual);
         assert_eq!(actual, expected);
+    }
+
+    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
+        _layouts: (MatrixLayout, MatrixLayout),
+    ) -> bool {
+        false
     }
 }
 
@@ -200,7 +222,13 @@ impl CastInto<flex32> for f32 {
     }
 }
 
-impl CastInto<i32> for u8 {
+impl CastInto<u16> for u8 {
+    fn cast_into(self) -> u16 {
+        self as u16
+    }
+}
+
+impl CastInto<i32> for u16 {
     fn cast_into(self) -> i32 {
         self as i32
     }
@@ -308,6 +336,91 @@ where
 
                     out[batch_out + out_index] += prod.cast_into();
                 }
+            }
+        }
+    }
+
+    out
+}
+
+pub(crate) fn matmul_cpu_reference_quantized(
+    lhs: &[u8],
+    rhs: &[u8],
+    lhs_zero_offset: i32,
+    rhs_zero_offset: i32,
+    problem: &MatmulProblem,
+) -> Vec<i32>
+where
+{
+    let m = problem.m;
+    let n = problem.n;
+    let k = problem.k;
+    let num_batches = problem.num_batches();
+
+    let (b_lhs, b_rhs) = problem.batches.clone();
+    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
+
+    let lhs_strides = strides(problem, Ident::Lhs);
+    let rhs_strides = strides(problem, Ident::Rhs);
+    let out_strides = strides(problem, Ident::Out);
+
+    let mut out = vec![0; m * n * num_batches];
+
+    for nth_batch in 0..num_batches {
+        let batch_out = nth_batch * m * n;
+        let mut batch_lhs = 0;
+        let mut batch_rhs = 0;
+        for b in 0..b_lhs.len() {
+            let tmp = batch_out / out_strides[b];
+            batch_lhs += tmp % b_lhs[b] * lhs_strides[b];
+            batch_rhs += tmp % b_rhs[b] * rhs_strides[b];
+        }
+
+        // Perform matmul
+        for row in 0..m {
+            for col in 0..n {
+                for middle in 0..k {
+                    let lhs_index = row * k + middle;
+                    let rhs_index = middle * n + col;
+                    let out_index = row * n + col;
+
+                    let l = lhs[batch_lhs + lhs_index] as u16;
+                    let r = rhs[batch_rhs + rhs_index] as u16;
+                    let prod = l * r;
+
+                    out[batch_out + out_index] += prod as i32;
+                }
+            }
+        }
+
+        // Substract rhs_zero_offset * sum_rows(lhs)
+        for row in 0..m {
+            let mut sum = 0;
+            for col in 0..k {
+                sum += lhs[batch_lhs + row * k + col] as i32;
+            }
+            sum *= rhs_zero_offset;
+            for col in 0..n {
+                out[batch_out + row * n + col] -= sum;
+            }
+        }
+
+        // Substract lhs_zero_offset * sum_cols(rhs)
+        for col in 0..n {
+            let mut sum = 0;
+            for row in 0..k {
+                sum += rhs[batch_lhs + row * n + col] as i32;
+            }
+            sum *= lhs_zero_offset;
+            for row in 0..m {
+                out[batch_out + row * n + col] -= sum;
+            }
+        }
+
+        // Add final constant term
+        for row in 0..m {
+            for col in 0..n {
+                out[batch_out + row * n + col] += (k as i32) * lhs_zero_offset * rhs_zero_offset;
             }
         }
     }

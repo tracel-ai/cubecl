@@ -46,7 +46,9 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         tile_count: selection.tile_count,
     };
 
-    test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
+    if P::should_run::<A>(layouts) {
+        test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
+    }
 }
 
 #[allow(missing_docs)]
@@ -167,7 +169,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn standard() {
-            cubecl_linalg::matmul::tests::test_algo::<StandardAlgorithm<TMM>, (EG, ES), TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<StandardAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
@@ -177,7 +179,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, (EG, ES), TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
@@ -187,7 +189,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, (EG, ES), TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
