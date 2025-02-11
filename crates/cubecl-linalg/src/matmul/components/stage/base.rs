@@ -5,7 +5,7 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulSize, StageDim};
+use crate::matmul::components::{MatmulSize, StageTiling};
 
 use super::tiling_order::TilingOrderConfig;
 
@@ -19,9 +19,11 @@ pub trait StageMatmulFamily:
     type LhsReader: ReaderFamily;
     type RhsReader: ReaderFamily;
 
-    fn size(config: &Self::Config) -> MatmulSize;
-    /// Return the number of matmuls computed by the stage.
-    fn num(config: &Self::Config) -> MatmulSize;
+    /// Returns the shape of the stage. This is the number of elements per axis.
+    fn stage_shape(config: &Self::Config) -> MatmulSize;
+
+    /// Returns the number of tiles in each axis of the stage.
+    fn tile_count(config: &Self::Config) -> MatmulSize;
 
     type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: StageMatmul<
         I,
@@ -136,8 +138,8 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
 
-    /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
+    /// Returns the [StageTiling] for the given ident
+    fn tiling(&self, ident: Ident) -> StageTiling;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
@@ -151,5 +153,5 @@ pub trait StageConfig: MatmulConfig {
     /// Returns the order in which tiles should be loaded to the stage
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 
-    fn num_stages(&self) -> &MatmulSize;
+    fn tile_count(&self) -> &MatmulSize;
 }

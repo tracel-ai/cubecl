@@ -1,5 +1,5 @@
 use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{compute::Visibility, ir::Id, CompilerRepresentation, CubeDim};
+use cubecl_core::{compute::Visibility, ir::Id, CubeDim};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -59,8 +59,8 @@ pub struct ComputeKernel<D: Dialect> {
     pub kernel_name: String,
 }
 
-impl<D: Dialect> CompilerRepresentation for ComputeKernel<D> {
-    fn shared_memory_size(&self) -> usize {
+impl<D: Dialect> ComputeKernel<D> {
+    pub fn shared_memory_size(&self) -> usize {
         let mut current = 0usize;
 
         for var in self.body.shared_memories.iter() {

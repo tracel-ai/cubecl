@@ -58,7 +58,7 @@ spin = { workspace = true, features = [
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
-rand = { workspace = true }
+rand = { workspace = true, features = ["thread_rng"] }
 serial_test = { workspace = true }
 
 [build-dependencies]

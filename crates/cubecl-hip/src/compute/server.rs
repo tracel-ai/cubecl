@@ -354,7 +354,8 @@ impl HipContext {
     ) {
         // CubeCL compilation
         // jitc = just-in-time compiled
-        let mut jitc_kernel = cube_kernel.compile(&self.compilation_options, mode);
+        let mut jitc_kernel =
+            cube_kernel.compile(&mut Default::default(), &self.compilation_options, mode);
         let func_name = CString::new(jitc_kernel.entrypoint_name.clone()).unwrap();
 
         if logger.is_activated() {
@@ -467,7 +468,7 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim: jitc_kernel.cube_dim,
-                shared_mem_bytes: jitc_kernel.shared_mem_bytes,
+                shared_mem_bytes: jitc_kernel.repr.as_ref().unwrap().shared_memory_size(),
             },
         );
     }

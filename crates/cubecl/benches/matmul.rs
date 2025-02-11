@@ -96,7 +96,7 @@ fn main() {
 
     #[cfg(feature = "wgpu-spirv")]
     {
-        type R = cubecl::wgpu::WgpuRuntime<cubecl::wgpu::spirv::SpirvCompiler>;
+        type R = cubecl::wgpu::WgpuRuntime;
         use half::f16;
 
         run::<R, f16>(Default::default(), matmul::Strategy::Standard);

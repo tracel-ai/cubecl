@@ -92,8 +92,9 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> (Slice<Line<EG>>, u32) {
         let line_size = config.global_line_size(ident);
-        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
-        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+        let stage_tiling = config.stage_tiling(ident);
+        let tile_size_x = stage_tiling.tile_shape_row();
+        let tile_size_y = stage_tiling.tile_shape_col();
         let tile_lines_x = tile_size_x / line_size;
         let tile_lines_y = tile_size_y / line_size;
 
@@ -186,15 +187,15 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Line<EG> {
         let line_size = config.global_line_size(ident);
-        let tile_size_x = config.stage_dim(ident).tile_size_x_dim();
-        let tile_size_y = config.stage_dim(ident).tile_size_y_dim();
+        let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
+        let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
 
-        let view_tile_x = tile_x * tile_size_x + self.x_offset;
-        let view_tile_y = tile_y * tile_size_y + self.y_offset;
+        let view_tile_x = tile_x * tile_shape_x + self.x_offset;
+        let view_tile_y = tile_y * tile_shape_y + self.y_offset;
 
         let (load_x, load_y) = match config.layout(ident) {
-            MatrixLayout::RowMajor => (unit_id / tile_size_y, unit_id % tile_size_y),
-            MatrixLayout::ColMajor => (unit_id % tile_size_x, unit_id / tile_size_x),
+            MatrixLayout::RowMajor => (unit_id / tile_shape_y, unit_id % tile_shape_y),
+            MatrixLayout::ColMajor => (unit_id % tile_shape_x, unit_id / tile_shape_x),
         };
 
         let view_x = view_tile_x + load_x;
@@ -261,7 +262,7 @@ impl<EG: Numeric> TensorWriter<EG> {
         }
     }
 
-    /// Writes data into the tensor view at the specified coordinates (write_x, write_y).
+    /// Writes data into the tensor view at the specified coordinates (tile_x, tile_y).
     ///
     /// Each unit writes one line in a coalesced manner for improved efficiency, assuming row-major layout.
     pub fn write_coalesced<ES: Numeric, G: global::GlobalConfig>(
@@ -272,14 +273,12 @@ impl<EG: Numeric> TensorWriter<EG> {
         value: Line<ES>,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_dim(Ident::Out);
+        let tiling = config.stage_tiling(Ident::Out);
 
-        let view_x = tile_x * stage_dim.tile_size_x_dim()
-            + unit_id / stage_dim.tile_size_y_dim()
-            + self.x_offset;
-        let view_y = tile_y * stage_dim.tile_size_y_dim()
-            + unit_id % stage_dim.tile_size_y_dim()
-            + self.y_offset;
+        let view_x =
+            tile_x * tiling.tile_shape_row() + unit_id / tiling.tile_shape_col() + self.x_offset;
+        let view_y =
+            tile_y * tiling.tile_shape_col() + unit_id % tiling.tile_shape_col() + self.y_offset;
 
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);

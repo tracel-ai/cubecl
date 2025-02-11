@@ -1,8 +1,5 @@
 use crate::matmul::components::stage;
-use crate::matmul::components::LhsStageDim;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::OutStageDim;
-use crate::matmul::components::RhsStageDim;
 
 /// Configs that may impact performance
 pub struct AdvancedConfig {
@@ -30,36 +27,4 @@ impl Default for AdvancedConfig {
             enforced_tile_layout: (None, None),
         }
     }
-}
-
-pub fn create_stage_dim(
-    stage_m: u32,
-    stage_n: u32,
-    stage_k: u32,
-    tile_size_m: u32,
-    tile_size_n: u32,
-    tile_size_k: u32,
-) -> (LhsStageDim, RhsStageDim, OutStageDim) {
-    let lhs_stage_dim = LhsStageDim {
-        tile_size_m,
-        tile_size_k,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_k: stage_k / tile_size_k,
-    };
-
-    let rhs_stage_dim = RhsStageDim {
-        tile_size_k,
-        tile_size_n,
-        num_tiles_k: stage_k / tile_size_k,
-        num_tiles_n: stage_n / tile_size_n,
-    };
-
-    let out_stage_dim = OutStageDim {
-        tile_size_m,
-        tile_size_n,
-        num_tiles_m: stage_m / tile_size_m,
-        num_tiles_n: stage_n / tile_size_n,
-    };
-
-    (lhs_stage_dim, rhs_stage_dim, out_stage_dim)
 }

@@ -9,5 +9,3 @@ mod tiling_order;
 pub use base::*;
 pub use staging::Stage;
 pub use tiling_order::*;
-
-pub use shared::CommonStageInput;

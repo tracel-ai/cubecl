@@ -2,7 +2,7 @@
 
 use cubecl_core::prelude::*;
 use rand::{
-    distributions::{Distribution, Uniform},
+    distr::{Distribution, Uniform},
     rngs::StdRng,
     SeedableRng,
 };
@@ -504,7 +504,7 @@ impl TestCase {
         let client = R::client(device);
 
         let input_handle = client.create(F::as_bytes(&input_values));
-        let output_handle = client.empty(size_of::<F>());
+        let output_handle = client.create(F::as_bytes(&[F::from_int(0)]));
 
         let input = unsafe {
             TensorHandleRef::<R>::from_raw_parts(
@@ -587,7 +587,7 @@ impl TestCase {
     fn random_input_values<F: Float>(&self) -> Vec<F> {
         let size = self.input_size();
         let rng = StdRng::seed_from_u64(self.pseudo_random_seed());
-        let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION);
+        let distribution = Uniform::new_inclusive(-2 * PRECISION, 2 * PRECISION).unwrap();
         let factor = 1.0 / (PRECISION as f32);
         distribution
             .sample_iter(rng)

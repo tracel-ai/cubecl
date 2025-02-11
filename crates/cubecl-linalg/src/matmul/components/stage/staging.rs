@@ -20,7 +20,7 @@ impl<ES: Numeric> Stage<ES> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
-            comptime!(config.stage_dim(ident).total_elements() / line_size),
+            comptime!(config.tiling(ident).total_size() / line_size),
             line_size,
         );
 
@@ -35,24 +35,18 @@ impl<ES: Numeric> Stage<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Slice<Line<ES>> {
-        let stage_dim = config.stage_dim(ident);
+        let tiling = config.tiling(ident);
 
         let nth_tile = match config.tiling_order(ident) {
-            TilingOrderConfig::RowMajor => RowMajorTiling::to_nth_tile(
-                x,
-                y,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
-            ),
-            TilingOrderConfig::ColMajor => ColMajorTiling::to_nth_tile(
-                x,
-                y,
-                stage_dim.num_tiles_x_dim(),
-                stage_dim.num_tiles_y_dim(),
-            ),
+            TilingOrderConfig::RowMajor => {
+                RowMajorTiling::to_nth_tile(x, y, tiling.tile_count_row(), tiling.tile_count_col())
+            }
+            TilingOrderConfig::ColMajor => {
+                ColMajorTiling::to_nth_tile(x, y, tiling.tile_count_row(), tiling.tile_count_col())
+            }
         };
 
-        let tile_stride = stage_dim.tile_num_elements() / config.line_size(ident);
+        let tile_stride = tiling.tile_size() / config.line_size(ident);
         let start = nth_tile * tile_stride;
 
         self.smem.slice(start, start + tile_stride)

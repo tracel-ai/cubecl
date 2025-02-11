@@ -7,7 +7,7 @@ use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
-use crate::matmul::components::{MatmulPrecision, StageDim};
+use crate::matmul::components::{MatmulPrecision, StageTiling};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
@@ -167,8 +167,8 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the line size for the stage of the given ident
     fn stage_line_size(&self, ident: Ident) -> u32;
 
-    /// Returns the [StageDim] for the given ident
-    fn stage_dim(&self, ident: Ident) -> Box<dyn StageDim>;
+    /// Returns the [StageTiling] for the given ident
+    fn stage_tiling(&self, ident: Ident) -> StageTiling;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;
