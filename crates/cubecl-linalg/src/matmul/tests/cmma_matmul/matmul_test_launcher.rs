@@ -21,8 +21,6 @@ struct TensorRawParts<N: Numeric + CubeElement> {
     original_data: Option<Vec<N>>,
 }
 
-type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
-
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, P, R>(
@@ -97,7 +95,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<Spec<P::EG, P::ES>, R>(
+        A::BatchMatmul::launch_unchecked::<SingleMatmulSpec<P::EG, P::ES, P::EA>, R>(
             &client,
             cube_dim,
             cube_count,
