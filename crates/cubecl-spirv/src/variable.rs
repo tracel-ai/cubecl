@@ -539,6 +539,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.read(index),
                 Item::Vector(*elem, *vec),
             ),
+            Variable::Local { .. } | Variable::LocalBinding { .. } | Variable::Versioned { .. } => {
+                IndexedVariable::Scalar(variable.clone())
+            }
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
