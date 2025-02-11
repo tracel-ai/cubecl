@@ -144,20 +144,21 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
-            // sync_units();
-
+            pipeline.producer_acquire();
             Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
             Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
+            pipeline.producer_commit();
 
-            // sync_units();
+            pipeline.consumer_wait();
 
-            // pipeline.producer_commit();
+            // We can skip sync_units if we can guarantee the same warp loads the tile it will compute
+            if comptime!(true) {
+                sync_units();
+            }
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-            pipeline.consumer_wait();
-            pipeline.consumer_wait();
             SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
@@ -167,7 +168,6 @@ where
                 config.to_smm_config(),
             );
 
-            pipeline.consumer_release();
             pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

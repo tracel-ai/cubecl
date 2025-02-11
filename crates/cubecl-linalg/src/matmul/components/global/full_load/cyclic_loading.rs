@@ -117,9 +117,9 @@ impl LoadingStrategy for CyclicLoading {
                             slice_offset + slice_length_in_lines,
                         );
 
-                        pipeline.producer_acquire();
+                        // pipeline.producer_acquire();
                         pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-                        pipeline.producer_commit();
+                        // pipeline.producer_commit();
 
                         // for i in 0..this_slice_length {
                         //     destination[i] = Line::cast_from(source[i]);
