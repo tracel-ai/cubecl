@@ -1,50 +1,36 @@
-use std::fmt::Display;
-
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::CubeElement;
-use cubecl_core::Feature;
 
 use crate::matmul::components::global::args::TensorInputsLaunch;
-use crate::matmul::components::tile::accelerated::Accelerated;
-use crate::matmul::components::tile::plane::PlaneMma;
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::SingleMatmulSpec;
-use crate::matmul::kernels::matmul;
 use crate::matmul::kernels::matmul::Algorithm;
-use crate::matmul::kernels::matmul::StandardSelector;
-use crate::matmul::tests::test_utils::CastInto;
-use crate::tensor::TensorHandle;
+use crate::matmul::tests::test_utils::Sample;
+use crate::matmul::tests::test_utils::TestPrecision;
 
-use crate::matmul::tests::test_utils::assert_equals_approx;
-use crate::matmul::tests::test_utils::generate_random_data;
-use crate::matmul::tests::test_utils::matmul_cpu_reference;
-
-struct TensorRawParts<F: Float + CubeElement> {
+struct TensorRawParts<N: Numeric + CubeElement> {
     handle: Handle,
     shape: Vec<usize>,
     strides: Vec<usize>,
-    original_data: Option<Vec<F>>,
+    original_data: Option<Vec<N>>,
 }
-
-type Spec<EG, ES> = SingleMatmulSpec<EG, ES, f32>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_algorithm<A, EG, ES, R>(
+pub fn test_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: A::Selection,
 ) where
     A: Algorithm,
-    EG: Float + CubeElement + Display + CastInto<ES>,
-    ES: Float + CubeElement + Display + CastInto<EG>,
+    P: TestPrecision,
     R: Runtime,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
@@ -57,24 +43,24 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
+    let lhs = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Lhs);
+    let rhs = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Rhs);
+    let out = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Out);
 
     problem.lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &lhs.shape,
         &lhs.strides,
         lhs.strides.len() - 1,
     );
     problem.rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &rhs.shape,
         &rhs.strides,
         rhs.strides.len() - 1,
     );
     problem.out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&EG::as_elem_native_unchecked()),
+        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &out.shape,
         &out.strides,
         out.strides.len() - 1,
@@ -101,7 +87,7 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
         }
     };
 
-    if A::check_availability::<R, (EG, ES, f32)>(&client, &config).is_err() {
+    if A::check_availability::<R, (P::EG, P::ES, f32)>(&client, &config).is_err() {
         // Can't execute the test.
         println!("Skipped - not supported!");
         client.flush();
@@ -109,25 +95,25 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<Spec<EG, ES>, R>(
+        A::BatchMatmul::launch_unchecked::<SingleMatmulSpec<P::EG, P::ES, P::EA>, R>(
             &client,
             cube_dim,
             cube_count,
             TensorInputsLaunch::new(
-                TensorArg::<R>::from_raw_parts::<EG>(
+                TensorArg::<R>::from_raw_parts::<P::EG>(
                     &lhs.handle,
                     &lhs.strides,
                     &lhs.shape,
                     problem.lhs_line_size,
                 ),
-                TensorArg::<R>::from_raw_parts::<EG>(
+                TensorArg::<R>::from_raw_parts::<P::EG>(
                     &rhs.handle,
                     &rhs.strides,
                     &rhs.shape,
                     problem.rhs_line_size,
                 ),
             ),
-            TensorArg::<R>::from_raw_parts::<EG>(
+            TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
                 &out.strides,
                 &out.shape,
@@ -137,74 +123,23 @@ pub fn test_matmul_algorithm<A, EG, ES, R>(
         );
     }
 
-    assert_result::<EG, ES, R>(
+    P::assert_result::<R>(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
         &client,
         out.handle,
-        None,
     );
 }
 
-/// Test the correctness of the high-level Matmul on the given device,
-/// against a naive CPU implementation over the given problem
-pub fn test_matmul_launch<EG: Float + CubeElement + Display + CastInto<EG>, R: Runtime>(
-    problem: MatmulProblem,
-    device: &R::Device,
-) {
-    let client: ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel> = R::client(device);
-
-    if !(client.properties().feature_enabled(Feature::Plane)
-        && client.properties().feature_enabled(Feature::Type(
-            EG::as_elem_native().expect("To be a native type"),
-        )))
-    {
-        // Can't execute the test.
-        return;
-    }
-
-    let lhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<EG, R>(&client, &problem, Ident::Out);
-
-    let lhs_handle = TensorHandle::new(lhs.shape, lhs.strides, lhs.handle);
-    let rhs_handle = TensorHandle::new(rhs.shape, rhs.strides, rhs.handle);
-    let out_handle = TensorHandle::new(out.shape, out.strides, out.handle);
-
-    let out = matmul::launch::<R, EG, StandardSelector<Accelerated>>(
-        &client,
-        lhs_handle.clone(),
-        rhs_handle.clone(),
-        out_handle.clone(),
-    )
-    .unwrap_or_else(|_| {
-        matmul::launch::<R, EG, StandardSelector<PlaneMma>>(
-            &client, lhs_handle, rhs_handle, out_handle,
-        )
-        .unwrap()
-    });
-
-    assert_result::<EG, EG, R>(
-        &lhs.original_data.unwrap(),
-        &rhs.original_data.unwrap(),
-        &problem,
-        &client,
-        out.handle,
-        // We cannot assume the inner precision of the matmul, therefore we need a permissive epsilon
-        Some(10e-2),
-    );
-}
-
-fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
+fn tensor_raw_parts<EG: Numeric + CubeElement + Sample, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     ident: Ident,
 ) -> TensorRawParts<EG> {
     match ident {
         Ident::Lhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Lhs), 1234);
+            let original_data = EG::sample(tensor_size(problem, Ident::Lhs), 1234);
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
@@ -220,8 +155,7 @@ fn tensor_raw_parts<EG: Float + CubeElement, R: Runtime>(
             }
         }
         Ident::Rhs => {
-            let original_data: Vec<EG> =
-                generate_random_data(tensor_size(problem, Ident::Rhs), 5678);
+            let original_data = EG::sample(tensor_size(problem, Ident::Rhs), 5678);
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
@@ -264,44 +198,6 @@ fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> 
         }
     }
     result
-}
-
-fn assert_result<
-    EG: Float + CubeElement + Display + CastInto<ES>,
-    ES: Float + CubeElement + CastInto<EG>,
-    R: Runtime,
->(
-    lhs: &[EG],
-    rhs: &[EG],
-    problem: &MatmulProblem,
-    client: &ComputeClient<R::Server, R::Channel>,
-    out: Handle,
-    epsilon: Option<f32>,
-) {
-    let epsilon = match epsilon {
-        Some(epsilon) => epsilon,
-        None => {
-            let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
-                a: ES::as_elem_native().expect("To be a native type"),
-                b: ES::as_elem_native().expect("To be a native type"),
-                c: EG::as_elem_native().expect("To be a native type"),
-                m: 16,
-                k: 16,
-                n: 16,
-            });
-
-            // Need to compensate for the temporary conversion to f16/tf32
-            match maybe_cmma {
-                true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-                false => 10e-5,
-            }
-        }
-    };
-
-    let expected = matmul_cpu_reference(lhs, rhs, problem);
-    if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
-        panic!("{}", e);
-    }
 }
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
