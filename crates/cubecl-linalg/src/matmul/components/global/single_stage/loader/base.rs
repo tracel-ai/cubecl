@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::full_load;
+use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{InputLoader, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
@@ -29,12 +29,12 @@ pub struct RhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: Loading
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
-    InputLoader<EG, ES, full_load::Config<S>> for LhsLoader<EG, ES, S, L>
+    InputLoader<EG, ES, single_stage::Config<S>> for LhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
-        L::load_to_slice::<EG, ES, full_load::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        L::load_to_slice::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Lhs,
@@ -45,9 +45,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
     fn fill_stage_window(
         this: &mut Self,
         pipeline: Pipeline<ES>,
-        #[comptime] config: full_load::Config<S>,
+        #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_window::<EG, ES, full_load::Config<S>>(
+        L::load_window::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             pipeline,
@@ -88,12 +88,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy> LhsLoa
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
-    InputLoader<EG, ES, full_load::Config<S>> for RhsLoader<EG, ES, S, L>
+    InputLoader<EG, ES, single_stage::Config<S>> for RhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: full_load::Config<S>) {
-        L::load_to_slice::<EG, ES, full_load::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        L::load_to_slice::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             Ident::Rhs,
@@ -104,9 +104,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: LoadingStrategy>
     fn fill_stage_window(
         this: &mut Self,
         pipeline: Pipeline<ES>,
-        #[comptime] config: full_load::Config<S>,
+        #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_window::<EG, ES, full_load::Config<S>>(
+        L::load_window::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             pipeline,

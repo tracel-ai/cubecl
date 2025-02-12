@@ -1,7 +1,6 @@
-use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{
-    GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
+    GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader, LoadMode,
 };
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,

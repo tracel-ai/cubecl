@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -8,17 +8,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
+use super::base::LoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicLoading {}
-
-pub enum LoadMode {
-    Coalesced,
-    Window,
-}
 
 impl LoadingValidation for CyclicLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {

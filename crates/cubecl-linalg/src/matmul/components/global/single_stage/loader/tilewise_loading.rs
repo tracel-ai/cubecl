@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
@@ -8,8 +8,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
-use super::LoadMode;
+use super::base::LoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using

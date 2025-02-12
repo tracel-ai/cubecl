@@ -1,17 +1,15 @@
-use crate::matmul::components::global::full_load::LoadMode;
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{
     GlobalConfig as _, GlobalMatmul, GlobalMatmulFamily, InputLoader,
 };
 use crate::matmul::components::stage::multi_buffer::{
     LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
 };
-use crate::matmul::components::stage::{StageMatmul, TilingOrderConfig};
-use crate::matmul::components::StageTiling;
-use crate::matmul::components::{config::MatmulConfig, global::ZeroAccumulatorLoader};
-use crate::matmul::components::{global, MatmulProblem};
+use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{stage, InvalidConfigError};
-use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulConfigFactory, MatmulPrecision};
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -23,6 +21,7 @@ use pipeline::Pipeline;
 use std::marker::PhantomData;
 
 use super::loader::{LhsLoader, LoadingStrategy, RhsLoader};
+use super::Config;
 
 pub struct FullLoadMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -63,7 +62,7 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.smm_config)
+        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
     }
 
     fn make_config(
@@ -155,7 +154,6 @@ where
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             // Wait for load to finish for this thread, then sync to make sure all planes have finished
-            // TODO: We can skip sync_units if we can guarantee the same plane loads the tile it will compute
             pipeline.consumer_wait();
             sync_units();
 
@@ -217,115 +215,5 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the full load matmul
-pub struct Config<S: stage::StageConfig> {
-    smm_config: S,
-    check_m_bounds: bool,
-    check_n_bounds: bool,
-    check_k_bounds: bool,
-    lhs_layout: MatrixLayout,
-    rhs_layout: MatrixLayout,
-    lhs_line_size: u32,
-    rhs_line_size: u32,
-    out_line_size: u32,
-    pub k_step: u32,
-}
-
-impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
-    type SmmConfig = S;
-
-    fn to_smm_config(&self) -> Self::SmmConfig {
-        self.smm_config
-    }
-
-    fn global_line_size(&self, ident: Ident) -> u32 {
-        match ident {
-            Ident::Lhs => self.lhs_line_size,
-            Ident::Rhs => self.rhs_line_size,
-            Ident::Out => self.out_line_size,
-        }
-    }
-
-    fn stage_line_size(&self, ident: Ident) -> u32 {
-        self.smm_config.line_size(ident)
-    }
-
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.smm_config.tiling(ident)
-    }
-
-    fn layout(&self, ident: Ident) -> MatrixLayout {
-        match ident {
-            Ident::Lhs => self.lhs_layout,
-            Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
-        }
-    }
-
-    fn num_planes(&self) -> u32 {
-        self.smm_config.num_planes()
-    }
-
-    fn plane_dim(&self) -> u32 {
-        self.smm_config.plane_dim()
-    }
-
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
-        self.smm_config.tiling_order(ident)
-    }
-
-    fn check_m_bounds(&self) -> bool {
-        self.check_m_bounds
-    }
-
-    fn check_n_bounds(&self) -> bool {
-        self.check_n_bounds
-    }
-
-    fn check_k_bounds(&self) -> bool {
-        self.check_k_bounds
-    }
-
-    fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
-    }
-
-    fn load_mode(&self) -> LoadMode {
-        LoadMode::Window
-    }
-}
-
-impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
-
-impl<S: stage::StageConfig> Config<S> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        smm_config: S,
-        check_m_bounds: bool,
-        check_n_bounds: bool,
-        check_k_bounds: bool,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        lhs_line_size: u32,
-        rhs_line_size: u32,
-        out_line_size: u32,
-        k_step: u32,
-    ) -> Self {
-        Self {
-            smm_config,
-            check_m_bounds,
-            check_n_bounds,
-            check_k_bounds,
-            lhs_layout,
-            rhs_layout,
-            lhs_line_size,
-            rhs_line_size,
-            out_line_size,
-            k_step,
-        }
     }
 }
