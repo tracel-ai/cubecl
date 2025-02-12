@@ -12,7 +12,7 @@ use crate::matmul::{
 };
 
 use super::{
-    pipelined::PipelinedAlgorithm, specialized::SpecializedAlgorithm, standard::StandardAlgorithm,
+    double_buffering::DoubleBufferingAlgorithm, specialized::SpecializedAlgorithm, standard::StandardAlgorithm,
 };
 
 const NUM_SM_APPROX: usize = 50;
@@ -85,7 +85,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
             tile_count: selection.tile_count,
         };
 
-        matmul_cube_preparation::<MS, R, PipelinedAlgorithm<TMM>>(
+        matmul_cube_preparation::<MS, R, DoubleBufferingAlgorithm<TMM>>(
             client,
             input,
             output,

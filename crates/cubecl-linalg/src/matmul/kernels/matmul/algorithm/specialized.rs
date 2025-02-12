@@ -21,7 +21,8 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul = global::buffered::specialized::SpecializedMatmulFamily<Self::StageMatmul>;
+    type GlobalMatmul =
+        global::multi_stage::specialized::SpecializedMatmulFamily<Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type Selection = MatmulSelection;

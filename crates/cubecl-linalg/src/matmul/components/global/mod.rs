@@ -1,5 +1,5 @@
 pub mod args;
-pub mod buffered;
+pub mod multi_stage;
 pub mod single_stage;
 pub mod tensor_view;
 

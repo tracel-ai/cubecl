@@ -1,11 +1,11 @@
 use crate::matmul::components::{
-    global::{self, LoadMode},
+    global::{self, GlobalConfig, LoadMode},
     stage::{self, TilingOrderConfig},
     Ident, MatmulConfig, MatrixLayout, StageTiling,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for single stage matmuls
+/// Configuration for the producer consumer global matmul
 pub struct Config<S: stage::StageConfig> {
     smm_config: S,
     check_m_bounds: bool,
@@ -16,7 +16,7 @@ pub struct Config<S: stage::StageConfig> {
     lhs_line_size: u32,
     rhs_line_size: u32,
     out_line_size: u32,
-    pub k_step: u32,
+    num_planes: u32,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -51,7 +51,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn num_planes(&self) -> u32 {
-        self.smm_config.num_planes()
+        self.num_planes
     }
 
     fn plane_dim(&self) -> u32 {
@@ -79,7 +79,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn load_mode(&self) -> LoadMode {
-        LoadMode::Window
+        LoadMode::Coalesced
     }
 }
 
@@ -97,7 +97,7 @@ impl<S: stage::StageConfig> Config<S> {
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
-        k_step: u32,
+        num_planes: u32,
     ) -> Self {
         Self {
             smm_config,
@@ -109,7 +109,19 @@ impl<S: stage::StageConfig> Config<S> {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
-            k_step,
+            num_planes,
         }
+    }
+
+    pub fn num_producers(&self) -> u32 {
+        assert!(
+            self.num_consumers() <= self.num_planes(),
+            "Producer consumer's underlying matmul consumes more planes than available"
+        );
+        self.num_planes() - self.num_consumers()
+    }
+
+    pub fn num_consumers(&self) -> u32 {
+        self.smm_config.num_planes()
     }
 }

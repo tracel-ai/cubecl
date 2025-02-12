@@ -1,7 +1,7 @@
 mod base;
 mod selector;
 
-pub mod pipelined;
+pub mod double_buffering;
 pub mod specialized;
 pub mod standard;
 

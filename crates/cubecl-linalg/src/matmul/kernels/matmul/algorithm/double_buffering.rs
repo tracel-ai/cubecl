@@ -9,19 +9,20 @@ use crate::matmul::components::{tile, MatmulSelection};
 
 use super::base;
 
-pub struct PipelinedAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct DoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _tmm: PhantomData<TMM>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for PipelinedAlgorithm<TMM, Dispatch>
+impl<TMM, Dispatch> base::Algorithm for DoubleBufferingAlgorithm<TMM, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul = global::buffered::pipelined::PipelinedMatmulFamily<Self::StageMatmul>;
+    type GlobalMatmul =
+        global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type Selection = MatmulSelection;

@@ -176,7 +176,7 @@ macro_rules! matmul_standard_tests {
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::kernels::matmul::standard::StandardAlgorithm;
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
-        use $crate::matmul::kernels::matmul::pipelined::PipelinedAlgorithm;
+        use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
 
         #[test]
         pub fn standard() {

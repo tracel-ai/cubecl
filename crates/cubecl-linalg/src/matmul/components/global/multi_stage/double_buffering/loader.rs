@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
+use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoading;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};

@@ -1,4 +1,4 @@
-use crate::matmul::components::global::buffered::buffer_loading::BufferLoading;
+use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoading;
 use crate::matmul::components::global::{
     CommonGlobalConfig, GlobalConfig, GlobalMatmulFamily, LoadingValidation,
 };
@@ -17,23 +17,23 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use super::loader::check_buffers_contiguous;
-use super::PipelinedMatmul;
+use super::DoubleBufferingMatmul;
 
-pub struct PipelinedMatmulFamily<SMM: stage::StageMatmulFamily> {
+pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }
 
-impl<SMM> GlobalMatmulFamily for PipelinedMatmulFamily<SMM>
+impl<SMM> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<
         LhsReader = LhsBufferReaderFamily,
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> = PipelinedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
 }
 
-impl<SMM> MatmulConfigFactory for PipelinedMatmulFamily<SMM>
+impl<SMM> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily,
 {
