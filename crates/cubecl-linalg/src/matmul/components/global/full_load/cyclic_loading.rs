@@ -109,8 +109,7 @@ impl LoadingStrategy for CyclicLoading {
 
             // TODO make branching comptime conditional
             if slice_index < num_slices {
-                let (source, this_slice_length) =
-                    read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
+                let window = read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
 
                 // Where this unit writes source in the stage
                 let slice_destination_offset =
@@ -122,11 +121,11 @@ impl LoadingStrategy for CyclicLoading {
                     slice_destination_offset + slice_length_in_lines,
                 );
                 // If padding needed: TODO comptime conditional
-                for i in slice_length_in_lines..this_slice_length {
+                for i in window.size..slice_length_in_lines {
                     destination[i] = Line::cast_from(0);
                 }
 
-                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
+                pipeline.memcpy_async(window.slice.try_cast_unchecked(), destination);
             }
         }
     }

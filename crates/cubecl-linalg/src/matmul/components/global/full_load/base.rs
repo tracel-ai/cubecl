@@ -174,9 +174,6 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        // TODO since there is no inter-warp synchronization needed, this sync is probably useless
-        sync_units();
-
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
