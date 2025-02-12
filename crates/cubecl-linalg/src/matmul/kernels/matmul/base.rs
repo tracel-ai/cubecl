@@ -1,17 +1,17 @@
-use core::any::TypeId;
-use cubecl_core::prelude::*;
-use cubecl_core::{
-    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
-};
-use cubecl_std::MaybeQuantized;
+use crate::matmul;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
-use crate::matmul;
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
+use core::any::TypeId;
+use cubecl_core::prelude::*;
+use cubecl_core::{
+    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
+};
+use cubecl_std::MaybeQuantized;
 
 use super::algorithm::MatmulSelector;
 use super::config::AdvancedConfig;

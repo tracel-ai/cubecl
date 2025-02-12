@@ -92,7 +92,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             cube_dim.y,
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
-            quantized
+            quantized,
         )
     }
 }

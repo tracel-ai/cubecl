@@ -76,7 +76,14 @@ where
         advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, advanced_config, quantized);
+        let smm_config = SMM::make_config(
+            input,
+            problem,
+            cube_dim,
+            cube_count,
+            advanced_config,
+            quantized,
+        );
         let stage_shape = SMM::stage_shape(&smm_config);
 
         CommonGlobalConfig::new(

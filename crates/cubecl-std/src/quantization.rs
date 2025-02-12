@@ -34,7 +34,7 @@ use cubecl_core::prelude::*;
 ///
 /// let y = double_if_quantized::<u8>(3);
 /// assert_eq!(y, 3);
-/// 
+///
 /// let z = double_if_quantized::<Q8>(3);
 /// assert_eq!(z, 6);
 /// ```

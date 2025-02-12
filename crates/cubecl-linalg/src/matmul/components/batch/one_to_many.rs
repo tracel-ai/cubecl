@@ -54,7 +54,14 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
         advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let gmm_config = GMM::make_config(input, problem, cube_dim, cube_count, advanced_config, quantized);
+        let gmm_config = GMM::make_config(
+            input,
+            problem,
+            cube_dim,
+            cube_count,
+            advanced_config,
+            quantized,
+        );
         let cube_count = if let CubeCount::Static(x, y, z) = cube_count {
             (*x, *y, *z)
         } else {

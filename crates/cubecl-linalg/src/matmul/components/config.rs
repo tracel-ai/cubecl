@@ -51,7 +51,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
-        quantized: bool
+        quantized: bool,
     ) -> Self::Config;
 }
 
