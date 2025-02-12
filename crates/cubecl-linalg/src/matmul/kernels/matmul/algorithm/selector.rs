@@ -25,6 +25,7 @@ pub trait MatmulSelector {
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
         plane_dim: u32,
+        quantized: bool,
     ) -> Result<(), MatmulLaunchError>;
     fn stage_tf32_supported() -> bool;
 }
@@ -49,6 +50,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
         plane_dim: u32,
+        quantized: bool,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CompleteStageTiling {
@@ -63,6 +65,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
             problem,
             config_input,
             selection,
+            quantized,
         )
     }
 
@@ -78,6 +81,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
         plane_dim: u32,
+        quantized: bool,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CompleteStageTiling {
@@ -92,6 +96,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for PipelinedSelector<TMM> {
             problem,
             config_input,
             selection,
+            quantized,
         )
     }
 
@@ -107,6 +112,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
         output: OutputRuntimeArg<'a, MS, R>,
         problem: MatmulProblem,
         plane_dim: u32,
+        quantized: bool,
     ) -> Result<(), MatmulLaunchError> {
         let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
         let config_input = CompleteStageTiling {
@@ -121,6 +127,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
             problem,
             config_input,
             selection,
+            quantized,
         )
     }
 

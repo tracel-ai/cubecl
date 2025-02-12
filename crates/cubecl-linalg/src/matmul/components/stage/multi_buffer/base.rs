@@ -67,12 +67,19 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
+        quantized: bool,
     ) -> Self::Config {
         let tile_shape = input.tile_shape;
         let tile_count = input.tile_count;
 
-        let tmm_config =
-            TMM::make_config(tile_shape, problem, cube_dim, cube_count, advanced_config);
+        let tmm_config = TMM::make_config(
+            tile_shape,
+            problem,
+            cube_dim,
+            cube_count,
+            advanced_config,
+            quantized,
+        );
 
         let tiling = CompleteStageTiling {
             tile_shape,
@@ -85,6 +92,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             cube_dim.y,
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
+            quantized
         )
     }
 }

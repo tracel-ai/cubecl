@@ -1,17 +1,16 @@
 use core::any::TypeId;
 use cubecl_core::prelude::*;
-
 use cubecl_core::{
     client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
 };
-
-use crate::matmul;
+use cubecl_std::MaybeQuantized;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::matmul;
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 
 use super::algorithm::MatmulSelector;
@@ -22,12 +21,12 @@ use super::Algorithm;
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
-pub fn launch<R: Runtime, EG: Numeric, S: MatmulSelector>(
+pub fn launch<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, EG>,
-    rhs: TensorHandle<R, EG>,
-    out: TensorHandle<R, EG>,
-) -> Result<TensorHandle<R, EG>, MatmulLaunchError> {
+    lhs: TensorHandle<R, EG::Numeric>,
+    rhs: TensorHandle<R, EG::Numeric>,
+    out: TensorHandle<R, EG::Numeric>,
+) -> Result<TensorHandle<R, EG::Numeric>, MatmulLaunchError> {
     let result = launch_ref::<R, EG, S>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
 
     match result {
@@ -40,7 +39,7 @@ pub fn launch<R: Runtime, EG: Numeric, S: MatmulSelector>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
-pub fn launch_ref<R: Runtime, EG: Numeric, S: MatmulSelector>(
+pub fn launch_ref<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -69,28 +68,28 @@ pub fn launch_ref<R: Runtime, EG: Numeric, S: MatmulSelector>(
         (false, true) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
             lhs,
-            &into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG::Numeric>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, false) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
-            &into_contiguous::<R, EG>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG::Numeric>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, true) => matmul_cmma_ref_no_check::<R, EG, S>(
             client,
-            &into_contiguous::<R, EG>(client, lhs).as_ref(),
-            &into_contiguous::<R, EG>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG::Numeric>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG::Numeric>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -98,7 +97,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
-    let eg_elem = EG::as_elem_native().expect("To be a native type");
+    let eg_elem = EG::Numeric::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
@@ -142,6 +141,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
         lhs_line_size,
         rhs_line_size,
         out_line_size,
+        // TODO consider a quantized field for MatmulProblem
     };
 
     let plane_size = client
@@ -174,7 +174,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: Numeric, S: MatmulSelector>(
     )
 }
 
-fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
+fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -183,10 +183,8 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    if TypeId::of::<EG>() == TypeId::of::<half::f16>()
-        || TypeId::of::<EG>() == TypeId::of::<flex32>()
-    {
-        S::select_kernel::<SingleMatmulSpec<EG, half::f16, f32>, R>(
+    if EG::QUANTIZED {
+        S::select_kernel::<SingleMatmulSpec<u8, u16, i32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -195,9 +193,12 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             out.as_tensor_arg(out_line_size),
             problem,
             plane_dim,
+            true,
         )
-    } else if TypeId::of::<EG>() == TypeId::of::<half::bf16>() {
-        S::select_kernel::<SingleMatmulSpec<EG, half::bf16, f32>, R>(
+    } else if TypeId::of::<EG::Numeric>() == TypeId::of::<half::f16>()
+        || TypeId::of::<EG::Numeric>() == TypeId::of::<flex32>()
+    {
+        S::select_kernel::<SingleMatmulSpec<EG::Numeric, half::f16, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -206,9 +207,22 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             out.as_tensor_arg(out_line_size),
             problem,
             plane_dim,
+            false,
+        )
+    } else if TypeId::of::<EG::Numeric>() == TypeId::of::<half::bf16>() {
+        S::select_kernel::<SingleMatmulSpec<EG::Numeric, half::bf16, f32>, R>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            plane_dim,
+            false,
         )
     } else if S::stage_tf32_supported() {
-        S::select_kernel::<SingleMatmulSpec<EG, tf32, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -217,9 +231,10 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             out.as_tensor_arg(out_line_size),
             problem,
             plane_dim,
+            false,
         )
     } else {
-        S::select_kernel::<SingleMatmulSpec<EG, EG, f32>, R>(
+        S::select_kernel::<SingleMatmulSpec<EG::Numeric, EG::Numeric, f32>, R>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -228,6 +243,7 @@ fn matmul_launch_kernel<R: Runtime, EG: Numeric, S: MatmulSelector>(
             out.as_tensor_arg(out_line_size),
             problem,
             plane_dim,
+            false,
         )
     }
 }
@@ -239,6 +255,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorit
     problem: MatmulProblem,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
     selection: D::Selection,
+    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = D::cube_dim(&selection);
     let cube_count = D::cube_count(&selection, &problem);
@@ -253,6 +270,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorit
         cube_count,
         advanced_config,
         config_input,
+        quantized,
     )
 }
 
@@ -266,6 +284,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     cube_count: CubeCount,
     advanced_config: AdvancedConfig,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
+    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let config = D::make_config(
         config_input,
@@ -273,6 +292,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
         &cube_dim,
         &cube_count,
         &advanced_config,
+        quantized,
     )?;
     D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
 
