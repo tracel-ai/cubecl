@@ -233,6 +233,76 @@ impl_line_comparison!(greater_than, Greater, "greater than");
 impl_line_comparison!(less_equal, LowerEqual, "less than or equal to");
 impl_line_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
 
+mod bool_and {
+    use cubecl_ir::Operator;
+
+    use crate::prelude::binary_expand;
+
+    use super::*;
+
+    impl Line<bool> {
+        /// Return a new line with the element-wise and of the lines
+        pub fn and(self, _other: Self) -> Line<bool> {
+            unexpanded!()
+        }
+
+        /// Expand function of [and](Self::and).
+        pub fn __expand_and(
+            scope: &mut Scope,
+            lhs: ExpandElementTyped<Self>,
+            rhs: ExpandElementTyped<Self>,
+        ) -> ExpandElementTyped<Line<bool>> {
+            lhs.__expand_and_method(scope, rhs)
+        }
+    }
+
+    impl ExpandElementTyped<Line<bool>> {
+        /// Expand method of [equal](Line::equal).
+        pub fn __expand_and_method(
+            self,
+            scope: &mut Scope,
+            rhs: Self,
+        ) -> ExpandElementTyped<Line<bool>> {
+            binary_expand(scope, self.expand, rhs.expand, Operator::And).into()
+        }
+    }
+}
+
+mod bool_or {
+    use cubecl_ir::Operator;
+
+    use crate::prelude::binary_expand;
+
+    use super::*;
+
+    impl Line<bool> {
+        /// Return a new line with the element-wise and of the lines
+        pub fn or(self, _other: Self) -> Line<bool> {
+            unexpanded!()
+        }
+
+        /// Expand function of [and](Self::and).
+        pub fn __expand_or(
+            scope: &mut Scope,
+            lhs: ExpandElementTyped<Self>,
+            rhs: ExpandElementTyped<Self>,
+        ) -> ExpandElementTyped<Line<bool>> {
+            lhs.__expand_and_method(scope, rhs)
+        }
+    }
+
+    impl ExpandElementTyped<Line<bool>> {
+        /// Expand method of [equal](Line::equal).
+        pub fn __expand_or_method(
+            self,
+            scope: &mut Scope,
+            rhs: Self,
+        ) -> ExpandElementTyped<Line<bool>> {
+            binary_expand(scope, self.expand, rhs.expand, Operator::Or).into()
+        }
+    }
+}
+
 impl<P: CubePrimitive> CubeType for Line<P> {
     type ExpandType = ExpandElementTyped<Self>;
 }
