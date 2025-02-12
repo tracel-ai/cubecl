@@ -1,8 +1,5 @@
-use cubecl_core::{
-    client::ComputeClient,
-    prelude::{Float, Numeric, TensorHandleRef},
-    Runtime,
-};
+use cubecl_core::{client::ComputeClient, prelude::TensorHandleRef, Runtime};
+use cubecl_std::MaybeQuantized;
 
 use crate::tensor::TensorHandle;
 
@@ -30,12 +27,12 @@ pub enum Strategy {
     Auto,
 }
 
-pub fn launch<R: Runtime, EG: Float>(
+pub fn launch<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, EG>,
-    rhs: TensorHandle<R, EG>,
-    out: TensorHandle<R, EG>,
+    lhs: TensorHandle<R, EG::Numeric>,
+    rhs: TensorHandle<R, EG::Numeric>,
+    out: TensorHandle<R, EG::Numeric>,
 ) -> Result<(), MatmulLaunchError> {
     launch_ref::<R, EG>(
         strategy,
@@ -46,7 +43,7 @@ pub fn launch<R: Runtime, EG: Float>(
     )
 }
 
-pub fn launch_ref<R: Runtime, EG: Numeric>(
+pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<R>,
@@ -70,11 +67,11 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
             )
         }
         Strategy::Tiling2D(config) => {
-            tiling2d::launch_ref::<R, EG>(client, lhs, rhs, out, config.clone());
+            tiling2d::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out, config.clone());
             Ok(())
         }
         Strategy::Simple => {
-            simple::launch_ref::<R, EG>(client, lhs, rhs, out)?;
+            simple::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {
@@ -83,7 +80,7 @@ pub fn launch_ref<R: Runtime, EG: Numeric>(
             {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
-                        tiling2d::launch_ref::<R, EG>(
+                        tiling2d::launch_ref::<R, EG::Numeric>(
                             client,
                             lhs,
                             rhs,
