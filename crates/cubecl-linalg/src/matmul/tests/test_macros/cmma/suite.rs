@@ -200,7 +200,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, Precision, TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<DoubleBufferingAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
