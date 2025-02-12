@@ -155,7 +155,6 @@ where
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             // Wait for load to finish for this thread, then sync to make sure all planes have finished
-            // TODO: could be deeper inside execute
             // TODO: We can skip sync_units if we can guarantee the same plane loads the tile it will compute
             pipeline.consumer_wait();
             sync_units();
@@ -175,6 +174,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
+        // TODO since there is no inter-warp synchronization needed, this sync is probably useless
         sync_units();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(

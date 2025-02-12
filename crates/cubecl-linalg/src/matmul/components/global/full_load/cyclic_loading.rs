@@ -63,7 +63,7 @@ impl LoadingValidation for CyclicLoading {
 impl LoadingStrategy for CyclicLoading {
     fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        slice_destination: &mut SliceMut<Line<ES>>,
         pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -112,22 +112,21 @@ impl LoadingStrategy for CyclicLoading {
                 let (source, this_slice_length) =
                     read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
 
-                let slice_offset =
+                // Where this unit writes source in the stage
+                let slice_destination_offset =
                     (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
 
-                let destination = slice.slice_mut(slice_offset, slice_offset + this_slice_length);
-                let mut destination_pad = slice.slice_mut(
-                    slice_offset + this_slice_length,
-                    slice_offset + slice_length_in_lines,
+                // Make destination start at offset
+                let mut destination = slice_destination.slice_mut(
+                    slice_destination_offset,
+                    slice_destination_offset + slice_length_in_lines,
                 );
-
-                // TODO acquire and commit here
-                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-
-                // TODO make padding comptime conditional
-                for i in 0..slice_length_in_lines - this_slice_length {
-                    destination_pad[i] = Line::cast_from(0);
+                // If padding needed: TODO comptime conditional
+                for i in slice_length_in_lines..this_slice_length {
+                    destination[i] = Line::cast_from(0);
                 }
+
+                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
             }
         }
     }
