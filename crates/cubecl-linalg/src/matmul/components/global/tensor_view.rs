@@ -1,4 +1,4 @@
-use crate::matmul::components::config::{self, InputIdent};
+use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::tensor::{ReadWrite, VirtualTensor};
@@ -147,24 +147,6 @@ impl<EG: Numeric> TensorReader<EG> {
         } else {
             max_slice_lines
         };
-
-        // let size = match config.layout(ident) {
-        //     MatrixLayout::RowMajor => match comptime!((check_x_bounds, check_y_bounds)) {
-        //         (true, true) => slice_length_clamp(
-        //             self.shape_y / line_size,
-        //             view_y / line_size,
-        //             num_slice_lines * u32::cast_from(view_x < self.shape_x),
-        //         ),
-        //         (true, false) => num_slice_lines * u32::cast_from(view_x < self.shape_x),
-        //         (false, true) => slice_length_clamp(
-        //             self.shape_y / line_size,
-        //             view_y / line_size,
-        //             num_slice_lines,
-        //         ),
-        //         (false, false) => num_slice_lines,
-        //     },
-        //     MatrixLayout::ColMajor => unimplemented!(),
-        // };
 
         (self.tensor.as_slice(read_pos, read_pos + size), size)
     }

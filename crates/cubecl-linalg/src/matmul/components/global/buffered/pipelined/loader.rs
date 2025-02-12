@@ -48,10 +48,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
         );
     }
     fn fill_stage_window(
-        this: &mut Self,
-        pipeline: Pipeline<ES>,
-        #[comptime] config: CommonGlobalConfig<S>,
+        _this: &mut Self,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _config: CommonGlobalConfig<S>,
     ) {
+        let _ = todo!();
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
@@ -105,10 +106,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
         );
     }
     fn fill_stage_window(
-        this: &mut Self,
-        pipeline: Pipeline<ES>,
-        #[comptime] config: CommonGlobalConfig<S>,
+        _this: &mut Self,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _config: CommonGlobalConfig<S>,
     ) {
+        let _ = todo!();
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {

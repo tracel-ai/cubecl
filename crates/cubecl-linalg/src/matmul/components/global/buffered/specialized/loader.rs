@@ -53,10 +53,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, specia
         }
     }
     fn fill_stage_window(
-        this: &mut Self,
-        pipeline: Pipeline<ES>,
-        #[comptime] config: specialized::Config<S>,
+        _this: &mut Self,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _config: specialized::Config<S>,
     ) {
+        let _ = todo!();
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
@@ -115,10 +116,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, specia
     }
 
     fn fill_stage_window(
-        this: &mut Self,
-        pipeline: Pipeline<ES>,
-        #[comptime] config: specialized::Config<S>,
+        _this: &mut Self,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _config: specialized::Config<S>,
     ) {
+        let _ = todo!();
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {

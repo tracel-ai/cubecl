@@ -47,6 +47,11 @@ impl LoadingValidation for CyclicLoading {
                 if num_slices >= total_units && num_slices % total_units != 0 {
                     return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
                 }
+                if config.transpose_load(ident) {
+                    return Err(Box::new(
+                        "Transpose load is not supported with window load mode",
+                    ));
+                }
             }
         };
 
@@ -66,6 +71,7 @@ impl LoadingStrategy for CyclicLoading {
         let stage_dim = config.stage_tiling(ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
+
         let (num_slices_per_tile, slice_length_in_lines) = match config.layout(ident) {
             MatrixLayout::RowMajor => (
                 stage_dim.tile_shape_row(),
@@ -76,7 +82,7 @@ impl LoadingStrategy for CyclicLoading {
                 stage_dim.tile_shape_row() / line_size,
             ),
         };
-        stage_dim.tile_shape_row();
+
         let num_slices = comptime!(num_slices_per_tile * stage_dim.tile_count());
         let num_slices_per_unit = num_slices.div_ceil(total_units);
 
@@ -101,40 +107,31 @@ impl LoadingStrategy for CyclicLoading {
             };
             let nth_slice = slice_index % num_slices_per_tile;
 
-            match config.transpose_load(ident) {
-                false => {
-                    if slice_index < num_slices {
-                        let (source, this_slice_length) =
-                            read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
+            // TODO make branching comptime conditional
+            if slice_index < num_slices {
+                let (source, this_slice_length) =
+                    read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
 
-                        let slice_offset =
-                            (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
+                let slice_offset =
+                    (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
 
-                        let destination =
-                            slice.slice_mut(slice_offset, slice_offset + this_slice_length);
-                        let mut destination_pad = slice.slice_mut(
-                            slice_offset + this_slice_length,
-                            slice_offset + slice_length_in_lines,
-                        );
+                let destination = slice.slice_mut(slice_offset, slice_offset + this_slice_length);
+                let mut destination_pad = slice.slice_mut(
+                    slice_offset + this_slice_length,
+                    slice_offset + slice_length_in_lines,
+                );
 
-                        // pipeline.producer_acquire();
-                        pipeline.memcpy_async(source.try_cast_unchecked(), destination);
-                        // pipeline.producer_commit();
+                // TODO acquire and commit here
+                pipeline.memcpy_async(source.try_cast_unchecked(), destination);
 
-                        // for i in 0..this_slice_length {
-                        //     destination[i] = Line::cast_from(source[i]);
-                        // }
-                        for i in 0..slice_length_in_lines - this_slice_length {
-                            destination_pad[i] = Line::cast_from(0);
-                        }
-                    }
-                }
-                true => {
-                    let _ = unimplemented!();
+                // TODO make padding comptime conditional
+                for i in 0..slice_length_in_lines - this_slice_length {
+                    destination_pad[i] = Line::cast_from(0);
                 }
             }
         }
     }
+
     fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
