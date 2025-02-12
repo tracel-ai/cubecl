@@ -4,9 +4,9 @@ use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
 use crate::{matmul::kernels::simple, tensor::TensorHandle};
 
-use super::test_utils::{assert_equals_approx, MatmulTestCase};
+use super::test_utils::{assert_equals_approx, MatmulTestCase, Sample};
 
-pub fn test_small<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_small<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -17,7 +17,7 @@ pub fn test_small<R: Runtime, F: Float + CubeElement + Display>(device: &R::Devi
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_large<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_large<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 256,
         k: 256,
@@ -28,7 +28,9 @@ pub fn test_large<R: Runtime, F: Float + CubeElement + Display>(device: &R::Devi
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display + Sample>(
+    device: &R::Device,
+) {
     let case = MatmulTestCase {
         m: 60,
         k: 60,
@@ -39,7 +41,9 @@ pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(devi
     test_simple::<R, F>(case, device);
 }
 
-pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display + Sample>(
+    device: &R::Device,
+) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -50,7 +54,7 @@ pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &
     test_simple::<R, F>(case, device);
 }
 
-fn test_simple<R: Runtime, F: Float + CubeElement + Display>(
+fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
     case: MatmulTestCase,
     device: &R::Device,
 ) {

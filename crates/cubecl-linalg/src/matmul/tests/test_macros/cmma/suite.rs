@@ -1,13 +1,9 @@
-use std::fmt::Display;
-
 use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
-use crate::matmul::tests::test_utils::CastInto;
-
-use cubecl_core::prelude::Float;
-use cubecl_core::{CubeElement, Runtime};
+use crate::matmul::tests::test_utils::TestPrecision;
+use cubecl_core::Runtime;
 
 pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R: Runtime>(
     layouts: (MatrixLayout, MatrixLayout),
@@ -51,7 +47,9 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         tile_count: selection.tile_count,
     };
 
-    test_matmul_algorithm::<A, P::EG, P::ES, R>(client, problem, config_input, selection);
+    if P::should_run::<A>(layouts) {
+        test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
+    }
 }
 
 #[allow(missing_docs)]
@@ -182,7 +180,7 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn standard() {
-            cubecl_linalg::matmul::tests::test_algo::<StandardAlgorithm<TMM>, (EG, ES), TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<StandardAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
@@ -190,38 +188,24 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // #[test]
-        // pub fn specialized() {
-        //     cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, (EG, ES), TestRuntime>(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //     );
-        // }
+        #[test]
+        pub fn specialized() {
+            cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
 
-        // #[test]
-        // pub fn pipelined() {
-        //     cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, (EG, ES), TestRuntime>(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //     );
-        // }
+        #[test]
+        pub fn pipelined() {
+            cubecl_linalg::matmul::tests::test_algo::<PipelinedAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
     };
-}
-
-pub trait TestPrecision {
-    type EG: Float + CubeElement + Display + CastInto<Self::ES>;
-    type ES: Float + CubeElement + Display + CastInto<Self::EG>;
-}
-
-impl<EG, ES> TestPrecision for (EG, ES)
-where
-    EG: Float + CubeElement + Display + CastInto<ES>,
-    ES: Float + CubeElement + Display + CastInto<EG>,
-{
-    type EG = EG;
-    type ES = ES;
 }

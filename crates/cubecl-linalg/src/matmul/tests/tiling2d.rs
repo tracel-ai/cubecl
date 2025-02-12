@@ -4,9 +4,9 @@ use cubecl_core::{prelude::Float, CubeElement, Runtime};
 
 use crate::matmul::kernels::tiling2d;
 
-use super::test_utils::{assert_equals_approx, MatmulTestCase};
+use super::test_utils::{assert_equals_approx, MatmulTestCase, Sample};
 
-pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -17,7 +17,9 @@ pub fn test_one_cube<R: Runtime, F: Float + CubeElement + Display>(device: &R::D
     test_tiling2d::<R, F>(case, device);
 }
 
-pub fn test_several_cubes<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_several_cubes<R: Runtime, F: Float + CubeElement + Display + Sample>(
+    device: &R::Device,
+) {
     let case = MatmulTestCase {
         m: 256,
         k: 256,
@@ -28,7 +30,9 @@ pub fn test_several_cubes<R: Runtime, F: Float + CubeElement + Display>(device: 
     test_tiling2d::<R, F>(case, device);
 }
 
-pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display + Sample>(
+    device: &R::Device,
+) {
     let case = MatmulTestCase {
         m: 60,
         k: 60,
@@ -39,7 +43,9 @@ pub fn test_with_check_bounds<R: Runtime, F: Float + CubeElement + Display>(devi
     test_tiling2d::<R, F>(case, device);
 }
 
-pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &R::Device) {
+pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display + Sample>(
+    device: &R::Device,
+) {
     let case = MatmulTestCase {
         m: 64,
         k: 64,
@@ -50,7 +56,7 @@ pub fn test_with_batches<R: Runtime, F: Float + CubeElement + Display>(device: &
     test_tiling2d::<R, F>(case, device);
 }
 
-fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display>(
+fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display + Sample>(
     case: MatmulTestCase,
     device: &R::Device,
 ) {

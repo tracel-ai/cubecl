@@ -32,7 +32,7 @@ hashbrown = "0.14.5"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
 
-getrandom = { version = "0.2.15", default-features = false }
+getrandom = { version = "0.3.1", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
