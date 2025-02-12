@@ -10,23 +10,11 @@ use cubecl_core::prelude::*;
 ///
 /// ```ignored
 ///
-/// // With a regular function.
-///
 /// pub fn double_if_quantized<N: MaybeQuantized>(x: N::Numeric) -> N::Numeric {
 ///     if N::QUANTIZED {
 ///         x * N::Numeric::from_int(2)
 ///     } else {
 ///         x
-///     }
-/// }
-///
-///
-/// // With a cube function. (N::QUANTIZED is resolved at comptime)
-///
-/// #[cube]
-/// pub fn set_to_zero_if_quantized<N: MaybeQuantized>(array: &mut Array<N::Numeric>) {
-///     if N::QUANTIZED {
-///         array[UNIT_POS] = N::Numeric::from_int(0);
 ///     }
 /// }
 ///
@@ -38,7 +26,6 @@ use cubecl_core::prelude::*;
 /// let z = double_if_quantized::<Q8>(3);
 /// assert_eq!(z, 6);
 /// ```
-#[cube]
 pub trait MaybeQuantized {
     type Numeric: Numeric;
     const QUANTIZED: bool;
