@@ -154,7 +154,7 @@ impl<C: CubePrimitive> Pipeline<C> {
 
     pub fn __expand_new(scope: &mut Scope, num_stages: u8) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(Item::new(elem), num_stages );
+        let variable = scope.create_pipeline(Item::new(elem), num_stages);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,

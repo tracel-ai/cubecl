@@ -12,7 +12,8 @@ use crate::matmul::{
 };
 
 use super::{
-    double_buffering::DoubleBufferingAlgorithm, specialized::SpecializedAlgorithm, simple::SimpleAlgorithm,
+    double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
+    specialized::SpecializedAlgorithm,
 };
 
 const NUM_SM_APPROX: usize = 50;
