@@ -53,7 +53,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
         _pipeline: Pipeline<ES>,
         #[comptime] _config: CommonGlobalConfig<S>,
     ) {
-        let _ = comptime!(todo!());
+        comptime!(todo!());
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
@@ -112,7 +112,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
         _pipeline: Pipeline<ES>,
         #[comptime] _config: CommonGlobalConfig<S>,
     ) {
-        let _ = comptime!(todo!());
+        comptime!(todo!());
     }
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {

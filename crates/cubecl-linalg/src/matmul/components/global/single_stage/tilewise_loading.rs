@@ -63,7 +63,7 @@ impl LoadingStrategy for TilewiseLoading {
         #[comptime] _ident: Ident,
         #[comptime] _config: G,
     ) {
-        let _ = comptime!(todo!());
+        comptime!(todo!());
     }
 
     fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
