@@ -1,6 +1,5 @@
 pub mod loader;
 pub mod simple;
-pub mod simple_pipelined;
 
 mod cyclic_loading;
 mod shared;
