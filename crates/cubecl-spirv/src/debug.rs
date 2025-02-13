@@ -18,7 +18,7 @@
 
 use std::borrow::Cow;
 
-use cubecl_core::ir::{self as core, CubeSource, SourceLoc, Variable};
+use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
 use hashbrown::HashMap;
 use rspirv::{
     dr::{Instruction, Operand},
@@ -80,7 +80,7 @@ struct Definitions {
     /// source files
     source_files: HashMap<String, SourceFile>,
     /// map of call names to definitions
-    functions: HashMap<CubeSource, FunctionDefinition>,
+    functions: HashMap<CubeFnSource, FunctionDefinition>,
     /// InlinedAt definitions
     inlined_at: HashMap<(Word, u32, Option<Word>), Word>,
     /// Debug strings

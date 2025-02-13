@@ -1,4 +1,4 @@
-use cubecl_ir::CubeSource;
+use cubecl_ir::CubeFnSource;
 
 use crate::ir::{NonSemantic, Scope, Variable};
 
@@ -45,7 +45,7 @@ pub fn debug_source_expand(
     column: u32,
 ) {
     let file = file.replace("\\", "/");
-    scope.update_source(CubeSource {
+    scope.update_source(CubeFnSource {
         function_name: name.into(),
         file: file.into(),
         source_text: source_text.into(),

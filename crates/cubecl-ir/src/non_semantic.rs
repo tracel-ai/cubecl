@@ -62,13 +62,13 @@ impl Display for NonSemantic {
 pub struct SourceLoc {
     pub line: u32,
     pub column: u32,
-    pub source: CubeSource,
+    pub source: CubeFnSource,
 }
 
 /// A cube function's source
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
-pub struct CubeSource {
+pub struct CubeFnSource {
     pub function_name: Cow<'static, str>,
     pub file: Cow<'static, str>,
     pub source_text: Cow<'static, str>,

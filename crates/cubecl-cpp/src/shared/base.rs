@@ -208,14 +208,14 @@ impl<D: Dialect> CppCompiler<D> {
         }
 
         processing
-            .operations
+            .instructions
             .into_iter()
-            .for_each(|op| self.compile_operation(&mut instructions, op, scope));
+            .for_each(|op| self.compile_instruction(&mut instructions, op, scope));
 
         instructions
     }
 
-    fn compile_operation(
+    fn compile_instruction(
         &mut self,
         instructions: &mut Vec<Instruction<D>>,
         instruction: gpu::Instruction,
