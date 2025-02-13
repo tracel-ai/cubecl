@@ -70,16 +70,20 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.tiling_order(ident)
     }
 
-    fn check_m_bounds(&self) -> bool {
-        self.check_m_bounds
+    fn check_row_bounds(&self, ident: Ident) -> bool {
+        match ident {
+            Ident::Lhs => self.check_m_bounds,
+            Ident::Rhs => self.check_k_bounds,
+            Ident::Out => self.check_m_bounds,
+        }
     }
 
-    fn check_n_bounds(&self) -> bool {
-        self.check_n_bounds
-    }
-
-    fn check_k_bounds(&self) -> bool {
-        self.check_k_bounds
+    fn check_col_bounds(&self, ident: Ident) -> bool {
+        match ident {
+            Ident::Lhs => self.check_k_bounds,
+            Ident::Rhs => self.check_n_bounds,
+            Ident::Out => self.check_n_bounds,
+        }
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {

@@ -118,28 +118,21 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
-        // (x,y): (m,k) for lhs, (k,n) for rhs
-        let (check_x_bounds, check_y_bounds) = match ident.as_input() {
-            InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
-            InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
-        };
-
-        // (h,w): (x,y) for row major, (y,x) for col major
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
             match config.layout(ident) {
                 MatrixLayout::RowMajor => (
-                    check_x_bounds,
+                    config.check_row_bounds(ident),
                     view_x,
                     self.shape_x,
-                    check_y_bounds,
+                    config.check_col_bounds(ident),
                     view_y,
                     self.shape_y,
                 ),
                 MatrixLayout::ColMajor => (
-                    check_y_bounds,
+                    config.check_col_bounds(ident),
                     view_y,
                     self.shape_y,
-                    check_x_bounds,
+                    config.check_row_bounds(ident),
                     view_x,
                     self.shape_x,
                 ),
@@ -200,12 +193,10 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
-        let (check_x_bounds, check_y_bounds) = match ident.as_input() {
-            InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
-            InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
-        };
-
-        match comptime!((check_x_bounds, check_y_bounds)) {
+        match comptime!((
+            config.check_row_bounds(ident),
+            config.check_col_bounds(ident)
+        )) {
             (true, true) => select(
                 view_x < self.shape_x && view_y < self.shape_y,
                 self.tensor.read(read_pos),
@@ -274,7 +265,10 @@ impl<EG: Numeric> TensorWriter<EG> {
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);
 
-        match comptime!((config.check_m_bounds(), config.check_n_bounds())) {
+        match comptime!((
+            config.check_row_bounds(Ident::Out),
+            config.check_col_bounds(Ident::Out)
+        )) {
             (true, true) => {
                 if view_x < self.shape_x && view_y < self.shape_y {
                     self.write(write_position, Line::cast_from(value));

@@ -179,14 +179,11 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the order in which tiles should be loaded to the stage
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 
-    /// Whether it is necessary to add bound checks in the m dimension
-    fn check_m_bounds(&self) -> bool;
+    /// Whether to check if accessing a row would exceed bounds.
+    fn check_row_bounds(&self, ident: Ident) -> bool;
 
-    /// Whether it is necessary to add bound checks in the k dimension
-    fn check_k_bounds(&self) -> bool;
-
-    /// Whether it is necessary to add bound checks in the n dimension
-    fn check_n_bounds(&self) -> bool;
+    /// Whether to check if accessing a col would exceed bounds.
+    fn check_col_bounds(&self, ident: Ident) -> bool;
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
