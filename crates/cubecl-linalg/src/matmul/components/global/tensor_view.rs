@@ -118,12 +118,13 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
+        // (x,y): (m,k) for lhs, (k,n) for rhs
         let (check_x_bounds, check_y_bounds) = match ident.as_input() {
             InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
             InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
         };
 
-        // h: height, w: width
+        // (h,w): (x,y) for row major, (y,x) for col major
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
             match config.layout(ident) {
                 MatrixLayout::RowMajor => (
@@ -207,25 +208,21 @@ impl<EG: Numeric> TensorReader<EG> {
         match comptime!((check_x_bounds, check_y_bounds)) {
             (true, true) => select(
                 view_x < self.shape_x && view_y < self.shape_y,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
             (true, false) => select(
                 view_x < self.shape_x,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
             (false, true) => select(
                 view_y < self.shape_y,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
-            (false, false) => self.read(read_pos),
+            (false, false) => self.tensor.read(read_pos),
         }
-    }
-
-    fn read(&self, position: u32) -> Line<EG> {
-        self.tensor.read(position)
     }
 }
 
