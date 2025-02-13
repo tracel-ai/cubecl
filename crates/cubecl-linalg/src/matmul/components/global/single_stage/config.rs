@@ -1,31 +1,26 @@
 use crate::matmul::components::{
+    global::{self, LoadMode},
     stage::{self, TilingOrderConfig},
     Ident, MatmulConfig, MatrixLayout, StageTiling,
 };
 
-/// Whether each unit loads a line side by side (coalesced)
-/// or a window (i.e. a slice of lines)
-pub enum LoadMode {
-    Coalesced,
-    Window,
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the pipelined global matmul
-pub struct CommonGlobalConfig<S: stage::StageConfig> {
-    pub smm_config: S,
-    pub check_m_bounds: bool,
-    pub check_n_bounds: bool,
-    pub check_k_bounds: bool,
-    pub lhs_layout: MatrixLayout,
-    pub rhs_layout: MatrixLayout,
-    pub lhs_line_size: u32,
-    pub rhs_line_size: u32,
-    pub out_line_size: u32,
-    pub num_planes: u32,
+/// Configuration for single stage matmuls
+pub struct Config<S: stage::StageConfig> {
+    smm_config: S,
+    check_m_bounds: bool,
+    check_n_bounds: bool,
+    check_k_bounds: bool,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
+    lhs_line_size: u32,
+    rhs_line_size: u32,
+    out_line_size: u32,
+    pub k_step: u32,
+    load_mode: LoadMode,
 }
 
-impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     type SmmConfig = S;
 
     fn to_smm_config(&self) -> Self::SmmConfig {
@@ -57,7 +52,7 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     }
 
     fn num_planes(&self) -> u32 {
-        self.num_planes
+        self.smm_config.num_planes()
     }
 
     fn plane_dim(&self) -> u32 {
@@ -85,13 +80,13 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     }
 
     fn load_mode(&self) -> LoadMode {
-        LoadMode::Window
+        self.load_mode
     }
 }
 
-impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
+impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
 
-impl<S: stage::StageConfig> CommonGlobalConfig<S> {
+impl<S: stage::StageConfig> Config<S> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         smm_config: S,
@@ -103,7 +98,8 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
         lhs_line_size: u32,
         rhs_line_size: u32,
         out_line_size: u32,
-        num_planes: u32,
+        k_step: u32,
+        load_mode: LoadMode,
     ) -> Self {
         Self {
             smm_config,
@@ -115,7 +111,8 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
             lhs_line_size,
             rhs_line_size,
             out_line_size,
-            num_planes,
+            k_step,
+            load_mode,
         }
     }
 }

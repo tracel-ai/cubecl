@@ -17,6 +17,7 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     num_planes: u32,
+    load_mode: LoadMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -79,7 +80,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn load_mode(&self) -> LoadMode {
-        LoadMode::Coalesced
+        self.load_mode
     }
 }
 
@@ -98,6 +99,7 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
+        load_mode: LoadMode,
     ) -> Self {
         Self {
             smm_config,
@@ -110,6 +112,7 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
+            load_mode,
         }
     }
 

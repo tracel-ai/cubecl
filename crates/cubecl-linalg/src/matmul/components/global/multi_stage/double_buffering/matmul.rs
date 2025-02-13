@@ -1,5 +1,5 @@
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader};
+use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader, LoadMode};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::Ident;
@@ -106,6 +106,7 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             cube_dim.y,
+            LoadMode::Coalesced,
         )
     }
 }
