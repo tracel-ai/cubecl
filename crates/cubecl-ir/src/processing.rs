@@ -12,7 +12,7 @@ pub struct ScopeProcessing {
     /// The variable declarations.
     pub variables: Vec<Variable>,
     /// The operations.
-    pub operations: Vec<Instruction>,
+    pub instructions: Vec<Instruction>,
 }
 
 impl ScopeProcessing {
@@ -30,7 +30,7 @@ impl ScopeProcessing {
     /// Make sure constant scalars are of the correct type so compilers don't have to do conversion
     /// and handle edge cases such as indexing with a signed integer.
     fn sanitize_constant_scalars(mut self) -> Self {
-        self.operations
+        self.instructions
             .iter_mut()
             .for_each(|inst| match &mut inst.operation {
                 Operation::Copy(op) => {

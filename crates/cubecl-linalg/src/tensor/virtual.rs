@@ -298,6 +298,8 @@ mod __cube_type {
         }
     }
 
+    impl<E: Numeric, IO> CubeDebug for VirtualTensorExpand<E, IO> {}
+
     impl<E: Numeric, IO: Clone> IntoRuntime for VirtualTensor<E, IO> {
         fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
             panic!("Virtual tensors don't exist at comptime.")

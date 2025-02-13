@@ -202,7 +202,7 @@ impl Launch {
     }
 
     pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
-        self.func.sig.parameters.iter().filter(|it| !it.is_const)
+        self.func.sig.runtime_params()
     }
 
     fn launch_args(&self) -> Vec<KernelParam> {
