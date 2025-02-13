@@ -1,8 +1,5 @@
-use cubecl_core::ir::Elem;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-
-use cubecl_core::prelude::*;
 
 use crate::ReduceError;
 
