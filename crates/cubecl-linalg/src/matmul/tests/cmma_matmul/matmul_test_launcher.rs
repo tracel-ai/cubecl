@@ -74,6 +74,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         &cube_dim,
         &cube_count,
         &A::advanced_config(),
+        P::QUANTIZED,
     ) {
         Ok(config) => config,
         Err(err) => {

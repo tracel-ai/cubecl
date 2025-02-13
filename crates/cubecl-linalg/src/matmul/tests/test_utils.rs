@@ -8,6 +8,8 @@ use cubecl_core::{
     tf32, CubeElement, Feature, Runtime,
 };
 
+pub use cubecl_std::Q8;
+
 use crate::{
     matmul::{
         components::{Ident, MatmulProblem, MatmulSelection, MatrixLayout},
@@ -21,6 +23,7 @@ pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Numeric + CubeElement + Display + CastInto<Self::EA>;
     type EA: Numeric + CubeElement + Display + CastInto<Self::EG>;
+    const QUANTIZED: bool;
 
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
@@ -47,6 +50,7 @@ where
     type EG = EG;
     type ES = ES;
     type EA = f32;
+    const QUANTIZED: bool = false;
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
@@ -126,12 +130,12 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 // TODO:
 //   - Add different conversions from i32 to u8.
 //   - Add support for multipliers (zero_offsets).
-pub struct Quantized;
-
-impl TestPrecision for Quantized {
+impl TestPrecision for Q8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;
+
+    const QUANTIZED: bool = true;
 
     fn assert_result<R: Runtime>(
         lhs: &[u8],

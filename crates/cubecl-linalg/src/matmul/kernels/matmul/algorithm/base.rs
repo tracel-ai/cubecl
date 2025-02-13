@@ -24,9 +24,16 @@ pub trait Algorithm {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
+        quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
-        let config =
-            Self::BatchMatmul::make_config(input, problem, cube_dim, cube_count, advanced_config);
+        let config = Self::BatchMatmul::make_config(
+            input,
+            problem,
+            cube_dim,
+            cube_count,
+            advanced_config,
+            quantized,
+        );
         problem.check_config(&config)?;
         Self::BatchMatmul::check_config(&config)?;
         Ok(config)
