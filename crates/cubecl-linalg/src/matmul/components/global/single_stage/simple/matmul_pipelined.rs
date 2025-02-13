@@ -10,8 +10,8 @@ use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, Feature};
 use pipeline::Pipeline;
 use std::marker::PhantomData;
 
@@ -68,7 +68,13 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
+
+        if !client.properties().feature_enabled(Feature::Pipeline) {
+            return Err(MatmulAvailabilityError::PipelineUnavailable);
+        }
+
+        Ok(())
     }
 
     fn make_config(
