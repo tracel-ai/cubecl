@@ -27,6 +27,7 @@ pub enum MatmulAvailabilityError {
         n: u32,
         k: u32,
     },
+    PipelineUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
@@ -152,6 +153,9 @@ impl Debug for MatmulAvailabilityError {
                 input,
                 output, m, n, k
             ),
+            MatmulAvailabilityError::PipelineUnavailable => {
+                writeln!(f, "Pipeline is not available.")
+            },
         }
     }
 }

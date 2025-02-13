@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use pipeline::Pipeline;
 
 use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
 use crate::matmul::components::{config::MatmulConfig, tile};
@@ -7,6 +8,8 @@ use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, StageTiling};
 use crate::tensor::{ReadWrite, VirtualTensor};
+
+use super::LoadMode;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -102,6 +105,9 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     /// Fills the stage at the current k offset.
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
+    /// Fills the stage at the current k offset.
+    fn fill_stage_window(this: &mut Self, pipeline: Pipeline<ES>, #[comptime] config: G);
+
     /// Returns a reader for the stage at the current k offset
     fn as_stage_reader(this: &Self) -> Self::StageReader;
 
@@ -173,15 +179,14 @@ pub trait GlobalConfig: MatmulConfig {
     /// Returns the order in which tiles should be loaded to the stage
     fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
 
-    /// Whether it is necessary to add bound checks in the m dimension
-    fn check_m_bounds(&self) -> bool;
+    /// Whether to check if accessing a row would exceed bounds.
+    fn check_row_bounds(&self, ident: Ident) -> bool;
 
-    /// Whether it is necessary to add bound checks in the k dimension
-    fn check_k_bounds(&self) -> bool;
-
-    /// Whether it is necessary to add bound checks in the n dimension
-    fn check_n_bounds(&self) -> bool;
+    /// Whether to check if accessing a col would exceed bounds.
+    fn check_col_bounds(&self, ident: Ident) -> bool;
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
+
+    fn load_mode(&self) -> LoadMode;
 }

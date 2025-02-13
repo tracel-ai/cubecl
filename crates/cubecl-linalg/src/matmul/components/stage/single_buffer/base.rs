@@ -86,7 +86,7 @@ where
         CommonStageConfig::new(
             tmm_config,
             tiling,
-            cube_dim.y,
+            tile_count.m,
             advanced_config.lhs_tiling_order,
             advanced_config.rhs_tiling_order,
             quantized,

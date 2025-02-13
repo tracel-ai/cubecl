@@ -24,6 +24,19 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Read the line of the rhs tensor using the state at the given coordinate.
     fn read_rhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG>;
 
+    /// Read the line of the lhs tensor using the state at the given coordinate.
+    fn read_window_lhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>>;
+    /// Read the line of the rhs tensor using the state at the given coordinate.
+    fn read_window_rhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>>;
+
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>);
 
@@ -76,6 +89,15 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
         panic!("Can't read output tensor");
     }
 
+    fn __expand_read_window_method(
+        &self,
+        _context: &mut Scope,
+        _start: ExpandElementTyped<u32>,
+        _end: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Slice<Line<EG>>> {
+        panic!("Can't read output tensor");
+    }
+
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
@@ -113,6 +135,14 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Line<EG>> {
         TensorInputExpand::__expand_read_method(self.clone(), scope, index)
+    }
+    fn __expand_read_window_method(
+        &self,
+        context: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Slice<Line<EG>>> {
+        TensorInputExpand::__expand_read_window_method(self.clone(), context, start, end)
     }
 
     fn __expand_write_method(
@@ -172,6 +202,16 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
     pub fn new(state: &MA::State<EG>, #[comptime] ident: TensorInputIdent) -> TensorInput<EG, MA> {
         TensorInput::<EG, MA> { state, ident }
+    }
+
+    //// Read the tensor at the given coordinate.
+    pub fn read_window(&self, start: u32, end: u32) -> Slice<Line<EG>> {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Lhs => MA::read_window_lhs(&(*self.state), start, end),
+                TensorInputIdent::Rhs => MA::read_window_rhs(&(*self.state), start, end),
+            }
+        }
     }
 
     /// Read the tensor at the given coordinate.
@@ -281,6 +321,23 @@ impl MatmulArgs for TensorArgs {
 
     fn read_rhs<EG: Numeric>(state: &Self::State<EG>, coordinate: u32) -> Line<EG> {
         unsafe { (*state.1)[coordinate] }
+    }
+
+    fn read_window_lhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        unsafe { (*state.0).slice(start, end) }
+    }
+
+    /// Read the line of the rhs tensor using the state at the given coordinate.
+    fn read_window_rhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        unsafe { (*state.1).slice(start, end) }
     }
 
     fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {

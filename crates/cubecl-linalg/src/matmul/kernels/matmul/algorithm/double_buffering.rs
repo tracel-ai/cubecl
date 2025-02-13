@@ -9,12 +9,12 @@ use crate::matmul::components::{tile, MatmulSelection};
 
 use super::base;
 
-pub struct SpecializedAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct DoubleBufferingAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _tmm: PhantomData<TMM>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for SpecializedAlgorithm<TMM, Dispatch>
+impl<TMM, Dispatch> base::Algorithm for DoubleBufferingAlgorithm<TMM, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
     Dispatch: CubeDispatch + CubeCountDispatch,
@@ -22,17 +22,13 @@ where
     type TileMatmul = TMM;
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul =
-        global::multi_stage::specialized::SpecializedMatmulFamily<Self::StageMatmul>;
+        global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
     type Selection = MatmulSelection;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(
-            selection.plane_dim,
-            selection.tile_count.m + core::cmp::max(1u32, selection.tile_count.m / 2),
-            1,
-        )
+        CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
     }
 
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount {
