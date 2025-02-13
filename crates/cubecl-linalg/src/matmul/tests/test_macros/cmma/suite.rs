@@ -28,8 +28,7 @@ pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R:
         m: problem.m as usize,
         n: problem.n as usize,
         k: problem.k as usize,
-        // batches: (vec![2], vec![2]),
-        batches: (vec![1], vec![1]),
+        batches: (vec![2], vec![2]),
         lhs_layout: layouts.0,
         rhs_layout: layouts.1,
         lhs_line_size: 1, // Will be changed
@@ -90,97 +89,213 @@ macro_rules! matmul_standard_tests {
     ($lhs_layout:ident, $rhs_layout:ident) => {
         mod t16x16x16 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, MatmulSize { m: 16, n: 16, k: 16 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize {
+                    m: 16,
+                    n: 16,
+                    k: 16
+                }
+            );
         }
 
         mod t32x8x16 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, MatmulSize { m: 32, n: 8, k: 16 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 32, n: 8, k: 16 }
+            );
         }
 
         mod t8x32x16 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, MatmulSize { m: 8, n: 32, k: 16 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 32, k: 16 }
+            );
         }
 
         mod t16x16x8 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, MatmulSize { m: 16, n: 16, k: 8 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 16, n: 16, k: 8 }
+            );
         }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
         mod s1x1x1 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, MatmulSize { m: 1, n: 1, k: 1 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 1, n: 1, k: 1 }
+            );
         }
 
         mod s8x8x1 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, MatmulSize { m: 8, n: 8, k: 1 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 8, n: 8, k: 1 }
+            );
         }
 
         mod s2x2x2 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, MatmulSize { m: 2, n: 2, k: 2 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 2, n: 2, k: 2 }
+            );
         }
 
         mod s4x4x2 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, MatmulSize { m: 4, n: 4, k: 2 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                MatmulSize { m: 4, n: 4, k: 2 }
+            );
         }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
         mod p16x16x16 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 16, n: 16, k: 16 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 16,
+                    n: 16,
+                    k: 16
+                }
+            );
         }
 
         mod p32x32x32 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 32, n: 32, k: 32 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 32,
+                    n: 32,
+                    k: 32
+                }
+            );
         }
 
         mod p64x32x32 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 64, n: 32, k: 32 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 64,
+                    n: 32,
+                    k: 32
+                }
+            );
         }
 
         mod p32x32x64 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 32, n: 32, k: 64 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 32,
+                    n: 32,
+                    k: 64
+                }
+            );
         }
 
         mod p100x100x100 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 100, n: 100, k: 100 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 100,
+                    n: 100,
+                    k: 100
+                }
+            );
         }
 
         mod p20x20x16 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 65, n: 16, k: 16 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 65,
+                    n: 16,
+                    k: 16
+                }
+            );
         }
 
         mod p23x1x17 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 23, n: 1, k: 17 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize { m: 23, n: 1, k: 17 }
+            );
         }
 
         mod p256x256x256 {
             use super::*;
-            $crate::matmul_standard_tests!($lhs_layout, $rhs_layout, $tile, $stage, MatmulSize { m: 256, n: 256, k: 256 });
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 256,
+                    n: 256,
+                    k: 256
+                }
+            );
         }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::kernels::matmul::standard::StandardAlgorithm;
-        use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
+        use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
+        use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
-        pub fn standard() {
-            cubecl_linalg::matmul::tests::test_algo::<StandardAlgorithm<TMM>, Precision, TestRuntime>(
+        pub fn simple() {
+            cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
@@ -190,7 +305,11 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<SpecializedAlgorithm<TMM>, Precision, TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<
+                SpecializedAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,
@@ -200,7 +319,11 @@ macro_rules! matmul_standard_tests {
 
         #[test]
         pub fn pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<DoubleBufferingAlgorithm<TMM>, Precision, TestRuntime>(
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,

@@ -12,7 +12,7 @@ use crate::matmul::{
 };
 
 use super::{
-    double_buffering::DoubleBufferingAlgorithm, specialized::SpecializedAlgorithm, standard::StandardAlgorithm,
+    double_buffering::DoubleBufferingAlgorithm, specialized::SpecializedAlgorithm, simple::SimpleAlgorithm,
 };
 
 const NUM_SM_APPROX: usize = 50;
@@ -56,7 +56,7 @@ impl<TMM: TileMatmulFamily> MatmulSelector for StandardSelector<TMM> {
             tile_count: selection.tile_count,
         };
 
-        matmul_cube_preparation::<MS, R, StandardAlgorithm<TMM>>(
+        matmul_cube_preparation::<MS, R, SimpleAlgorithm<TMM>>(
             client,
             input,
             output,
