@@ -43,9 +43,9 @@ pub fn test_matmul_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Lhs);
-    let rhs = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Rhs);
-    let out = tensor_raw_parts::<P::EG, R>(&client, &problem, Ident::Out);
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
     problem.lhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
@@ -133,56 +133,72 @@ pub fn test_matmul_algorithm<A, P, R>(
     );
 }
 
-fn tensor_raw_parts<EG: Numeric + CubeElement + Sample, R: Runtime>(
+fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     ident: Ident,
-) -> TensorRawParts<EG> {
+) -> TensorRawParts<P::EG> {
     match ident {
         Ident::Lhs => {
-            let original_data = EG::sample(tensor_size(problem, Ident::Lhs), 1234);
+            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Lhs), 1234);
+
+            if let Some(params) = P::quantization_params(Ident::Lhs) {
+                original_data.extend_from_slice(&params.scaling);
+                let zero = P::EG::from_int(0);
+                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+            }
+
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
-                    transpose::<EG>(&original_data, problem.num_batches(), problem.m, problem.k)
+                    transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&data)),
+                handle: client.create(P::EG::as_bytes(&data)),
                 shape: shape(problem, Ident::Lhs),
                 strides: strides(problem, Ident::Lhs),
                 original_data: Some(original_data),
             }
         }
         Ident::Rhs => {
-            let original_data = EG::sample(tensor_size(problem, Ident::Rhs), 5678);
+            let mut original_data = P::EG::sample(tensor_size(problem, Ident::Rhs), 5678);
+
+            if let Some(params) = P::quantization_params(Ident::Rhs) {
+                original_data.extend_from_slice(&params.scaling);
+                let zero = P::EG::from_int(0);
+                original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+            }
+
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
-                    transpose::<EG>(&original_data, problem.num_batches(), problem.k, problem.n)
+                    transpose::<P::EG>(&original_data, problem.num_batches(), problem.k, problem.n)
                 }
             };
 
             TensorRawParts {
-                handle: client.create(EG::as_bytes(&data)),
+                handle: client.create(P::EG::as_bytes(&data)),
                 shape: shape(problem, Ident::Rhs),
                 strides: strides(problem, Ident::Rhs),
                 original_data: Some(original_data),
             }
         }
         Ident::Out => {
-            let handle = client.empty(
-                tensor_size(problem, Ident::Out)
-                    * EG::as_elem_native().expect("To be a native type").size(),
-            );
-            let shape = shape(problem, Ident::Out);
-            let strides = strides(problem, Ident::Out);
+            let zero = P::EG::from_int(0);
+
+            let mut data = vec![zero; tensor_size(problem, Ident::Out)];
+
+            if let Some(params) = P::quantization_params(Ident::Out) {
+                data.extend_from_slice(&params.scaling);
+                data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
+            }
 
             TensorRawParts {
-                handle,
-                shape,
-                strides,
+                handle: client.create(P::EG::as_bytes(&data)),
+                shape: shape(problem, Ident::Out),
+                strides: strides(problem, Ident::Out),
                 original_data: None,
             }
         }
