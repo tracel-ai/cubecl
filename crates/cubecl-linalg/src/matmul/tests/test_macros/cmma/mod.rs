@@ -5,8 +5,7 @@ pub mod suite;
 #[macro_export]
 macro_rules! testgen_matmul_accelerated {
     ($eg:ty, $es:ty) => {
-        type EG = $eg;
-        type ES = $es;
+        type Precision = ($eg, $es);
 
         $crate::matmul_standard_tests!();
     };
@@ -26,11 +25,26 @@ macro_rules! testgen_matmul_accelerated {
         }
     };
 }
+
+#[macro_export]
+macro_rules! testgen_matmul_quantized {
+    () => {
+        #[allow(non_snake_case)]
+        mod matmul_quantized {
+            use super::*;
+
+            type Precision = $crate::matmul::tests::Q8;
+            type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
+
+            $crate::matmul_standard_tests!();
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! testgen_matmul_plane {
     ($float:ident) => {
-        type EG = $float;
-        type ES = $float;
+        type Precision = ($eg, $es);
 
         $crate::matmul_standard_tests!();
     };

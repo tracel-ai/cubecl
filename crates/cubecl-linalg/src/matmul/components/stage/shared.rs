@@ -13,6 +13,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub num_planes: u32,
     pub lhs_tiling_order: TilingOrderConfig,
     pub rhs_tiling_order: TilingOrderConfig,
+    pub quantized: bool,
 }
 
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
@@ -64,6 +65,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         num_planes: u32,
         lhs_tiling_order: TilingOrderConfig,
         rhs_tiling_order: TilingOrderConfig,
+        quantized: bool,
     ) -> Self {
         Self {
             tmm_config,
@@ -71,6 +73,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
             num_planes,
             lhs_tiling_order,
             rhs_tiling_order,
+            quantized,
         }
     }
 }

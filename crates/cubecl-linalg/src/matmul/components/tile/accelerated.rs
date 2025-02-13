@@ -191,6 +191,7 @@ impl MatmulConfigFactory for Accelerated {
         cube_dim: &CubeDim,
         _cube_count: &CubeCount,
         advanced_config: &AdvancedConfig,
+        _quantized: bool,
     ) -> Self::Config {
         let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
             Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
