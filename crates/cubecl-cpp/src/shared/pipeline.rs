@@ -50,9 +50,12 @@ impl<D: Dialect> Display for PipelineOps<D> {
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
-                write!(f, "
-cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
-                ")
+                write!(
+                    f,
+                    "
+cooperative_groups::memcpy_async({pipeline}_block, {destination}, {source}, {source}_length * {size});
+                "
+                )
             }
             PipelineOps::Init {
                 pipeline,
@@ -61,8 +64,7 @@ cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {
                 write!(
                     f,
                     "
-cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
-auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
+auto {pipeline}_block = cooperative_groups::this_thread();
                 "
                 )
             }
@@ -70,7 +72,6 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipel
                 write!(
                     f,
                     "
-{pipeline}.producer_acquire();
                 "
                 )
             }
@@ -78,7 +79,6 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipel
                 write!(
                     f,
                     "
-{pipeline}.producer_commit();
             "
                 )
             }
@@ -86,7 +86,7 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipel
                 write!(
                     f,
                     "
-{pipeline}.consumer_wait();
+cooperative_groups::wait({pipeline}_block);
             "
                 )
             }
@@ -94,7 +94,6 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipel
                 write!(
                     f,
                     "
-{pipeline}.consumer_release();
             "
                 )
             }
