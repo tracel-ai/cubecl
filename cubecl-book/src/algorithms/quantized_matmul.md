@@ -83,10 +83,10 @@ As an example,
 we describe how to implement the quantized matrix multiplication
 where the elements of \\(Q_a\\), \\(Q_b\\) and \\(Q_c\\) and the zero-offsets are represented as `u8`.
 
-To represent the difference \\(Q_a - z_a N_a \\),
-we first convert the numbers to `i16` and then we compute the substraction.
-Then, we can take product \\((Q_a - z_a N_a)(Q_b - z_b N_b)\\)
-by first converting to `i32` and then taking the product.
+To compute \\(Q_a - z_a N_a \\),
+we first convert the values to `i16` before performing the subtraction.
+Then, we can compute the product \\((Q_a - z_a N_a)(Q_b - z_b N_b)\\)
+by converting the values to `i32` before multiplying.
 Of course,
 in practice, we perform all these conversions on-the-fly to avoid wastefully allocating new matrices.
 
@@ -186,8 +186,7 @@ impl Matrix {
 ```
 Of course,
 in CubeCL, we stride to provide the fastest implementation for GPU devices.
-As such, in the example,
-we insist on the doing the proper type casting to expose how it is done with CubeCL.
+As such, the example emphasizes the correct type casting to demonstrate how this is achieved in CubeCL.
 
 
 
