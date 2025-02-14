@@ -3,9 +3,9 @@
 To make matrix multipliation faster,
 we replace floating-point arithmetic using `f32`
 with integer arithmetic using a mix of `u8`, `u16` and `i32`.
-This leads to two gains.
+The benefits are twofold.
 First,
-we replace `Tensor<f32>` with `Tensor<u8>` leading a 4 times saving in memory cost.
+we replace `Tensor<f32>` with `Tensor<u8>` to reduce memory cost by a factor of 4.
 This leads to faster read and write operations into the global memory.
 Second,
 integer operations are often faster than their floating-point counter-parts.
@@ -63,15 +63,15 @@ requiring only integer arithmetic.
 
 The same idea holds for matrix multiplication.
 To distinguish matrices from scalars,
-we use capital letters for the formers and lower letters for the laters.
+we use capital letters for the former and lower letters for the latter.
 
 A real matrix \\( A \\) is approximated by an integer matrix \\( Q \\) using
 \\[
   A \approx s (Q - z N).
 \\]
-Here \\( N \\) is a matrix filled with one the same size as \\( A \\).
+Here \\( N \\) is a matrix of ones the same size as \\( A \\).
 For two matrices \\(A \\) and \\( B \\) with respective shape \\(m \times k\\)
-and \\(k \times m\\) and their product \\( C \\) of shape \\( m \times n \\),
+and \\(k \times n\\) and their product \\( C \\) of shape \\( m \times n \\),
 we have, similar to the scalar case that
 \\[
   Q_c \approx z_c N_c + \frac uv (Q_a - z_a N_a)(Q_b - z_b N_b).
@@ -92,7 +92,7 @@ in practice, we perform all these conversions on-the-fly to avoid wastefully all
 
 Now, suppose that \\(x\\) is a single element in the resulting matrix and \\(y\\)
 is the element with the same position in \\(Q_c\\).
-Then, we still need to perform the computation
+We still need to compute the following
 \\[
   y = z_c + \frac uv \cdot x.
 \\]
@@ -102,7 +102,7 @@ we impose that \\( v \\) is a power of 2 so that dividing by \\( v \\)
 is equivalent to right-shifting the product \\( u x \\).
 Then, we need to find the best values \\( u \\) and \\( v \\)
 for the scaling factor \\( \sigma = \frac{s_a s_b}{s_c} \\).
-The trick is to cleverly multiply \\( \sigma \\) by 1, to get
+The trick is to cleverly multiply \\( \sigma \\) by 1, to get a form that allows us to work with powers of 2:
 \\[
   \sigma = \frac{2^{31 - f}}{2^{31 - f}} \sigma
 \\]
@@ -111,13 +111,13 @@ For example, if \\(\sigma = 0.3\\), then \\(f = -1\\) as \\(2^{-1} = 0.5 > 0.3 \
 and \\(2^{-2} = 0.25 < 0.3\\).
 From this, we deduce we that we can use \\(u = 2^{31 - f} \sigma\\) rounded to the
 nearest `i64` value and \\(v = 2^{31 - f}\\).
-This gives us a 31 bits approximation of multiplying by \\(\sigma\\) which is the best
-we can do when to other multiplicand is a `i32`.
+This gives us a 31-bit approximation for multiplying by \\(\sigma\\), which is the best
+we can achieve when the other multiplicand is an `i32`.
 Indeed, we need to keep one bit for the sign.
 To properly round the product,
 one can add \\(\frac v 2\\) to the product before right shifting.
 
-An naive implementation of the above algorithm looks like the following.
+A naive implementation of the above algorithm looks like the following.
 ```rust
 fn scaling_ratio(sigma: f32) -> (i64, u32) {
     let log = x.log2().ceil() as i32;
