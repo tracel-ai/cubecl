@@ -1,11 +1,12 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
 use crate::matmul::components::stage::{
     ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
 };
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use pipeline::Pipeline;
 
 use super::loader::LoadingStrategy;
 
@@ -43,12 +44,28 @@ impl LoadingValidation for TilewiseLoading {
             ));
         }
 
+        if let LoadMode::Window = config.load_mode() {
+            return Err(Box::new(
+                "Window load not yet supported in tilewise loading setup",
+            ));
+        }
+
         Ok(())
     }
 }
 
 #[cube]
 impl LoadingStrategy for TilewiseLoading {
+    fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+        _read_view: &TensorReader<EG>,
+        _slice: &mut SliceMut<Line<ES>>,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
+    ) {
+        comptime!(todo!());
+    }
+
     fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,

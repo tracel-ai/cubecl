@@ -118,7 +118,7 @@ impl<C: CubePrimitive> Default for Pipeline<C> {
 
 impl<C: CubePrimitive> Pipeline<C> {
     /// Create a pipeline instance
-    pub fn new(_num_stages: u32) -> Self {
+    pub fn new(_num_stages: u8) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -152,9 +152,9 @@ impl<C: CubePrimitive> Pipeline<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope, num_stages: u32) -> PipelineExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, num_stages: u8) -> PipelineExpand<C> {
         let elem = C::as_elem(scope);
-        let variable = scope.create_pipeline(Item::new(elem), num_stages as u8);
+        let variable = scope.create_pipeline(Item::new(elem), num_stages);
         PipelineExpand {
             elem: variable,
             _c: PhantomData,

@@ -1,7 +1,7 @@
 /// Matmul using Accelerator or PlaneMma
 pub mod matmul;
-/// Simple non-cooperative matmul that can be very fast on small matrices.
-pub mod simple;
+/// Naive non-cooperative matmul without tiling that can be very fast on small matrices.
+pub mod naive;
 /// Non-cooperative Matmul
 pub mod tiling2d;
 

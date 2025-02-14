@@ -6,7 +6,7 @@ use pipeline::Pipeline;
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let pipeline = Pipeline::new(1u32);
+    let pipeline = Pipeline::new(1);
 
     let start = UNIT_POS_X * 2u32;
     let end = start + 2u32;
@@ -32,7 +32,7 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let pipeline = Pipeline::new(1u32);
+    let pipeline = Pipeline::new(1);
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;
@@ -62,7 +62,7 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let pipeline = Pipeline::new(2u32);
+    let pipeline = Pipeline::new(2);
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;

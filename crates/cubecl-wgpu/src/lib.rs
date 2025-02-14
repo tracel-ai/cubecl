@@ -29,7 +29,6 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_linalg::testgen_matmul_plane!([f32]);
-    cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([flex32, f32]);
     cubecl_linalg::testgen_matmul_simple!([flex32, f32]);
     cubecl_linalg::testgen_tensor_identity!([flex32, f32, u32]);

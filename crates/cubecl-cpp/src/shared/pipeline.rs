@@ -49,36 +49,33 @@ impl<D: Dialect> Display for PipelineOps<D> {
                 destination,
             } => {
                 let item = source.item();
-                let size = item.elem().size() * item.vectorization;
-                write!(f, "
-cuda::memcpy_async(cooperative_groups::this_thread(), {destination}, {source}, {source}_length * {size}, {pipeline});
-                ")
-            }
-            PipelineOps::Init {
-                pipeline,
-                num_stages,
-            } => {
+                let size = format!("sizeof({item})");
                 write!(
                     f,
                     "
-cuda::pipeline_shared_state<cuda::thread_scope::thread_scope_block, {num_stages}> {pipeline}_state;
-auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipeline}_state);
+cooperative_groups::memcpy_async({pipeline}_block, {destination}, {source}, {source}_length * {size});
                 "
                 )
             }
-            PipelineOps::ProducerAcquire { pipeline } => {
+            PipelineOps::Init { pipeline, .. } => {
                 write!(
                     f,
                     "
-{pipeline}.producer_acquire();
+auto {pipeline}_block = cooperative_groups::this_thread();
                 "
                 )
             }
-            PipelineOps::ProducerCommit { pipeline } => {
+            PipelineOps::ProducerAcquire { .. } => {
                 write!(
                     f,
                     "
-{pipeline}.producer_commit();
+                "
+                )
+            }
+            PipelineOps::ProducerCommit { .. } => {
+                write!(
+                    f,
+                    "
             "
                 )
             }
@@ -86,15 +83,14 @@ auto {pipeline} = cuda::make_pipeline(cooperative_groups::this_thread(), &{pipel
                 write!(
                     f,
                     "
-{pipeline}.consumer_wait();
+cooperative_groups::wait({pipeline}_block);
             "
                 )
             }
-            PipelineOps::ConsumerRelease { pipeline } => {
+            PipelineOps::ConsumerRelease { .. } => {
                 write!(
                     f,
                     "
-{pipeline}.consumer_release();
             "
                 )
             }
