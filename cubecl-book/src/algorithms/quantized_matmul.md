@@ -185,7 +185,7 @@ impl Matrix {
 }
 ```
 Of course,
-in CubeCL, we stride to provide the fastest implementation for GPU devices.
+in CubeCL, we strive to provide the fastest implementation for GPU devices.
 As such, the example emphasizes the correct type casting to demonstrate how this is achieved in CubeCL.
 
 
