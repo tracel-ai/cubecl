@@ -511,7 +511,6 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_strided() {
             let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
             let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_cmma_strided::<TestRuntime>(
                 client,
