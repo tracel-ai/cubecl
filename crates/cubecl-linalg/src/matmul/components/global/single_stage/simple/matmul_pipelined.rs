@@ -165,6 +165,8 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         for _ in 0..num_loops {
+            sync_units();
+
             // Start loading
             pipeline.producer_acquire();
             Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
