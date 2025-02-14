@@ -15,7 +15,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
-    type Device: Default + Clone + core::fmt::Debug;
+    type Device: Default + Clone + core::fmt::Debug + Send + Sync;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
