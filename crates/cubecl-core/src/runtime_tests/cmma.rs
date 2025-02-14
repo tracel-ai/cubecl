@@ -396,10 +396,11 @@ pub fn test_cmma_strided<R: Runtime>(
         return;
     }
 
+    // Fills left tile while right tile is zero
     let lhs: Vec<f16> = (0..m * k)
         .map(|i| {
-            if (i % k) > t_k {
-                f16::from_f32(i as f32)
+            if (i % k) < t_k {
+                f16::from_f32((i - (i / k) * t_k) as f32)
             } else {
                 f16::from_f32(0.)
             }
@@ -452,6 +453,7 @@ pub fn test_cmma_strided<R: Runtime>(
     ];
 
     assert_eq!(expected, actual);
+    // assert!(false);
 }
 
 #[allow(missing_docs)]
