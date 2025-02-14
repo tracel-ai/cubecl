@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, DeviceId, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_runtime::{
     channel::MutexComputeChannel,
@@ -135,6 +135,10 @@ impl Runtime for CudaRuntime {
         RUNTIME.client(device, move || {
             create_client(device, RuntimeOptions::default())
         })
+    }
+
+    fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
+        DeviceId::new(0, device.index as u32)
     }
 
     fn name() -> &'static str {

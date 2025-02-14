@@ -1,7 +1,26 @@
-use cubecl_ir::{ExpandElement, Variable};
+use cubecl_ir::{Elem, ExpandElement, Variable};
 
-use crate as cubecl;
 use crate::prelude::*;
+use crate::{self as cubecl, unexpanded};
+
+/// Change the meaning of the given cube primitive type during compilation.
+///
+/// # Warning
+///
+/// To be used for very custom kernels, it would likely lead to a JIT compiler error otherwise.
+pub fn set_polyfill<E: CubePrimitive>(_elem: Elem) {
+    unexpanded!()
+}
+
+/// Expand module of [set_polyfill()].
+pub mod set_polyfill {
+    use super::*;
+
+    /// Expand function of [set_polyfill()].
+    pub fn expand<E: CubePrimitive>(scope: &mut Scope, elem: Elem) {
+        scope.register_elem::<E>(elem);
+    }
+}
 
 #[cube]
 fn checked_index_assign<E: CubePrimitive>(
