@@ -133,17 +133,20 @@ impl LoadingStrategy for CyclicLoading {
     ) {
         let tiling = config.stage_tiling(ident);
         let line_size = config.global_line_size(ident);
-        let num_stage_lines = tiling.total_size() / line_size;
-        let tile_num_lines = tiling.tile_size() / line_size;
-        let jump_length = comptime!(config.num_planes() * config.plane_dim());
-        let num_loads_per_unit = comptime!(num_stage_lines / jump_length);
+        let num_stage_elements = tiling.total_size();
+        let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
+        let num_loads_per_unit = comptime!(num_stage_elements / jump_length);
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
-            let unit_position = unit_id + i * jump_length;
+            let unit_position = unit_position_base + i * jump_length;
 
-            let nth_tile = unit_position / tile_num_lines;
+            let tile_num_elements = tiling.tile_size();
+            let nth_tile = unit_position / tile_num_elements;
+            let pos_within_tile = unit_position % tile_num_elements;
+
             let (tile_x, tile_y) = match config.tiling_order(ident) {
                 TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
                     nth_tile,
@@ -157,17 +160,15 @@ impl LoadingStrategy for CyclicLoading {
                 ),
             };
 
-            let pos_within_tile = (unit_position % tile_num_lines) * line_size;
-
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             match config.transpose_load(ident) {
                 false => {
-                    slice[unit_position] = Line::cast_from(line_read);
+                    slice[unit_position / line_size] = Line::cast_from(line_read);
                 }
                 true => {
-                    let tile_offset = nth_tile * tile_num_lines * line_size;
+                    let tile_offset = nth_tile * tile_num_elements;
 
                     let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
                     let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
