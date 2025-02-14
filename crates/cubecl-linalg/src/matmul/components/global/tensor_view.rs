@@ -40,6 +40,12 @@ unsafe impl<E: Numeric> Send for TensorReader<E> {}
 unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
 unsafe impl<E: Numeric> Send for TensorWriter<E> {}
 
+#[derive(CubeType)]
+pub struct Window<EG: Numeric> {
+    pub slice: Slice<Line<EG>>,
+    pub size: u32,
+}
+
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
@@ -71,6 +77,84 @@ impl<EG: Numeric> TensorReader<EG> {
             InputIdent::Rhs => {
                 self.x_offset += k_offset;
             }
+        }
+    }
+
+    /// Reads data from the tensor view as a window, i.e. a slice of global memory
+    /// Also returns the length of the slice
+    ///
+    /// The length of the slice is the width of the tile
+    ///
+    /// # Note
+    ///
+    /// If the slice would be partly out-of-bounds, it will simply be shorter.
+    /// The caller must do the padding if necessary.
+    pub fn load_window<G: global::GlobalConfig>(
+        &self,
+        tile_x: u32,
+        tile_y: u32,
+        nth_window: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Window<EG> {
+        let line_size = config.global_line_size(ident);
+        let stage_tiling = config.stage_tiling(ident);
+        let tile_size_x = stage_tiling.tile_shape_row();
+        let tile_size_y = stage_tiling.tile_shape_col();
+        let tile_lines_x = tile_size_x / line_size;
+        let tile_lines_y = tile_size_y / line_size;
+
+        let view_tile_x = tile_x * tile_size_x + self.x_offset;
+        let view_tile_y = tile_y * tile_size_y + self.y_offset;
+
+        let (load_x, load_y, num_lines_in_window) = match config.layout(ident) {
+            MatrixLayout::RowMajor => (nth_window, 0, tile_lines_y),
+            MatrixLayout::ColMajor => (0, nth_window, tile_lines_x),
+        };
+
+        let view_x = view_tile_x + load_x;
+        let view_y = view_tile_y + load_y;
+
+        let read_pos =
+            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
+
+        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
+            match config.layout(ident) {
+                MatrixLayout::RowMajor => (
+                    config.check_row_bounds(ident),
+                    view_x,
+                    self.shape_x,
+                    config.check_col_bounds(ident),
+                    view_y,
+                    self.shape_y,
+                ),
+                MatrixLayout::ColMajor => (
+                    config.check_col_bounds(ident),
+                    view_y,
+                    self.shape_y,
+                    config.check_row_bounds(ident),
+                    view_x,
+                    self.shape_x,
+                ),
+            };
+
+        // There are 0 lines if out-of-bounds vertically
+        let max_lines_in_window = if comptime!(check_h_bounds) {
+            num_lines_in_window * u32::cast_from(view_h < shape_h)
+        } else {
+            num_lines_in_window
+        };
+
+        // Window is clamped if partially out-of-bounds horizontally
+        let size = if comptime!(check_w_bounds) {
+            slice_length_clamp(shape_w / line_size, view_w / line_size, max_lines_in_window)
+        } else {
+            max_lines_in_window
+        };
+
+        Window::<EG> {
+            slice: self.tensor.as_slice(read_pos, read_pos + size),
+            size,
         }
     }
 
@@ -109,33 +193,27 @@ impl<EG: Numeric> TensorReader<EG> {
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
-        let (check_x_bounds, check_y_bounds) = match ident.as_input() {
-            InputIdent::Lhs => (config.check_m_bounds(), config.check_k_bounds()),
-            InputIdent::Rhs => (config.check_k_bounds(), config.check_n_bounds()),
-        };
-
-        match comptime!((check_x_bounds, check_y_bounds)) {
+        match comptime!((
+            config.check_row_bounds(ident),
+            config.check_col_bounds(ident)
+        )) {
             (true, true) => select(
                 view_x < self.shape_x && view_y < self.shape_y,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
             (true, false) => select(
                 view_x < self.shape_x,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
             (false, true) => select(
                 view_y < self.shape_y,
-                self.read(read_pos),
+                self.tensor.read(read_pos),
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
-            (false, false) => self.read(read_pos),
+            (false, false) => self.tensor.read(read_pos),
         }
-    }
-
-    fn read(&self, position: u32) -> Line<EG> {
-        self.tensor.read(position)
     }
 }
 
@@ -187,7 +265,10 @@ impl<EG: Numeric> TensorWriter<EG> {
         let write_position = (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset)
             / config.global_line_size(Ident::Out);
 
-        match comptime!((config.check_m_bounds(), config.check_n_bounds())) {
+        match comptime!((
+            config.check_row_bounds(Ident::Out),
+            config.check_col_bounds(Ident::Out)
+        )) {
             (true, true) => {
                 if view_x < self.shape_x && view_y < self.shape_y {
                     self.write(write_position, Line::cast_from(value));
@@ -212,4 +293,10 @@ impl<EG: Numeric> TensorWriter<EG> {
     fn write(&mut self, position: u32, value: Line<EG>) {
         self.tensor.write(position, value)
     }
+}
+
+#[cube]
+/// Gives the largest slice starting at offset and not exceeding shape
+fn slice_length_clamp(shape: u32, offset: u32, max_length: u32) -> u32 {
+    Min::min(select(shape > offset, shape - offset, 0), max_length)
 }

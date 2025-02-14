@@ -33,6 +33,10 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn read(&self, index: u32) -> Line<E> {
         unexpanded!();
     }
+    /// TODO
+    pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
+        unexpanded!();
+    }
     /// Get the shape of the tensor at the given axis.
     pub fn shape(&self, axis: u32) -> u32 {
         unexpanded!();
@@ -51,6 +55,14 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
         index: <u32 as CubeType>::ExpandType,
     ) -> <Line<E> as CubeType>::ExpandType {
         this.__expand_read_method(scope, index)
+    }
+    pub fn __expand_as_slice(
+        context: &mut Scope,
+        this: <Self as CubeType>::ExpandType,
+        start: <u32 as CubeType>::ExpandType,
+        end: <u32 as CubeType>::ExpandType,
+    ) -> <Slice<Line<E>> as CubeType>::ExpandType {
+        this.__expand_as_slice_method(context, start, end)
     }
     pub fn __expand_shape(
         scope: &mut Scope,
@@ -85,6 +97,16 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
         self.state
             .clone()
             .__expand_read_method(scope, _arg_0.into())
+    }
+    pub fn __expand_as_slice_method(
+        self,
+        context: &mut Scope,
+        start: <u32 as CubeType>::ExpandType,
+        end: <u32 as CubeType>::ExpandType,
+    ) -> <Slice<Line<E>> as CubeType>::ExpandType {
+        self.state
+            .clone()
+            .__expand_read_window_method(context, start, end)
     }
 
     pub fn __expand_shape_method(
@@ -265,6 +287,12 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Line<E>>;
+    fn __expand_read_window_method(
+        &self,
+        context: &mut Scope,
+        start: ExpandElementTyped<u32>,
+        end: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<Slice<Line<E>>>;
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
@@ -317,6 +345,14 @@ mod __tensor {
             index: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<Line<E>> {
             self.clone().__expand_index_unchecked_method(scope, index)
+        }
+        fn __expand_read_window_method(
+            &self,
+            context: &mut Scope,
+            start: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
+        ) -> ExpandElementTyped<Slice<Line<E>>> {
+            self.clone().__expand_slice_method(context, start, end)
         }
 
         fn __expand_write_method(

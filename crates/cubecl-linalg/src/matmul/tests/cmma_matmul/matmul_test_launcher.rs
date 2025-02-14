@@ -88,11 +88,15 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
-    if A::check_availability::<R, (P::EG, P::ES, f32)>(&client, &config).is_err() {
-        // Can't execute the test.
-        println!("Skipped - not supported!");
-        client.flush();
-        return;
+    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32)>(&client, &config) {
+        let msg = format!("Skipped - not supported: {:?}", err);
+        if panic_on_launch_err {
+            panic!("{msg}")
+        } else {
+            println!("{msg}");
+            client.flush();
+            return;
+        }
     }
 
     unsafe {

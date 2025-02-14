@@ -2,7 +2,7 @@ use crate::matmul::kernels::MatmulInvalidProblem;
 
 use super::{batch, MatrixLayout};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
 pub struct MatmulProblem {
     pub m: usize,
