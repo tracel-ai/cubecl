@@ -1,3 +1,4 @@
+use crate::DeviceId;
 use crate::{codegen::Compiler, compute::CubeTask, ir::Elem};
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
@@ -16,6 +17,9 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
     type Device: Default + Clone + core::fmt::Debug + Send + Sync;
+
+    /// Fetch the id for the given device.
+    fn device_id(device: &Self::Device) -> DeviceId;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
