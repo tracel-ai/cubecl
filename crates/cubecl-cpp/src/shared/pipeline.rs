@@ -57,10 +57,7 @@ cooperative_groups::memcpy_async({pipeline}_block, {destination}, {source}, {sou
                 "
                 )
             }
-            PipelineOps::Init {
-                pipeline,
-                num_stages,
-            } => {
+            PipelineOps::Init { pipeline, .. } => {
                 write!(
                     f,
                     "
@@ -68,14 +65,14 @@ auto {pipeline}_block = cooperative_groups::this_thread();
                 "
                 )
             }
-            PipelineOps::ProducerAcquire { pipeline } => {
+            PipelineOps::ProducerAcquire { .. } => {
                 write!(
                     f,
                     "
                 "
                 )
             }
-            PipelineOps::ProducerCommit { pipeline } => {
+            PipelineOps::ProducerCommit { .. } => {
                 write!(
                     f,
                     "
@@ -90,7 +87,7 @@ cooperative_groups::wait({pipeline}_block);
             "
                 )
             }
-            PipelineOps::ConsumerRelease { pipeline } => {
+            PipelineOps::ConsumerRelease { .. } => {
                 write!(
                     f,
                     "
