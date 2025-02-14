@@ -11,3 +11,5 @@
   - [Hardware Features](./core-features/features.md)
 - [Language Support](./language-support/summary.md)
   - [Trait Support](./language-support/trait.md)
+- [Algorithm reference](./algorithms/summary.md)
+  - [Quantized matrix multiplication](./algorithms/quantized_matmul.md)
