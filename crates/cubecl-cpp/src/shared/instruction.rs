@@ -4,7 +4,7 @@ use super::{
     binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem, Item, Variable,
     WarpInstruction, WmmaInstruction,
 };
-use std::{fmt::Display, marker::PhantomData};
+use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -198,6 +198,10 @@ pub enum Instruction<D: Dialect> {
         content: String,
     },
     Pipeline(PipelineOps<D>),
+    Line {
+        file: Cow<'static, str>,
+        line: u32,
+    },
 }
 
 impl<D: Dialect> Display for Instruction<D> {
@@ -623,6 +627,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
+            Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
         }
     }
 }

@@ -13,6 +13,10 @@ use crate::{
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operation(&mut self, inst: Instruction) {
+        // Setting source loc for non-semantic ops is pointless, they don't show up in a profiler/debugger.
+        if !matches!(inst.operation, Operation::NonSemantic(_)) {
+            self.set_source_loc(&inst.source_loc);
+        }
         let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {

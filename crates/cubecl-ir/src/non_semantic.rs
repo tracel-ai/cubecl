@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 
 use crate::TypeHash;
 
@@ -16,29 +16,20 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
 #[operation(opcode_name = NonSemanticOpCode)]
 pub enum NonSemantic {
-    Source {
-        name: String,
-        file_name: String,
-        line: u32,
-        col: u32,
-    },
-    BeginCall {
-        name: String,
-        line: u32,
-        col: u32,
-    },
-    EndCall,
-    Line {
-        line: u32,
-        col: u32,
-    },
+    /// Enter a new debug scope, this happens recursively when a cube function is called and
+    /// inlined into the kernel. Should push a new frame onto the debug call stack.
+    EnterDebugScope,
+    /// Exit a debug scope and resume execution at the previous stack frame.
+    ExitDebugScope,
+    /// Print a formatted string with arguments to the backend's debugging facilit
+    /// (i.e. validation layer). The syntax of the format string depends on the backend, but tends
+    /// to follow C++ convention.
     Print {
         format_string: String,
         args: Vec<Variable>,
     },
-    Comment {
-        content: String,
-    },
+    /// Insert a comment into the compiled source
+    Comment { content: String },
 }
 
 impl OperationReflect for NonSemantic {
@@ -59,10 +50,28 @@ impl Display for NonSemantic {
                 write!(f, "print({format_string}, {})", fmt_vararg(args))
             }
             NonSemantic::Comment { content } => write!(f, "//{content}"),
-            _ => {
-                // Debug info has no semantic meaning
-                Ok(())
-            }
+            // Scopes don't have meaning to the user
+            _ => Ok(()),
         }
     }
+}
+
+/// A Rust source location, including the file, line and column
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
+pub struct SourceLoc {
+    pub line: u32,
+    pub column: u32,
+    pub source: CubeFnSource,
+}
+
+/// A cube function's source
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
+pub struct CubeFnSource {
+    pub function_name: Cow<'static, str>,
+    pub file: Cow<'static, str>,
+    pub source_text: Cow<'static, str>,
+    pub line: u32,
+    pub column: u32,
 }

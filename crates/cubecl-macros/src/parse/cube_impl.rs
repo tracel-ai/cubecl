@@ -1,7 +1,7 @@
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     spanned::Spanned, visit_mut::VisitMut, GenericArgument, Generics, Ident, ImplItem, ItemImpl,
-    PathArguments, Token, Type, TypePath,
+    LitStr, PathArguments, Token, Type, TypePath,
 };
 
 use crate::{parse::kernel::KernelBody, scope::Context};
@@ -27,13 +27,18 @@ pub enum CubeImplItem {
 }
 
 impl CubeImplItem {
-    pub fn from_impl_item(struct_ty_name: &Type, item: ImplItem) -> syn::Result<Vec<Self>> {
+    pub fn from_impl_item(
+        struct_ty_name: &Type,
+        item: ImplItem,
+        src_file: Option<LitStr>,
+    ) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty_name::#name).to_string();
-                let mut func =
-                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name)?;
+                let mut func = KernelFn::from_sig_and_block(
+                    func.vis, func.sig, func.block, full_name, src_file,
+                )?;
                 let func_name_expand = format_ident!("__expand_{}", func.sig.name);
 
                 let is_method = func
@@ -132,6 +137,7 @@ impl CubeImplItem {
             full_name: func.full_name.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
+            src_file: func.src_file.clone(),
         }
     }
 
@@ -184,19 +190,20 @@ impl CubeImplItem {
             full_name: func.full_name.clone(),
             span: func.span,
             context: Context::new(func.context.return_type.clone()),
+            src_file: func.src_file.clone(),
         }
     }
 }
 
 impl CubeImpl {
-    pub fn from_item_impl(mut item_impl: ItemImpl) -> syn::Result<Self> {
+    pub fn from_item_impl(mut item_impl: ItemImpl, src_file: Option<LitStr>) -> syn::Result<Self> {
         let struct_name = *item_impl.self_ty.clone();
 
         let items = item_impl
             .items
             .iter()
             .cloned()
-            .map(|item| CubeImplItem::from_impl_item(&struct_name, item))
+            .map(|item| CubeImplItem::from_impl_item(&struct_name, item, src_file.clone()))
             .flat_map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
                     Ok(items) => items.into_iter().map(Ok).collect(),

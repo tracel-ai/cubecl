@@ -1,3 +1,5 @@
+#![cfg_attr(nightly, feature(proc_macro_span))]
+
 use core::panic;
 
 use darling::FromDeriveInput;
@@ -73,14 +75,14 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         }
         Item::Impl(item_impl) => {
             if item_impl.trait_.is_some() {
-                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl)?;
+                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl, args.src_file)?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {
                     #expand_impl
                 }))
             } else {
-                let mut expand_impl = CubeImpl::from_item_impl(item_impl)?;
+                let mut expand_impl = CubeImpl::from_item_impl(item_impl, args.src_file)?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {

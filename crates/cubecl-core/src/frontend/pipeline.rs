@@ -72,12 +72,13 @@ use std::marker::PhantomData;
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Instruction, Item, Operation, PipelineOps, Scope},
+    ir::{Item, PipelineOps, Scope},
     unexpanded,
 };
 
 use super::{
-    CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice, SliceMut,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice,
+    SliceMut,
 };
 
 /// A mechanism for managing a sequence of `memcpy_async`
@@ -100,6 +101,12 @@ impl<C: CubePrimitive> CubeType for Pipeline<C> {
 impl<C: CubePrimitive> Init for PipelineExpand<C> {
     fn init(self, _scope: &mut Scope) -> Self {
         self
+    }
+}
+
+impl<C: CubePrimitive> CubeDebug for PipelineExpand<C> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.elem, name);
     }
 }
 
@@ -204,38 +211,23 @@ impl<C: CubePrimitive> PipelineExpand<C> {
             destination,
         };
 
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(mem_copy),
-        });
+        scope.register(mem_copy);
     }
 
     pub fn __expand_producer_acquire_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ProducerAcquire { pipeline }),
-        });
+        scope.register(PipelineOps::ProducerAcquire { pipeline });
     }
     pub fn __expand_producer_commit_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ProducerCommit { pipeline }),
-        });
+        scope.register(PipelineOps::ProducerCommit { pipeline });
     }
     pub fn __expand_consumer_wait_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ConsumerWait { pipeline }),
-        });
+        scope.register(PipelineOps::ConsumerWait { pipeline });
     }
     pub fn __expand_consumer_release_method(&self, scope: &mut Scope) {
         let pipeline = *self.elem;
-        scope.register(Instruction {
-            out: None,
-            operation: Operation::Pipeline(PipelineOps::ConsumerRelease { pipeline }),
-        });
+        scope.register(PipelineOps::ConsumerRelease { pipeline });
     }
 }

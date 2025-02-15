@@ -358,7 +358,7 @@ impl WgslCompiler {
         }
 
         processing
-            .operations
+            .instructions
             .into_iter()
             .for_each(|op| self.compile_operation(&mut instructions, op.operation, op.out, scope));
 

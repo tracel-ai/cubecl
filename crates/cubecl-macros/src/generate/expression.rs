@@ -1,5 +1,5 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{spanned::Spanned, Member, PathArguments};
 
 use crate::{
@@ -182,11 +182,10 @@ impl Expression {
                 let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
-                let path_str = path.to_string();
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #path_str, line!(), column!(), |context| #path::expand #generics(context, #(#arg_names),*))
+                        #debug_call(context, line!(), column!(), |context| #path::expand #generics(context, #(#arg_names),*))
                     }
                 }
             }
@@ -213,12 +212,11 @@ impl Expression {
                 let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let mut name = func.clone();
-                let name_str = format!("{}::{}", ty_path.to_token_stream(), name.to_token_stream());
                 name.ident = format_ident!("__expand_{}", name.ident);
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #name_str, line!(), column!(), |context| #ty_path::#name(context, #(#arg_names),*))
+                        #debug_call(context, line!(), column!(), |context| #ty_path::#name(context, #(#arg_names),*))
                     }
                 }
             }
@@ -231,17 +229,15 @@ impl Expression {
                 ..
             } => {
                 let debug_call = frontend_type("debug_call_expand");
-                let method_str = method.to_string();
                 let method = format_ident!("__expand_{method}_method");
                 let receiver = receiver
                     .as_const(context)
                     .unwrap_or_else(|| receiver.to_tokens(context));
-                let call_str = format!("{receiver}.{method_str}");
                 let (args, arg_names) = map_args(args, context);
                 quote_spanned! {*span=>
                     {
                         #(#args)*
-                        #debug_call(context, #call_str, line!(), column!(), |context| #receiver.#method #generics(context, #(#arg_names),*))
+                        #debug_call(context, line!(), column!(), |context| #receiver.#method #generics(context, #(#arg_names),*))
                     }
                 }
             }

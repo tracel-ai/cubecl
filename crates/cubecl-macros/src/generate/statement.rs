@@ -9,9 +9,14 @@ impl Statement {
         match self {
             Statement::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
+                let debug_var = frontend_type("debug_var_expand");
                 let name = &variable.name;
                 let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = variable.is_mut.then(|| quote![mut]);
+                let is_const = init
+                    .as_ref()
+                    .map(|it| it.as_const(context).is_some())
+                    .unwrap_or(false);
                 let init = if is_mut {
                     if let Some(as_const) =
                         init.as_ref().and_then(|it| it.as_const_primitive(context))
@@ -52,7 +57,15 @@ impl Statement {
                     (_, init) => init,
                 };
 
-                if let Some(init) = init {
+                if let Some(mut init) = init {
+                    if is_mut || !is_const {
+                        let name_str = name.to_string();
+                        init = quote! {{
+                            let __init = #init;
+                            #debug_var(context, #name_str, __init)
+                        }};
+                    }
+
                     quote![let #mutable #name #ty = #init;]
                 } else {
                     quote![let #mutable #name #ty;]

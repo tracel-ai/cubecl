@@ -365,9 +365,9 @@ impl Optimizer {
             });
         }
 
-        let is_break = processed.operations.contains(&Branch::Break.into());
+        let is_break = processed.instructions.contains(&Branch::Break.into());
 
-        for mut instruction in processed.operations {
+        for mut instruction in processed.instructions {
             let mut removed = false;
             for transform in self.transformers.iter() {
                 match transform.maybe_transform(&mut scope, &instruction) {
