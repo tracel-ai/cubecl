@@ -47,7 +47,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         match ident {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
+            Ident::Out => self.smm_config.matrix_layout(Ident::Out),
         }
     }
 
@@ -80,7 +80,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
+        self.layout(ident) != self.smm_config.matrix_layout(ident)
     }
 
     fn load_mode(&self) -> LoadMode {

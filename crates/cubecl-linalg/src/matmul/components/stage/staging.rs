@@ -25,7 +25,7 @@ impl<ES: Numeric> Stage<ES> {
         Stage::<ES> { smem }
     }
 
-    /// Get the tile at position (x,y) regardless of layout, as a contiguous slice
+    /// Get the tile at position (x,y) regardless of matrix layout
     pub fn get_tile<S: StageConfig>(
         &self,
         x: u32,
@@ -33,21 +33,10 @@ impl<ES: Numeric> Stage<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        let tiling = config.tiling(ident);
-
-        let nth_tile = TilingLayout::to_nth_tile(
-            config.tiling_layout(ident),
-            x,
-            y,
-            tiling.tile_count_row(),
-            tiling.tile_count_col(),
-        );
-
-        let tile_stride = tiling.tile_size() / config.line_size(ident);
-        let start = nth_tile * tile_stride;
+        let (start, end) = TilingLayout::tile_bounds::<S>(x, y, ident, config);
 
         Tile::new_contiguous::<S::TmmConfig>(
-            self.smem.slice(start, start + tile_stride),
+            self.smem.slice(start, end),
             ident,
             config.to_tmm_config(),
         )

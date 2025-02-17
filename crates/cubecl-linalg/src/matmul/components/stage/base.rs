@@ -142,7 +142,7 @@ pub trait StageConfig: MatmulConfig {
     fn tiling(&self, ident: Ident) -> StageTiling;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;

@@ -31,7 +31,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tiling.get(ident)
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
         self.tmm_config.layout(ident)
     }
 
