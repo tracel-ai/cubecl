@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
-use crate::matmul::components::stage::{self, StageWriter, TilingOrderConfig};
+use crate::matmul::components::stage::{self, StageWriter, TilingOrder};
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
@@ -177,7 +177,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig;
+    fn tiling_order(&self, ident: Ident) -> TilingOrder;
 
     /// Whether to check if accessing a row would exceed bounds.
     fn check_row_bounds(&self, ident: Ident) -> bool;

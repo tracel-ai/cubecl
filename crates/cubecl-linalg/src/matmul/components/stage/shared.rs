@@ -3,7 +3,7 @@ use crate::matmul::components::{
     MatrixLayout, StageTiling,
 };
 
-use super::{StageConfig, TilingOrderConfig};
+use super::{StageConfig, TilingOrder};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
@@ -11,8 +11,8 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
     pub tiling: CompleteStageTiling,
     pub num_planes: u32,
-    pub lhs_tiling_order: TilingOrderConfig,
-    pub rhs_tiling_order: TilingOrderConfig,
+    pub lhs_tiling_order: TilingOrder,
+    pub rhs_tiling_order: TilingOrder,
     pub quantized: bool,
 }
 
@@ -43,7 +43,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.plane_dim()
     }
 
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+    fn tiling_order(&self, ident: Ident) -> TilingOrder {
         match ident.as_input() {
             InputIdent::Lhs => self.lhs_tiling_order,
             InputIdent::Rhs => self.rhs_tiling_order,
@@ -63,8 +63,8 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tmm_config: T,
         tiling: CompleteStageTiling,
         num_planes: u32,
-        lhs_tiling_order: TilingOrderConfig,
-        rhs_tiling_order: TilingOrderConfig,
+        lhs_tiling_order: TilingOrder,
+        rhs_tiling_order: TilingOrder,
         quantized: bool,
     ) -> Self {
         Self {

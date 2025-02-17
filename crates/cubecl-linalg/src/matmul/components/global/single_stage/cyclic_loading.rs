@@ -1,8 +1,6 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
-use crate::matmul::components::stage::{
-    ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
-};
+use crate::matmul::components::stage::TilingOrder;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -88,18 +86,12 @@ impl LoadingStrategy for CyclicLoading {
             let slice_index = unit_id + total_units * i;
 
             let nth_tile = slice_index / num_slices_per_tile;
-            let (tile_x, tile_y) = match config.tiling_order(ident) {
-                TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
-                    nth_tile,
-                    stage_dim.tile_count_row(),
-                    stage_dim.tile_count_col(),
-                ),
-                TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
-                    nth_tile,
-                    stage_dim.tile_count_row(),
-                    stage_dim.tile_count_col(),
-                ),
-            };
+            let (tile_x, tile_y) = TilingOrder::to_x_y(
+                config.tiling_order(ident),
+                nth_tile,
+                stage_dim.tile_count_row(),
+                stage_dim.tile_count_col(),
+            );
             let nth_slice = slice_index % num_slices_per_tile;
 
             // TODO make branching comptime conditional
@@ -147,18 +139,12 @@ impl LoadingStrategy for CyclicLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = match config.tiling_order(ident) {
-                TilingOrderConfig::RowMajor => RowMajorTiling::to_x_y(
-                    nth_tile,
-                    tiling.tile_count_row(),
-                    tiling.tile_count_col(),
-                ),
-                TilingOrderConfig::ColMajor => ColMajorTiling::to_x_y(
-                    nth_tile,
-                    tiling.tile_count_row(),
-                    tiling.tile_count_col(),
-                ),
-            };
+            let (tile_x, tile_y) = TilingOrder::to_x_y(
+                config.tiling_order(ident),
+                nth_tile,
+                tiling.tile_count_row(),
+                tiling.tile_count_col(),
+            );
 
             let line_read =
                 read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);

@@ -4,9 +4,9 @@ use crate::matmul::components::MatrixLayout;
 /// Configs that may impact performance
 pub struct AdvancedConfig {
     /// Order in which tiles should be in lhs shared memory
-    pub lhs_tiling_order: stage::TilingOrderConfig,
+    pub lhs_tiling_order: stage::TilingOrder,
     /// Order in which tiles should be in rhs shared memory
-    pub rhs_tiling_order: stage::TilingOrderConfig,
+    pub rhs_tiling_order: stage::TilingOrder,
     /// Ensure the inputs to tile matmul are in specified layout
     ///
     /// # Notes
@@ -22,8 +22,8 @@ pub struct AdvancedConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            lhs_tiling_order: stage::TilingOrderConfig::RowMajor,
-            rhs_tiling_order: stage::TilingOrderConfig::RowMajor,
+            lhs_tiling_order: stage::TilingOrder::RowMajor,
+            rhs_tiling_order: stage::TilingOrder::RowMajor,
             enforced_tile_layout: (None, None),
         }
     }

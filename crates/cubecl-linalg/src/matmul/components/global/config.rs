@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    stage::{self, TilingOrderConfig},
+    stage::{self, TilingOrder},
     Ident, MatmulConfig, MatrixLayout, StageTiling,
 };
 
@@ -66,7 +66,7 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.plane_dim()
     }
 
-    fn tiling_order(&self, ident: Ident) -> TilingOrderConfig {
+    fn tiling_order(&self, ident: Ident) -> TilingOrder {
         self.smm_config.tiling_order(ident)
     }
 

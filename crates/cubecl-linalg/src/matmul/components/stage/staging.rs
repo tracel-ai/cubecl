@@ -1,6 +1,3 @@
-use crate::matmul::components::stage::tiling_order::{
-    ColMajorTiling, RowMajorTiling, TilingOrderConfig,
-};
 use crate::matmul::components::stage::{StageConfig, TilingOrder};
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
@@ -37,14 +34,13 @@ impl<ES: Numeric> Stage<ES> {
     ) -> Slice<Line<ES>> {
         let tiling = config.tiling(ident);
 
-        let nth_tile = match config.tiling_order(ident) {
-            TilingOrderConfig::RowMajor => {
-                RowMajorTiling::to_nth_tile(x, y, tiling.tile_count_row(), tiling.tile_count_col())
-            }
-            TilingOrderConfig::ColMajor => {
-                ColMajorTiling::to_nth_tile(x, y, tiling.tile_count_row(), tiling.tile_count_col())
-            }
-        };
+        let nth_tile = TilingOrder::to_nth_tile(
+            config.tiling_order(ident),
+            x,
+            y,
+            tiling.tile_count_row(),
+            tiling.tile_count_col(),
+        );
 
         let tile_stride = tiling.tile_size() / config.line_size(ident);
         let start = nth_tile * tile_stride;

@@ -6,7 +6,7 @@ use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoadin
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::InputLoader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::TilingOrderConfig;
+use crate::matmul::components::stage::TilingOrder;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
@@ -193,12 +193,12 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
 fn check_buffers_contiguous<G: global::GlobalConfig>(ident: Ident, config: G) {
     match ident.as_input() {
         InputIdent::Lhs => {
-            if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
+            if let TilingOrder::RowMajor = config.tiling_order(ident) {
                 panic!("Lhs must have ColMajor tiling order in producer consumer setting")
             }
         }
         InputIdent::Rhs => {
-            if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
+            if let TilingOrder::ColMajor = config.tiling_order(ident) {
                 panic!("Rhs must have RowMajor tiling order in producer consumer setting")
             }
         }
