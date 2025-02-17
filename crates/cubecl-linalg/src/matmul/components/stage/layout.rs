@@ -29,32 +29,19 @@ pub enum TilingOrder {
 #[cube]
 impl TilingLayout {
     /// Converts a tile index in the stage to its (x,y) position
-    pub fn to_x_y(#[comptime] this: TilingLayout, nth: u32, num_x: u32, num_y: u32) -> (u32, u32) {
-        match comptime!(this) {
-            TilingLayout::Contiguous(tiling_order) => match comptime!(tiling_order) {
-                TilingOrder::RowMajor => (nth / num_y, nth % num_y),
-                TilingOrder::ColMajor => (nth % num_x, nth / num_x),
-            },
-            TilingLayout::Strided => todo!(),
-        }
-    }
-
-    /// Converts an (x,y) position to its tile index in the stage
-    pub fn to_nth_tile<S: StageConfig>(
-        x: u32,
-        y: u32,
+    pub fn to_x_y<S: StageConfig>(
+        nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> u32 {
+    ) -> (u32, u32) {
         let stage_tiling = config.tiling(ident);
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
-        let tiling_layout = config.tiling_layout(ident);
 
-        match comptime!(tiling_layout) {
+        match comptime!(config.tiling_layout(ident)) {
             TilingLayout::Contiguous(tiling_order) => match comptime!(tiling_order) {
-                TilingOrder::RowMajor => x * num_y + y,
-                TilingOrder::ColMajor => y * num_x + x,
+                TilingOrder::RowMajor => (nth / num_y, nth % num_y),
+                TilingOrder::ColMajor => (nth % num_x, nth / num_x),
             },
             TilingLayout::Strided => todo!(),
         }
