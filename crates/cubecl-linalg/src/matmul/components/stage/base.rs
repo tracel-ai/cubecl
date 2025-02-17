@@ -7,7 +7,7 @@ use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulSize, StageTiling};
 
-use super::TilingOrder;
+use super::TilingLayout;
 
 pub trait ReaderFamily {
     type Reader<I: Numeric>: CubeType;
@@ -151,7 +151,7 @@ pub trait StageConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_order(&self, ident: Ident) -> TilingOrder;
+    fn tiling_layout(&self, ident: Ident) -> TilingLayout;
 
     fn tile_count(&self) -> &MatmulSize;
 }

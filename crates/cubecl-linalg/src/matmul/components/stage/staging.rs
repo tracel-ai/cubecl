@@ -1,4 +1,4 @@
-use crate::matmul::components::stage::{StageConfig, TilingOrder};
+use crate::matmul::components::stage::{StageConfig, TilingLayout};
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -34,8 +34,8 @@ impl<ES: Numeric> Stage<ES> {
     ) -> Slice<Line<ES>> {
         let tiling = config.tiling(ident);
 
-        let nth_tile = TilingOrder::to_nth_tile(
-            config.tiling_order(ident),
+        let nth_tile = TilingLayout::to_nth_tile(
+            config.tiling_layout(ident),
             x,
             y,
             tiling.tile_count_row(),
