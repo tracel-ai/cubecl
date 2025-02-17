@@ -371,12 +371,12 @@ impl MatmulConfigFactory for PlaneMma {
         advanced_config: &AdvancedConfig,
         _quantized: bool,
     ) -> Self::Config {
-        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_tile_layout.0 {
+        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_matrix_layout.0 {
             Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
             _ => (problem.lhs_layout, problem.lhs_line_size),
         };
 
-        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_tile_layout.1 {
+        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_matrix_layout.1 {
             Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
             _ => (problem.rhs_layout, problem.rhs_line_size),
         };

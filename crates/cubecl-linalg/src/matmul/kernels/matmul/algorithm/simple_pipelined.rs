@@ -45,9 +45,9 @@ where
 
     fn advanced_config() -> crate::matmul::kernels::matmul::AdvancedConfig {
         crate::matmul::kernels::matmul::AdvancedConfig {
-            lhs_tiling_order: stage::TilingOrderConfig::ColMajor,
-            rhs_tiling_order: stage::TilingOrderConfig::RowMajor,
-            enforced_tile_layout: (None, None),
+            lhs_tiling_layout: stage::TilingLayout::Contiguous(stage::TilingOrder::ColMajor),
+            rhs_tiling_layout: stage::TilingLayout::Contiguous(stage::TilingOrder::RowMajor),
+            enforced_matrix_layout: (None, None),
         }
     }
 }

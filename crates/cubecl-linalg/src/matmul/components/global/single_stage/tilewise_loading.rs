@@ -1,8 +1,6 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
-use crate::matmul::components::stage::{
-    ColMajorTiling, RowMajorTiling, TilingOrder, TilingOrderConfig,
-};
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -82,14 +80,12 @@ impl LoadingStrategy for TilewiseLoading {
 
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
-        let (tile_x, tile_y) = match config.tiling_order(ident) {
-            TilingOrderConfig::RowMajor => {
-                RowMajorTiling::to_x_y(nth_tile, tiling.tile_count_row(), tiling.tile_count_col())
-            }
-            TilingOrderConfig::ColMajor => {
-                ColMajorTiling::to_x_y(nth_tile, tiling.tile_count_row(), tiling.tile_count_col())
-            }
-        };
+        let (tile_x, tile_y) = TilingLayout::to_x_y(
+            config.tiling_layout(ident),
+            nth_tile,
+            tiling.tile_count_row(),
+            tiling.tile_count_col(),
+        );
 
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;

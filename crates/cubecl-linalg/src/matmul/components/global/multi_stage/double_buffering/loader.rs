@@ -6,8 +6,8 @@ use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoadin
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::TilingOrderConfig;
 use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{TilingLayout, TilingOrder};
 use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
@@ -182,14 +182,14 @@ pub fn check_buffers_contiguous<G: global::GlobalConfig>(
 ) -> Result<(), InvalidConfigError> {
     match ident.as_input() {
         InputIdent::Lhs => {
-            if let TilingOrderConfig::RowMajor = config.tiling_order(ident) {
+            if let TilingLayout::Contiguous(TilingOrder::RowMajor) = config.tiling_layout(ident) {
                 return Err(Box::new(
                     "Lhs must have ColMajor tiling order in pipelined setting",
                 ));
             }
         }
         InputIdent::Rhs => {
-            if let TilingOrderConfig::ColMajor = config.tiling_order(ident) {
+            if let TilingLayout::Contiguous(TilingOrder::ColMajor) = config.tiling_layout(ident) {
                 return Err(Box::new(
                     "Rhs must have RowMajor tiling order in pipelined setting",
                 ));
