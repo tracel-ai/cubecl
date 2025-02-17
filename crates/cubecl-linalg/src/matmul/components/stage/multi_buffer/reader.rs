@@ -1,6 +1,7 @@
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
+use crate::matmul::components::tile::Tile;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
@@ -36,7 +37,7 @@ impl<ES: Numeric> LhsReader<ES> {
         compute_plane_offset: u32,
         buffer_offset: u32,
         #[comptime] config: CommonStageConfig<T>,
-    ) -> Slice<Line<ES>> {
+    ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<T>>(
             compute_plane_offset,
             buffer_offset,
@@ -53,7 +54,7 @@ impl<ES: Numeric> RhsReader<ES> {
         buffer_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: CommonStageConfig<T>,
-    ) -> Slice<Line<ES>> {
+    ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<T>>(
             buffer_offset,
             accumulator_offset,

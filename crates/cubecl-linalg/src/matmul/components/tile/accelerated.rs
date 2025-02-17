@@ -10,6 +10,8 @@ use cubecl_core::ir::{Elem, FloatKind};
 use cubecl_core::{self as cubecl, Feature};
 use cubecl_core::{cmma, prelude::*};
 
+use super::Tile;
+
 pub struct Accelerated;
 
 impl TileMatmulFamily for Accelerated {
@@ -68,26 +70,12 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         }
     }
 
-    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        cmma::load(
-            lhs,
-            slice,
-            match config.layout(Ident::Lhs) {
-                MatrixLayout::RowMajor => config.size.k,
-                MatrixLayout::ColMajor => config.size.m,
-            },
-        );
+    fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] _config: Config) {
+        cmma::load(lhs, &tile.slice, tile.stride);
     }
 
-    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        cmma::load(
-            rhs,
-            slice,
-            match config.layout(Ident::Rhs) {
-                MatrixLayout::RowMajor => config.size.n,
-                MatrixLayout::ColMajor => config.size.k,
-            },
-        );
+    fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] _config: Config) {
+        cmma::load(rhs, &tile.slice, tile.stride);
     }
 
     fn fill_accumulator(

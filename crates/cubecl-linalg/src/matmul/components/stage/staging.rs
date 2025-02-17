@@ -1,4 +1,5 @@
 use crate::matmul::components::stage::{StageConfig, TilingLayout};
+use crate::matmul::components::tile::Tile;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -31,7 +32,7 @@ impl<ES: Numeric> Stage<ES> {
         y: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> Slice<Line<ES>> {
+    ) -> Tile<ES> {
         let tiling = config.tiling(ident);
 
         let nth_tile = TilingLayout::to_nth_tile(
@@ -45,7 +46,11 @@ impl<ES: Numeric> Stage<ES> {
         let tile_stride = tiling.tile_size() / config.line_size(ident);
         let start = nth_tile * tile_stride;
 
-        self.smem.slice(start, start + tile_stride)
+        Tile::new_contiguous::<S::TmmConfig>(
+            self.smem.slice(start, start + tile_stride),
+            ident,
+            config.to_tmm_config(),
+        )
     }
 
     /// Return the whole stage as a mutable slice, for loading

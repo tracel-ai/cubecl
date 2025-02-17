@@ -9,6 +9,8 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use tile::{TileConfig, TileMatmul, TileMatmulFamily};
 
+use super::Tile;
+
 /// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
 ///
 /// # Note
@@ -79,10 +81,10 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         Array::new(config.size.k * config.size.n / config.plane_dim())
     }
 
-    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+    fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         match config.layout(Ident::Lhs) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
-                slice,
+                &tile.slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
                 config.size.m,
@@ -91,7 +93,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
                 config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
-                slice,
+                &tile.slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
                 config.size.m,
@@ -102,10 +104,10 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+    fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
-                slice,
+                &tile.slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
                 config.size.n,
@@ -114,7 +116,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
                 config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_parallel_rhs(
-                slice,
+                &tile.slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
                 config.size.n,
