@@ -19,11 +19,18 @@ use crate::{
     tensor::TensorHandle,
 };
 
+pub struct QuantizationParams<N: Numeric> {
+    pub scaling: Vec<N>, // This is the bit cast of an f32 into the appropriate numbers of N.
+    pub zero_offset: N,
+}
+
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
     type ES: Numeric + CubeElement + Display + CastInto<Self::EA>;
     type EA: Numeric + CubeElement + Display + CastInto<Self::EG>;
     const QUANTIZED: bool;
+
+    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
 
     fn assert_result<R: Runtime>(
         lhs: &[Self::EG],
@@ -51,6 +58,10 @@ where
     type ES = ES;
     type EA = f32;
     const QUANTIZED: bool = false;
+
+    fn quantization_params(_: Ident) -> Option<QuantizationParams<Self::EG>> {
+        None
+    }
 
     fn assert_result<R: Runtime>(
         lhs: &[EG],
@@ -137,6 +148,25 @@ impl TestPrecision for Q8 {
 
     const QUANTIZED: bool = true;
 
+    fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>> {
+        // These are somewhat arbitrary values. I try to use f32 that are exactly representable
+        // to avoid some rounding issues.
+        Some(match ident {
+            Ident::Lhs => QuantizationParams {
+                scaling: f32::to_be_bytes(0.6).to_vec(),
+                zero_offset: 15,
+            },
+            Ident::Rhs => QuantizationParams {
+                scaling: f32::to_be_bytes(0.1).to_vec(),
+                zero_offset: 20,
+            },
+            Ident::Out => QuantizationParams {
+                scaling: f32::to_be_bytes(0.4).to_vec(),
+                zero_offset: 50,
+            },
+        })
+    }
+
     fn assert_result<R: Runtime>(
         lhs: &[u8],
         rhs: &[u8],
@@ -144,13 +174,27 @@ impl TestPrecision for Q8 {
         client: &ComputeClient<R::Server, R::Channel>,
         out: Handle,
     ) {
-        let expected = matmul_cpu_reference_quantized(lhs, rhs, 1, 1, problem) // TODO: Use different zero_offsets != 1.
-            .into_iter()
-            .map(|x| x.cast_into()) // TODO: Improve with different conversions.
-            .collect::<Vec<u8>>();
-        let actual = client.read_one(out.binding());
-        let actual = u8::from_bytes(&actual);
-        assert_eq!(actual, expected);
+        let out = client.read_one(out.binding());
+        let out = u8::from_bytes(&out);
+
+        let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
+        let (rhs_scaling, rhs_offset) = read_quantized_metadata(rhs);
+        let (out_scaling, out_offset) = read_quantized_metadata(out);
+
+        // TODO Move to some better place and wrap into a function.
+        let scaling_factor = (lhs_scaling * rhs_scaling) / out_scaling;
+        let approx_scaling = ApproxScaling::from_f32(scaling_factor);
+
+        let expected = matmul_cpu_reference_quantized(
+            lhs,
+            rhs,
+            problem,
+            lhs_offset,
+            rhs_offset,
+            out_offset,
+            approx_scaling,
+        );
+        assert_eq!(out, expected);
     }
 
     fn should_run<A: Algorithm<Selection = MatmulSelection>>(
@@ -158,6 +202,54 @@ impl TestPrecision for Q8 {
     ) -> bool {
         false
     }
+}
+
+struct ApproxScaling {
+    multiplier: i64,
+    rounding: i64,
+    shift: u32,
+}
+
+impl ApproxScaling {
+    fn from_f32(x: f32) -> Self {
+        let log = x.log2().ceil() as i32;
+        let multiplier = (x * 2.0_f32.powi(31 - log)).round() as i64;
+        let rounding: i64 = 1 << (30 - log as i64);
+        let shift = (31 - log) as u32;
+        Self {
+            multiplier,
+            rounding,
+            shift,
+        }
+    }
+
+    fn scale(&self, x: i32) -> i32 {
+        if self.multiplier == i32::MIN as i64 && x == i32::MIN {
+            return i32::MAX; // sature on overflow. (while multiplier is in the range of an i32 even if it is a i64)
+        }
+        let prod = (x as i64) * self.multiplier;
+        let prod_with_rounding = prod + self.rounding;
+        (prod_with_rounding >> self.shift) as i32
+    }
+}
+
+fn read_quantized_metadata(data: &[u8]) -> (f32, i32) {
+    let start = data.len() - 8;
+    let scaling = f32::from_be_bytes([
+        data[start],
+        data[start + 1],
+        data[start + 2],
+        data[start + 3],
+    ]);
+
+    let start = data.len() - 4;
+    let offset = i32::from_be_bytes([
+        data[start],
+        data[start + 1],
+        data[start + 2],
+        data[start + 3],
+    ]);
+    (scaling, offset)
 }
 
 pub trait CastInto<E> {
@@ -351,13 +443,15 @@ where
     out
 }
 
-pub(crate) fn matmul_cpu_reference_quantized(
+fn matmul_cpu_reference_quantized(
     lhs: &[u8],
     rhs: &[u8],
+    problem: &MatmulProblem,
     lhs_zero_offset: i32,
     rhs_zero_offset: i32,
-    problem: &MatmulProblem,
-) -> Vec<i32>
+    out_zero_offset: i32,
+    approx_scaling: ApproxScaling,
+) -> Vec<u8>
 where
 {
     let m = problem.m;
@@ -387,48 +481,26 @@ where
         // Perform matmul
         for row in 0..m {
             for col in 0..n {
+                let mut elem = 0;
                 for middle in 0..k {
                     let lhs_index = row * k + middle;
                     let rhs_index = middle * n + col;
-                    let out_index = row * n + col;
 
-                    let l = lhs[batch_lhs + lhs_index] as u16;
-                    let r = rhs[batch_rhs + rhs_index] as u16;
+                    let l = lhs[batch_lhs + lhs_index] as i32 - lhs_zero_offset;
+                    let r = rhs[batch_rhs + rhs_index] as i32 - rhs_zero_offset;
                     let prod = l * r;
-
-                    out[batch_out + out_index] += prod as i32;
+                    elem += prod;
                 }
-            }
-        }
-
-        // Substract rhs_zero_offset * sum_rows(lhs)
-        for row in 0..m {
-            let mut sum = 0;
-            for col in 0..k {
-                sum += lhs[batch_lhs + row * k + col] as i32;
-            }
-            sum *= rhs_zero_offset;
-            for col in 0..n {
-                out[batch_out + row * n + col] -= sum;
-            }
-        }
-
-        // Substract lhs_zero_offset * sum_cols(rhs)
-        for col in 0..n {
-            let mut sum = 0;
-            for row in 0..k {
-                sum += rhs[batch_lhs + row * n + col] as i32;
-            }
-            sum *= lhs_zero_offset;
-            for row in 0..m {
-                out[batch_out + row * n + col] -= sum;
-            }
-        }
-
-        // Add final constant term
-        for row in 0..m {
-            for col in 0..n {
-                out[batch_out + row * n + col] += (k as i32) * lhs_zero_offset * rhs_zero_offset;
+                elem = approx_scaling.scale(elem);
+                elem += out_zero_offset;
+                let out_index = row * n + col;
+                out[batch_out + out_index] = if elem < 0 {
+                    0
+                } else if elem > 255 {
+                    255
+                } else {
+                    elem as u8
+                };
             }
         }
     }
