@@ -1,7 +1,8 @@
 // pub mod binary;
 // pub mod unary;
 
-// mod base;
+mod base;
+
 // mod body;
 // mod element;
 // mod instruction;
@@ -9,7 +10,7 @@
 // mod mma;
 mod warp;
 
-// pub use base::*;
+pub use base::*;
 // pub use body::*;
 // pub use element::*;
 // pub use instruction::*;

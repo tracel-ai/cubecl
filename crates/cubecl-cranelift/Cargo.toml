@@ -38,7 +38,7 @@ derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
-web_time = { workspace = true }
+web-time = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [

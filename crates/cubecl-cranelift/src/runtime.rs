@@ -1,19 +1,10 @@
 use std::mem::MaybeUninit;
 
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    Feature, FeatureSet, Properties, Runtime,
-};
-use cubecl_runtime::{
-    channel::MutexComputeChannel,
-    client::ComputeClient,
-    memory_management::dynamic::{DynamicMemoryManagement, DynamicMemoryManagementOptions},
-    ComputeRuntime,
-};
+use cubecl_runtime::{channel::MutexComputeChannel, client::ComputeClient, ComputeRuntime};
 
 use crate::{
     compiler::CraneLiftCompiler,
-    compute::{CraneLiftContext, CraneLiftServer, CraneLiftStorage},
+    compute::{CraneLiftContext, CraneLiftStorage, CraneliftServer},
     device::CraneLiftDevice,
 };
 
