@@ -5,7 +5,7 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulSize, StageTiling};
+use crate::matmul::components::{MatmulSize, TilingDimensions};
 
 use super::TilingLayout;
 
@@ -139,7 +139,7 @@ pub trait StageConfig: MatmulConfig {
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageTiling] for the given ident
-    fn tiling(&self, ident: Ident) -> StageTiling;
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout;

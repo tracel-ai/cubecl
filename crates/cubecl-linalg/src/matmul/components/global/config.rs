@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatrixLayout, StageTiling,
+    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
 /// Whether each unit loads a line side by side (coalesced)
@@ -46,8 +46,8 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.smm_config.tiling(ident)
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        self.smm_config.tiling_dimensions(ident)
     }
 
     fn layout(&self, ident: Ident) -> MatrixLayout {

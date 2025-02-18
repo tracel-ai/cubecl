@@ -63,7 +63,7 @@ where
         BufferLoading::check::<Self::Config>(config, Ident::Lhs)?;
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
 
-        if config.stage_tiling(Ident::Lhs).tile_count_col() != 2 {
+        if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
         }
 
@@ -149,7 +149,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
-        let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;

@@ -6,7 +6,7 @@ use crate::matmul::components::stage::{self, StageWriter, TilingLayout};
 use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
-use crate::matmul::components::{MatmulPrecision, StageTiling};
+use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use super::LoadMode;
@@ -165,7 +165,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn stage_line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageTiling] for the given ident
-    fn stage_tiling(&self, ident: Ident) -> StageTiling;
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
     fn layout(&self, ident: Ident) -> MatrixLayout;

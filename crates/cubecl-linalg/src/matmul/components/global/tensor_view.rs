@@ -98,7 +98,7 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(ident);
-        let stage_tiling = config.stage_tiling(ident);
+        let stage_tiling = config.tiling_dimensions(ident);
         let tile_size_x = stage_tiling.tile_shape_row();
         let tile_size_y = stage_tiling.tile_shape_col();
         let tile_lines_x = tile_size_x / line_size;
@@ -176,8 +176,8 @@ impl<EG: Numeric> TensorReader<EG> {
         #[comptime] config: G,
     ) -> Line<EG> {
         let line_size = config.global_line_size(ident);
-        let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
-        let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
+        let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
+        let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
 
         let view_tile_x = tile_x * tile_shape_x + self.x_offset;
         let view_tile_y = tile_y * tile_shape_y + self.y_offset;
@@ -255,7 +255,7 @@ impl<EG: Numeric> TensorWriter<EG> {
         value: Line<ES>,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(Ident::Out);
+        let tiling = config.tiling_dimensions(Ident::Out);
 
         let view_x =
             tile_x * tiling.tile_shape_row() + unit_id / tiling.tile_shape_col() + self.x_offset;

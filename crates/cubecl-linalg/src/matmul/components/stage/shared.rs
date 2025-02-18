@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     tile::TileConfig, CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulSize,
-    MatrixLayout, StageTiling,
+    MatrixLayout, TilingDimensions,
 };
 
 use super::{StageConfig, TilingLayout};
@@ -27,7 +27,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn tiling(&self, ident: Ident) -> StageTiling {
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
         self.tiling.get(ident)
     }
 

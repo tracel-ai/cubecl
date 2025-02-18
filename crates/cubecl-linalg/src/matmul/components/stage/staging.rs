@@ -18,7 +18,7 @@ impl<ES: Numeric> Stage<ES> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
-            comptime!(config.tiling(ident).total_size() / line_size),
+            comptime!(config.tiling_dimensions(ident).total_size() / line_size),
             line_size,
         );
 
@@ -33,13 +33,7 @@ impl<ES: Numeric> Stage<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        let (start, end) = TilingLayout::tile_bounds::<S>(x, y, ident, config);
-
-        Tile::new_contiguous::<S::TmmConfig>(
-            self.smem.slice(start, end),
-            ident,
-            config.to_tmm_config(),
-        )
+        TilingLayout::get_tile::<ES, S>(self.smem.to_slice(), x, y, ident, config)
     }
 
     /// Return the whole stage as a mutable slice, for loading

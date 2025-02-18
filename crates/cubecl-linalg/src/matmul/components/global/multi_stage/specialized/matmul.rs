@@ -53,7 +53,7 @@ where
         if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }
-        if config.stage_tiling(Ident::Lhs).tile_count_col() <= 1 {
+        if config.tiling_dimensions(Ident::Lhs).tile_count_col() <= 1 {
             return Err(Box::new("Producer-consumer needs at least 2 buffers."));
         }
 
@@ -139,8 +139,8 @@ where
     ) {
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.stage_tiling(Ident::Lhs).tile_count_col();
-        let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
+        let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;

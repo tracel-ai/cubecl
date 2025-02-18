@@ -15,7 +15,7 @@ pub struct CyclicLoading {}
 
 impl LoadingValidation for CyclicLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_stage_lines = tiling.total_size() / line_size;
@@ -61,7 +61,7 @@ impl LoadingStrategy for CyclicLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_tiling(ident);
+        let stage_dim = config.tiling_dimensions(ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
 
@@ -119,7 +119,7 @@ impl LoadingStrategy for CyclicLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
         let num_stage_elements = tiling.total_size();
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
@@ -148,8 +148,8 @@ impl LoadingStrategy for CyclicLoading {
                 true => {
                     let tile_offset = nth_tile * tile_num_elements;
 
-                    let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
-                    let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
+                    let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
+                    let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
 
                     let (height, width) = match config.layout(ident) {
                         MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),

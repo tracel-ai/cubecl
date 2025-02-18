@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, MatrixLayout};
 
 use super::StageConfig;
@@ -29,34 +30,41 @@ pub enum TilingOrder {
 #[cube]
 impl TilingLayout {
     /// Converts a tile index in the stage to its (x,y) position
+    /// Only for contiguous tiling layout
+    /// TODO: rethink abstraction
     pub fn to_x_y<S: StageConfig>(
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> (u32, u32) {
-        let stage_tiling = config.tiling(ident);
+        let stage_tiling = config.tiling_dimensions(ident);
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        match comptime!(config.tiling_layout(ident)) {
-            TilingLayout::Contiguous(tiling_order) => match comptime!(tiling_order) {
-                TilingOrder::RowMajor => (nth / num_y, nth % num_y),
-                TilingOrder::ColMajor => (nth % num_x, nth / num_x),
-            },
-            TilingLayout::Strided => todo!(),
+        let tiling_order = match comptime!(config.tiling_layout(ident)) {
+            TilingLayout::Contiguous(order) => order,
+            _ => comptime!(panic!(
+                "to_x_y only makes sense in contiguous tiling layout"
+            )),
+        };
+
+        match comptime!(tiling_order) {
+            TilingOrder::RowMajor => (nth / num_y, nth % num_y),
+            TilingOrder::ColMajor => (nth % num_x, nth / num_x),
         }
     }
 
-    /// Returns the start and end bounds that encompass all tile elements  
-    /// containing the given (x, y) position.  
-    pub fn tile_bounds<S: StageConfig>(
+    /// Returns the smallest slice that encompasses all tile elements  
+    /// of the tile at (x, y) position.  
+    pub fn get_tile<ES: Numeric, S: StageConfig>(
+        stage_slice: Slice<Line<ES>>,
         x: u32,
         y: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> (u32, u32) {
+    ) -> Tile<ES> {
         let line_size = config.line_size(ident);
-        let stage_tiling = config.tiling(ident);
+        let stage_tiling = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
         let tile_count_x = stage_tiling.tile_count_row();
         let tile_count_y = stage_tiling.tile_count_col();
@@ -101,6 +109,37 @@ impl TilingLayout {
             MatrixLayout::ColMajor => (tile_shape_y - 1) * stride_y + tile_shape_x * stride_x,
         };
 
-        (start, start + length)
+        Tile::new_contiguous::<S::TmmConfig>(
+            stage_slice.slice(start, start + length),
+            ident,
+            config.to_tmm_config(),
+        )
+    }
+
+    /// Returns the nth slice of the stage
+    /// Only for strided layout
+    /// TODO: rethink abstractions
+    pub fn nth_slice<ES: Numeric, S: StageConfig>(
+        stage_slice: Slice<Line<ES>>,
+        nth: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> Slice<Line<ES>> {
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(ident);
+        let tiling_layout = config.tiling_layout(ident);
+        let line_size = config.line_size(ident);
+
+        if let TilingLayout::Contiguous(_) = tiling_layout {
+            comptime!(panic!("nth slice only makes sense in strided layout"));
+        }
+
+        let slice_length = match comptime!(matrix_layout) {
+            MatrixLayout::RowMajor => tiling_dimensions.total_col(),
+            MatrixLayout::ColMajor => tiling_dimensions.total_row(),
+        } / line_size;
+
+        let start = slice_length * nth;
+        stage_slice.slice(start, start + slice_length)
     }
 }

@@ -15,7 +15,7 @@ pub struct TilewiseLoading {}
 
 impl LoadingValidation for TilewiseLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_planes = config.num_planes();
@@ -70,7 +70,7 @@ impl LoadingStrategy for TilewiseLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);

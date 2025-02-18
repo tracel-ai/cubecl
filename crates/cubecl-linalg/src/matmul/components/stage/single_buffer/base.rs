@@ -190,7 +190,7 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
+        let num_tile_lines = stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<O>::new_lined(
