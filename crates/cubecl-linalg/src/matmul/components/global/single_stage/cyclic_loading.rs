@@ -21,7 +21,7 @@ impl LoadingValidation for CyclicLoading {
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
-        match config.load_mode() {
+        match config.load_mode(ident) {
             LoadMode::Coalesced => {
                 if num_stage_lines % total_units != 0 {
                     return Err(Box::new(
@@ -65,7 +65,7 @@ impl LoadingStrategy for CyclicLoading {
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.layout(ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (
                 stage_dim.tile_shape_row(),
                 stage_dim.tile_shape_col() / line_size,
@@ -151,7 +151,7 @@ impl LoadingStrategy for CyclicLoading {
                     let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
                     let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
 
-                    let (height, width) = match config.layout(ident) {
+                    let (height, width) = match config.matrix_layout(ident) {
                         MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),
                         MatrixLayout::ColMajor => (tile_shape_y, tile_shape_x),
                     };

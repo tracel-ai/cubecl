@@ -42,7 +42,7 @@ impl LoadingValidation for TilewiseLoading {
             ));
         }
 
-        if let LoadMode::Window = config.load_mode() {
+        if let LoadMode::Window = config.load_mode(ident) {
             return Err(Box::new(
                 "Window load not yet supported in tilewise loading setup",
             ));

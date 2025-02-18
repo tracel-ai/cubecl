@@ -107,6 +107,7 @@ where
             problem.out_line_size as u32,
             stage_shape.k,
             LoadMode::Window,
+            LoadMode::Window,
         )
     }
 }

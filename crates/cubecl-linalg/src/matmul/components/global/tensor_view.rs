@@ -107,7 +107,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_tile_x = tile_x * tile_size_x + self.x_offset;
         let view_tile_y = tile_y * tile_size_y + self.y_offset;
 
-        let (load_x, load_y, num_lines_in_window) = match config.layout(ident) {
+        let (load_x, load_y, num_lines_in_window) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (nth_window, 0, tile_lines_y),
             MatrixLayout::ColMajor => (0, nth_window, tile_lines_x),
         };
@@ -119,7 +119,82 @@ impl<EG: Numeric> TensorReader<EG> {
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
         let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
-            match config.layout(ident) {
+            match config.matrix_layout(ident) {
+                MatrixLayout::RowMajor => (
+                    config.check_row_bounds(ident),
+                    view_x,
+                    self.shape_x,
+                    config.check_col_bounds(ident),
+                    view_y,
+                    self.shape_y,
+                ),
+                MatrixLayout::ColMajor => (
+                    config.check_col_bounds(ident),
+                    view_y,
+                    self.shape_y,
+                    config.check_row_bounds(ident),
+                    view_x,
+                    self.shape_x,
+                ),
+            };
+
+        // There are 0 lines if out-of-bounds vertically
+        let max_lines_in_window = if comptime!(check_h_bounds) {
+            num_lines_in_window * u32::cast_from(view_h < shape_h)
+        } else {
+            num_lines_in_window
+        };
+
+        // Window is clamped if partially out-of-bounds horizontally
+        let size = if comptime!(check_w_bounds) {
+            slice_length_clamp(shape_w / line_size, view_w / line_size, max_lines_in_window)
+        } else {
+            max_lines_in_window
+        };
+
+        Window::<EG> {
+            slice: self.tensor.as_slice(read_pos, read_pos + size),
+            size,
+        }
+    }
+
+    /// Reads data from the tensor view as a window, i.e. a slice of global memory
+    ///
+    /// The length of the slice is the width of the tile
+    ///
+    /// # Note
+    ///
+    /// If the slice would be partly out-of-bounds, it will simply be shorter.
+    /// The caller must do the padding if necessary.
+    pub fn load_window_no_tile<G: global::GlobalConfig>(
+        &self,
+        nth_window: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Window<EG> {
+        let line_size = config.global_line_size(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let num_rows = tiling_dimensions.total_row();
+        let num_cols = tiling_dimensions.total_col();
+        let tile_lines_rows = num_rows / line_size;
+        let tile_lines_cols = num_cols / line_size;
+
+        let view_tile_x = self.x_offset;
+        let view_tile_y = self.y_offset;
+
+        let (load_x, load_y, num_lines_in_window) = match config.matrix_layout(ident) {
+            MatrixLayout::RowMajor => (nth_window, 0, tile_lines_cols),
+            MatrixLayout::ColMajor => (0, nth_window, tile_lines_rows),
+        };
+
+        let view_x = view_tile_x + load_x;
+        let view_y = view_tile_y + load_y;
+
+        let read_pos =
+            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
+
+        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
+            match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => (
                     config.check_row_bounds(ident),
                     view_x,
@@ -182,7 +257,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_tile_x = tile_x * tile_shape_x + self.x_offset;
         let view_tile_y = tile_y * tile_shape_y + self.y_offset;
 
-        let (load_x, load_y) = match config.layout(ident) {
+        let (load_x, load_y) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (unit_id / tile_shape_y, unit_id % tile_shape_y),
             MatrixLayout::ColMajor => (unit_id % tile_shape_x, unit_id / tile_shape_x),
         };

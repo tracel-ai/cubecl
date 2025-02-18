@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     global::{self, GlobalConfig, LoadMode},
     stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
+    Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,7 +17,8 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     num_planes: u32,
-    load_mode: LoadMode,
+    load_mode_lhs: LoadMode,
+    load_mode_rhs: LoadMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -43,7 +44,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.tiling_dimensions(ident)
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
         match ident {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
@@ -80,11 +81,14 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.matrix_layout(ident)
+        self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
 
-    fn load_mode(&self) -> LoadMode {
-        self.load_mode
+    fn load_mode(&self, ident: Ident) -> LoadMode {
+        match ident.as_input() {
+            InputIdent::Lhs => self.load_mode_lhs,
+            InputIdent::Rhs => self.load_mode_rhs,
+        }
     }
 }
 
@@ -103,7 +107,8 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
-        load_mode: LoadMode,
+        load_mode_lhs: LoadMode,
+        load_mode_rhs: LoadMode,
     ) -> Self {
         Self {
             smm_config,
@@ -116,7 +121,8 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
-            load_mode,
+            load_mode_lhs,
+            load_mode_rhs,
         }
     }
 

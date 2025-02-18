@@ -88,6 +88,15 @@ where
         );
         let stage_shape = SMM::stage_shape(&smm_config);
 
+        let load_mode_lhs = match advanced_config.lhs_tiling_layout {
+            stage::TilingLayout::Contiguous(_) => LoadMode::Coalesced,
+            stage::TilingLayout::Strided => LoadMode::Window,
+        };
+        let load_mode_rhs = match advanced_config.rhs_tiling_layout {
+            stage::TilingLayout::Contiguous(_) => LoadMode::Coalesced,
+            stage::TilingLayout::Strided => LoadMode::Window,
+        };
+
         Config::new(
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
@@ -99,7 +108,8 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            LoadMode::Coalesced,
+            load_mode_lhs,
+            load_mode_rhs,
         )
     }
 }

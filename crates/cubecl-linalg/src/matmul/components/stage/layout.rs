@@ -120,11 +120,11 @@ impl TilingLayout {
     /// Only for strided layout
     /// TODO: rethink abstractions
     pub fn nth_slice<ES: Numeric, S: StageConfig>(
-        stage_slice: Slice<Line<ES>>,
+        stage_slice: &mut SliceMut<Line<ES>>,
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
-    ) -> Slice<Line<ES>> {
+    ) -> SliceMut<Line<ES>> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
         let tiling_layout = config.tiling_layout(ident);
@@ -140,6 +140,6 @@ impl TilingLayout {
         } / line_size;
 
         let start = slice_length * nth;
-        stage_slice.slice(start, start + slice_length)
+        stage_slice.slice_mut(start, start + slice_length)
     }
 }

@@ -107,6 +107,7 @@ where
             problem.out_line_size as u32,
             cube_dim.y,
             LoadMode::Coalesced,
+            LoadMode::Coalesced,
         )
     }
 }

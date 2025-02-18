@@ -168,7 +168,7 @@ pub trait GlobalConfig: MatmulConfig {
     fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
@@ -188,5 +188,5 @@ pub trait GlobalConfig: MatmulConfig {
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
 
-    fn load_mode(&self) -> LoadMode;
+    fn load_mode(&self, ident: Ident) -> LoadMode;
 }
