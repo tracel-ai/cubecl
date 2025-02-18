@@ -112,7 +112,7 @@ pub trait TileConfig: MatmulConfig {
 /// Data to be handed to the tile matmul
 pub struct Tile<ES: Numeric> {
     /// Slice containing all data
-    pub slice: Slice<Line<ES>>,
+    pub slice: Slice<ES>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
 }
@@ -136,10 +136,16 @@ impl<ES: Numeric> Tile<ES> {
             },
         }};
 
-        Tile::<ES> { slice, stride }
+        Tile::<ES> {
+            slice: slice.try_cast_unchecked(),
+            stride,
+        }
     }
 
     pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
-        Tile::<ES> { slice, stride }
+        Tile::<ES> {
+            slice: slice.try_cast_unchecked(),
+            stride,
+        }
     }
 }

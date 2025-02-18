@@ -82,49 +82,51 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
     }
 
     fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        match config.layout(Ident::Lhs) {
-            MatrixLayout::RowMajor => fill_parallel_lhs(
-                &tile.slice,
-                &mut lhs.to_slice_mut(),
-                UNIT_POS_X,
-                config.size.m,
-                config.size.k,
-                config.line_size(Ident::Lhs),
-                config.plane_dim(),
-            ),
-            MatrixLayout::ColMajor => fill_perpendicular_lhs(
-                &tile.slice,
-                &mut lhs.to_slice_mut(),
-                UNIT_POS_X,
-                config.size.m,
-                config.size.k,
-                config.line_size(Ident::Lhs),
-                config.plane_dim(),
-            ),
-        }
+        // TODO reactivate
+        // match config.layout(Ident::Lhs) {
+        //     MatrixLayout::RowMajor => fill_parallel_lhs(
+        //         &tile.slice,
+        //         &mut lhs.to_slice_mut(),
+        //         UNIT_POS_X,
+        //         config.size.m,
+        //         config.size.k,
+        //         config.line_size(Ident::Lhs),
+        //         config.plane_dim(),
+        //     ),
+        //     MatrixLayout::ColMajor => fill_perpendicular_lhs(
+        //         &tile.slice,
+        //         &mut lhs.to_slice_mut(),
+        //         UNIT_POS_X,
+        //         config.size.m,
+        //         config.size.k,
+        //         config.line_size(Ident::Lhs),
+        //         config.plane_dim(),
+        //     ),
+        // }
     }
 
     fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        match comptime!(config.layout(Ident::Rhs)) {
-            MatrixLayout::RowMajor => fill_perpendicular_rhs(
-                &tile.slice,
-                &mut rhs.to_slice_mut(),
-                UNIT_POS_X,
-                config.size.n,
-                config.size.k,
-                config.line_size(Ident::Rhs),
-                config.plane_dim(),
-            ),
-            MatrixLayout::ColMajor => fill_parallel_rhs(
-                &tile.slice,
-                &mut rhs.to_slice_mut(),
-                UNIT_POS_X,
-                config.size.n,
-                config.size.k,
-                config.line_size(Ident::Rhs),
-                config.plane_dim(),
-            ),
-        }
+        // TODO reactivate
+        // match comptime!(config.layout(Ident::Rhs)) {
+        //     MatrixLayout::RowMajor => fill_perpendicular_rhs(
+        //         &tile.slice,
+        //         &mut rhs.to_slice_mut(),
+        //         UNIT_POS_X,
+        //         config.size.n,
+        //         config.size.k,
+        //         config.line_size(Ident::Rhs),
+        //         config.plane_dim(),
+        //     ),
+        //     MatrixLayout::ColMajor => fill_parallel_rhs(
+        //         &tile.slice,
+        //         &mut rhs.to_slice_mut(),
+        //         UNIT_POS_X,
+        //         config.size.n,
+        //         config.size.k,
+        //         config.line_size(Ident::Rhs),
+        //         config.plane_dim(),
+        //     ),
+        // }
     }
 
     fn fill_accumulator(

@@ -59,10 +59,15 @@ impl LoadingStrategy for CooperativeLoading {
 
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
+        let line_size = config.global_line_size(ident);
         let num_slices = match matrix_layout {
             MatrixLayout::RowMajor => tiling_dimensions.total_row(),
             MatrixLayout::ColMajor => tiling_dimensions.total_col(),
         };
+        let expected_window_size = match matrix_layout {
+            MatrixLayout::RowMajor => tiling_dimensions.total_col(),
+            MatrixLayout::ColMajor => tiling_dimensions.total_row(),
+        } / line_size;
 
         for nth_slice in 0..num_slices {
             let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
@@ -73,6 +78,11 @@ impl LoadingStrategy for CooperativeLoading {
                 config.to_smm_config(),
             );
             memcpy_slow(window.slice.try_cast_unchecked(), &mut destination);
+
+            // If padding needed: TODO comptime conditional
+            for i in window.size..expected_window_size {
+                destination[i] = Line::cast_from(0);
+            }
         }
     }
 }

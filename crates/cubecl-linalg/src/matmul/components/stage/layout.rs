@@ -158,7 +158,9 @@ impl TilingLayout {
         }};
 
         let start = x * tile_shape_x * stride_x + y * tile_shape_y * stride_y;
-        let stride = Max::max(stride_x, stride_y);
+        // TODO less wacky calculation
+        // line_size is brought back because the slice is cast to unlined
+        let stride = Max::max(stride_x, stride_y) * line_size;
 
         Tile::new_strided(stage_slice.slice(start, start + length), stride)
     }
