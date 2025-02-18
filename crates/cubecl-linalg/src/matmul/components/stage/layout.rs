@@ -63,51 +63,101 @@ impl TilingLayout {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
+        match config.tiling_layout(ident) {
+            TilingLayout::Contiguous(tiling_order) => TilingLayout::get_tile_contiguous::<ES, S>(
+                stage_slice,
+                x,
+                y,
+                tiling_order,
+                ident,
+                config,
+            ),
+            TilingLayout::Strided => {
+                TilingLayout::get_tile_strided::<ES, S>(stage_slice, x, y, ident, config)
+            }
+        }
+    }
+
+    pub fn get_tile_contiguous<ES: Numeric, S: StageConfig>(
+        stage_slice: Slice<Line<ES>>,
+        x: u32,
+        y: u32,
+        #[comptime] tiling_order: TilingOrder,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> Tile<ES> {
         let line_size = config.line_size(ident);
-        let stage_tiling = config.tiling_dimensions(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
-        let tile_count_x = stage_tiling.tile_count_row();
-        let tile_count_y = stage_tiling.tile_count_col();
-        let (tile_shape_x, tile_shape_y) = match matrix_layout {
+
+        let tile_count_x = tiling_dimensions.tile_count_row();
+        let tile_count_y = tiling_dimensions.tile_count_col();
+        let (tile_shape_x, tile_shape_y) = comptime! {match matrix_layout {
             MatrixLayout::RowMajor => (
-                stage_tiling.tile_shape_row(),
-                stage_tiling.tile_shape_col() / line_size,
+                tiling_dimensions.tile_shape_row(),
+                tiling_dimensions.tile_shape_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                stage_tiling.tile_shape_row() / line_size,
-                stage_tiling.tile_shape_col(),
+                tiling_dimensions.tile_shape_row() / line_size,
+                tiling_dimensions.tile_shape_col(),
             ),
-        };
-
-        // TODO could be inside stage_tiling
-        let tiling_layout = config.tiling_layout(ident);
-
-        let (stride_x, stride_y) = comptime! {match tiling_layout {
-            TilingLayout::Contiguous(_) => match matrix_layout{
-                MatrixLayout::RowMajor => (tile_shape_y, 1u32),
-                MatrixLayout::ColMajor => (1u32, tile_shape_x),
-            },
-            TilingLayout::Strided => match matrix_layout {
-                MatrixLayout::RowMajor => (tile_count_y * tile_shape_y, 1u32),
-                MatrixLayout::ColMajor => (1u32, tile_count_x * tile_shape_x),
-            },
         }};
-
-        let start = match tiling_layout {
-            TilingLayout::Contiguous(tiling_order) => {
-                tile_shape_x
-                    * tile_shape_y
-                    * match tiling_order {
-                        TilingOrder::RowMajor => x * tile_count_y + y,
-                        TilingOrder::ColMajor => y * tile_count_x + x,
-                    }
-            }
-            TilingLayout::Strided => x * tile_shape_x * stride_x + y * tile_shape_y * stride_y,
-        };
-        let length = match matrix_layout {
+        let (stride_x, stride_y) = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor => (tile_shape_y, 1u32),
+            MatrixLayout::ColMajor => (1u32, tile_shape_x),
+        }};
+        let length = comptime! {match matrix_layout {
             MatrixLayout::RowMajor => (tile_shape_x - 1) * stride_x + tile_shape_y * stride_y,
             MatrixLayout::ColMajor => (tile_shape_y - 1) * stride_y + tile_shape_x * stride_x,
-        };
+        }};
+
+        let start = tile_shape_x
+            * tile_shape_y
+            * match comptime!(tiling_order) {
+                TilingOrder::RowMajor => x * tile_count_y + y,
+                TilingOrder::ColMajor => y * tile_count_x + x,
+            };
+
+        Tile::new_contiguous::<S::TmmConfig>(
+            stage_slice.slice(start, start + length),
+            ident,
+            config.to_tmm_config(),
+        )
+    }
+
+    pub fn get_tile_strided<ES: Numeric, S: StageConfig>(
+        stage_slice: Slice<Line<ES>>,
+        x: u32,
+        y: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> Tile<ES> {
+        let line_size = config.line_size(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(ident);
+
+        let tile_count_x = tiling_dimensions.tile_count_row();
+        let tile_count_y = tiling_dimensions.tile_count_col();
+        let (tile_shape_x, tile_shape_y) = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor => (
+                tiling_dimensions.tile_shape_row(),
+                tiling_dimensions.tile_shape_col() / line_size,
+            ),
+            MatrixLayout::ColMajor => (
+                tiling_dimensions.tile_shape_row() / line_size,
+                tiling_dimensions.tile_shape_col(),
+            ),
+        }};
+        let (stride_x, stride_y) = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor => (tile_count_y * tile_shape_y, 1u32),
+            MatrixLayout::ColMajor => (1u32, tile_count_x * tile_shape_x),
+        }};
+        let length = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor => (tile_shape_x - 1) * stride_x + tile_shape_y * stride_y,
+            MatrixLayout::ColMajor => (tile_shape_y - 1) * stride_y + tile_shape_x * stride_x,
+        }};
+
+        let start = x * tile_shape_x * stride_x + y * tile_shape_y * stride_y;
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage_slice.slice(start, start + length),
