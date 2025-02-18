@@ -13,7 +13,8 @@ use crate::matmul::{
 
 use super::{
     double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
-    simple_pipelined::SimplePipelinedAlgorithm, specialized::SpecializedAlgorithm,
+    simple_pipelined::SimplePipelinedAlgorithm, simple_strided::SimpleStridedAlgorithm,
+    specialized::SpecializedAlgorithm,
 };
 
 const NUM_SM_APPROX: usize = 50;
@@ -32,6 +33,11 @@ pub trait MatmulSelector {
 }
 
 pub struct SimpleSelector<TMM: TileMatmulFamily, D = TransposedDispatch> {
+    _tmm: PhantomData<TMM>,
+    _dispatch: PhantomData<D>,
+}
+
+pub struct SimpleStridedSelector<TMM: TileMatmulFamily, D = TransposedDispatch> {
     _tmm: PhantomData<TMM>,
     _dispatch: PhantomData<D>,
 }
@@ -96,6 +102,37 @@ impl<TMM: TileMatmulFamily> MatmulSelector for SimplePipelinedSelector<TMM> {
         };
 
         matmul_cube_preparation::<MS, R, SimplePipelinedAlgorithm<TMM>>(
+            client,
+            input,
+            output,
+            problem,
+            config_input,
+            selection,
+            quantized,
+        )
+    }
+
+    fn stage_tf32_supported() -> bool {
+        TMM::requires_tensor_cores()
+    }
+}
+
+impl<TMM: TileMatmulFamily> MatmulSelector for SimpleStridedSelector<TMM> {
+    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        input: InputRuntimeArg<'a, MS, R>,
+        output: OutputRuntimeArg<'a, MS, R>,
+        problem: MatmulProblem,
+        plane_dim: u32,
+        quantized: bool,
+    ) -> Result<(), MatmulLaunchError> {
+        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
+        let config_input = CompleteStageTiling {
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
+        };
+
+        matmul_cube_preparation::<MS, R, SimpleStridedAlgorithm<TMM>>(
             client,
             input,
             output,

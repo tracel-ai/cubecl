@@ -292,11 +292,26 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
+        use $crate::matmul::kernels::matmul::simple_strided::SimpleStridedAlgorithm;
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
-        pub fn simple_sync() {
+        pub fn simple() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_strided() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleStridedAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,

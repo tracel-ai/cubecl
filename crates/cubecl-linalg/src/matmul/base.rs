@@ -8,7 +8,7 @@ use super::{
     kernels::{
         matmul::{
             self, DoubleBufferingSelector, SimplePipelinedSelector, SimpleSelector,
-            SpecializedSelector,
+            SimpleStridedSelector, SpecializedSelector,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -19,6 +19,7 @@ use super::{
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
     Simple,
+    SimpleStrided,
     SimplePipelined,
     DoubleBuffering,
     Specialized,
@@ -57,6 +58,9 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     match strategy {
         Strategy::Simple => {
             matmul::launch_ref::<R, EG, SimpleSelector<Accelerated>>(client, lhs, rhs, out)
+        }
+        Strategy::SimpleStrided => {
+            matmul::launch_ref::<R, EG, SimpleStridedSelector<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::SimplePipelined => {
             matmul::launch_ref::<R, EG, SimplePipelinedSelector<Accelerated>>(client, lhs, rhs, out)
