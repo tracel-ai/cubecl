@@ -302,6 +302,7 @@ impl CubeTypeStruct {
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let init = prelude_type("Init");
+        let debug = prelude_type("CubeDebug");
         let into_runtime = prelude_type("IntoRuntime");
         let context = prelude_type("Scope");
         let name = &self.ident;
@@ -338,6 +339,8 @@ impl CubeTypeStruct {
                     }
                 }
             }
+
+            impl #generics #debug for #name_expand #generic_names #where_clause {}
 
             impl #generics #into_runtime for #name #generic_names #where_clause {
                 fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {

@@ -17,7 +17,7 @@ version.workspace = true
 [features]
 default = ["serde", "std"]
 
-serde = ["dep:serde"]
+serde = ["dep:serde", "hashbrown/serde"]
 std = []
 
 [dependencies]

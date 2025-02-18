@@ -8,6 +8,7 @@ use cubecl_common::{flex32, tf32};
 use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
 use std::marker::PhantomData;
+use variadics_please::all_tuples;
 
 /// Types used in a cube function must implement this trait
 ///
@@ -23,7 +24,7 @@ use std::marker::PhantomData;
 /// the generated code.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
-    type ExpandType: Clone + Init;
+    type ExpandType: Clone + Init + CubeDebug;
 
     /// Wrapper around the init method, necessary to type inference.
     fn init(scope: &mut Scope, expand: Self::ExpandType) -> Self::ExpandType {
@@ -50,6 +51,13 @@ pub trait Init: Sized {
     /// You can return the same value when the variable is a non-mutable data structure or
     /// if the type can not be deeply cloned/copied.
     fn init(self, scope: &mut Scope) -> Self;
+}
+
+pub trait CubeDebug: Sized {
+    /// Set the debug name of this type's expansion. Should do nothing for types that don't appear
+    /// at runtime
+    #[allow(unused)]
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
 }
 
 /// Argument used during the compilation of kernels.
@@ -139,16 +147,6 @@ impl LaunchArgExpand for () {
     }
 }
 
-impl CubeType for () {
-    type ExpandType = ();
-}
-
-impl Init for () {
-    fn init(self, _scope: &mut Scope) -> Self {
-        self
-    }
-}
-
 impl<T: Clone> CubeType for PhantomData<T> {
     type ExpandType = ();
 }
@@ -208,7 +206,7 @@ macro_rules! tuple_cube_type {
 macro_rules! tuple_init {
     ($($P:ident),*) => {
         impl<$($P: Init),*> Init for ($($P,)*) {
-            #[allow(non_snake_case)]
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
             fn init(self, scope: &mut Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
@@ -218,10 +216,15 @@ macro_rules! tuple_init {
         }
     }
 }
+macro_rules! tuple_debug {
+    ($($P:ident),*) => {
+        impl<$($P: CubeDebug),*> CubeDebug for ($($P,)*) {}
+    }
+}
 macro_rules! tuple_runtime {
     ($($P:ident),*) => {
         impl<$($P: IntoRuntime),*> IntoRuntime for ($($P,)*) {
-            #[allow(non_snake_case)]
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
             fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
                 let ($($P,)*) = self;
                 ($(
@@ -232,26 +235,12 @@ macro_rules! tuple_runtime {
     }
 }
 
-tuple_cube_type!(P1);
-tuple_cube_type!(P1, P2);
-tuple_cube_type!(P1, P2, P3);
-tuple_cube_type!(P1, P2, P3, P4);
-tuple_cube_type!(P1, P2, P3, P4, P5);
-tuple_cube_type!(P1, P2, P3, P4, P5, P6);
+all_tuples!(tuple_cube_type, 0, 12, P);
+all_tuples!(tuple_debug, 0, 12, P);
+all_tuples!(tuple_init, 0, 12, P);
+all_tuples!(tuple_runtime, 0, 12, P);
 
-tuple_init!(P1);
-tuple_init!(P1, P2);
-tuple_init!(P1, P2, P3);
-tuple_init!(P1, P2, P3, P4);
-tuple_init!(P1, P2, P3, P4, P5);
-tuple_init!(P1, P2, P3, P4, P5, P6);
-
-tuple_runtime!(P1);
-tuple_runtime!(P1, P2);
-tuple_runtime!(P1, P2, P3);
-tuple_runtime!(P1, P2, P3, P4);
-tuple_runtime!(P1, P2, P3, P4, P5);
-tuple_runtime!(P1, P2, P3, P4, P5, P6);
+impl<P: CubePrimitive> CubeDebug for P {}
 
 pub trait ExpandElementBaseInit: CubeType {
     fn init_elem(scope: &mut Scope, elem: ExpandElement) -> ExpandElement;
@@ -260,6 +249,12 @@ pub trait ExpandElementBaseInit: CubeType {
 impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
     fn init(self, scope: &mut Scope) -> Self {
         <T as ExpandElementBaseInit>::init_elem(scope, self.into()).into()
+    }
+}
+
+impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
+    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        scope.update_variable_name(*self.expand, name);
     }
 }
 
@@ -375,6 +370,7 @@ impl<T: Init> Init for Vec<T> {
         self.into_iter().map(|e| e.init(scope)).collect()
     }
 }
+impl<T: CubeDebug> CubeDebug for Vec<T> {}
 
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(

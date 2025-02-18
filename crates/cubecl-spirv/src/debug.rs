@@ -16,12 +16,13 @@
 //! All debug instructions are deduplicated to ensure minimal binary size when functions are called
 //! in a loop or other similar situations.
 
-use cubecl_core::ir::{self as core, Operation};
-use cubecl_opt::Optimizer;
+use std::borrow::Cow;
+
+use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
 use hashbrown::HashMap;
 use rspirv::{
     dr::{Instruction, Operand},
-    spirv::{FunctionControl, Op, SourceLanguage, Word},
+    spirv::{FunctionControl, Op, Word},
 };
 
 use crate::{
@@ -37,7 +38,6 @@ pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PK
 pub struct FunctionDefinition {
     id: Word,
     name: Word,
-    file_name: Word,
     source: SourceFile,
     line: u32,
     col: u32,
@@ -51,44 +51,20 @@ pub struct InlinedAt {
     parent: Option<Word>,
 }
 
-impl InlinedAt {
-    pub fn matches(&self, func: Word, line: u32, parent: Option<Word>) -> bool {
-        self.func == func && self.line == line && self.parent == parent
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct FunctionCall {
-    id: Word,
-    name: String,
+    definition: FunctionDefinition,
+    scope: Word,
     inlined_at: Option<Word>,
 }
 
 #[derive(Clone, Debug)]
 pub struct DebugInfo {
-    pub name: Word,
-    pub name_str: String,
     function_ty: Word,
 
-    stack: Vec<StackFrame>,
+    stack: Vec<FunctionCall>,
     definitions: Definitions,
-}
-
-#[derive(Clone, Debug)]
-struct StackFrame {
-    call: FunctionCall,
-    line: u32,
-    col: u32,
-}
-
-impl StackFrame {
-    pub fn new(call: FunctionCall) -> Self {
-        Self {
-            call,
-            line: 0,
-            col: 0,
-        }
-    }
+    previous_loc: Option<SourceLoc>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -104,91 +80,78 @@ struct Definitions {
     /// source files
     source_files: HashMap<String, SourceFile>,
     /// map of call names to definitions
-    functions: HashMap<String, FunctionDefinition>,
+    functions: HashMap<CubeFnSource, FunctionDefinition>,
     /// InlinedAt definitions
-    inlined_at: Vec<InlinedAt>,
+    inlined_at: HashMap<(Word, u32, Option<Word>), Word>,
     /// Debug strings
     strings: HashMap<String, Word>,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn init_debug(&mut self, kernel_name: String, opt: &Optimizer) {
+    pub fn init_debug(&mut self) {
         if self.debug_symbols {
-            let name = self.string(&kernel_name);
-
             let flags = self.const_u32(DebugInfoFlags::None.0);
             let return_ty = self.type_void();
             let function_ty =
                 self.void_debug(None, Instructions::DebugTypeFunction, [flags, return_ty]);
+            let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
 
             self.debug_info = Some(DebugInfo {
-                name,
-                name_str: kernel_name.clone(),
                 function_ty,
                 stack: Default::default(),
                 definitions: Default::default(),
+                previous_loc: Some(entry_loc.clone()),
             });
 
-            self.definitions().strings.insert(kernel_name.clone(), name);
-            self.collect_sources(kernel_name, opt);
+            self.collect_sources();
+
+            let entry_def = self.definitions().functions[&entry_loc.source];
+            let args = self.debug_string("");
+            let signature = self.debug_string(SIGNATURE);
+            self.void_debug(
+                None,
+                Instructions::DebugEntryPoint,
+                [
+                    entry_def.id,
+                    entry_def.source.compilation_unit,
+                    signature,
+                    args,
+                ],
+            );
         }
     }
 
     /// Collect sources ahead of time so line numbers and source file names are correct
-    fn collect_sources(&mut self, kernel_name: String, opt: &Optimizer) {
-        let name_id = self.debug_string(kernel_name.clone());
-        let main_id = self.id();
-        let main_source = SourceFile {
-            id: self.id(),
-            compilation_unit: self.id(),
-        };
-        self.definitions().functions.insert(
-            kernel_name.clone(),
-            FunctionDefinition {
-                id: main_id,
-                name: name_id,
-                file_name: name_id,
-                source: main_source,
-                line: 0,
-                col: 0,
-            },
-        );
-
-        let mut calls = vec![kernel_name];
-
-        for block_id in opt.node_ids() {
-            for inst in opt.block(block_id).ops.borrow().values() {
-                match &inst.operation {
-                    Operation::NonSemantic(core::NonSemantic::BeginCall { name, .. }) => {
-                        calls.push(name.clone());
-                        self.debug_function(name);
-                    }
-                    Operation::NonSemantic(core::NonSemantic::EndCall) => {
-                        calls.pop();
-                    }
-                    Operation::NonSemantic(core::NonSemantic::Source {
-                        name,
-                        file_name,
-                        line,
-                        col,
-                    }) => {
-                        let call_name = calls.last().unwrap();
-
-                        let name = self.debug_string(name);
-                        let source = self.debug_source(file_name.clone());
-                        let file_name = self.debug_string(file_name);
-
-                        let debug_func = self.definitions().functions.get_mut(call_name).unwrap();
-
-                        debug_func.name = name;
-                        debug_func.file_name = file_name;
-                        debug_func.source = source;
-                        debug_func.line = *line;
-                        debug_func.col = *col;
-                    }
-                    _ => {}
-                }
+    fn collect_sources(&mut self) {
+        let cube_fns = self.opt.root_scope.debug.sources.borrow().clone();
+        let mut sources = HashMap::new();
+        for cube_fn in cube_fns.iter() {
+            // If source is missing, don't override since it might exist from another function in the
+            // same file. If it's not empty, just override since they're identical.
+            if cube_fn.source_text.is_empty() {
+                sources
+                    .entry(cube_fn.file.clone())
+                    .or_insert(cube_fn.source_text.clone());
+            } else {
+                sources.insert(cube_fn.file.clone(), cube_fn.source_text.clone());
             }
+        }
+
+        for (file, source_text) in sources {
+            self.debug_source(file, source_text);
+        }
+
+        for cube_fn in cube_fns.into_iter() {
+            let source = self.definitions().source_files[cube_fn.file.as_ref()];
+            let function = FunctionDefinition {
+                id: self.id(),
+                name: self.debug_string(cube_fn.function_name.as_ref()),
+                source,
+                line: cube_fn.line,
+                col: cube_fn.column,
+            };
+            self.declare_debug_function(&function);
+            self.definitions().functions.insert(cube_fn, function);
         }
     }
 
@@ -208,23 +171,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let voidf = self.type_function(void, vec![]);
 
         let definition = self
-            .debug_symbols
-            .then(|| self.definitions().functions[kernel_name]);
+            .debug_info
+            .as_ref()
+            .and_then(|info| info.previous_loc.clone())
+            .map(|loc| self.definitions().functions[&loc.source]);
 
         if let Some(definition) = definition {
             let main_call = FunctionCall {
-                id: definition.id,
-                name: kernel_name.into(),
+                definition,
+                scope: 0,
                 inlined_at: None,
             };
 
-            let root_frame = StackFrame {
-                call: main_call,
-                line: definition.line,
-                col: definition.col,
-            };
-
-            self.stack().push(root_frame);
+            self.stack().push(main_call);
         }
 
         let main = self
@@ -236,7 +195,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let setup = move |b: &mut Self| {
             if let Some(func_id) = func_id {
-                b.void_op(Instructions::DebugScope, [func_id]);
+                b.debug_start_block();
                 b.void_op(Instructions::DebugFunctionDefinition, [func_id, main]);
             }
         };
@@ -244,75 +203,38 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         (main, setup)
     }
 
+    pub fn set_source_loc(&mut self, loc: &Option<SourceLoc>) {
+        if let Some(loc) = loc {
+            match self.debug_info().previous_loc.clone() {
+                Some(prev) if &prev != loc => {
+                    self.debug_info().previous_loc = Some(loc.clone());
+                    if prev.source != loc.source {
+                        self.update_call(loc.clone(), prev);
+                        self.debug_start_block();
+                    } else {
+                        let source = self.stack_top().definition.source.id;
+                        self.debug_line(source, loc.line, loc.column);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn update_call(&mut self, loc: SourceLoc, prev: SourceLoc) {
+        let is_inlined = self.stack().len() > 1;
+        let call_fn = self.definitions().functions[&loc.source];
+        let inlined_at = is_inlined.then(|| {
+            let parent = self.stack_prev().clone();
+            self.inlined_at(parent.definition.id, prev.line, parent.inlined_at)
+        });
+        self.stack_top().definition = call_fn;
+        self.stack_top().inlined_at = inlined_at;
+    }
+
     pub fn compile_debug(&mut self, debug: core::NonSemantic) {
         if self.debug_symbols {
             match debug {
-                core::NonSemantic::Source {
-                    name,
-                    file_name,
-                    line,
-                    col,
-                } => {
-                    let name = self.debug_string(name);
-                    let source = self.debug_source(file_name.clone());
-                    let file_name = self.debug_string(file_name);
-
-                    let debug_func = self.current_function_def();
-
-                    debug_func.name = name;
-                    debug_func.file_name = file_name;
-                    debug_func.source = source;
-                    debug_func.line = line;
-                    debug_func.col = col;
-
-                    self.stack_top().line = line;
-                    self.stack_top().col = col;
-                }
-                core::NonSemantic::BeginCall { name, line, col } => {
-                    let func = self.debug_function(name.clone());
-
-                    self.stack_top().line = line;
-                    self.stack_top().col = col;
-
-                    let parent = self.stack_top().call.clone();
-                    let inlined_at = self.inlined_at(parent.id, line, parent.inlined_at);
-
-                    if self.is_last_instruction_scope() {
-                        let _ = self.pop_instruction();
-                    }
-
-                    let call = FunctionCall {
-                        id: func,
-                        name,
-                        inlined_at: Some(inlined_at),
-                    };
-                    self.stack().push(StackFrame::new(call));
-
-                    self.void_op(Instructions::DebugScope, [func, inlined_at]);
-                }
-                core::NonSemantic::EndCall => {
-                    self.stack().pop();
-
-                    if self.is_last_instruction_scope() {
-                        let _ = self.pop_instruction();
-                    }
-
-                    let new_func = *self.current_function_def();
-                    self.void_op(Instructions::DebugScope, [new_func.id]);
-
-                    let line = self.stack_top().line;
-                    let col = self.stack_top().col;
-
-                    self.line(new_func.file_name, line, col);
-                }
-                core::NonSemantic::Line { line, col } => {
-                    self.stack_top().line = line;
-                    self.stack_top().col = col;
-
-                    let file = self.current_function_def().file_name;
-
-                    self.line(file, line, col);
-                }
                 core::NonSemantic::Print {
                     format_string,
                     args,
@@ -333,65 +255,72 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 core::NonSemantic::Comment { .. } => {
                     // Comments not supported for SPIR-V
                 }
+                core::NonSemantic::EnterDebugScope => {
+                    let new_top = self.stack_top().clone();
+                    self.stack().push(new_top);
+                }
+                core::NonSemantic::ExitDebugScope => {
+                    self.stack().pop();
+                }
             };
         }
-    }
-
-    fn current_function_def(&mut self) -> &mut FunctionDefinition {
-        let current_call_name = self.stack_top().call.name.clone();
-        self.debug_info()
-            .definitions
-            .functions
-            .get_mut(&current_call_name)
-            .unwrap()
     }
 
     fn definitions(&mut self) -> &mut Definitions {
         &mut self.debug_info().definitions
     }
 
-    fn stack(&mut self) -> &mut Vec<StackFrame> {
+    fn stack(&mut self) -> &mut Vec<FunctionCall> {
         &mut self.debug_info().stack
     }
 
-    fn stack_top(&mut self) -> &mut StackFrame {
+    fn stack_top(&mut self) -> &mut FunctionCall {
         self.debug_info().stack.last_mut().unwrap()
+    }
+
+    fn stack_prev(&mut self) -> &mut FunctionCall {
+        self.debug_info().stack.iter_mut().nth_back(1).unwrap()
     }
 
     // Deduplicated inlined_at
     fn inlined_at(&mut self, func: Word, line: u32, parent: Option<Word>) -> Word {
-        let mut existing = self.definitions().inlined_at.iter();
-        let existing = existing.find(|it| it.matches(func, line, parent));
+        let existing = self.definitions().inlined_at.get(&(func, line, parent));
         if let Some(existing) = existing {
-            existing.id
+            *existing
         } else {
             let id = self.id();
-            self.definitions().inlined_at.push(InlinedAt {
+            let inlined_at = InlinedAt {
                 id,
                 func,
                 line,
                 parent,
-            });
+            };
+            self.declare_inlined_at(&inlined_at);
+            self.definitions()
+                .inlined_at
+                .insert((func, line, parent), id);
             id
         }
     }
 
     // Deduplicated debug_source
-    fn debug_source(&mut self, file: String) -> SourceFile {
-        let existing = self.definitions().source_files.get(&file);
+    fn debug_source(&mut self, file: impl AsRef<str>, source_text: impl AsRef<str>) -> SourceFile {
+        let existing = self.definitions().source_files.get(file.as_ref());
         if let Some(existing) = existing {
             *existing
         } else {
-            let file_id = self.debug_string(&file);
+            let file_id = self.debug_string(file.as_ref());
+            let source_id = self.debug_string(source_text.as_ref());
 
-            self.source(SourceLanguage::Unknown, 1, Some(file_id), Some("dummy"));
-            let source = self.void_debug(None, Instructions::DebugSource, [file_id]);
+            let source = self.void_debug(None, Instructions::DebugSource, [file_id, source_id]);
             let comp_unit = self.debug_compilation_unit(source);
             let source_file = SourceFile {
                 id: source,
                 compilation_unit: comp_unit,
             };
-            self.definitions().source_files.insert(file, source_file);
+            self.definitions()
+                .source_files
+                .insert(file.as_ref().into(), source_file);
             source_file
         }
     }
@@ -399,64 +328,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn debug_compilation_unit(&mut self, source: Word) -> Word {
         let version = self.const_u32(1);
         let dwarf = self.const_u32(4);
-        let language = self.const_u32(SourceLanguage::Unknown as u32);
+        // Rust, not yet supported in tooling but doesn't break things either so we can replace
+        // this with the enum once it's added in rspirv.
+        let language = self.const_u32(13);
         self.void_debug(
             None,
             Instructions::DebugCompilationUnit,
             [version, dwarf, source, language],
         )
-    }
-
-    fn debug_function(&mut self, name: impl Into<String>) -> Word {
-        let name: String = name.into();
-        if let Some(func) = self.definitions().functions.get(&name).copied() {
-            func.id
-        } else {
-            let name_id = self.debug_string(&name);
-            let id = self.id();
-            let entry_name = self.debug_info().name_str.clone();
-            let source = self.definitions().functions[&entry_name].source;
-
-            self.definitions().functions.insert(
-                name,
-                FunctionDefinition {
-                    id,
-                    name: name_id,
-                    file_name: name_id,
-                    source,
-                    ..Default::default()
-                },
-            );
-            id
-        }
-    }
-
-    pub fn finish_debug(&mut self) {
-        if let Some(debug_info) = self.debug_info.clone() {
-            for function in debug_info.definitions.functions.values() {
-                self.declare_debug_function(function);
-            }
-
-            for inlined_at in &debug_info.definitions.inlined_at {
-                self.declare_inlined_at(inlined_at);
-            }
-
-            // Declare entry
-            let entry_name = self.debug_info().name_str.clone();
-            let entry_def = self.definitions().functions[&entry_name];
-            let args = self.debug_string("");
-            let signature = self.debug_string(SIGNATURE);
-            self.void_debug(
-                None,
-                Instructions::DebugEntryPoint,
-                [
-                    entry_def.id,
-                    entry_def.source.compilation_unit,
-                    signature,
-                    args,
-                ],
-            );
-        }
     }
 
     fn declare_debug_function(&mut self, function: &FunctionDefinition) {
@@ -467,7 +346,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let compilation_unit = function.source.compilation_unit;
         let line = self.const_u32(function.line);
         let col = self.const_u32(function.col);
-        let zero = self.const_u32(0);
         self.void_debug(
             Some(function.id),
             Instructions::DebugFunction,
@@ -480,7 +358,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 compilation_unit,
                 name_id,
                 flags,
-                zero,
+                line,
             ],
         );
     }
@@ -503,15 +381,26 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         };
     }
 
-    pub fn debug_scope(&mut self) {
+    pub fn debug_start_block(&mut self) {
         if self.debug_symbols {
-            let func = *self.current_function_def();
-            let line = self.stack_top().line;
-            let col = self.stack_top().col;
+            let loc = self.debug_info().previous_loc.clone().unwrap();
+            let func = self.stack_top().definition;
+            let inlined = self.stack_top().inlined_at;
 
-            self.line(func.file_name, line, col);
-            self.void_op(Instructions::DebugScope, [func.id]);
+            let scope = if let Some(inlined) = inlined {
+                self.void_op(Instructions::DebugScope, [func.id, inlined])
+            } else {
+                self.void_op(Instructions::DebugScope, [func.id])
+            };
+            self.stack_top().scope = scope;
+            self.debug_line(func.source.id, loc.line, loc.column);
         }
+    }
+
+    fn debug_line(&mut self, source: Word, line: u32, column: u32) {
+        let line = self.const_u32(line);
+        let col = self.const_u32(column);
+        self.void_op(Instructions::DebugLine, [source, line, line, col, col]);
     }
 
     fn void_debug<const N: usize>(
@@ -547,30 +436,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.debug_info.as_mut().unwrap()
     }
 
-    fn is_last_instruction_scope(&mut self) -> bool {
-        let (selected_function, selected_block) =
-            match (self.selected_function(), self.selected_block()) {
-                (Some(f), Some(b)) => (f, b),
-                _ => panic!("Detached instructions"),
-            };
-
-        let block = &self.module_ref().functions[selected_function].blocks[selected_block];
-
-        let inst = block.instructions.last();
-        let ext = self.state.extensions[DEBUG_EXT_NAME];
-
-        if let Some(Instruction {
-            class, operands, ..
-        }) = inst
-        {
-            class.opcode == Op::ExtInst
-                && operands.first() == Some(&Operand::IdRef(ext))
-                && operands.get(1)
-                    == Some(&Operand::LiteralExtInstInteger(
-                        Instructions::DebugScope as u32,
-                    ))
-        } else {
-            false
+    pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
+        if self.debug_symbols {
+            self.name(var, name);
         }
+    }
+
+    pub fn debug_var_name(&mut self, id: Word, var: Variable) {
+        if self.debug_symbols {
+            let name = self.name_of_var(var);
+            self.debug_name(id, name);
+        }
+    }
+
+    pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
+        let var_names = self.opt.root_scope.debug.variable_names.clone();
+        let debug_name = var_names.borrow().get(&var).cloned();
+        debug_name.unwrap_or_else(|| var.to_string().into())
     }
 }

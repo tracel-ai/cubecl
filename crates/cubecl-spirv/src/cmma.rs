@@ -240,7 +240,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn init_coop_matrix(&mut self, mat: core::Matrix) -> Matrix {
+    pub fn init_coop_matrix(&mut self, mat: core::Matrix, var: core::Variable) -> Matrix {
         let elem = self.compile_item(core::Item::new(mat.elem)).elem();
         let ident = match mat.ident {
             core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
@@ -262,6 +262,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
         let ty = item.id(self);
         mat.id = self.declare_function_variable(ty);
+        self.debug_var_name(mat.id, var);
 
         mat
     }
