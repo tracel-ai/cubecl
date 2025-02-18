@@ -3,6 +3,7 @@ use cubecl_core::{self as cubecl};
 
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::tensor::matrix_layout;
 
 use super::StageConfig;
 
@@ -92,24 +93,23 @@ impl TilingLayout {
 
         let tile_count_x = tiling_dimensions.tile_count_row();
         let tile_count_y = tiling_dimensions.tile_count_col();
-        let (tile_shape_x, tile_shape_y) = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (
-                tiling_dimensions.tile_shape_row(),
-                tiling_dimensions.tile_shape_col() / line_size,
-            ),
-            MatrixLayout::ColMajor => (
-                tiling_dimensions.tile_shape_row() / line_size,
-                tiling_dimensions.tile_shape_col(),
-            ),
-        }};
-        let (stride_x, stride_y) = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (tile_shape_y, 1u32),
-            MatrixLayout::ColMajor => (1u32, tile_shape_x),
-        }};
-        let length = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (tile_shape_x - 1) * stride_x + tile_shape_y * stride_y,
-            MatrixLayout::ColMajor => (tile_shape_y - 1) * stride_y + tile_shape_x * stride_x,
-        }};
+
+        let (tile_shape_x, tile_shape_y, length) = match matrix_layout {
+            MatrixLayout::RowMajor => {
+                let tile_shape_x = tiling_dimensions.tile_shape_row();
+                let tile_shape_y = tiling_dimensions.tile_shape_col() / line_size;
+                let stride_x = tile_shape_y;
+                let length = (tile_shape_x - 1) * stride_x + tile_shape_y;
+                (tile_shape_x, tile_shape_y, length)
+            }
+            MatrixLayout::ColMajor => {
+                let tile_shape_x = tiling_dimensions.tile_shape_row() / line_size;
+                let tile_shape_y = tiling_dimensions.tile_shape_col();
+                let stride_y = tile_shape_x;
+                let length = (tile_shape_y - 1) * stride_y + tile_shape_x;
+                (tile_shape_x, tile_shape_y, length)
+            }
+        };
 
         let start = tile_shape_x
             * tile_shape_y
@@ -138,30 +138,29 @@ impl TilingLayout {
 
         let tile_count_x = tiling_dimensions.tile_count_row();
         let tile_count_y = tiling_dimensions.tile_count_col();
-        let (tile_shape_x, tile_shape_y) = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (
-                tiling_dimensions.tile_shape_row(),
-                tiling_dimensions.tile_shape_col() / line_size,
-            ),
-            MatrixLayout::ColMajor => (
-                tiling_dimensions.tile_shape_row() / line_size,
-                tiling_dimensions.tile_shape_col(),
-            ),
-        }};
-        let (stride_x, stride_y) = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (tile_count_y * tile_shape_y, 1u32),
-            MatrixLayout::ColMajor => (1u32, tile_count_x * tile_shape_x),
-        }};
-        let length = comptime! {match matrix_layout {
-            MatrixLayout::RowMajor => (tile_shape_x - 1) * stride_x + tile_shape_y * stride_y,
-            MatrixLayout::ColMajor => (tile_shape_y - 1) * stride_y + tile_shape_x * stride_x,
-        }};
 
-        let start = x * tile_shape_x * stride_x + y * tile_shape_y * stride_y;
-        // TODO less wacky calculation
-        let stride_in_lines = Max::max(stride_x, stride_y);
+        match matrix_layout {
+            MatrixLayout::RowMajor => {
+                let tile_shape_x = tiling_dimensions.tile_shape_row();
+                let tile_shape_y = tiling_dimensions.tile_shape_col() / line_size;
 
-        Tile::new_strided(stage_slice.slice(start, start + length), stride_in_lines)
+                let stride = tile_count_y * tile_shape_y;
+                let length = (tile_shape_x - 1) * stride + tile_shape_y;
+                let start = x * tile_shape_x * stride + y * tile_shape_y;
+
+                Tile::new_strided(stage_slice.slice(start, start + length), stride)
+            }
+            MatrixLayout::ColMajor => {
+                let tile_shape_x = tiling_dimensions.tile_shape_row() / line_size;
+                let tile_shape_y = tiling_dimensions.tile_shape_col();
+
+                let stride = tile_count_x * tile_shape_x;
+                let length = (tile_shape_y - 1) * stride + tile_shape_x;
+                let start = x * tile_shape_x + y * tile_shape_y * stride;
+
+                Tile::new_strided(stage_slice.slice(start, start + length), stride)
+            }
+        }
     }
 
     /// Returns the nth slice of the stage
