@@ -66,9 +66,8 @@ pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
 
     /// Fill the accumulator with data
     fn fill_accumulator(
-        slice: &Slice<Line<O>>, // TODO Tile
+        tile: &Tile<O>,
         acc: &mut Self::Accumulator,
-        stride: u32,
         #[comptime] config: Self::Config,
     );
 

@@ -80,14 +80,10 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_accumulator(
-        slice: &Slice<Line<O>>,
-        acc: &mut Self::Accumulator,
-        stride: u32,
-        #[comptime] config: Config,
-    ) {
+    fn fill_accumulator(tile: &Tile<O>, acc: &mut Self::Accumulator, #[comptime] config: Config) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(Ident::Out)));
-        cmma::load_with_layout(acc, slice, stride, layout);
+        let (slice, stride) = tile.as_unlined::<Config>(Ident::Out, config);
+        cmma::load_with_layout(acc, &slice, stride, layout);
     }
 
     fn read_accumulator<C: Numeric>(

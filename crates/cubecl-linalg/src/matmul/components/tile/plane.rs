@@ -131,12 +131,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_accumulator(
-        slice: &Slice<Line<O>>,
-        acc: &mut Self::Accumulator,
-        stride: u32,
-        #[comptime] config: Config,
-    ) {
+    fn fill_accumulator(tile: &Tile<O>, acc: &mut Self::Accumulator, #[comptime] config: Config) {
         let unit = UNIT_POS_X;
         let n = config.size.n;
         let line_size = config.line_size(Ident::Out);
@@ -145,7 +140,6 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         let m_row_alt = unit / n;
         let col = unit % n;
 
-        let num_lines = stride / line_size;
         let col_idx = col / line_size;
         let line_idx = col % line_size;
 
@@ -154,8 +148,8 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         #[unroll]
         for m_iter in 0..config.size.m / row_jump {
             let m_row = row_jump * m_iter + m_row_alt;
-            let offset = m_row * num_lines + col_idx;
-            let line = slice[offset];
+            let offset = m_row * tile.stride + col_idx;
+            let line = tile.slice[offset];
 
             acc[m_iter] = if comptime!(line_size == 1) {
                 O::cast_from(line)
