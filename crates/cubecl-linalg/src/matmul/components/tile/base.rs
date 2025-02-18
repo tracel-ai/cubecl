@@ -136,10 +136,7 @@ impl<ES: Numeric> Tile<ES> {
             },
         }};
 
-        Tile::<ES> {
-            slice: slice.try_cast_unchecked(),
-            stride,
-        }
+        Tile::<ES> { slice, stride }
     }
 
     pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
