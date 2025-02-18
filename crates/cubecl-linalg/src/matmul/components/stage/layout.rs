@@ -3,7 +3,6 @@ use cubecl_core::{self as cubecl};
 
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::tensor::matrix_layout;
 
 use super::StageConfig;
 

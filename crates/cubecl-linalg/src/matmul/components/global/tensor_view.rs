@@ -1,3 +1,5 @@
+use core::num;
+
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
@@ -89,73 +91,32 @@ impl<EG: Numeric> TensorReader<EG> {
     ///
     /// If the slice would be partly out-of-bounds, it will simply be shorter.
     /// The caller must do the padding if necessary.
-    pub fn load_window<G: global::GlobalConfig>(
+    pub fn load_window_in_tile<G: global::GlobalConfig>(
         &self,
-        tile_x: u32,
-        tile_y: u32,
+        tile: (u32, u32),
         nth_window: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(ident);
-        let stage_tiling = config.tiling_dimensions(ident);
-        let tile_size_x = stage_tiling.tile_shape_row();
-        let tile_size_y = stage_tiling.tile_shape_col();
-        let tile_lines_x = tile_size_x / line_size;
-        let tile_lines_y = tile_size_y / line_size;
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(ident);
 
-        let view_tile_x = tile_x * tile_size_x + self.x_offset;
-        let view_tile_y = tile_y * tile_size_y + self.y_offset;
+        let tile_size_x = tiling_dimensions.tile_shape_row();
+        let tile_size_y = tiling_dimensions.tile_shape_col();
 
-        let (load_x, load_y, num_lines_in_window) = match config.matrix_layout(ident) {
-            MatrixLayout::RowMajor => (nth_window, 0, tile_lines_y),
-            MatrixLayout::ColMajor => (0, nth_window, tile_lines_x),
-        };
+        let num_lines_in_window = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor => tile_size_y / line_size,
+            MatrixLayout::ColMajor => tile_size_x / line_size,
+        }};
 
-        let view_x = view_tile_x + load_x;
-        let view_y = view_tile_y + load_y;
-
-        let read_pos =
-            (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
-
-        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
-            match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => (
-                    config.check_row_bounds(ident),
-                    view_x,
-                    self.shape_x,
-                    config.check_col_bounds(ident),
-                    view_y,
-                    self.shape_y,
-                ),
-                MatrixLayout::ColMajor => (
-                    config.check_col_bounds(ident),
-                    view_y,
-                    self.shape_y,
-                    config.check_row_bounds(ident),
-                    view_x,
-                    self.shape_x,
-                ),
-            };
-
-        // There are 0 lines if out-of-bounds vertically
-        let max_lines_in_window = if comptime!(check_h_bounds) {
-            num_lines_in_window * u32::cast_from(view_h < shape_h)
-        } else {
-            num_lines_in_window
-        };
-
-        // Window is clamped if partially out-of-bounds horizontally
-        let size = if comptime!(check_w_bounds) {
-            slice_length_clamp(shape_w / line_size, view_w / line_size, max_lines_in_window)
-        } else {
-            max_lines_in_window
-        };
-
-        Window::<EG> {
-            slice: self.tensor.as_slice(read_pos, read_pos + size),
-            size,
-        }
+        self.load_window::<G>(
+            nth_window,
+            (tile.0 * tile_size_x, tile.1 * tile_size_y),
+            num_lines_in_window,
+            ident,
+            config,
+        )
     }
 
     /// Reads data from the tensor view as a window, i.e. a slice of global memory
@@ -174,18 +135,44 @@ impl<EG: Numeric> TensorReader<EG> {
     ) -> Window<EG> {
         let line_size = config.global_line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
-        let num_rows = tiling_dimensions.total_row();
-        let num_cols = tiling_dimensions.total_col();
-        let tile_lines_rows = num_rows / line_size;
-        let tile_lines_cols = num_cols / line_size;
+        let matrix_layout = config.matrix_layout(ident);
 
-        let view_tile_x = self.x_offset;
-        let view_tile_y = self.y_offset;
+        let num_lines_in_window = comptime! {match matrix_layout {
+            MatrixLayout::RowMajor =>
+                tiling_dimensions.total_col() / line_size
+            ,
+            MatrixLayout::ColMajor =>
+                tiling_dimensions.total_row() / line_size
+            ,
+        }};
 
-        let (load_x, load_y, num_lines_in_window) = match config.matrix_layout(ident) {
-            MatrixLayout::RowMajor => (nth_window, 0, tile_lines_cols),
-            MatrixLayout::ColMajor => (0, nth_window, tile_lines_rows),
+        self.load_window::<G>(
+            nth_window,
+            (0u32, 0u32).runtime(),
+            num_lines_in_window,
+            ident,
+            config,
+        )
+    }
+
+    fn load_window<G: global::GlobalConfig>(
+        &self,
+        nth_window: u32,
+        tile_offsets: (u32, u32),
+        #[comptime] num_lines_in_window: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Window<EG> {
+        let line_size = config.global_line_size(ident);
+        let matrix_layout = config.matrix_layout(ident);
+
+        let (load_x, load_y) = match matrix_layout {
+            MatrixLayout::RowMajor => (nth_window, 0),
+            MatrixLayout::ColMajor => (0, nth_window),
         };
+
+        let view_tile_x = tile_offsets.0 + self.x_offset;
+        let view_tile_y = tile_offsets.1 + self.y_offset;
 
         let view_x = view_tile_x + load_x;
         let view_y = view_tile_y + load_y;

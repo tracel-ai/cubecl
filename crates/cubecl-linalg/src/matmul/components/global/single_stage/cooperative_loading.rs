@@ -40,11 +40,11 @@ impl LoadingValidation for CooperativeLoading {
 #[cube]
 impl LoadingStrategy for CooperativeLoading {
     fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
-        pipeline: Pipeline<ES>,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
+        _read_view: &TensorReader<EG>,
+        _stage_slice: &mut SliceMut<Line<ES>>,
+        _pipeline: Pipeline<ES>,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
     ) {
     }
 

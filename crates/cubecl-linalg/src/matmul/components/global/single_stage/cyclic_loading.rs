@@ -92,7 +92,8 @@ impl LoadingStrategy for CyclicLoading {
 
             // TODO make branching comptime conditional
             if slice_index < num_slices {
-                let window = read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
+                let window =
+                    read_view.load_window_in_tile::<G>((tile_x, tile_y), nth_slice, ident, config);
 
                 // Where this unit writes source in the stage
                 let slice_destination_offset =
