@@ -99,7 +99,7 @@ pub trait TileConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
@@ -112,7 +112,7 @@ pub trait TileConfig: MatmulConfig {
 /// Data to be handed to the tile matmul
 pub struct Tile<ES: Numeric> {
     /// Slice containing all data
-    pub slice: Slice<ES>,
+    pub slice: Slice<Line<ES>>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
 }
@@ -126,11 +126,11 @@ impl<ES: Numeric> Tile<ES> {
     ) -> Tile<ES> {
         let stride = comptime! {
             match ident.as_input() {
-            InputIdent::Lhs => match config.layout(ident) {
+            InputIdent::Lhs => match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => config.tile_shape().k,
                 MatrixLayout::ColMajor => config.tile_shape().m,
             },
-            InputIdent::Rhs => match config.layout(ident) {
+            InputIdent::Rhs => match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => config.tile_shape().n,
                 MatrixLayout::ColMajor => config.tile_shape().k,
             },
@@ -143,9 +143,17 @@ impl<ES: Numeric> Tile<ES> {
     }
 
     pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
-        Tile::<ES> {
-            slice: slice.try_cast_unchecked(),
-            stride,
-        }
+        Tile::<ES> { slice, stride }
+    }
+
+    pub fn as_unlined<T: TileConfig>(
+        &self,
+        #[comptime] ident: Ident,
+        #[comptime] config: T,
+    ) -> (Slice<ES>, u32) {
+        (
+            self.slice.try_cast_unchecked(),
+            self.stride * config.line_size(ident),
+        )
     }
 }

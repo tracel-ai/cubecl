@@ -32,7 +32,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     }
 
     fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
-        self.tmm_config.layout(ident)
+        self.tmm_config.matrix_layout(ident)
     }
 
     fn num_planes(&self) -> u32 {
