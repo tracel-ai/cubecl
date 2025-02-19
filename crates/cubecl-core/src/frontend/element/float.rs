@@ -19,6 +19,7 @@ pub trait Float:
     Numeric
     + Exp
     + Log
+    + Log2
     + Log1p
     + Cos
     + Sin

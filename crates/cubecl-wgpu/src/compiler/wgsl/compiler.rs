@@ -669,6 +669,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Log2(op) => instructions.push(wgsl::Instruction::Log2 {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Log1p(op) => instructions.push(wgsl::Instruction::Log1p {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

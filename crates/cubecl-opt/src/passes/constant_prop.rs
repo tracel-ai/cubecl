@@ -362,6 +362,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         }
         Arithmetic::Exp(op) => const_eval_float!(op.input; num::Float::exp),
         Arithmetic::Log(op) => const_eval_float!(op.input; num::Float::ln),
+        Arithmetic::Log2(op) => const_eval_float!(op.input; num::Float::log2),
         Arithmetic::Log1p(op) => const_eval_float!(op.input; num::Float::ln_1p),
         Arithmetic::Cos(op) => const_eval_float!(op.input; num::Float::cos),
         Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),

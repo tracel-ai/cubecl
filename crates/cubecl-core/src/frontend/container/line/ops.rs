@@ -4,8 +4,8 @@ use num_traits::{NumCast, ToPrimitive};
 use crate::{
     frontend::{
         Abs, Ceil, Clamp, Cos, CubeIndex, CubeIndexMut, CubePrimitive, Erf, Exp,
-        ExpandElementTyped, Floor, Log, Log1p, Max, Min, Powf, Recip, Remainder, Round, Sin, Sqrt,
-        Tanh,
+        ExpandElementTyped, Floor, Log, Log1p, Log2, Max, Min, Powf, Recip, Remainder, Round, Sin,
+        Sqrt, Tanh,
     },
     prelude::{BitwiseNot, CountOnes, FindFirstSet, LeadingZeros, ReverseBits},
     unexpanded,
@@ -236,6 +236,7 @@ impl<P: CubePrimitive + Max> Max for Line<P> {}
 impl<P: CubePrimitive + Min> Min for Line<P> {}
 impl<P: CubePrimitive + Clamp> Clamp for Line<P> {}
 impl<P: CubePrimitive + Log> Log for Line<P> {}
+impl<P: CubePrimitive + Log2> Log2 for Line<P> {}
 impl<P: CubePrimitive + Log1p> Log1p for Line<P> {}
 impl<P: CubePrimitive + Erf> Erf for Line<P> {}
 impl<P: CubePrimitive + Exp> Exp for Line<P> {}

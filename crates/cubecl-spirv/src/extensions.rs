@@ -26,6 +26,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn log2(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
@@ -105,6 +106,10 @@ pub mod glcompute {
 
         fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             ext_op(b, ty, out, GLSLstd450Log, [input]);
+        }
+
+        fn log2(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            ext_op(b, ty, out, GLSLstd450Log2, [input]);
         }
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {

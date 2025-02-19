@@ -249,6 +249,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
+            Arithmetic::Log2(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::log2(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Arithmetic::Log1p(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);

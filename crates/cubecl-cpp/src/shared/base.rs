@@ -630,6 +630,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Log(op) => {
                 instructions.push(Instruction::Log(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::Log2(op) => {
+                instructions.push(Instruction::Log(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Log1p(op) => {
                 instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
             }

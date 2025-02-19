@@ -228,6 +228,7 @@ impl<const POS: u8> Max for FloatExpand<POS> {}
 impl<const POS: u8> Min for FloatExpand<POS> {}
 impl<const POS: u8> Clamp for FloatExpand<POS> {}
 impl<const POS: u8> Log for FloatExpand<POS> {}
+impl<const POS: u8> Log2 for FloatExpand<POS> {}
 impl<const POS: u8> Log1p for FloatExpand<POS> {}
 impl<const POS: u8> Cos for FloatExpand<POS> {}
 impl<const POS: u8> Sin for FloatExpand<POS> {}

@@ -67,6 +67,9 @@ impl ScopeProcessing {
                     Arithmetic::Log(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Arithmetic::Log2(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Arithmetic::Log1p(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }

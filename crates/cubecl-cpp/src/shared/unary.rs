@@ -147,6 +147,7 @@ macro_rules! function {
 }
 
 function!(Log, "log");
+function!(Log2, "log2");
 function!(Log1p, "log1p", false);
 function!(Cos, "cos");
 function!(Sin, "sin");

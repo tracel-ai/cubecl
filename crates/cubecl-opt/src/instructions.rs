@@ -80,6 +80,7 @@ impl Optimizer {
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)
             | Arithmetic::Log(unary_operator)
+            | Arithmetic::Log2(unary_operator)
             | Arithmetic::Log1p(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
