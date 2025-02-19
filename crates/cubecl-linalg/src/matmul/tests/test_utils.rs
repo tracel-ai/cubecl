@@ -12,7 +12,7 @@ pub use cubecl_std::Q8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem, MatmulSelection, MatrixLayout},
+        components::{Ident, MatmulProblem, MatrixLayout},
         kernels::matmul::Algorithm,
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
@@ -43,9 +43,7 @@ pub trait TestPrecision {
     // TODO: This is a temporary hack to not run some quantized matmul test during development.
     //       This avoids breaking the CI with incomplete implementations.
     //       Remove when quantization is fully supported.
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool;
+    fn should_run<A: Algorithm>(layouts: (MatrixLayout, MatrixLayout)) -> bool;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
@@ -95,9 +93,7 @@ where
         }
     }
 
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        _layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool {
+    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
         true
     }
 }
@@ -197,9 +193,7 @@ impl TestPrecision for Q8 {
         assert_eq!(out, expected);
     }
 
-    fn should_run<A: Algorithm<Selection = MatmulSelection>>(
-        _layouts: (MatrixLayout, MatrixLayout),
-    ) -> bool {
+    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
         false
     }
 }
