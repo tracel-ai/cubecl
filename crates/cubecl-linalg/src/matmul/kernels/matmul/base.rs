@@ -1,7 +1,9 @@
 use crate::matmul;
 use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, SingleMatmulSpec
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
+    OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
@@ -13,7 +15,7 @@ use cubecl_core::{
 use cubecl_std::MaybeQuantized;
 
 use super::config::AdvancedConfig;
-use super::{select_kernel, stage_tf32_supported, Algorithm};
+use super::{select_kernel, Algorithm};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -219,7 +221,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             plane_dim,
             false,
         )
-    } else if stage_tf32_supported::<A::TileMatmul>() {
+    } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() {
         select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
