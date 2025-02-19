@@ -1,5 +1,3 @@
-use core::num;
-
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
