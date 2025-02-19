@@ -40,7 +40,6 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     )
 }
 
-
 /// A heuristic to choose the instruction to use, based on input shape
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
