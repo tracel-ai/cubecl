@@ -57,6 +57,9 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     output: TensorHandleRef<R>,
     cube_count: u32,
 ) -> Result<(), ReduceError> {
+    #[cfg(target_family = "wasm")]
+    return Err(ReduceError::NonSupportedWasm);
+
     // Check that the client supports atomic addition.
     let atomic_elem = Atomic::<N>::as_elem_native_unchecked();
     if !client

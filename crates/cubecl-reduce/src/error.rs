@@ -19,6 +19,8 @@ pub enum ReduceError {
     },
     /// Indicate that we can't launch a shared sum because the atomic addition is not supported.
     MissingAtomicAdd(Elem),
+    /// Indicate that we can't launch a shared sum because it is broken on wasm.
+    NonSupportedWasm,
 }
 
 impl fmt::Display for ReduceError {
@@ -32,7 +34,9 @@ impl fmt::Display for ReduceError {
                 write!(f, "The output shape (currently {output_shape:?}) should be {expected_shape:?}.")
             }
             Self::MissingAtomicAdd(elem) =>
-                        write!(f, "Atomic add not supported by the client for {elem}")
+                        write!(f, "Atomic add not supported by the client for {elem}"),
+            Self::NonSupportedWasm =>
+                        write!(f, "The algorithm is not supported on wasm")
         }
     }
 }
