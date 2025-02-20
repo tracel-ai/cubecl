@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::{TensorReader, Window};
-use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
@@ -17,21 +17,21 @@ impl LoadingValidation for CooperativeLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_layout = config.tiling_layout(ident);
 
-        match config.load_mode(ident) {
-            LoadMode::Coalesced => {
-                return Err(Box::new(
-                    "Coalesced mode not supported in cooperative loading",
-                ));
-            }
+        // match config.load_mode(ident) {
+        //     LoadMode::Coalesced => {
+        //         return Err(Box::new(
+        //             "Coalesced mode not supported in cooperative loading",
+        //         ));
+        //     }
 
-            LoadMode::Window => {
-                if let TilingLayout::Contiguous(_) = tiling_layout {
-                    return Err(Box::new(
-                        "Contiguous tiling layout not supported in cooperative loading",
-                    ));
-                }
-            }
-        };
+        //     LoadMode::Window => {
+        //         if let TilingLayout::Contiguous(_) = tiling_layout {
+        //             return Err(Box::new(
+        //                 "Contiguous tiling layout not supported in cooperative loading",
+        //             ));
+        //         }
+        //     }
+        // };
 
         Ok(())
     }

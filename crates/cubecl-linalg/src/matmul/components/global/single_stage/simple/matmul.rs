@@ -3,8 +3,8 @@ use crate::matmul::components::global::single_stage::loader::{
     LhsLoader, LoadingStrategy, RhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, InputLoader};
-use crate::matmul::components::global::{LoadMode, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
@@ -88,15 +88,6 @@ where
         );
         let stage_shape = SMM::stage_shape(&smm_config);
 
-        let load_mode_lhs = match advanced_config.lhs_tiling_layout {
-            stage::TilingLayout::Contiguous(_) => LoadMode::Coalesced,
-            stage::TilingLayout::Strided => LoadMode::Window,
-        };
-        let load_mode_rhs = match advanced_config.rhs_tiling_layout {
-            stage::TilingLayout::Contiguous(_) => LoadMode::Coalesced,
-            stage::TilingLayout::Strided => LoadMode::Window,
-        };
-
         Config::new(
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
@@ -108,8 +99,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            load_mode_lhs,
-            load_mode_rhs,
         )
     }
 }

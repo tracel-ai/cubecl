@@ -9,8 +9,6 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-use super::LoadMode;
-
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
     MatmulConfigFactory<Config: GlobalConfig> + Send + Sync + 'static
@@ -187,6 +185,4 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
-
-    fn load_mode(&self, ident: Ident) -> LoadMode;
 }

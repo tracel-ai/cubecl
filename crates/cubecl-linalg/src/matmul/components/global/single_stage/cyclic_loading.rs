@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
@@ -21,32 +21,32 @@ impl LoadingValidation for CyclicLoading {
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
-        match config.load_mode(ident) {
-            LoadMode::Coalesced => {
-                if num_stage_lines % total_units != 0 {
-                    return Err(Box::new(
-                "Too many data will be loaded, resulting in out of bounds. 
-        Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
-            ));
-                }
-                if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
-                    return Err(Box::new(
-                        "Line size for stage is not supported when transposing",
-                    ));
-                }
-            }
-            LoadMode::Window => {
-                let num_slices = tiling.tile_shape_row() * tiling.tile_count();
-                if num_slices >= total_units && num_slices % total_units != 0 {
-                    return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
-                }
-                if config.transpose_load(ident) {
-                    return Err(Box::new(
-                        "Transpose load is not supported with window load mode",
-                    ));
-                }
-            }
-        };
+        // match config.load_mode(ident) {
+        //     LoadMode::Coalesced => {
+        //         if num_stage_lines % total_units != 0 {
+        //             return Err(Box::new(
+        //         "Too many data will be loaded, resulting in out of bounds.
+        // Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
+        //     ));
+        //         }
+        //         if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
+        //             return Err(Box::new(
+        //                 "Line size for stage is not supported when transposing",
+        //             ));
+        //         }
+        //     }
+        //     LoadMode::Window => {
+        //         let num_slices = tiling.tile_shape_row() * tiling.tile_count();
+        //         if num_slices >= total_units && num_slices % total_units != 0 {
+        //             return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+        //         }
+        //         if config.transpose_load(ident) {
+        //             return Err(Box::new(
+        //                 "Transpose load is not supported with window load mode",
+        //             ));
+        //         }
+        //     }
+        // };
 
         Ok(())
     }

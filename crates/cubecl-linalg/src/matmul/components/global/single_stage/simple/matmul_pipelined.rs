@@ -3,8 +3,8 @@ use crate::matmul::components::global::single_stage::loader::{
     LhsLoader, LoadingStrategy, RhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, InputLoader};
-use crate::matmul::components::global::{LoadMode, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
@@ -106,8 +106,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            LoadMode::Window,
-            LoadMode::Window,
         )
     }
 }

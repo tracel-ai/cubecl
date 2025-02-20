@@ -1,7 +1,7 @@
 use crate::matmul::components::{
-    global::{self, GlobalConfig, LoadMode},
+    global::{self, GlobalConfig},
     stage::{self, TilingLayout},
-    Ident, InputIdent, MatmulConfig, MatrixLayout, TilingDimensions,
+    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,8 +17,6 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     num_planes: u32,
-    load_mode_lhs: LoadMode,
-    load_mode_rhs: LoadMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -83,13 +81,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     fn transpose_load(&self, ident: Ident) -> bool {
         self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
-
-    fn load_mode(&self, ident: Ident) -> LoadMode {
-        match ident.as_input() {
-            InputIdent::Lhs => self.load_mode_lhs,
-            InputIdent::Rhs => self.load_mode_rhs,
-        }
-    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
@@ -107,8 +98,6 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
-        load_mode_lhs: LoadMode,
-        load_mode_rhs: LoadMode,
     ) -> Self {
         Self {
             smm_config,
@@ -121,8 +110,6 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
-            load_mode_lhs,
-            load_mode_rhs,
         }
     }
 

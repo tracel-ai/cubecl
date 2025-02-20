@@ -1,5 +1,5 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
@@ -42,11 +42,11 @@ impl LoadingValidation for TilewiseLoading {
             ));
         }
 
-        if let LoadMode::Window = config.load_mode(ident) {
-            return Err(Box::new(
-                "Window load not yet supported in tilewise loading setup",
-            ));
-        }
+        // if let LoadMode::Window = config.load_mode(ident) {
+        //     return Err(Box::new(
+        //         "Window load not yet supported in tilewise loading setup",
+        //     ));
+        // }
 
         Ok(())
     }
