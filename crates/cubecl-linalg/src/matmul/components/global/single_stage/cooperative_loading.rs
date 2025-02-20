@@ -4,51 +4,54 @@ use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
+use super::loader::SyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes,
-/// iterating with steps determined by the plane's dimension.
-pub struct CooperativeLoading {}
+/// Loads the content of all tiles in the tensor view
+/// with all planes collaboratively loading.
+///
+/// # Note
+/// Very slow as planes do not actually collaborate but rather duplicate all the work
+/// Useful for testing for its similar behaviour to Cooperative
+pub struct CooperativeDummyLoading {}
 
-impl LoadingValidation for CooperativeLoading {
+#[derive(CubeType, Clone, Copy)]
+/// Loads the content of all tiles in the tensor view
+/// with all planes collaboratively loading.
+pub struct CooperativeWindowLoading {}
+
+impl LoadingValidation for CooperativeDummyLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_layout = config.tiling_layout(ident);
 
-        // match config.load_mode(ident) {
-        //     LoadMode::Coalesced => {
-        //         return Err(Box::new(
-        //             "Coalesced mode not supported in cooperative loading",
-        //         ));
-        //     }
+        if let TilingLayout::Contiguous(_) = tiling_layout {
+            return Err(Box::new(
+                "Contiguous tiling layout not supported in cooperative loading",
+            ));
+        }
 
-        //     LoadMode::Window => {
-        //         if let TilingLayout::Contiguous(_) = tiling_layout {
-        //             return Err(Box::new(
-        //                 "Contiguous tiling layout not supported in cooperative loading",
-        //             ));
-        //         }
-        //     }
-        // };
+        Ok(())
+    }
+}
+
+impl LoadingValidation for CooperativeWindowLoading {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let tiling_layout = config.tiling_layout(ident);
+
+        if let TilingLayout::Contiguous(_) = tiling_layout {
+            return Err(Box::new(
+                "Contiguous tiling layout not supported in cooperative loading",
+            ));
+        }
 
         Ok(())
     }
 }
 
 #[cube]
-impl LoadingStrategy for CooperativeLoading {
-    fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        _read_view: &TensorReader<EG>,
-        _stage_slice: &mut SliceMut<Line<ES>>,
-        _pipeline: Pipeline<ES>,
-        #[comptime] _ident: Ident,
-        #[comptime] _config: G,
-    ) {
-    }
-
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+impl SyncLoadingStrategy for CooperativeDummyLoading {
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

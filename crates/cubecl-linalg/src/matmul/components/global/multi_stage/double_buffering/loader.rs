@@ -4,7 +4,7 @@ use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoading;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CommonGlobalConfig, InputLoader};
+use crate::matmul::components::global::{CommonGlobalConfig, InputLoader, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::stage::{TilingLayout, TilingOrder};
@@ -12,7 +12,6 @@ use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use pipeline::Pipeline;
 
 #[derive(CubeType)]
 pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
@@ -38,24 +37,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
 {
     type StageReader = LhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        load_buffer::<EG, ES, S>(
-            this.buffer_iter,
-            &this.tensor_view,
-            &mut this.stage,
-            Ident::Lhs,
-            config,
-        );
-    }
-
-    fn fill_stage_window(
-        _this: &mut Self,
-        _pipeline: Pipeline<ES>,
-        #[comptime] _config: CommonGlobalConfig<S>,
-    ) {
-        comptime!(todo!());
-    }
-
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsBufferReader::<ES> {
             stage: this.stage,
@@ -66,6 +47,21 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Lhs);
+    }
+}
+
+#[cube]
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> SyncInputLoader<EG, ES, CommonGlobalConfig<S>>
+    for LhsBufferLoader<EG, ES, S>
+{
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
+        load_buffer::<EG, ES, S>(
+            this.buffer_iter,
+            &this.tensor_view,
+            &mut this.stage,
+            Ident::Lhs,
+            config,
+        );
     }
 }
 
@@ -97,24 +93,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
 {
     type StageReader = RhsBufferReader<ES>;
 
-    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        load_buffer::<EG, ES, S>(
-            this.buffer_iter,
-            &this.tensor_view,
-            &mut this.stage,
-            Ident::Rhs,
-            config,
-        );
-    }
-
-    fn fill_stage_window(
-        _this: &mut Self,
-        _pipeline: Pipeline<ES>,
-        #[comptime] _config: CommonGlobalConfig<S>,
-    ) {
-        comptime!(todo!());
-    }
-
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsBufferReader::<ES> {
             stage: this.stage,
@@ -125,6 +103,21 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, Common
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Rhs);
+    }
+}
+
+#[cube]
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> SyncInputLoader<EG, ES, CommonGlobalConfig<S>>
+    for RhsBufferLoader<EG, ES, S>
+{
+    fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
+        load_buffer::<EG, ES, S>(
+            this.buffer_iter,
+            &this.tensor_view,
+            &mut this.stage,
+            Ident::Rhs,
+            config,
+        );
     }
 }
 
@@ -158,7 +151,9 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     #[comptime] ident: Ident,
     #[comptime] config: CommonGlobalConfig<S>,
 ) {
-    let buffer_num_elements = config.tiling_dimensions(ident).buffer_size(ident.as_input());
+    let buffer_num_elements = config
+        .tiling_dimensions(ident)
+        .buffer_size(ident.as_input());
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 

@@ -1,10 +1,11 @@
+use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::loader::{
-    LhsLoader, LoadingStrategy, RhsLoader,
+    SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::{GlobalMatmul, InputLoader};
+use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
@@ -30,8 +31,8 @@ use crate::matmul::{
 
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -41,8 +42,8 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>, LL, RL>;
@@ -51,8 +52,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -109,8 +110,8 @@ where
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -128,12 +129,12 @@ where
         LhsReader = LhsReader<MP::ES>,
         RhsReader = RhsReader<MP::ES>,
     >,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

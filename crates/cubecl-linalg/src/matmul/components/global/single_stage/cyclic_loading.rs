@@ -6,14 +6,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
+use super::loader::{AsyncLoadingStrategy, SyncLoadingStrategy};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicLoading {}
+pub struct CyclicCoalescedLoading {}
 
-impl LoadingValidation for CyclicLoading {
+#[derive(CubeType, Clone, Copy)]
+/// Loads the content of all tiles in the tensor view using all planes,
+/// iterating with steps determined by the plane's dimension.
+pub struct CyclicWindowLoading {}
+
+impl LoadingValidation for CyclicCoalescedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -21,40 +26,44 @@ impl LoadingValidation for CyclicLoading {
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
-        // match config.load_mode(ident) {
-        //     LoadMode::Coalesced => {
-        //         if num_stage_lines % total_units != 0 {
-        //             return Err(Box::new(
-        //         "Too many data will be loaded, resulting in out of bounds.
-        // Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
-        //     ));
-        //         }
-        //         if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
-        //             return Err(Box::new(
-        //                 "Line size for stage is not supported when transposing",
-        //             ));
-        //         }
-        //     }
-        //     LoadMode::Window => {
-        //         let num_slices = tiling.tile_shape_row() * tiling.tile_count();
-        //         if num_slices >= total_units && num_slices % total_units != 0 {
-        //             return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
-        //         }
-        //         if config.transpose_load(ident) {
-        //             return Err(Box::new(
-        //                 "Transpose load is not supported with window load mode",
-        //             ));
-        //         }
-        //     }
-        // };
+        if num_stage_lines % total_units != 0 {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out of bounds.
+        Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
+            ));
+        }
+        if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
+            return Err(Box::new(
+                "Line size for stage is not supported when transposing",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+impl LoadingValidation for CyclicWindowLoading {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let tiling = config.tiling_dimensions(ident);
+        let total_units = config.num_planes() * config.plane_dim();
+
+        let num_slices = tiling.tile_shape_row() * tiling.tile_count();
+        if num_slices >= total_units && num_slices % total_units != 0 {
+            return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+        }
+        if config.transpose_load(ident) {
+            return Err(Box::new(
+                "Transpose load is not supported with window load mode",
+            ));
+        }
 
         Ok(())
     }
 }
 
 #[cube]
-impl LoadingStrategy for CyclicLoading {
-    fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+impl AsyncLoadingStrategy for CyclicWindowLoading {
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice_destination: &mut SliceMut<Line<ES>>,
         pipeline: Pipeline<ES>,
@@ -113,8 +122,11 @@ impl LoadingStrategy for CyclicLoading {
             }
         }
     }
+}
 
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+#[cube]
+impl SyncLoadingStrategy for CyclicCoalescedLoading {
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,

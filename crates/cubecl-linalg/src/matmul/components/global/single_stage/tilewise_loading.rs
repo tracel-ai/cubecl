@@ -4,16 +4,15 @@ use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
+use super::loader::SyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct TilewiseLoading {}
+pub struct TilewiseCoalescedLoading {}
 
-impl LoadingValidation for TilewiseLoading {
+impl LoadingValidation for TilewiseCoalescedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -42,29 +41,13 @@ impl LoadingValidation for TilewiseLoading {
             ));
         }
 
-        // if let LoadMode::Window = config.load_mode(ident) {
-        //     return Err(Box::new(
-        //         "Window load not yet supported in tilewise loading setup",
-        //     ));
-        // }
-
         Ok(())
     }
 }
 
 #[cube]
-impl LoadingStrategy for TilewiseLoading {
-    fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        _read_view: &TensorReader<EG>,
-        _slice: &mut SliceMut<Line<ES>>,
-        _pipeline: Pipeline<ES>,
-        #[comptime] _ident: Ident,
-        #[comptime] _config: G,
-    ) {
-        comptime!(todo!());
-    }
-
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+impl SyncLoadingStrategy for TilewiseCoalescedLoading {
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
