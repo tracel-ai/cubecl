@@ -4,13 +4,15 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::{
+    ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul,
+};
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::{check_buffers_contiguous, LhsBufferLoader, RhsBufferLoader};
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -33,6 +35,9 @@ pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }
 
+type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
+type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+
 impl<SMM> GlobalMatmulFamily for SpecializedMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<
@@ -40,7 +45,10 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<
+        MP,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LhsTilingLayout, RhsTilingLayout>,
+    >;
 }
 
 impl<SMM> MatmulConfigFactory for SpecializedMatmulFamily<SMM>
@@ -51,9 +59,6 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        check_buffers_contiguous::<Self::Config>(Ident::Lhs, config)?;
-        check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
-
         if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }
@@ -121,13 +126,13 @@ where
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsBufferReader<MP::ES>,
-        RhsReader = RhsBufferReader<MP::ES>,
+        LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
+        RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
     >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config, LhsTilingLayout>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config, RhsTilingLayout>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
@@ -247,8 +252,8 @@ impl<
             MP::ES,
             MP::EG,
             MP::EA,
-            LhsReader = LhsBufferReader<MP::ES>,
-            RhsReader = RhsBufferReader<MP::ES>,
+            LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
         >,
     > SpecializedMatmul<MP, SMM>
 {

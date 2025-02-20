@@ -1,4 +1,3 @@
-use crate::matmul::components::stage;
 use crate::matmul::components::MatrixLayout;
 
 /// Configs that may impact performance

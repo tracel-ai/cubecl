@@ -45,8 +45,12 @@ where
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> =
-        SimpleMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>, LL, RL>;
+    type Matmul<MP: MatmulPrecision> = SimpleMatmul<
+        MP,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
+        LL,
+        RL,
+    >;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
@@ -126,8 +130,8 @@ where
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsReader<MP::ES>,
-        RhsReader = RhsReader<MP::ES>,
+        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,

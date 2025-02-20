@@ -25,14 +25,13 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, T: TilingLayoutTrait>: StageMatmul<
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayoutTrait, TR: TilingLayoutTrait>: StageMatmul<
         I,
         O,
         Acc,
-        T,
         Config = Self::Config,
-        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I, T>,
-        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I, T>,
+        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I, TL>,
+        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I, TR>,
     >;
 }
 
@@ -51,9 +50,7 @@ pub trait StageMatmulFamily:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric, T: TilingLayoutTrait>:
-    'static + Send + Sync
-{
+pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
     type Config: StageConfig;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.

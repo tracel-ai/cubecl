@@ -18,7 +18,9 @@ use crate::matmul::components::global::{GlobalMatmulFamily, LoadingValidation};
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::stage::StageConfig;
+use crate::matmul::components::stage::{
+    ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
+};
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
@@ -26,11 +28,12 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
-use super::loader::check_buffers_contiguous;
-
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }
+
+type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
+type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM>
 where
@@ -39,8 +42,10 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> =
-        DoubleBufferingMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
+        MP,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LhsTilingLayout, RhsTilingLayout>,
+    >;
 }
 
 impl<SMM> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM>
@@ -51,9 +56,6 @@ where
     type Config = CommonGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        check_buffers_contiguous::<Self::Config>(Ident::Lhs, config)?;
-        check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
-
         let tmm_config = config.smm_config.to_tmm_config();
         let tile_shape = tmm_config.tile_shape();
 
@@ -129,13 +131,13 @@ where
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsBufferReader<MP::ES>,
-        RhsReader = RhsBufferReader<MP::ES>,
+        LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
+        RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
     >,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config, LhsTilingLayout>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config, RhsTilingLayout>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

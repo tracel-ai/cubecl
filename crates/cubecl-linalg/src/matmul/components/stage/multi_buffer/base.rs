@@ -38,8 +38,13 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, T: TilingLayoutTrait> =
-        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, T>;
+    type Matmul<
+        I: Numeric,
+        O: Numeric,
+        Acc: Numeric,
+        TL: TilingLayoutTrait,
+        TR: TilingLayoutTrait,
+    > = MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
@@ -101,35 +106,38 @@ pub struct MultiBufferMatmul<
     O: Numeric,
     EA: Numeric,
     TMM: tile::TileMatmul<I, EA>,
-    T: TilingLayoutTrait,
+    TL: TilingLayoutTrait,
+    TR: TilingLayoutTrait,
 > {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
-    _tiling_layout: PhantomData<T>,
+    _tiling_layout_lhs: PhantomData<TL>,
+    _tiling_layout_rhs: PhantomData<TR>,
 }
 
 #[cube]
-impl<I, O, EA, TMM, T> StageMatmul<I, O, EA, T> for MultiBufferMatmul<I, O, EA, TMM, T>
+impl<I, O, EA, TMM, TL, TR> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM, TL, TR>
 where
     I: Numeric,
     O: Numeric,
     EA: Numeric,
     TMM: tile::TileMatmul<I, EA>,
-    T: TilingLayoutTrait,
+    TL: TilingLayoutTrait,
+    TR: TilingLayoutTrait,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
-    type LhsReader = LhsReader<I, T>;
-    type RhsReader = RhsReader<I, T>;
+    type LhsReader = LhsReader<I, TL>;
+    type RhsReader = RhsReader<I, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
     fn execute(
-        lhs_reader: &LhsReader<I, T>,
-        rhs_reader: &RhsReader<I, T>,
+        lhs_reader: &LhsReader<I, TL>,
+        rhs_reader: &RhsReader<I, TR>,
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
