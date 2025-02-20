@@ -25,9 +25,9 @@ impl GvnPass {
     /// 1. Build forward and backward dominator trees
     /// 2. Run `build_sets` step to annotate the tree with value information
     /// 3. Insert expressions where they're needed to make partially redundant expressions fully
-    ///     redundant
+    ///    redundant
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
-    ///     expression to `out`
+    ///    expression to `out`
     pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
         let analysis = opt.analysis::<GlobalValues>();
 

@@ -1,8 +1,11 @@
 use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
-use crate::frontend::{
-    branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
+use crate::{
+    frontend::{
+        branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
+    },
+    prelude::CubeDebug,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -29,6 +32,7 @@ impl<T: CubeType> Init for Sequence<T> {
         self
     }
 }
+impl<T: CubeType> CubeDebug for Sequence<T> {}
 
 impl<T: CubeType + Clone> Sequence<T> {
     pub fn rev(&self) -> Self {
@@ -144,6 +148,7 @@ impl<T: CubeType> Init for SequenceExpand<T> {
         self
     }
 }
+impl<T: CubeType> CubeDebug for SequenceExpand<T> {}
 
 impl<T: CubeType> Clone for SequenceExpand<T> {
     fn clone(&self) -> Self {

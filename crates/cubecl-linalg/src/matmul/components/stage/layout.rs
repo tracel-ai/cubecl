@@ -41,16 +41,18 @@ impl TilingLayout {
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        let tiling_order = match comptime!(config.tiling_layout(ident)) {
-            TilingLayout::Contiguous(order) => order,
-            _ => comptime!(panic!(
+        if let TilingLayout::Strided = comptime!(config.tiling_layout(ident)) {
+            comptime!(panic!(
                 "to_x_y only makes sense in contiguous tiling layout"
-            )),
+            ));
         };
 
-        match comptime!(tiling_order) {
-            TilingOrder::RowMajor => (nth / num_y, nth % num_y),
-            TilingOrder::ColMajor => (nth % num_x, nth / num_x),
+        match comptime!(config.tiling_layout(ident)) {
+            TilingLayout::Contiguous(tiling_order) => match comptime!(tiling_order) {
+                TilingOrder::RowMajor => (nth / num_y, nth % num_y),
+                TilingOrder::ColMajor => (nth % num_x, nth / num_x),
+            },
+            TilingLayout::Strided => (0u32, 0u32).runtime(), // unreachable
         }
     }
 

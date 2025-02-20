@@ -7,8 +7,7 @@ use super::{
     components::tile::accelerated::Accelerated,
     kernels::{
         matmul::{
-            self, DoubleBufferingSelector, SimplePipelinedSelector, SimpleSelector,
-            SimpleStridedSelector, SpecializedSelector,
+            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm, simple_pipelined::SimplePipelinedAlgorithm, simple_strided::SimpleStridedAlgorithm, specialized::SpecializedAlgorithm
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -57,23 +56,27 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
 ) -> Result<(), MatmulLaunchError> {
     match strategy {
         Strategy::Simple => {
-            matmul::launch_ref::<R, EG, SimpleSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::SimpleStrided => {
-            matmul::launch_ref::<R, EG, SimpleStridedSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, SimpleStridedAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
         Strategy::SimplePipelined => {
-            matmul::launch_ref::<R, EG, SimplePipelinedSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, SimplePipelinedAlgorithm<Accelerated>>(
+                client, lhs, rhs, out,
+            )
         }
         Strategy::DoubleBuffering => {
-            matmul::launch_ref::<R, EG, DoubleBufferingSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, DoubleBufferingAlgorithm<Accelerated>>(
+                client, lhs, rhs, out,
+            )
         }
         Strategy::Specialized => {
-            matmul::launch_ref::<R, EG, SpecializedSelector<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, EG, SpecializedAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
         #[cfg(any(test, feature = "export_tests"))]
         Strategy::PlaneMma => {
-            matmul::launch_ref::<R, EG, SimpleSelector<super::components::tile::plane::PlaneMma>>(
+            matmul::launch_ref::<R, EG, SimpleAlgorithm<super::components::tile::plane::PlaneMma>>(
                 client, lhs, rhs, out,
             )
         }
@@ -87,7 +90,7 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
         }
         Strategy::Auto => {
             if let Err(err) =
-                matmul::launch_ref::<R, EG, SimpleSelector<Accelerated>>(client, lhs, rhs, out)
+                matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
             {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {

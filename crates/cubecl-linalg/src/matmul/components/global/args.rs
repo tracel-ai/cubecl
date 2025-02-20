@@ -403,6 +403,11 @@ mod __input {
             self
         }
     }
+    impl<EG: Numeric, GA: MatmulArgs> CubeDebug for TensorInputExpand<EG, GA> {
+        fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+            self.state.set_debug_name(scope, name);
+        }
+    }
     impl<EG: Numeric, GA: MatmulArgs> Clone for TensorInput<EG, GA> {
         fn clone(&self) -> Self {
             *self
@@ -442,6 +447,12 @@ mod __output {
         fn init(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.init(scope);
             self
+        }
+    }
+
+    impl<EG: Numeric, GA: MatmulArgs> CubeDebug for TensorOutputExpand<EG, GA> {
+        fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+            self.state.set_debug_name(scope, name);
         }
     }
 

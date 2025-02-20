@@ -129,7 +129,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                     }
                 }
             }
-            CacheEntry::Pending {} => TuneCacheResult::Pending,
+            CacheEntry::Pending => TuneCacheResult::Pending,
         }
     }
 

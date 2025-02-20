@@ -64,7 +64,7 @@ impl GvnState {
     /// Build set annotations for each block. Executes two steps:
     /// 1. Forward DFA that generates the available expressions, values and leaders for each block
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
-    ///     block
+    ///    block
     pub fn build_sets(&mut self, opt: &mut Optimizer) {
         self.build_block_sets_fwd(opt, opt.entry(), HashMap::new(), HashSet::new());
         let mut build_passes = 0;

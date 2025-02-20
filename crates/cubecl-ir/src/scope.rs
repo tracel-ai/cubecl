@@ -1,8 +1,8 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
-use crate::{ExpandElement, Matrix, TypeHash};
+use crate::{CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
 
 use super::{
     processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -21,7 +21,7 @@ use super::{
 #[allow(missing_docs)]
 pub struct Scope {
     pub depth: u8,
-    pub operations: Vec<Instruction>,
+    pub instructions: Vec<Instruction>,
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
@@ -35,16 +35,27 @@ pub struct Scope {
     reads_scalar: Vec<(Variable, Variable)>,
     pub layout_ref: Option<Variable>,
     pub allocator: Allocator,
-    pub debug_enabled: bool,
+    pub debug: DebugInfo,
     #[type_hash(skip)]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, Elem>>>,
 }
 
+/// Debug related fields, most of these are global
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct DebugInfo {
+    pub enabled: bool,
+    pub sources: Rc<RefCell<HashSet<CubeFnSource>>>,
+    pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
+    pub source_loc: Option<SourceLoc>,
+    pub entry_loc: Option<SourceLoc>,
+}
+
 impl core::hash::Hash for Scope {
     fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
         self.depth.hash(ra_expand_state);
-        self.operations.hash(ra_expand_state);
+        self.instructions.hash(ra_expand_state);
         self.locals.hash(ra_expand_state);
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
@@ -79,7 +90,7 @@ impl Scope {
     pub fn root(debug_enabled: bool) -> Self {
         Self {
             depth: 0,
-            operations: Vec::new(),
+            instructions: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
@@ -93,7 +104,13 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: None,
             allocator: Allocator::default(),
-            debug_enabled,
+            debug: DebugInfo {
+                enabled: debug_enabled,
+                sources: Default::default(),
+                variable_names: Default::default(),
+                source_loc: None,
+                entry_loc: None,
+            },
             typemap: Default::default(),
         }
     }
@@ -236,8 +253,10 @@ impl Scope {
     }
 
     /// Register an [operation](Operation) into the scope.
-    pub fn register<T: Into<Instruction>>(&mut self, operation: T) {
-        self.operations.push(operation.into())
+    pub fn register<T: Into<Instruction>>(&mut self, instruction: T) {
+        let mut inst = instruction.into();
+        inst.source_loc = self.debug.source_loc.clone();
+        self.instructions.push(inst)
     }
 
     /// Resolve the element type of the given generic type.
@@ -259,7 +278,7 @@ impl Scope {
     pub fn child(&mut self) -> Self {
         Self {
             depth: self.depth + 1,
-            operations: Vec::new(),
+            instructions: Vec::new(),
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
@@ -273,7 +292,7 @@ impl Scope {
             reads_scalar: Vec::new(),
             layout_ref: self.layout_ref,
             allocator: self.allocator.clone(),
-            debug_enabled: self.debug_enabled,
+            debug: self.debug.clone(),
             typemap: self.typemap.clone(),
         }
     }
@@ -294,22 +313,22 @@ impl Scope {
             variables.push(var);
         }
 
-        let mut operations = Vec::new();
+        let mut instructions = Vec::new();
 
         for (local, scalar) in self.reads_scalar.drain(..) {
-            operations.push(Instruction::new(Operation::Copy(scalar), local));
+            instructions.push(Instruction::new(Operation::Copy(scalar), local));
             variables.push(local);
         }
 
-        for op in self.operations.drain(..) {
-            operations.push(op);
+        for inst in self.instructions.drain(..) {
+            instructions.push(inst);
         }
 
         variables.extend(self.allocator.take_variables());
 
         ScopeProcessing {
             variables,
-            operations,
+            instructions,
         }
         .optimize()
     }
@@ -410,5 +429,35 @@ impl Scope {
 
     pub fn add_local_array(&mut self, var: Variable) {
         self.local_arrays.push(var);
+    }
+
+    pub fn update_source(&mut self, source: CubeFnSource) {
+        if self.debug.enabled {
+            self.debug.sources.borrow_mut().insert(source.clone());
+            self.debug.source_loc = Some(SourceLoc {
+                line: source.line,
+                column: source.column,
+                source,
+            });
+            if self.debug.entry_loc.is_none() {
+                self.debug.entry_loc = self.debug.source_loc.clone();
+            }
+        }
+    }
+
+    pub fn update_span(&mut self, line: u32, col: u32) {
+        if let Some(loc) = self.debug.source_loc.as_mut() {
+            loc.line = line;
+            loc.column = col;
+        }
+    }
+
+    pub fn update_variable_name(&self, variable: Variable, name: impl Into<Cow<'static, str>>) {
+        if self.debug.enabled {
+            self.debug
+                .variable_names
+                .borrow_mut()
+                .insert(variable, name.into());
+        }
     }
 }

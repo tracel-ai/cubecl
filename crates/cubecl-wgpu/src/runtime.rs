@@ -6,7 +6,7 @@ use crate::{
 use cubecl_common::future;
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, Feature, Runtime,
+    AtomicFeature, DeviceId, Feature, Runtime,
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
@@ -60,6 +60,18 @@ impl Runtime for WgpuRuntime {
 
     fn extension() -> &'static str {
         "wgsl"
+    }
+
+    fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
+        #[allow(deprecated)]
+        match device {
+            WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
+            WgpuDevice::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
+            WgpuDevice::VirtualGpu(index) => DeviceId::new(2, *index as u32),
+            WgpuDevice::Cpu => DeviceId::new(3, 0),
+            WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
+            WgpuDevice::Existing(id) => DeviceId::new(5, *id),
+        }
     }
 }
 

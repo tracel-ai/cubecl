@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     batch, global, stage, tile, CompleteStageTiling, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem,
+    MatmulProblem, MatmulSelection,
 };
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError, MatmulLaunchError};
 
@@ -12,10 +12,9 @@ pub trait Algorithm {
     type StageMatmul: stage::StageMatmulFamily<Input = CompleteStageTiling>;
     type GlobalMatmul: global::GlobalMatmulFamily;
     type BatchMatmul: batch::BatchMatmulFamily<Input = CompleteStageTiling>;
-    type Selection;
 
-    fn cube_dim(selection: &Self::Selection) -> CubeDim;
-    fn cube_count(selection: &Self::Selection, problem: &MatmulProblem) -> CubeCount;
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
 
     #[allow(clippy::type_complexity)]
     fn make_config(
