@@ -175,22 +175,24 @@ pub fn check_buffers_contiguous<G: global::GlobalConfig>(
     ident: Ident,
     config: &G,
 ) -> Result<(), InvalidConfigError> {
-    match ident.as_input() {
-        InputIdent::Lhs => {
-            if let TilingLayout::Contiguous(TilingOrder::RowMajor) = config.tiling_layout(ident) {
-                return Err(Box::new(
-                    "Lhs must have ColMajor tiling order in pipelined setting",
-                ));
-            }
-        }
-        InputIdent::Rhs => {
-            if let TilingLayout::Contiguous(TilingOrder::ColMajor) = config.tiling_layout(ident) {
-                return Err(Box::new(
-                    "Rhs must have RowMajor tiling order in pipelined setting",
-                ));
-            }
-        }
-    }
+    // TODO
+
+    // match ident.as_input() {
+    //     InputIdent::Lhs => {
+    //         if let TilingLayout::Contiguous(TilingOrder::RowMajor) = config.tiling_layout(ident) {
+    //             return Err(Box::new(
+    //                 "Lhs must have ColMajor tiling order in pipelined setting",
+    //             ));
+    //         }
+    //     }
+    //     InputIdent::Rhs => {
+    //         if let TilingLayout::Contiguous(TilingOrder::ColMajor) = config.tiling_layout(ident) {
+    //             return Err(Box::new(
+    //                 "Rhs must have RowMajor tiling order in pipelined setting",
+    //             ));
+    //         }
+    //     }
+    // }
 
     Ok(())
 }

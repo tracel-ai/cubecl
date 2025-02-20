@@ -10,7 +10,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+use super::loader::{check_buffers_contiguous, LhsBufferLoader, RhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -51,6 +51,9 @@ where
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
+        check_buffers_contiguous::<Self::Config>(Ident::Lhs, config)?;
+        check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
+
         if config.num_producers() == 0 {
             return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
         }

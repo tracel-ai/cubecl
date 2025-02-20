@@ -44,8 +44,6 @@ where
 
     fn advanced_config() -> crate::matmul::kernels::matmul::AdvancedConfig {
         crate::matmul::kernels::matmul::AdvancedConfig {
-            lhs_tiling_layout: stage::TilingLayout::Strided,
-            rhs_tiling_layout: stage::TilingLayout::Strided,
             enforced_matrix_layout: (None, None),
         }
     }

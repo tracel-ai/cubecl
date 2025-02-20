@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    stage::{self, TilingLayout},
+    stage::{self},
     Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
@@ -55,10 +55,6 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
 
     fn plane_dim(&self) -> u32 {
         self.smm_config.plane_dim()
-    }
-
-    fn tiling_layout(&self, ident: Ident) -> TilingLayout {
-        self.smm_config.tiling_layout(ident)
     }
 
     fn check_row_bounds(&self, ident: Ident) -> bool {

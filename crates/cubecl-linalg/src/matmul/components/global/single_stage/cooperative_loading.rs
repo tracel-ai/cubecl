@@ -1,6 +1,6 @@
 use crate::matmul::components::global::tensor_view::{TensorReader, Window};
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::TilingLayout;
+use crate::matmul::components::stage::StridedTilingLayout;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -22,35 +22,21 @@ pub struct CooperativeDummyLoading {}
 pub struct CooperativeWindowLoading {}
 
 impl LoadingValidation for CooperativeDummyLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling_layout = config.tiling_layout(ident);
-
-        if let TilingLayout::Contiguous(_) = tiling_layout {
-            return Err(Box::new(
-                "Contiguous tiling layout not supported in cooperative loading",
-            ));
-        }
-
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 impl LoadingValidation for CooperativeWindowLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling_layout = config.tiling_layout(ident);
-
-        if let TilingLayout::Contiguous(_) = tiling_layout {
-            return Err(Box::new(
-                "Contiguous tiling layout not supported in cooperative loading",
-            ));
-        }
-
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
 impl SyncLoadingStrategy for CooperativeDummyLoading {
+    type TilingLayout = StridedTilingLayout;
+
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
@@ -74,12 +60,13 @@ impl SyncLoadingStrategy for CooperativeDummyLoading {
 
         for nth_slice in 0..num_slices {
             let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
-            let mut destination: SliceMut<Line<ES>> = TilingLayout::nth_slice::<ES, G::SmmConfig>(
-                stage_slice,
-                nth_slice,
-                ident,
-                config.to_smm_config(),
-            );
+            let mut destination: SliceMut<Line<ES>> =
+                StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
+                    stage_slice,
+                    nth_slice,
+                    ident,
+                    config.to_smm_config(),
+                );
             memcpy_slow(window.slice.try_cast_unchecked(), &mut destination);
 
             // If padding needed: TODO comptime conditional

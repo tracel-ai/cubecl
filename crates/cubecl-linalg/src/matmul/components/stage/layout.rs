@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -27,11 +29,62 @@ pub enum TilingOrder {
     ColMajor,
 }
 
+// TODO tmp name
 #[cube]
-impl TilingLayout {
+pub trait TilingOrderTrait: 'static + Send + Sync + Clone + Copy {
+    // TODO tmp name, see older commits
+    fn a(nth: u32, #[comptime] num_x: u32, #[comptime] num_y: u32) -> (u32, u32);
+    // TODO tmp name, see older commits
+    fn b(x: u32, y: u32, #[comptime] tile_count_x: u32, #[comptime] tile_count_y: u32) -> u32;
+}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct RowMajorTilingOrder {}
+#[derive(CubeType, Clone, Copy)]
+pub struct ColMajorTilingOrder {}
+
+#[cube]
+impl TilingOrderTrait for RowMajorTilingOrder {
+    fn a(nth: u32, #[comptime] _num_x: u32, #[comptime] num_y: u32) -> (u32, u32) {
+        (nth / num_y, nth % num_y)
+    }
+    fn b(x: u32, y: u32, #[comptime] _tile_count_x: u32, #[comptime] tile_count_y: u32) -> u32 {
+        x * tile_count_y + y
+    }
+}
+
+#[cube]
+impl TilingOrderTrait for ColMajorTilingOrder {
+    fn a(nth: u32, #[comptime] num_x: u32, #[comptime] _num_y: u32) -> (u32, u32) {
+        (nth % num_x, nth / num_x)
+    }
+    fn b(x: u32, y: u32, #[comptime] tile_count_x: u32, #[comptime] _tile_count_y: u32) -> u32 {
+        y * tile_count_x + x
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ContiguousTilingLayout<T: TilingOrderTrait> {
+    tiling_order: PhantomData<T>,
+}
+
+#[derive(Clone, Copy)]
+pub struct StridedTilingLayout {}
+
+#[cube]
+pub trait TilingLayoutTrait: 'static + Send + Sync + Clone + Copy {
+    fn get_tile<ES: Numeric, S: StageConfig>(
+        stage_slice: Slice<Line<ES>>,
+        x: u32,
+        y: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> Tile<ES>;
+}
+
+#[cube]
+impl<T: TilingOrderTrait> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
-    /// Only for contiguous tiling layout
-    /// TODO: rethink abstraction
     pub fn to_x_y<S: StageConfig>(
         nth: u32,
         #[comptime] ident: Ident,
@@ -41,50 +94,16 @@ impl TilingLayout {
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        if let TilingLayout::Strided = comptime!(config.tiling_layout(ident)) {
-            comptime!(panic!(
-                "to_x_y only makes sense in contiguous tiling layout"
-            ));
-        };
-
-        match comptime!(config.tiling_layout(ident)) {
-            TilingLayout::Contiguous(tiling_order) => match comptime!(tiling_order) {
-                TilingOrder::RowMajor => (nth / num_y, nth % num_y),
-                TilingOrder::ColMajor => (nth % num_x, nth / num_x),
-            },
-            TilingLayout::Strided => (0u32, 0u32).runtime(), // unreachable
-        }
+        T::a(nth, num_x, num_y)
     }
+}
 
-    /// Returns the smallest slice that encompasses all tile elements  
-    /// of the tile at (x, y) position.  
-    pub fn get_tile<ES: Numeric, S: StageConfig>(
+#[cube]
+impl<T: TilingOrderTrait> TilingLayoutTrait for ContiguousTilingLayout<T> {
+    fn get_tile<ES: Numeric, S: StageConfig>(
         stage_slice: Slice<Line<ES>>,
         x: u32,
         y: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: S,
-    ) -> Tile<ES> {
-        match config.tiling_layout(ident) {
-            TilingLayout::Contiguous(tiling_order) => TilingLayout::get_tile_contiguous::<ES, S>(
-                stage_slice,
-                x,
-                y,
-                tiling_order,
-                ident,
-                config,
-            ),
-            TilingLayout::Strided => {
-                TilingLayout::get_tile_strided::<ES, S>(stage_slice, x, y, ident, config)
-            }
-        }
-    }
-
-    pub fn get_tile_contiguous<ES: Numeric, S: StageConfig>(
-        stage_slice: Slice<Line<ES>>,
-        x: u32,
-        y: u32,
-        #[comptime] tiling_order: TilingOrder,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
@@ -112,12 +131,7 @@ impl TilingLayout {
             }
         };
 
-        let start = tile_shape_x
-            * tile_shape_y
-            * match comptime!(tiling_order) {
-                TilingOrder::RowMajor => x * tile_count_y + y,
-                TilingOrder::ColMajor => y * tile_count_x + x,
-            };
+        let start = tile_shape_x * tile_shape_y * T::b(x, y, tile_count_x, tile_count_y);
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage_slice.slice(start, start + length),
@@ -125,8 +139,34 @@ impl TilingLayout {
             config.to_tmm_config(),
         )
     }
+}
 
-    pub fn get_tile_strided<ES: Numeric, S: StageConfig>(
+#[cube]
+impl StridedTilingLayout {
+    /// Returns the nth slice of the stage
+    pub fn nth_slice<ES: Numeric, S: StageConfig>(
+        stage_slice: &mut SliceMut<Line<ES>>,
+        nth: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> SliceMut<Line<ES>> {
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.line_size(ident);
+
+        let slice_length = match comptime!(matrix_layout) {
+            MatrixLayout::RowMajor => tiling_dimensions.total_col(),
+            MatrixLayout::ColMajor => tiling_dimensions.total_row(),
+        } / line_size;
+
+        let start = slice_length * nth;
+        stage_slice.slice_mut(start, start + slice_length)
+    }
+}
+
+#[cube]
+impl TilingLayoutTrait for StridedTilingLayout {
+    fn get_tile<ES: Numeric, S: StageConfig>(
         stage_slice: Slice<Line<ES>>,
         x: u32,
         y: u32,
@@ -162,32 +202,5 @@ impl TilingLayout {
                 Tile::new_strided(stage_slice.slice(start, start + length), stride)
             }
         }
-    }
-
-    /// Returns the nth slice of the stage
-    /// Only for strided layout
-    /// TODO: rethink abstractions
-    pub fn nth_slice<ES: Numeric, S: StageConfig>(
-        stage_slice: &mut SliceMut<Line<ES>>,
-        nth: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: S,
-    ) -> SliceMut<Line<ES>> {
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_layout = config.tiling_layout(ident);
-        let line_size = config.line_size(ident);
-
-        if let TilingLayout::Contiguous(_) = tiling_layout {
-            comptime!(panic!("nth slice only makes sense in strided layout"));
-        }
-
-        let slice_length = match comptime!(matrix_layout) {
-            MatrixLayout::RowMajor => tiling_dimensions.total_col(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_row(),
-        } / line_size;
-
-        let start = slice_length * nth;
-        stage_slice.slice_mut(start, start + slice_length)
     }
 }

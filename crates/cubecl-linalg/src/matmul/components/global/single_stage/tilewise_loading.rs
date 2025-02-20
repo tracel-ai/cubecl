@@ -1,6 +1,8 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::TilingLayout;
+use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrderTrait};
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -10,9 +12,11 @@ use super::loader::SyncLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct TilewiseCoalescedLoading {}
+pub struct TilewiseCoalescedLoading<T: TilingOrderTrait> {
+    tiling_order: PhantomData<T>,
+}
 
-impl LoadingValidation for TilewiseCoalescedLoading {
+impl<T: TilingOrderTrait> LoadingValidation for TilewiseCoalescedLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -46,7 +50,9 @@ impl LoadingValidation for TilewiseCoalescedLoading {
 }
 
 #[cube]
-impl SyncLoadingStrategy for TilewiseCoalescedLoading {
+impl<T: TilingOrderTrait> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
+    type TilingLayout = ContiguousTilingLayout<T>;
+
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
@@ -63,8 +69,11 @@ impl SyncLoadingStrategy for TilewiseCoalescedLoading {
 
         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
 
-        let (tile_x, tile_y) =
-            TilingLayout::to_x_y::<G::SmmConfig>(nth_tile, ident, config.to_smm_config());
+        let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+            nth_tile,
+            ident,
+            config.to_smm_config(),
+        );
 
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;

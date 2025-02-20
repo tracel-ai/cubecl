@@ -4,7 +4,7 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{single_stage, InputLoader};
 use crate::matmul::components::global::{LoadingValidation, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, Stage, TilingLayoutTrait};
 use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
@@ -12,6 +12,8 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    type TilingLayout;
+
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
@@ -21,26 +23,43 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
 }
 
 #[derive(CubeType)]
-pub struct SyncLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy> {
+pub struct SyncLhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: SyncLoadingStrategy,
+    T: TilingLayoutTrait,
+> {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES>,
+    pub stage: Stage<ES, T>,
     _config: PhantomData<S>,
     _loading: PhantomData<L>,
 }
 
 #[derive(CubeType)]
-pub struct SyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy> {
+pub struct SyncRhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: SyncLoadingStrategy,
+    T: TilingLayoutTrait,
+> {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES>,
+    pub stage: Stage<ES, T>,
     _config: PhantomData<S>,
     _loading: PhantomData<L>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    InputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > InputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L, T>
 {
-    type StageReader = LhsReader<ES>;
+    type StageReader = LhsReader<ES, T>;
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -52,8 +71,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L, T>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load::<EG, ES, single_stage::Config<S>>(
@@ -66,8 +90,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    SyncLhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > SyncLhsLoader<EG, ES, S, L, T>
 {
     pub fn new<G: global::GlobalConfig>(
         tensor: VirtualTensor<EG>,
@@ -79,7 +108,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncLhsLoader::<EG, ES, S, L> {
+        SyncLhsLoader::<EG, ES, S, L, T> {
             tensor_view,
             stage,
             _config: PhantomData::<S>.runtime(),
@@ -89,10 +118,15 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    InputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > InputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L, T>
 {
-    type StageReader = RhsReader<ES>;
+    type StageReader = RhsReader<ES, T>;
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -104,8 +138,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L, T>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load::<EG, ES, single_stage::Config<S>>(
@@ -118,8 +157,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
-    SyncRhsLoader<EG, ES, S, L>
+impl<
+        EG: Numeric,
+        ES: Numeric,
+        S: stage::StageConfig,
+        L: SyncLoadingStrategy,
+        T: TilingLayoutTrait,
+    > SyncRhsLoader<EG, ES, S, L, T>
 {
     pub fn new<G: global::GlobalConfig>(
         tensor: VirtualTensor<EG>,
@@ -131,7 +175,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
         let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncRhsLoader::<EG, ES, S, L> {
+        SyncRhsLoader::<EG, ES, S, L, T> {
             tensor_view,
             stage,
             _config: PhantomData::<S>.runtime(),

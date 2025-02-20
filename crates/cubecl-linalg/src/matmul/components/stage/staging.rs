@@ -1,4 +1,6 @@
-use crate::matmul::components::stage::{StageConfig, TilingLayout};
+use std::marker::PhantomData;
+
+use crate::matmul::components::stage::{StageConfig, TilingLayoutTrait};
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
@@ -7,14 +9,15 @@ use cubecl_core::prelude::*;
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
-pub struct Stage<ES: Numeric> {
+pub struct Stage<ES: Numeric, T: TilingLayoutTrait> {
     pub smem: SharedMemory<Line<ES>>,
+    tiling_layout: PhantomData<T>,
 }
 
 #[cube]
-impl<ES: Numeric> Stage<ES> {
+impl<ES: Numeric, T: TilingLayoutTrait> Stage<ES, T> {
     /// Instantiate a new stage for the given identifier
-    pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES> {
+    pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
         let line_size = config.line_size(ident);
 
         let smem = SharedMemory::new_lined(
@@ -22,7 +25,10 @@ impl<ES: Numeric> Stage<ES> {
             line_size,
         );
 
-        Stage::<ES> { smem }
+        Stage::<ES, T> {
+            smem,
+            tiling_layout: PhantomData::<T>.runtime(),
+        }
     }
 
     /// Get the tile at position (x,y) regardless of matrix layout
@@ -33,7 +39,7 @@ impl<ES: Numeric> Stage<ES> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        TilingLayout::get_tile::<ES, S>(self.smem.to_slice(), x, y, ident, config)
+        T::get_tile::<ES, S>(self.smem.to_slice(), x, y, ident, config)
     }
 
     /// Return the whole stage as a mutable slice, for loading

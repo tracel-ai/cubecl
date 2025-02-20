@@ -8,7 +8,7 @@ use crate::matmul::components::global::{InputLoader, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::stage::{TilingLayout, TilingOrder};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{global, Ident, InvalidConfigError};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -169,9 +169,6 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     let line_size = config.stage_line_size(ident);
     let buffer_num_lines = buffer_num_elements / line_size;
 
-    #[allow(clippy::all)]
-    let _ = comptime!(check_buffers_contiguous(ident, config));
-
     let start = buffer_iter * buffer_num_lines;
     let end = start + buffer_num_lines;
     let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
@@ -186,17 +183,28 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig>(
     );
 }
 
-fn check_buffers_contiguous<G: global::GlobalConfig>(ident: Ident, config: G) {
-    match ident.as_input() {
-        InputIdent::Lhs => {
-            if let TilingLayout::Contiguous(TilingOrder::RowMajor) = config.tiling_layout(ident) {
-                panic!("Lhs must have ColMajor tiling order in producer consumer setting")
-            }
-        }
-        InputIdent::Rhs => {
-            if let TilingLayout::Contiguous(TilingOrder::ColMajor) = config.tiling_layout(ident) {
-                panic!("Rhs must have RowMajor tiling order in producer consumer setting")
-            }
-        }
-    }
+pub fn check_buffers_contiguous<G: global::GlobalConfig>(
+    ident: Ident,
+    config: &G,
+) -> Result<(), InvalidConfigError> {
+    // TODO
+
+    // match ident.as_input() {
+    //     InputIdent::Lhs => {
+    //         if let TilingLayout::Contiguous(TilingOrder::RowMajor) = config.tiling_layout(ident) {
+    //             return Err(Box::new(
+    //                 "Lhs must have ColMajor tiling order in producer consumer  setting",
+    //             ));
+    //         }
+    //     }
+    //     InputIdent::Rhs => {
+    //         if let TilingLayout::Contiguous(TilingOrder::ColMajor) = config.tiling_layout(ident) {
+    //             return Err(Box::new(
+    //                 "Rhs must have RowMajor tiling order in producer consumer  setting",
+    //             ));
+    //         }
+    //     }
+    // }
+
+    Ok(())
 }
