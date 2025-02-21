@@ -83,7 +83,7 @@ impl<C: CubePrimitive> Barrier<C> {
 
     pub fn __expand_new_cube_level(scope: &mut Scope, unit_count: u32) -> BarrierExpand<C> {
         let elem = C::as_elem(scope);
-        
+
         // For now we assume the elected unit is always the first one.
         let elected_unit = 0;
         let variable = scope.create_barrier(Item::new(elem), unit_count, elected_unit);
