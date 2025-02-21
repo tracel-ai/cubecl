@@ -5,12 +5,12 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulSize, StageTiling};
+use crate::matmul::components::{MatmulSize, TilingDimensions};
 
 use super::TilingLayout;
 
 pub trait ReaderFamily {
-    type Reader<I: Numeric>: CubeType;
+    type Reader<I: Numeric, T: TilingLayout>: CubeType;
 }
 
 pub trait StageMatmulFamily:
@@ -25,13 +25,13 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric>: StageMatmul<
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
         I,
         O,
         Acc,
         Config = Self::Config,
-        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I>,
-        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I>,
+        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I, TL>,
+        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I, TR>,
     >;
 }
 
@@ -139,19 +139,16 @@ pub trait StageConfig: MatmulConfig {
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the [StageTiling] for the given ident
-    fn tiling(&self, ident: Ident) -> StageTiling;
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
 
     /// Returns the size of the plane dimension
     fn plane_dim(&self) -> u32;
-
-    /// Returns the order in which tiles should be loaded to the stage
-    fn tiling_layout(&self, ident: Ident) -> TilingLayout;
 
     fn tile_count(&self) -> &MatmulSize;
 }

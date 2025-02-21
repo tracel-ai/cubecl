@@ -144,6 +144,7 @@ fn main() {
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::SimpleStrided);
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
             matmul::Strategy::SimplePipelined,
@@ -153,7 +154,12 @@ fn main() {
             Default::default(),
             matmul::Strategy::DoubleBuffering,
         );
+
         run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::cuda::CudaRuntime, flex32>(
+            Default::default(),
+            matmul::Strategy::SimpleStrided,
+        );
         run::<cubecl::cuda::CudaRuntime, flex32>(
             Default::default(),
             matmul::Strategy::SimplePipelined,
@@ -163,7 +169,9 @@ fn main() {
             Default::default(),
             matmul::Strategy::DoubleBuffering,
         );
+
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::SimpleStrided);
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             matmul::Strategy::SimplePipelined,
