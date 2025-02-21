@@ -341,6 +341,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::ConstantArray { .. }
         | VariableKind::Slice { .. }
         | VariableKind::Matrix { .. }
+        | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. } => elem,
     }
 }

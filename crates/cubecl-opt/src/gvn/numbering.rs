@@ -126,6 +126,7 @@ impl ValueTable {
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
             | Operation::NonSemantic(_)
+            | Operation::Barrier(_)
             | Operation::Pipeline(_) => Err(None),
         }
     }

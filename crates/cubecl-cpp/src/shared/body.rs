@@ -1,4 +1,4 @@
-use super::{pipeline::PipelineOps, Dialect, Instruction, Variable};
+use super::{barrier::BarrierOps, pipeline::PipelineOps, Dialect, Instruction, Variable};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
@@ -7,6 +7,7 @@ pub struct Body<D: Dialect> {
     pub instructions: Vec<Instruction<D>>,
     pub shared_memories: Vec<super::SharedMemory<D>>,
     pub pipelines: Vec<PipelineOps<D>>,
+    pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
     pub warp_size_checked: bool,
@@ -99,6 +100,9 @@ impl<D: Dialect> Display for Body<D> {
 
         for pipeline in self.pipelines.iter() {
             writeln!(f, "{pipeline}")?;
+        }
+        for barrier in self.barriers.iter() {
+            writeln!(f, "{barrier}")?;
         }
 
         for const_array in self.const_arrays.iter() {
