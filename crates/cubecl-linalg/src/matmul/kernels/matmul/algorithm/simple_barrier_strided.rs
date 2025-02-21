@@ -9,12 +9,12 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
 use crate::matmul::components::{tile, MatmulSelection};
 
-pub struct SimpleStridedAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
+pub struct SimpleBarrierStridedAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _tmm: PhantomData<TMM>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, Dispatch> base::Algorithm for SimpleStridedAlgorithm<TMM, Dispatch>
+impl<TMM, Dispatch> base::Algorithm for SimpleBarrierStridedAlgorithm<TMM, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
     Dispatch: CubeDispatch + CubeCountDispatch,

@@ -77,7 +77,7 @@ where
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
         if !client.properties().feature_enabled(Feature::Barrier) {
-            return Err(MatmulAvailabilityError::PipelineUnavailable);
+            return Err(MatmulAvailabilityError::BarrierUnavailable);
         }
 
         Ok(())
