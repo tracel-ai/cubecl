@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, AtomicOp, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction, Metadata,
-    Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
+    Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
+    Metadata, Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -50,6 +50,7 @@ impl Optimizer {
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
             Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
+            Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
         }
     }
 
@@ -316,6 +317,25 @@ impl Optimizer {
             PipelineOps::ProducerCommit { pipeline } => visit_read(self, pipeline),
             PipelineOps::ConsumerWait { pipeline } => visit_read(self, pipeline),
             PipelineOps::ConsumerRelease { pipeline } => visit_read(self, pipeline),
+        }
+    }
+
+    fn visit_barrier(
+        &mut self,
+        barrier_ops: &mut BarrierOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match barrier_ops {
+            BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                destination,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source);
+                visit_read(self, destination);
+            }
+            BarrierOps::Wait { barrier } => visit_read(self, barrier),
         }
     }
 

@@ -1,6 +1,7 @@
 pub mod binary;
 pub mod unary;
 
+mod barrier;
 mod base;
 mod body;
 mod element;

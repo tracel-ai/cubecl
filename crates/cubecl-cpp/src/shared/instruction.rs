@@ -1,8 +1,8 @@
 use crate::shared::FmtLeft;
 
 use super::{
-    binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem, Item, Variable,
-    WarpInstruction, WmmaInstruction,
+    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem,
+    Item, Variable, WarpInstruction, WmmaInstruction,
 };
 use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 
@@ -198,6 +198,7 @@ pub enum Instruction<D: Dialect> {
         content: String,
     },
     Pipeline(PipelineOps<D>),
+    Barrier(BarrierOps<D>),
     Line {
         file: Cow<'static, str>,
         line: u32,
@@ -627,6 +628,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
+            Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
         }
     }

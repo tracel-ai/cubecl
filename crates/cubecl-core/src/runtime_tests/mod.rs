@@ -1,5 +1,6 @@
 pub mod assign;
 pub mod atomic;
+pub mod barrier;
 pub mod binary;
 pub mod branch;
 pub mod cmma;
@@ -76,6 +77,7 @@ macro_rules! testgen_all {
 macro_rules! testgen_float {
     () => {
         cubecl_core::testgen_assign!();
+        cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();

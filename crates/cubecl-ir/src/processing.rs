@@ -352,6 +352,9 @@ impl ScopeProcessing {
                 Operation::Pipeline(_) => {
                     // Nothing to do
                 }
+                Operation::Barrier(_) => {
+                    // Nothing to do
+                }
             });
         self
     }

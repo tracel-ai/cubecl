@@ -109,6 +109,18 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
+    pub fn create_barrier(&self, item: Item) -> ExpandElement {
+        let id = self.new_local_index();
+        let variable = Variable::new(
+            VariableKind::Barrier {
+                id,
+                item,
+            },
+            item,
+        );
+        ExpandElement::Plain(variable)
+    }
+
     // Try to return a reusable mutable variable for the given `item` or `None` otherwise.
     pub fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
         // Among the candidates, take a variable if it's only referenced by the pool.

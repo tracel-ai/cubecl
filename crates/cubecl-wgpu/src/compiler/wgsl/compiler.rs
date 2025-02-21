@@ -323,6 +323,9 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
+            cube::VariableKind::Barrier { .. } => {
+                panic!("Barrier not supported.")
+            }
         }
     }
 
@@ -400,6 +403,9 @@ impl WgslCompiler {
             cube::Operation::NonSemantic(_) => {}
             cube::Operation::Pipeline(_) => {
                 panic!("Pipeline isn't supported on wgpu.")
+            }
+            cube::Operation::Barrier(_) => {
+                panic!("Barrier isn't supported on wgpu.")
             }
         }
     }

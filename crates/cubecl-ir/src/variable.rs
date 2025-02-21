@@ -60,6 +60,7 @@ pub enum VariableKind {
     Slice { id: Id },
     Builtin(Builtin),
     Pipeline { id: Id, item: Item, num_stages: u8 },
+    Barrier { id: Id, item: Item },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -108,6 +109,7 @@ impl Variable {
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
+            VariableKind::Barrier { .. } => false,
         }
     }
 
@@ -450,6 +452,7 @@ impl Display for Variable {
             VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
+            VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
         }
     }
 }

@@ -166,6 +166,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { id: _, item } => *item,
+            Variable::Barrier { id: _, item } => *item,
         }
     }
 
@@ -211,6 +212,7 @@ pub enum Variable<D: Dialect> {
     GridDimZ,
     WmmaFragment { id: Id, frag: Fragment<D> },
     Pipeline { id: Id, item: Item<D> },
+    Barrier { id: Id, item: Item<D> },
     Tmp { id: Id, item: Item<D> },
 }
 
@@ -297,6 +299,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GridDimGlobal => f.write_str("gridDimGlobal"),
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
             Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
+            Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
         }
     }
 }
@@ -426,6 +429,7 @@ impl<D: Dialect> Variable<D> {
             Variable::GridDimGlobal => true,
             Variable::Tmp { .. } => false,
             Variable::Pipeline { .. } => false,
+            Variable::Barrier { .. } => false,
         }
     }
 
@@ -458,6 +462,7 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalArray(id, ..) => Some(*id),
             Variable::WmmaFragment { id, .. } => Some(*id),
             Variable::Pipeline { id, .. } => Some(*id),
+            Variable::Barrier { id, .. } => Some(*id),
             Variable::Tmp { id, .. } => Some(*id),
             _ => None,
         }

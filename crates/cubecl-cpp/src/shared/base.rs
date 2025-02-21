@@ -12,6 +12,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::DeviceProperties;
 
+use super::barrier::BarrierOps;
 use super::pipeline::PipelineOps;
 use super::{
     AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
@@ -58,12 +59,14 @@ impl Default for CompilationOptions {
 pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<SharedMemory<D>>,
     pipelines: Vec<PipelineOps<D>>,
+    barriers: Vec<BarrierOps<D>>,
     const_arrays: Vec<ConstArray<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     warp_size_checked: bool,
     wmma: bool,
     pipeline: bool,
+    barrier: bool,
     bf16: bool,
     f16: bool,
     printf: bool,
@@ -125,6 +128,7 @@ impl<D: Dialect> CppCompiler<D> {
             instructions,
             shared_memories: self.shared_memories,
             pipelines: self.pipelines,
+            barriers: self.barriers,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
             warp_size_checked: self.warp_size_checked,
@@ -143,6 +147,7 @@ impl<D: Dialect> CppCompiler<D> {
             body,
             wmma_activated: self.wmma,
             pipeline: self.pipeline,
+            barrier: self.barrier,
             bf16: self.bf16,
             f16: self.f16,
             fast_math,
@@ -384,6 +389,26 @@ impl<D: Dialect> CppCompiler<D> {
                         pipeline: self.compile_variable(pipeline),
                     }),
                 ),
+            },
+            gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
+                gpu::BarrierOps::MemCopyAsync {
+                    barrier,
+                    source,
+                    destination,
+                } => {
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(destination),
+                        },
+                    ));
+                }
+                gpu::BarrierOps::Wait { barrier } => {
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
+                        barrier: self.compile_variable(barrier),
+                    }))
+                }
             },
         }
     }
@@ -1079,6 +1104,17 @@ impl<D: Dialect> CppCompiler<D> {
                     });
                 }
                 pipeline
+            }
+            gpu::VariableKind::Barrier { id, item } => {
+                self.barrier = true;
+                let barrier = Variable::Barrier {
+                    id,
+                    item: self.compile_item(item),
+                };
+                if !self.barriers.iter().any(|s| s.barrier_id() == id) {
+                    self.barriers.push(BarrierOps::Init { barrier });
+                }
+                barrier
             }
         }
     }
