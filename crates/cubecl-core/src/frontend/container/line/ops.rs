@@ -357,7 +357,7 @@ impl<P: CubePrimitive + NumCast> ToPrimitive for Line<P> {
 
 impl<P> CubeIndex<u32> for Line<P>
 where
-    P: CubePrimitive + CubeIndex<u32, Output = P>,
+    P: CubePrimitive,
 {
     type Output = P;
 
@@ -368,7 +368,7 @@ where
 
 impl<P> CubeIndexMut<u32> for Line<P>
 where
-    P: CubePrimitive + CubeIndexMut<u32, Output = P>,
+    P: CubePrimitive,
 {
     fn cube_idx_mut(&mut self, _i: u32) -> &mut Self::Output {
         unexpanded!()
@@ -377,7 +377,7 @@ where
 
 impl<P> CubeIndex<ExpandElementTyped<u32>> for Line<P>
 where
-    P: CubePrimitive + CubeIndex<ExpandElementTyped<u32>, Output = P>,
+    P: CubePrimitive,
 {
     type Output = P;
 
@@ -388,7 +388,7 @@ where
 
 impl<P> CubeIndexMut<ExpandElementTyped<u32>> for Line<P>
 where
-    P: CubePrimitive + CubeIndexMut<ExpandElementTyped<u32>, Output = P>,
+    P: CubePrimitive,
 {
     fn cube_idx_mut(&mut self, _i: ExpandElementTyped<u32>) -> &mut Self::Output {
         unexpanded!()
