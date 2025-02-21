@@ -5,7 +5,7 @@ use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::loader::SyncLoadingStrategy;
+use super::loader::{AsyncLoadingStrategy, CopyMechanism, SyncLoadingStrategy};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view
@@ -81,5 +81,20 @@ impl SyncLoadingStrategy for CooperativeDummyLoading {
 fn memcpy_slow<ES: Numeric>(source: Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
     for i in 0..source.len() {
         destination[i] = source[i];
+    }
+}
+
+#[cube]
+impl AsyncLoadingStrategy for CooperativeWindowLoading {
+    type TilingLayout = StridedTilingLayout;
+
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EG>,
+        slice: &mut SliceMut<Line<ES>>,
+        barrier: CM,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        // TODO
     }
 }

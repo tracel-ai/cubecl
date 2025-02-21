@@ -10,17 +10,37 @@ use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
+use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
+
+#[cube]
+pub trait CopyMechanism<ES: Numeric>: CubeType {
+    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>);
+}
+
+#[cube]
+impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
+    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>) {
+        mechanism.memcpy_async(source, destination)
+    }
+}
+
+#[cube]
+impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
+    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>) {
+        mechanism.memcpy_async(source, destination)
+    }
+}
 
 #[cube]
 pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     type TilingLayout: TilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
+    fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        pipeline: Pipeline<ES>,
+        pipeline: CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -48,15 +68,15 @@ pub struct AsyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: As
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
-    fn fill_stage(
+    fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        pipeline: Pipeline<ES>,
+        mechanism: CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load::<EG, ES, single_stage::Config<S>>(
+        L::load::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
-            pipeline,
+            mechanism,
             Ident::Lhs,
             config,
         );
@@ -120,15 +140,15 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
-    fn fill_stage(
+    fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        pipeline: Pipeline<ES>,
+        mechanism: CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load::<EG, ES, single_stage::Config<S>>(
+        L::load::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
-            pipeline,
+            mechanism,
             Ident::Rhs,
             config,
         );

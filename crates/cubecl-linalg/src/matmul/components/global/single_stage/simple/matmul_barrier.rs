@@ -12,9 +12,9 @@ use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
+use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
-use pipeline::Pipeline;
 use std::marker::PhantomData;
 
 use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
@@ -31,7 +31,7 @@ use crate::matmul::{
     kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
 
-pub struct SimplePipelinedMatmulFamily<
+pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
@@ -41,13 +41,13 @@ pub struct SimplePipelinedMatmulFamily<
     _rhs_loading: PhantomData<RL>,
 }
 
-impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
+    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
         MP,
         SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
         LL,
@@ -55,7 +55,7 @@ where
     >;
 }
 
-impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
     LL: AsyncLoadingStrategy,
@@ -76,7 +76,7 @@ where
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
-        if !client.properties().feature_enabled(Feature::Pipeline) {
+        if !client.properties().feature_enabled(Feature::Barrier) {
             return Err(MatmulAvailabilityError::PipelineUnavailable);
         }
 
@@ -119,7 +119,7 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimplePipelinedMatmul<
+pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
     LL: AsyncLoadingStrategy,
@@ -132,7 +132,7 @@ pub struct SimplePipelinedMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
         MP::ES,
@@ -163,26 +163,23 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
-        // Pipeline is declared with two stages, one for lhs and one for rhs
-        let pipeline = Pipeline::<MP::ES>::new(2);
-
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
+
+        let barrier = Barrier::<MP::ES>::new_cube_level(config.num_planes() * config.plane_dim());
 
         for _ in 0..num_loops {
             sync_units();
 
             // Start loading
-            pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, pipeline, config);
-            pipeline.producer_commit();
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, barrier, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, barrier, config);
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             // Wait for load to finish for this thread, then sync to make sure all planes have finished
-            pipeline.consumer_wait();
+            barrier.wait();
             sync_units();
 
             SMM::execute(
@@ -193,8 +190,6 @@ where
                 acc,
                 config.to_smm_config(),
             );
-
-            pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
