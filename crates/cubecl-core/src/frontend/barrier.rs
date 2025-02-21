@@ -52,8 +52,13 @@ pub struct BarrierExpand<C: CubePrimitive> {
 }
 
 impl<C: CubePrimitive> Barrier<C> {
-    /// Create a barrier instance
-    pub fn new(_unit_count: u32, _elected_unit: u32) -> Self {
+    /// Create a barrier instance at the unit level, i.e. for the unit itself only
+    pub fn new_unit_level() -> Self {
+        Self { _c: PhantomData }
+    }
+
+    /// Create a barrier instance at the Cube level, i.e. for all units
+    pub fn new_cube_level(_unit_count: u32, _elected_unit: u32) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -72,7 +77,20 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope, unit_count: u32, elected_unit: u32) -> BarrierExpand<C> {
+    pub fn __expand_new_unit_level(scope: &mut Scope) -> BarrierExpand<C> {
+        let elem = C::as_elem(scope);
+        let variable = scope.create_barrier(Item::new(elem), 1, 0);
+        BarrierExpand {
+            elem: variable,
+            _c: PhantomData,
+        }
+    }
+
+    pub fn __expand_new_cube_level(
+        scope: &mut Scope,
+        unit_count: u32,
+        elected_unit: u32,
+    ) -> BarrierExpand<C> {
         let elem = C::as_elem(scope);
         let variable = scope.create_barrier(Item::new(elem), unit_count, elected_unit);
         BarrierExpand {

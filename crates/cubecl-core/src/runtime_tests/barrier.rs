@@ -3,7 +3,7 @@ use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let barrier = barrier::Barrier::<F>::new(CUBE_DIM, UNIT_POS);
+    let barrier = barrier::Barrier::<F>::new_unit_level();
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);
