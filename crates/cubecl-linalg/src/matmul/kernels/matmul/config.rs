@@ -14,4 +14,3 @@ pub struct AdvancedConfig {
     /// and stage will not be vectorized.
     pub enforced_matrix_layout: (Option<MatrixLayout>, Option<MatrixLayout>),
 }
-
