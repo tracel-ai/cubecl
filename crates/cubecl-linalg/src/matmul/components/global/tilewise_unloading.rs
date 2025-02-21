@@ -18,7 +18,7 @@ impl TilewiseUnloading {
         tile_y: u32,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(Ident::Out);
+        let tiling = config.tiling_dimensions(Ident::Out);
         let slice_line_size = config.stage_line_size(Ident::Out);
         let out_line_size = config.global_line_size(Ident::Out);
 

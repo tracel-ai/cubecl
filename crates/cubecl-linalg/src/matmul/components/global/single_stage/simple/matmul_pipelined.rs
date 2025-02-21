@@ -1,10 +1,12 @@
+use crate::matmul::components::global::base::AsyncInputLoader;
+use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::loader::{
-    LhsLoader, LoadingStrategy, RhsLoader,
+    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::{GlobalMatmul, InputLoader};
-use crate::matmul::components::global::{LoadMode, ZeroAccumulatorLoader};
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
@@ -31,8 +33,8 @@ use crate::matmul::{
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -42,18 +44,22 @@ pub struct SimplePipelinedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> =
-        SimplePipelinedMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>, LL, RL>;
+    type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
+        MP,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
+        LL,
+        RL,
+    >;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -106,7 +112,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            LoadMode::Window,
         )
     }
 }
@@ -117,8 +122,8 @@ where
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -133,15 +138,15 @@ where
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsReader<MP::ES>,
-        RhsReader = RhsReader<MP::ES>,
+        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: LoadingStrategy,
-    RL: LoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = RhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
@@ -169,8 +174,8 @@ where
 
             // Start loading
             pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage_window(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage_window(&mut rhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, pipeline, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, pipeline, config);
             pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);

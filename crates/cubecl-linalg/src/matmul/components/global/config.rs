@@ -1,15 +1,7 @@
 use crate::matmul::components::{
-    stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatrixLayout, StageTiling,
+    stage::{self},
+    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
-
-/// Whether each unit loads a line side by side (coalesced)
-/// or a window (i.e. a slice of lines)
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum LoadMode {
-    Coalesced,
-    Window,
-}
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
@@ -24,7 +16,6 @@ pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub rhs_line_size: u32,
     pub out_line_size: u32,
     pub num_planes: u32,
-    pub load_mode: LoadMode,
 }
 
 impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
@@ -46,15 +37,15 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.smm_config.tiling(ident)
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        self.smm_config.tiling_dimensions(ident)
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
         match ident {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
+            Ident::Out => self.smm_config.matrix_layout(Ident::Out),
         }
     }
 
@@ -64,10 +55,6 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
 
     fn plane_dim(&self) -> u32 {
         self.smm_config.plane_dim()
-    }
-
-    fn tiling_layout(&self, ident: Ident) -> TilingLayout {
-        self.smm_config.tiling_layout(ident)
     }
 
     fn check_row_bounds(&self, ident: Ident) -> bool {
@@ -87,11 +74,7 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
-    }
-
-    fn load_mode(&self) -> LoadMode {
-        self.load_mode
+        self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
 }
 
@@ -110,7 +93,6 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
-        load_mode: LoadMode,
     ) -> Self {
         Self {
             smm_config,
@@ -123,7 +105,6 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
-            load_mode,
         }
     }
 }
