@@ -12,8 +12,8 @@
 
 pub mod instructions;
 pub mod primitives;
+pub mod args;
 
-mod args;
 mod config;
 mod error;
 mod launch;
