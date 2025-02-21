@@ -13,6 +13,7 @@
 pub mod instructions;
 pub mod primitives;
 
+mod args;
 mod config;
 mod error;
 mod launch;
