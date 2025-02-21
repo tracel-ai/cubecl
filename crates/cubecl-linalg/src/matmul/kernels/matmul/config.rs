@@ -1,6 +1,7 @@
 use crate::matmul::components::MatrixLayout;
 
 /// Configs that may impact performance
+#[derive(Default)]
 pub struct AdvancedConfig {
     /// Ensure the inputs to tile matmul are in specified layout
     ///
@@ -14,10 +15,3 @@ pub struct AdvancedConfig {
     pub enforced_matrix_layout: (Option<MatrixLayout>, Option<MatrixLayout>),
 }
 
-impl Default for AdvancedConfig {
-    fn default() -> Self {
-        Self {
-            enforced_matrix_layout: (None, None),
-        }
-    }
-}
