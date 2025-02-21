@@ -137,8 +137,15 @@ impl Scope {
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier(&mut self, item: Item) -> ExpandElement {
-        let barrier = self.allocator.create_barrier(item);
+    pub fn create_barrier(
+        &mut self,
+        item: Item,
+        unit_count: u32,
+        elected_unit: u32,
+    ) -> ExpandElement {
+        let barrier = self
+            .allocator
+            .create_barrier(item, unit_count, elected_unit);
         self.add_barrier(*barrier);
         barrier
     }

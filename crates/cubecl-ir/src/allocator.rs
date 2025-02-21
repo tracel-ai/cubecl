@@ -109,12 +109,19 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_barrier(&self, item: Item) -> ExpandElement {
+    pub fn create_barrier(
+        &self,
+        item: Item,
+        unit_count: u32,
+        elected_unit: u32,
+    ) -> ExpandElement {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Barrier {
                 id,
                 item,
+                unit_count,
+                elected_unit,
             },
             item,
         );

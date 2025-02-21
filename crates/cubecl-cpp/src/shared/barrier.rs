@@ -6,7 +6,6 @@ use super::{Component, Dialect, Variable};
 pub enum BarrierOps<D: Dialect> {
     Init {
         barrier: Variable<D>,
-        level: u8,
         num_units: u32,
         elected_unit: u32,
     },
@@ -49,18 +48,17 @@ cuda::memcpy_async({destination}, {source}, {size}, {barrier});
             }
             BarrierOps::Init {
                 barrier,
-                level,
                 num_units,
                 elected_unit,
-            } => match level {
-                0 => write!(
+            } => match num_units {
+                1 => write!(
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-{barrier}.init(1);
+init(&{barrier}, 1);
                 "
                 ),
-                1 => write!(
+                _ => write!(
                     f,
                     "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
@@ -69,7 +67,6 @@ if (threadIdx.x == {elected_unit}) {{
 }}
                     "
                 ),
-                _ => unreachable!(),
             },
             BarrierOps::Wait { barrier } => {
                 write!(

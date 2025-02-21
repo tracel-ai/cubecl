@@ -1,9 +1,9 @@
-use crate::{self as cubecl, as_bytes, prelude::barrier::Unit, Feature};
+use crate::{self as cubecl, as_bytes, Feature};
 use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let barrier = barrier::Barrier::<Unit, F>::new();
+    let barrier = barrier::Barrier::<F>::new(CUBE_DIM, UNIT_POS);
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);

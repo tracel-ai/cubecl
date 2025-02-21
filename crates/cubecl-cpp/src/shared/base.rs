@@ -1105,14 +1105,23 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, item } => {
+            gpu::VariableKind::Barrier {
+                id,
+                item,
+                unit_count: num_units,
+                elected_unit,
+            } => {
                 self.barrier = true;
                 let barrier = Variable::Barrier {
                     id,
                     item: self.compile_item(item),
                 };
                 if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                    self.barriers.push(BarrierOps::Init { barrier });
+                    self.barriers.push(BarrierOps::Init {
+                        barrier,
+                        num_units,
+                        elected_unit,
+                    });
                 }
                 barrier
             }
