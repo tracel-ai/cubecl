@@ -94,7 +94,7 @@ mod fill {
 mod empty {
     use super::*;
 
-    impl<P: CubePrimitive + Into<ExpandElementTyped<P>>> Line<P> {
+    impl<P: CubePrimitive> Line<P> {
         /// Create an empty line of the given size.
         ///
         /// Note that a line can't change in size once it's fixed.
