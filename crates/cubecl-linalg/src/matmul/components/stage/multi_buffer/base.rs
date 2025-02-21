@@ -38,13 +38,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
-    type Matmul<
-        I: Numeric,
-        O: Numeric,
-        Acc: Numeric,
-        TL: TilingLayout,
-        TR: TilingLayout,
-    > = MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
+        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {

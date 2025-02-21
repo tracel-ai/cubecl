@@ -36,13 +36,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> 
 
     type LhsReader = LhsBufferReaderFamily;
     type RhsReader = RhsBufferReaderFamily;
-    type Matmul<
-        I: Numeric,
-        O: Numeric,
-        Acc: Numeric,
-        TL: TilingLayout,
-        TR: TilingLayout,
-    > = SingleBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
+        SingleBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
 impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
@@ -117,7 +112,8 @@ pub struct SingleBufferMatmul<
 }
 
 #[cube]
-impl<I, O, EA, TMM, TL, TR> stage::StageMatmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM, TL, TR>
+impl<I, O, EA, TMM, TL, TR> stage::StageMatmul<I, O, EA>
+    for SingleBufferMatmul<I, O, EA, TMM, TL, TR>
 where
     I: Numeric,
     O: Numeric,

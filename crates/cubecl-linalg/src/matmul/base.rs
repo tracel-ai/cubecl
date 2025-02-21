@@ -7,7 +7,9 @@ use super::{
     components::tile::accelerated::Accelerated,
     kernels::{
         matmul::{
-            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm, simple_pipelined::SimplePipelinedAlgorithm, simple_strided::SimpleStridedAlgorithm, specialized::SpecializedAlgorithm
+            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
+            simple_pipelined::SimplePipelinedAlgorithm, simple_strided::SimpleStridedAlgorithm,
+            specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
