@@ -14,6 +14,7 @@ use crate::tensor::{ReadWrite, VirtualTensor};
 
 use barrier::Barrier;
 use cubecl_core::prelude::*;
+use cubecl_core::Feature;
 use cubecl_core::{self as cubecl};
 use std::marker::PhantomData;
 
