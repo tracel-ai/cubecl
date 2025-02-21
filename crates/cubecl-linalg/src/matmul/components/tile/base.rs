@@ -124,7 +124,7 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] config: T,
     ) -> Tile<ES> {
         let stride = comptime! {
-            match ident.as_input() {
+            (match ident.as_input() {
             InputIdent::Lhs => match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => config.tile_shape().k,
                 MatrixLayout::ColMajor => config.tile_shape().m,
@@ -133,7 +133,7 @@ impl<ES: Numeric> Tile<ES> {
                 MatrixLayout::RowMajor => config.tile_shape().n,
                 MatrixLayout::ColMajor => config.tile_shape().k,
             },
-        }};
+        }) / config.line_size(ident)};
 
         Tile::<ES> { slice, stride }
     }
