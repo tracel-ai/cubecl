@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrderTrait};
+use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -13,18 +13,18 @@ use super::loader::{AsyncLoadingStrategy, SyncLoadingStrategy};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicCoalescedLoading<T: TilingOrderTrait> {
+pub struct CyclicCoalescedLoading<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicWindowLoading<T: TilingOrderTrait> {
+pub struct CyclicWindowLoading<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrderTrait> LoadingValidation for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -48,7 +48,7 @@ impl<T: TilingOrderTrait> LoadingValidation for CyclicCoalescedLoading<T> {
     }
 }
 
-impl<T: TilingOrderTrait> LoadingValidation for CyclicWindowLoading<T> {
+impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -68,7 +68,7 @@ impl<T: TilingOrderTrait> LoadingValidation for CyclicWindowLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrderTrait> AsyncLoadingStrategy for CyclicWindowLoading<T> {
+impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
@@ -136,7 +136,7 @@ impl<T: TilingOrderTrait> AsyncLoadingStrategy for CyclicWindowLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrderTrait> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(

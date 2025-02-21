@@ -1,7 +1,7 @@
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
-use crate::matmul::components::stage::TilingLayoutTrait;
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::Ident;
@@ -10,13 +10,13 @@ use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
 /// Stage reader for LHS
-pub struct LhsReader<ES: Numeric, T: TilingLayoutTrait> {
+pub struct LhsReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
 }
 
 #[derive(CubeType)]
 /// Stage reader for RHS
-pub struct RhsReader<ES: Numeric, T: TilingLayoutTrait> {
+pub struct RhsReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
 }
 
@@ -24,15 +24,15 @@ pub struct LhsReaderFamily;
 pub struct RhsReaderFamily;
 
 impl ReaderFamily for LhsReaderFamily {
-    type Reader<I: Numeric, T: TilingLayoutTrait> = LhsReader<I, T>;
+    type Reader<I: Numeric, T: TilingLayout> = LhsReader<I, T>;
 }
 
 impl ReaderFamily for RhsReaderFamily {
-    type Reader<I: Numeric, T: TilingLayoutTrait> = RhsReader<I, T>;
+    type Reader<I: Numeric, T: TilingLayout> = RhsReader<I, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayoutTrait> LhsReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> LhsReader<ES, T> {
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
@@ -49,7 +49,7 @@ impl<ES: Numeric, T: TilingLayoutTrait> LhsReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayoutTrait> RhsReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         buffer_offset: u32,
@@ -66,14 +66,14 @@ impl<ES: Numeric, T: TilingLayoutTrait> RhsReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayoutTrait> LhsReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> LhsReader<ES, T> {
     pub fn new(stage: Stage<ES, T>) -> LhsReader<ES, T> {
         LhsReader::<ES, T> { stage }
     }
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayoutTrait> RhsReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
     pub fn new(stage: Stage<ES, T>) -> RhsReader<ES, T> {
         RhsReader::<ES, T> { stage }
     }

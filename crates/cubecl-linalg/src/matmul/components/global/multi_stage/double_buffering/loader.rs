@@ -5,14 +5,14 @@ use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoadin
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CommonGlobalConfig, InputLoader, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayoutTrait};
+use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::Ident;
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait> {
+pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, T>,
     buffer_iter: u32,
@@ -21,7 +21,7 @@ pub struct LhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: T
 }
 
 #[derive(CubeType)]
-pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait> {
+pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, T>,
     buffer_iter: u32,
@@ -30,7 +30,7 @@ pub struct RhsBufferLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: T
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     InputLoader<EG, ES, CommonGlobalConfig<S>> for LhsBufferLoader<EG, ES, S, T>
 {
     type StageReader = LhsBufferReader<ES, T>;
@@ -49,7 +49,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     SyncInputLoader<EG, ES, CommonGlobalConfig<S>> for LhsBufferLoader<EG, ES, S, T>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
@@ -64,7 +64,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     LhsBufferLoader<EG, ES, S, T>
 {
     pub fn new(
@@ -88,7 +88,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     InputLoader<EG, ES, CommonGlobalConfig<S>> for RhsBufferLoader<EG, ES, S, T>
 {
     type StageReader = RhsBufferReader<ES, T>;
@@ -107,7 +107,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     SyncInputLoader<EG, ES, CommonGlobalConfig<S>> for RhsBufferLoader<EG, ES, S, T>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
@@ -122,7 +122,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     RhsBufferLoader<EG, ES, S, T>
 {
     pub fn new(
@@ -146,7 +146,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>
 }
 
 #[cube]
-fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayoutTrait>(
+fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>(
     buffer_iter: u32,
     tensor_view: &TensorReader<EG>,
     stage: &mut Stage<ES, T>,

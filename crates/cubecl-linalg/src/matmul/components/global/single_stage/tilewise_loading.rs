@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrderTrait};
+use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -12,11 +12,11 @@ use super::loader::SyncLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct TilewiseCoalescedLoading<T: TilingOrderTrait> {
+pub struct TilewiseCoalescedLoading<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrderTrait> LoadingValidation for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -50,7 +50,7 @@ impl<T: TilingOrderTrait> LoadingValidation for TilewiseCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrderTrait> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(

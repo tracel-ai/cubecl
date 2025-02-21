@@ -7,10 +7,10 @@ use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{MatmulSize, TilingDimensions};
 
-use super::TilingLayoutTrait;
+use super::TilingLayout;
 
 pub trait ReaderFamily {
-    type Reader<I: Numeric, T: TilingLayoutTrait>: CubeType;
+    type Reader<I: Numeric, T: TilingLayout>: CubeType;
 }
 
 pub trait StageMatmulFamily:
@@ -25,7 +25,7 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayoutTrait, TR: TilingLayoutTrait>: StageMatmul<
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
         I,
         O,
         Acc,

@@ -4,7 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageMatmulFamily, TilingLayoutTrait};
+use crate::matmul::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
@@ -40,8 +40,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> 
         I: Numeric,
         O: Numeric,
         Acc: Numeric,
-        TL: TilingLayoutTrait,
-        TR: TilingLayoutTrait,
+        TL: TilingLayout,
+        TR: TilingLayout,
     > = SingleBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
@@ -105,8 +105,8 @@ pub struct SingleBufferMatmul<
     O: Numeric,
     EA: Numeric,
     TMM: TileMatmul<I, EA>,
-    TL: TilingLayoutTrait,
-    TR: TilingLayoutTrait,
+    TL: TilingLayout,
+    TR: TilingLayout,
 > {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
@@ -123,8 +123,8 @@ where
     O: Numeric,
     EA: Numeric,
     TMM: TileMatmul<I, EA>,
-    TL: TilingLayoutTrait,
-    TR: TilingLayoutTrait,
+    TL: TilingLayout,
+    TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
     type LhsReader = LhsBufferReader<I, TL>;

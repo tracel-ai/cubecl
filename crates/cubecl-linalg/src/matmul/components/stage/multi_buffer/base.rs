@@ -5,7 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayoutTrait};
+use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
@@ -42,8 +42,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
         I: Numeric,
         O: Numeric,
         Acc: Numeric,
-        TL: TilingLayoutTrait,
-        TR: TilingLayoutTrait,
+        TL: TilingLayout,
+        TR: TilingLayout,
     > = MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
@@ -106,8 +106,8 @@ pub struct MultiBufferMatmul<
     O: Numeric,
     EA: Numeric,
     TMM: tile::TileMatmul<I, EA>,
-    TL: TilingLayoutTrait,
-    TR: TilingLayoutTrait,
+    TL: TilingLayout,
+    TR: TilingLayout,
 > {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
@@ -124,8 +124,8 @@ where
     O: Numeric,
     EA: Numeric,
     TMM: tile::TileMatmul<I, EA>,
-    TL: TilingLayoutTrait,
-    TR: TilingLayoutTrait,
+    TL: TilingLayout,
+    TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
 

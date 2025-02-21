@@ -8,34 +8,20 @@ use crate::matmul::components::{Ident, MatrixLayout};
 
 use super::StageConfig;
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// How the tiles are stored in shared memory
-pub enum TilingLayout {
-    /// Each tile is stored contiguously in memory.
-    /// Tiles are placed sequentially in memory according to the specified `TilingOrder`.
-    Contiguous(TilingOrder),
-
-    /// Tiles follow the memory layout of the underlying global memory,
-    /// meaning elements within a tile may be interleaved with elements from other tiles.
-    Strided,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-/// Layout in which to store tiles within the stage
-pub enum TilingOrder {
-    /// Tiles are conceptually stored in row-major order, regardless of the actual data layout.
-    RowMajor,
-    /// Tiles are conceptually stored in column-major order, regardless of the actual data layout.
-    ColMajor,
-}
-
-// TODO tmp name
 #[cube]
-pub trait TilingOrderTrait: 'static + Send + Sync + Clone + Copy {
-    // TODO tmp name, see older commits
-    fn a(nth: u32, #[comptime] num_x: u32, #[comptime] num_y: u32) -> (u32, u32);
-    // TODO tmp name, see older commits
-    fn b(x: u32, y: u32, #[comptime] tile_count_x: u32, #[comptime] tile_count_y: u32) -> u32;
+pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
+    fn to_row_col(
+        nth: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+    ) -> (u32, u32);
+
+    fn to_nth_tile(
+        row: u32,
+        col: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+    ) -> u32;
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -44,27 +30,41 @@ pub struct RowMajorTilingOrder {}
 pub struct ColMajorTilingOrder {}
 
 #[cube]
-impl TilingOrderTrait for RowMajorTilingOrder {
-    fn a(nth: u32, #[comptime] _num_x: u32, #[comptime] num_y: u32) -> (u32, u32) {
-        (nth / num_y, nth % num_y)
+impl TilingOrder for RowMajorTilingOrder {
+    fn to_row_col(
+        nth: u32,
+        #[comptime] _tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+    ) -> (u32, u32) {
+        (nth / tile_count_cols, nth % tile_count_cols)
     }
-    fn b(x: u32, y: u32, #[comptime] _tile_count_x: u32, #[comptime] tile_count_y: u32) -> u32 {
-        x * tile_count_y + y
+    fn to_nth_tile(
+        row: u32,
+        col: u32,
+        #[comptime] _tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+    ) -> u32 {
+        row * tile_count_cols + col
     }
 }
 
 #[cube]
-impl TilingOrderTrait for ColMajorTilingOrder {
-    fn a(nth: u32, #[comptime] num_x: u32, #[comptime] _num_y: u32) -> (u32, u32) {
-        (nth % num_x, nth / num_x)
+impl TilingOrder for ColMajorTilingOrder {
+    fn to_row_col(nth: u32, #[comptime] num_rows: u32, #[comptime] _num_cols: u32) -> (u32, u32) {
+        (nth % num_rows, nth / num_rows)
     }
-    fn b(x: u32, y: u32, #[comptime] tile_count_x: u32, #[comptime] _tile_count_y: u32) -> u32 {
-        y * tile_count_x + x
+    fn to_nth_tile(
+        row: u32,
+        col: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] _tile_count_cols: u32,
+    ) -> u32 {
+        col * tile_count_rows + row
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct ContiguousTilingLayout<T: TilingOrderTrait> {
+pub struct ContiguousTilingLayout<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
@@ -72,7 +72,7 @@ pub struct ContiguousTilingLayout<T: TilingOrderTrait> {
 pub struct StridedTilingLayout {}
 
 #[cube]
-pub trait TilingLayoutTrait: 'static + Send + Sync + Clone + Copy {
+pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
     fn get_tile<ES: Numeric, S: StageConfig>(
         stage_slice: Slice<Line<ES>>,
         x: u32,
@@ -83,7 +83,7 @@ pub trait TilingLayoutTrait: 'static + Send + Sync + Clone + Copy {
 }
 
 #[cube]
-impl<T: TilingOrderTrait> ContiguousTilingLayout<T> {
+impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
     pub fn to_x_y<S: StageConfig>(
         nth: u32,
@@ -94,12 +94,12 @@ impl<T: TilingOrderTrait> ContiguousTilingLayout<T> {
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        T::a(nth, num_x, num_y)
+        T::to_row_col(nth, num_x, num_y)
     }
 }
 
 #[cube]
-impl<T: TilingOrderTrait> TilingLayoutTrait for ContiguousTilingLayout<T> {
+impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
     fn get_tile<ES: Numeric, S: StageConfig>(
         stage_slice: Slice<Line<ES>>,
         x: u32,
@@ -131,7 +131,7 @@ impl<T: TilingOrderTrait> TilingLayoutTrait for ContiguousTilingLayout<T> {
             }
         };
 
-        let start = tile_shape_x * tile_shape_y * T::b(x, y, tile_count_x, tile_count_y);
+        let start = tile_shape_x * tile_shape_y * T::to_nth_tile(x, y, tile_count_x, tile_count_y);
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage_slice.slice(start, start + length),
@@ -165,7 +165,7 @@ impl StridedTilingLayout {
 }
 
 #[cube]
-impl TilingLayoutTrait for StridedTilingLayout {
+impl TilingLayout for StridedTilingLayout {
     fn get_tile<ES: Numeric, S: StageConfig>(
         stage_slice: Slice<Line<ES>>,
         x: u32,

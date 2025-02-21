@@ -5,7 +5,7 @@ use crate::matmul::components::global::InputLoader;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::{single_stage, AsyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::TilingLayoutTrait;
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
@@ -15,7 +15,7 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    type TilingLayout: TilingLayoutTrait;
+    type TilingLayout: TilingLayout;
 
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,

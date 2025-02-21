@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::stage::{StageConfig, TilingLayoutTrait};
+use crate::matmul::components::stage::{StageConfig, TilingLayout};
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
@@ -9,13 +9,13 @@ use cubecl_core::prelude::*;
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
-pub struct Stage<ES: Numeric, T: TilingLayoutTrait> {
+pub struct Stage<ES: Numeric, T: TilingLayout> {
     pub smem: SharedMemory<Line<ES>>,
     tiling_layout: PhantomData<T>,
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayoutTrait> Stage<ES, T> {
+impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     /// Instantiate a new stage for the given identifier
     pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
         let line_size = config.line_size(ident);
