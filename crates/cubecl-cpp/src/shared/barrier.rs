@@ -42,8 +42,8 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 write!(
                     f,
                     "
-cuda::memcpy_async({destination}, {source}, {size}, {barrier});
-                "
+cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
+"
                 )
             }
             BarrierOps::Init {
@@ -65,7 +65,7 @@ __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdx.x == {elected_unit}) {{
    init(&{barrier}, {num_units});
 }}
-                    "
+"
                 ),
             },
             BarrierOps::Wait { barrier } => {
@@ -73,7 +73,7 @@ if (threadIdx.x == {elected_unit}) {{
                     f,
                     "
 {barrier}.arrive_and_wait();
-            "
+"
                 )
             }
         }
