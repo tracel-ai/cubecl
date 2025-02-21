@@ -16,20 +16,59 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait CopyMechanism<ES: Numeric>: CubeType {
-    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>);
+    fn memcpy_async(
+        mechanism: &Self,
+        source: &Slice<Line<ES>>,
+        destination: &mut SliceMut<Line<ES>>,
+    );
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
-    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>) {
+    fn memcpy_async(
+        mechanism: &Self,
+        source: &Slice<Line<ES>>,
+        destination: &mut SliceMut<Line<ES>>,
+    ) {
         mechanism.memcpy_async(source, destination)
     }
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
-    fn memcpy_async(mechanism: &Self, source: Slice<Line<ES>>, destination: SliceMut<Line<ES>>) {
+    fn memcpy_async(
+        mechanism: &Self,
+        source: &Slice<Line<ES>>,
+        destination: &mut SliceMut<Line<ES>>,
+    ) {
         mechanism.memcpy_async(source, destination)
+    }
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub struct DummyLoader<ES: Numeric> {
+    _e: PhantomData<ES>,
+}
+
+#[cube]
+impl<ES: Numeric> DummyLoader<ES> {
+    pub fn new() -> Self {
+        DummyLoader::<ES> {
+            _e: PhantomData::<ES>.runtime(),
+        }
+    }
+}
+
+#[cube]
+impl<ES: Numeric> CopyMechanism<ES> for DummyLoader<ES> {
+    fn memcpy_async(
+        _mechanism: &Self,
+        source: &Slice<Line<ES>>,
+        destination: &mut SliceMut<Line<ES>>,
+    ) {
+        for i in 0..source.len() {
+            destination[i] = source[i];
+        }
     }
 }
 

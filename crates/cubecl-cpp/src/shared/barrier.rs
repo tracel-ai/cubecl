@@ -13,6 +13,7 @@ pub enum BarrierOps<D: Dialect> {
         barrier: Variable<D>,
         source: Variable<D>,
         destination: Variable<D>,
+        elected_unit: Variable<D>,
     },
     Wait {
         barrier: Variable<D>,
@@ -36,13 +37,16 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 barrier,
                 source,
                 destination,
+                elected_unit,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
                 write!(
                     f,
                     "
-cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
+if (threadIdx.x == {elected_unit}) {{
+    cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
+}}
 "
                 )
             }

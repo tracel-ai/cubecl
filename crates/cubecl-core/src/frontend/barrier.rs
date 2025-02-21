@@ -68,7 +68,7 @@ impl<C: CubePrimitive> Barrier<C> {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    pub fn memcpy_async(&self, _source: Slice<Line<C>>, _destination: SliceMut<Line<C>>) {
+    pub fn memcpy_async(&self, _source: &Slice<Line<C>>, _destination: &mut SliceMut<Line<C>>) {
         unexpanded!()
     }
 
@@ -117,11 +117,15 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let barrier = *self.elem;
         let source = *source.expand;
         let destination = *destination.expand;
+        // For now we assume the elected unit is always the first one.
+        // In theory it can differ from the one in new
+        let elected_unit = 0.into();
 
         let mem_copy = BarrierOps::MemCopyAsync {
             barrier,
             source,
             destination,
+            elected_unit,
         };
 
         scope.register(mem_copy);

@@ -330,10 +330,12 @@ impl Optimizer {
                 barrier,
                 source,
                 destination,
+                elected_unit,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source);
                 visit_read(self, destination);
+                visit_read(self, elected_unit);
             }
             BarrierOps::Wait { barrier } => visit_read(self, barrier),
         }

@@ -395,12 +395,14 @@ impl<D: Dialect> CppCompiler<D> {
                     barrier,
                     source,
                     destination,
+                    elected_unit,
                 } => {
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsync {
                             barrier: self.compile_variable(barrier),
                             source: self.compile_variable(source),
                             destination: self.compile_variable(destination),
+                            elected_unit: self.compile_variable(elected_unit),
                         },
                     ));
                 }

@@ -128,7 +128,11 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                     destination[i] = Line::cast_from(0);
                 }
 
-                CM::memcpy_async(&mechanism, window.slice.try_cast_unchecked(), destination);
+                CM::memcpy_async(
+                    &mechanism,
+                    &window.slice.try_cast_unchecked(),
+                    &mut destination,
+                );
             }
         }
     }
