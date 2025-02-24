@@ -289,6 +289,10 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::matmul::components::global::single_stage::{
+            WindowDuplicatedLoading, WindowElectedLoading, WindowElectedOnlyLoading,
+            WindowSplitPlaneLoading, WindowSplitUnitLoading,
+        };
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;

@@ -268,14 +268,6 @@ impl AsyncLoadingStrategy for WindowSplitUnitLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        // What we want
-        // - x: number of slices
-        // - y: number of units (plane_dim p * plane_count c)
-        // - if x <= y
-        //  - first x UNIT_POS get to do something
-        // - if x > y
-        //  - all units get to do something, in a for loop, then x % y last are idle on last iteration
-
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -340,17 +332,6 @@ impl AsyncLoadingStrategy for WindowSplitPlaneLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        // What we want
-        // - x: number of slices
-        // - p: plane dimension
-        // - c: plane count
-        // - if x <= c
-        //  - first x planes' first unit get to do something
-        // - if x > c
-        //  - the second unit of each plane gets activated, and so on
-        // - if x > c * p
-        //  - panic for now (in check validation)
-
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -366,7 +347,6 @@ impl AsyncLoadingStrategy for WindowSplitPlaneLoading {
             ),
         };
 
-        let plane_dim = config.plane_dim();
         let plane_count = config.num_planes();
         let plane_index = UNIT_POS_Y;
 
@@ -402,34 +382,5 @@ impl AsyncLoadingStrategy for WindowSplitPlaneLoading {
                 }
             }
         }
-
-        // #[unroll(slices_per_unit==1)]
-        // for nth_slice_local in 0..slices_per_unit {
-        //     let nth_slice = unit_count * nth_slice_local + unit_index;
-
-        //     // TODO no if when always fits
-        //     if nth_slice < num_slices {
-        //         let window: Window<EG> =
-        //             read_view.load_window_no_tile::<G>(nth_slice, ident, config);
-        //         let mut destination: SliceMut<Line<ES>> =
-        //             StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-        //                 stage_slice,
-        //                 nth_slice,
-        //                 ident,
-        //                 config.to_smm_config(),
-        //             );
-
-        //         CM::memcpy_async(
-        //             &mechanism,
-        //             &window.slice.try_cast_unchecked(),
-        //             &mut destination,
-        //         );
-
-        //         // If padding needed: TODO comptime conditional
-        //         for i in window.size..expected_window_size {
-        //             destination[i] = Line::cast_from(0);
-        //         }
-        //     }
-        // }
     }
 }
