@@ -4,6 +4,7 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+// TODO make this a single function
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
 /// iterating with steps determined by the plane's dimension.

@@ -183,13 +183,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<O, G>(
-                out,
-                smem_slice.to_slice(),
-                UNIT_POS_Y,
-                accumulator_iter,
-                global_config,
-            );
+            SW::write::<O, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
         }
     }
 

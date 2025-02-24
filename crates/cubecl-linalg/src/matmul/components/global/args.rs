@@ -60,6 +60,35 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     fn stride_rhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
+
+    /// This should only be called after checking that the matmul is quantized.
+    fn quantization(state: &Self::State<u8>) -> Quantization;
+}
+
+#[derive(CubeType, Clone)]
+pub enum OptionQuantization {
+    Some(Quantization),
+    None,
+}
+
+#[derive(CubeType, Clone)]
+pub struct Quantization {
+    pub zero_offset_lhs: i32,
+    pub zero_offset_rhs: i32,
+    pub zero_offset_out: i32,
+    scaling_multiplier: i64,
+    scaling_rounding: i64,
+    scaling_shift: i64,
+}
+
+#[cube]
+impl Quantization {
+    pub fn scale_approx(&self, values: Line<i32>) -> Line<i32> {
+        // TODO can it overflow?
+        let prod = Line::<i64>::cast_from(values) * Line::new(self.scaling_multiplier);
+        let prod_with_rounding = prod + Line::new(self.scaling_rounding);
+        Line::cast_from(prod_with_rounding >> Line::new(self.scaling_shift))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -379,7 +408,125 @@ impl MatmulArgs for TensorArgs {
     fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).rank() }
     }
+
+    fn quantization(state: &Self::State<u8>) -> Quantization {
+        let (scaling_lhs, zero_offset_lhs) = unsafe { read_quantization_params(&(*state.0)) };
+        let (scaling_rhs, zero_offset_rhs) = unsafe { read_quantization_params(&(*state.1)) };
+        let (scaling_out, zero_offset_out) = unsafe { read_quantization_params(&(*state.2)) };
+
+        let scaling = scaling_lhs * scaling_rhs / scaling_out;
+        let (scaling_multiplier, scaling_rounding, scaling_shift) = decompose_scaling(scaling);
+
+        Quantization {
+            zero_offset_lhs,
+            zero_offset_rhs,
+            zero_offset_out,
+            scaling_multiplier,
+            scaling_rounding,
+            scaling_shift,
+        }
+    }
 }
+
+#[cube]
+fn read_quantization_params(tensor: &Tensor<Line<u8>>) -> (f32, i32) {
+    let len = tensor.len();
+    if comptime!(tensor.line_size() == 1) {
+        let scaling = f32::bitcast_from(merge_bytes(
+            tensor[len - 8][0],
+            tensor[len - 7][0],
+            tensor[len - 6][0],
+            tensor[len - 5][0],
+        ));
+        let zero_offset = i32::bitcast_from(merge_bytes(
+            tensor[len - 4][0],
+            tensor[len - 3][0],
+            tensor[len - 2][0],
+            tensor[len - 1][0],
+        ));
+        (scaling, zero_offset)
+    } else if comptime!(tensor.line_size() == 2) {
+        let scaling = f32::bitcast_from(merge_bytes(
+            tensor[len - 4][0],
+            tensor[len - 4][1],
+            tensor[len - 3][0],
+            tensor[len - 3][1],
+        ));
+        let zero_offset = i32::bitcast_from(merge_bytes(
+            tensor[len - 2][0],
+            tensor[len - 2][1],
+            tensor[len - 1][0],
+            tensor[len - 1][1],
+        ));
+        (scaling, zero_offset)
+    } else if comptime!(tensor.line_size() == 4) {
+        let scaling = f32::bitcast_from(merge_bytes(
+            tensor[len - 2][0],
+            tensor[len - 2][1],
+            tensor[len - 2][2],
+            tensor[len - 2][3],
+        ));
+        let zero_offset = i32::bitcast_from(merge_bytes(
+            tensor[len - 1][0],
+            tensor[len - 1][1],
+            tensor[len - 1][2],
+            tensor[len - 1][3],
+        ));
+        (scaling, zero_offset)
+    } else if comptime!(tensor.line_size() == 8) {
+        let scaling = f32::bitcast_from(merge_bytes(
+            tensor[len - 1][0],
+            tensor[len - 1][1],
+            tensor[len - 1][2],
+            tensor[len - 1][3],
+        ));
+        let zero_offset = i32::bitcast_from(merge_bytes(
+            tensor[len - 1][4],
+            tensor[len - 1][5],
+            tensor[len - 1][6],
+            tensor[len - 1][7],
+        ));
+        (scaling, zero_offset)
+    } else {
+        (0.0_f32, 0) // unreachable, but I need a return value.
+    }
+}
+
+#[cube]
+fn merge_bytes(a: u8, b: u8, c: u8, d: u8) -> u32 {
+    let mut bits = u32::cast_from(d);
+    bits ^= u32::cast_from(c) << 4;
+    bits ^= u32::cast_from(b) << 8;
+    bits ^= u32::cast_from(a) << 12;
+    bits
+}
+
+#[cube]
+fn decompose_scaling(scaling: f32) -> (i64, i64, i64) {
+    let log: f32 = Log2::log2(scaling);
+    let log: f32 = Ceil::ceil(log);
+    let log = i64::cast_from(log);
+
+    let multiplier = i64::cast_from(f32::round(
+        scaling * f32::cast_from(2_i64 << (31_i64 - log)),
+    ));
+    let rounding: i64 = 1_i64 << (30_i64 - log);
+    let shift = 31_i64 - log;
+
+    (multiplier, rounding, shift)
+}
+
+// impl ApproxScaling {
+
+//     fn scale(&self, x: i32) -> i32 {
+//         if self.multiplier == i32::MIN as i64 && x == i32::MIN {
+//             return i32::MAX; // sature on overflow. (while multiplier is in the range of an i32 even if it is a i64)
+//         }
+//         let prod = (x as i64) * self.multiplier;
+//         let prod_with_rounding = prod + self.rounding;
+//         (prod_with_rounding >> self.shift) as i32
+//     }
+// }
 
 mod __input {
     use super::*;

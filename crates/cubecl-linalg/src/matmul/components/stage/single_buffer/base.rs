@@ -205,7 +205,7 @@ where
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
             SW::write::<O, G>(
                 out,
-                smem_slice.to_slice(),
+                smem_slice,
                 UNIT_POS_Y,
                 accumulator_iter,
                 global_config,

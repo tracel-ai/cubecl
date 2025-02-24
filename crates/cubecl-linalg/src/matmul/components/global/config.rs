@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatrixLayout, StageTiling,
+    Ident, MatmulConfig, MatmulSize, MatrixLayout, StageTiling,
 };
 
 /// Whether each unit loads a line side by side (coalesced)
@@ -25,6 +25,7 @@ pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub out_line_size: u32,
     pub num_planes: u32,
     pub load_mode: LoadMode,
+    pub shape: MatmulSize,
 }
 
 impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
@@ -93,6 +94,10 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     fn load_mode(&self) -> LoadMode {
         self.load_mode
     }
+
+    fn shape(&self) -> MatmulSize {
+        self.shape
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
@@ -111,6 +116,7 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
         out_line_size: u32,
         num_planes: u32,
         load_mode: LoadMode,
+        shape: MatmulSize,
     ) -> Self {
         Self {
             smm_config,
@@ -124,6 +130,7 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
             out_line_size,
             num_planes,
             load_mode,
+            shape
         }
     }
 }

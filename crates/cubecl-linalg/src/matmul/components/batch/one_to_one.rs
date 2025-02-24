@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::shared::gmm_execute;
+use crate::matmul::components::global::args::OptionQuantization;
 use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageTiling,
@@ -106,6 +107,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        quantization: OptionQuantization,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
@@ -126,6 +128,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
             nth_batch,
             &mut GMM::init_accumulator(gmm_config),
             k_range,
+            quantization,
             gmm_config,
         );
     }

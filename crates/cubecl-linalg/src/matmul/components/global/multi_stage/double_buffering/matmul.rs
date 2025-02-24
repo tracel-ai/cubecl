@@ -2,7 +2,7 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader, LoadMode};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::Ident;
+use crate::matmul::components::{Ident, MatmulSize};
 use crate::matmul::components::{stage, MatmulPrecision};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
@@ -107,6 +107,11 @@ where
             problem.out_line_size as u32,
             cube_dim.y,
             LoadMode::Coalesced,
+            MatmulSize {
+                m: problem.m as u32,
+                n: problem.n as u32,
+                k: problem.k as u32,
+            }
         )
     }
 }

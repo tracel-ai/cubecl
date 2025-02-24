@@ -120,7 +120,7 @@ pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
     /// plane and accumulator indexes.
     fn write<ES: Numeric, G: global::GlobalConfig>(
         this: &mut Self,
-        slice: Slice<Line<ES>>,
+        slice: SliceMut<Line<ES>>,
         compute_plane_offset: u32,
         accumulator_offset: u32,
         #[comptime] config: G,
