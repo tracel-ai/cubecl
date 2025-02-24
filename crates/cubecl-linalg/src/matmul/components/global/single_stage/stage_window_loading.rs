@@ -10,6 +10,7 @@ use super::loader::{AsyncLoadingStrategy, CopyMechanism};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the global memory to stage as is, by dividing the
 /// whole stage as the smallest number of contiguous slices.
+/// In this version, all units call memcpy_async with the same args
 pub struct StageWindowLoading {}
 
 impl LoadingValidation for StageWindowLoading {
