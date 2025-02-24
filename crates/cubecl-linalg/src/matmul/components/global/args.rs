@@ -62,16 +62,12 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
 
     /// This should only be called after checking that the matmul is quantized.
-    fn quantization(state: &Self::State<u8>) -> Quantization;
+    /// While the function allows for generic EG, it should only be called with u8.
+    /// Unfortunately, I didn't find a clean way to express this in the type system.
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization;
 }
 
-#[derive(CubeType, Clone)]
-pub enum OptionQuantization {
-    Some(Quantization),
-    None,
-}
-
-#[derive(CubeType, Clone)]
+#[derive(CubeType, Clone, Copy)]
 pub struct Quantization {
     pub zero_offset_lhs: i32,
     pub zero_offset_rhs: i32,
@@ -409,7 +405,7 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.2).rank() }
     }
 
-    fn quantization(state: &Self::State<u8>) -> Quantization {
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization {
         let (scaling_lhs, zero_offset_lhs) = unsafe { read_quantization_params(&(*state.0)) };
         let (scaling_rhs, zero_offset_rhs) = unsafe { read_quantization_params(&(*state.1)) };
         let (scaling_out, zero_offset_out) = unsafe { read_quantization_params(&(*state.2)) };
@@ -429,62 +425,62 @@ impl MatmulArgs for TensorArgs {
 }
 
 #[cube]
-fn read_quantization_params(tensor: &Tensor<Line<u8>>) -> (f32, i32) {
+fn read_quantization_params<EG: Numeric>(tensor: &Tensor<Line<EG>>) -> (f32, i32) {
     let len = tensor.len();
     if comptime!(tensor.line_size() == 1) {
         let scaling = f32::bitcast_from(merge_bytes(
-            tensor[len - 8][0],
-            tensor[len - 7][0],
-            tensor[len - 6][0],
-            tensor[len - 5][0],
+            u8::cast_from(tensor[len - 8][0]),
+            u8::cast_from(tensor[len - 7][0]),
+            u8::cast_from(tensor[len - 6][0]),
+            u8::cast_from(tensor[len - 5][0]),
         ));
         let zero_offset = i32::bitcast_from(merge_bytes(
-            tensor[len - 4][0],
-            tensor[len - 3][0],
-            tensor[len - 2][0],
-            tensor[len - 1][0],
+            u8::cast_from(tensor[len - 4][0]),
+            u8::cast_from(tensor[len - 3][0]),
+            u8::cast_from(tensor[len - 2][0]),
+            u8::cast_from(tensor[len - 1][0]),
         ));
         (scaling, zero_offset)
     } else if comptime!(tensor.line_size() == 2) {
         let scaling = f32::bitcast_from(merge_bytes(
-            tensor[len - 4][0],
-            tensor[len - 4][1],
-            tensor[len - 3][0],
-            tensor[len - 3][1],
+            u8::cast_from(tensor[len - 4][0]),
+            u8::cast_from(tensor[len - 4][1]),
+            u8::cast_from(tensor[len - 3][0]),
+            u8::cast_from(tensor[len - 3][1]),
         ));
         let zero_offset = i32::bitcast_from(merge_bytes(
-            tensor[len - 2][0],
-            tensor[len - 2][1],
-            tensor[len - 1][0],
-            tensor[len - 1][1],
+            u8::cast_from(tensor[len - 2][0]),
+            u8::cast_from(tensor[len - 2][1]),
+            u8::cast_from(tensor[len - 1][0]),
+            u8::cast_from(tensor[len - 1][1]),
         ));
         (scaling, zero_offset)
     } else if comptime!(tensor.line_size() == 4) {
         let scaling = f32::bitcast_from(merge_bytes(
-            tensor[len - 2][0],
-            tensor[len - 2][1],
-            tensor[len - 2][2],
-            tensor[len - 2][3],
+            u8::cast_from(tensor[len - 2][0]),
+            u8::cast_from(tensor[len - 2][1]),
+            u8::cast_from(tensor[len - 2][2]),
+            u8::cast_from(tensor[len - 2][3]),
         ));
         let zero_offset = i32::bitcast_from(merge_bytes(
-            tensor[len - 1][0],
-            tensor[len - 1][1],
-            tensor[len - 1][2],
-            tensor[len - 1][3],
+            u8::cast_from(tensor[len - 1][0]),
+            u8::cast_from(tensor[len - 1][1]),
+            u8::cast_from(tensor[len - 1][2]),
+            u8::cast_from(tensor[len - 1][3]),
         ));
         (scaling, zero_offset)
     } else if comptime!(tensor.line_size() == 8) {
         let scaling = f32::bitcast_from(merge_bytes(
-            tensor[len - 1][0],
-            tensor[len - 1][1],
-            tensor[len - 1][2],
-            tensor[len - 1][3],
+            u8::cast_from(tensor[len - 1][0]),
+            u8::cast_from(tensor[len - 1][1]),
+            u8::cast_from(tensor[len - 1][2]),
+            u8::cast_from(tensor[len - 1][3]),
         ));
         let zero_offset = i32::bitcast_from(merge_bytes(
-            tensor[len - 1][4],
-            tensor[len - 1][5],
-            tensor[len - 1][6],
-            tensor[len - 1][7],
+            u8::cast_from(tensor[len - 1][4]),
+            u8::cast_from(tensor[len - 1][5]),
+            u8::cast_from(tensor[len - 1][6]),
+            u8::cast_from(tensor[len - 1][7]),
         ));
         (scaling, zero_offset)
     } else {

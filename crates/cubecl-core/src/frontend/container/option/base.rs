@@ -33,7 +33,7 @@ pub mod some {
 }
 
 /// Allows to construct a `None` inside a kernel.
-pub fn none<T: CubeType>(_t: T) -> Option<T> {
+pub fn none<T: CubeType>() -> Option<T> {
     unexpanded!()
 }
 

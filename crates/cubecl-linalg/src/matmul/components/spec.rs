@@ -66,16 +66,13 @@ impl<Args: MatmulArgs, EG: Numeric, ES: Numeric, EA: Numeric> MatmulSpec
     type Args = Args;
 }
 
-
 /// Specification for a quantized matmul.
 #[derive(Clone)]
 pub struct QuantizedMatmulSpec<Args = TensorArgs> {
     _args: PhantomData<Args>,
 }
 
-impl<Args: MatmulArgs> MatmulSpec
-    for QuantizedMatmulSpec<Args>
-{
+impl<Args: MatmulArgs> MatmulSpec for QuantizedMatmulSpec<Args> {
     type EG = u8;
     type ES = i16;
     type EA = i32;

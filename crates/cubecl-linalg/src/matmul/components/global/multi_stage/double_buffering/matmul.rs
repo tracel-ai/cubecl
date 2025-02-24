@@ -1,9 +1,10 @@
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader, LoadMode};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::{Ident, MatmulSize};
 use crate::matmul::components::{stage, MatmulPrecision};
+use crate::matmul::components::{Ident, MatmulSize};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
@@ -111,7 +112,7 @@ where
                 m: problem.m as u32,
                 n: problem.n as u32,
                 k: problem.k as u32,
-            }
+            },
         )
     }
 }
@@ -151,8 +152,11 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization>,
         #[comptime] config: Self::Config,
     ) {
+        let _ = quantization; // TODO
+
         let num_buffers = 2;
         let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K

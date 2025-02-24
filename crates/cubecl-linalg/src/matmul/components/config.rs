@@ -60,8 +60,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
 /// Useful to aggregate many trait bounds
 pub trait MatmulConfig:
     Copy + Clone + Send + Sync + 'static + Eq + PartialEq + Hash + Debug
-{
-}
+{}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 /// Identifier for all three tensors in a matmul

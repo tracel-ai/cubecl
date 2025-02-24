@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::args::{
-    self, MatmulArgs, OptionQuantization, TensorInput, TensorOutput,
+    self, MatmulArgs, Quantization, TensorInput, TensorOutput,
 };
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch};
 use crate::matmul::components::{MatmulPrecision, StageTiling};
@@ -39,7 +39,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
-        quantization: OptionQuantization,
+        quantization: Option<Quantization>,
         #[comptime] config: Self::Config,
     );
 }
@@ -63,6 +63,8 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
+
+    fn quantized(&self) -> bool;
 }
 
 type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
@@ -90,29 +92,12 @@ pub(crate) fn matmul<
     let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
     let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
 
-    let quantization = OptionQuantization::None;
+    let quantization = if comptime!(config.quantized()) {
+        let arg = Args::quantization(&state);
+        some::<Quantization>(arg)
+    } else {
+        none::<Quantization>()
+    };
 
     BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, quantization, config);
-}
-
-#[cube(launch_unchecked)]
-pub(crate) fn matmul_quantized<Args: MatmulArgs, BMM: BatchMatmulFamily>(
-    inputs: &Input<Args, u8>,
-    output: &mut Output<Args, u8>,
-    #[comptime] config: BMM::Config,
-) {
-    let mut state = Args::init_state(inputs, output);
-
-    let lhs = TensorInput::<u8, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<u8, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<u8, Args>::new(&mut state);
-
-    let lhs = VirtualTensor::<u8>::new::<TensorInput<u8, Args>>(&lhs);
-    let rhs = VirtualTensor::<u8>::new::<TensorInput<u8, Args>>(&rhs);
-    let out = VirtualTensor::<u8, ReadWrite>::new::<TensorOutput<u8, Args>>(&mut out);
-
-    let arg = Args::quantization(&state);
-    let quantization = comptime!(OptionQuantization::Some(arg));
-
-    BMM::Matmul::<(u8, i32, i32)>::execute(lhs, rhs, out, quantization, config);
 }

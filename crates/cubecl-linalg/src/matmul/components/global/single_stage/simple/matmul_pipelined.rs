@@ -1,3 +1,4 @@
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::loader::{
     LhsLoader, LoadingStrategy, RhsLoader,
@@ -7,7 +8,7 @@ use crate::matmul::components::global::{GlobalMatmul, InputLoader};
 use crate::matmul::components::global::{LoadMode, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::{MatmulPrecision, MatmulSize};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core::prelude::*;
@@ -107,6 +108,11 @@ where
             problem.out_line_size as u32,
             stage_shape.k,
             LoadMode::Window,
+            MatmulSize {
+                m: problem.m as u32,
+                n: problem.n as u32,
+                k: problem.k as u32,
+            },
         )
     }
 }
@@ -152,8 +158,11 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization>,
         #[comptime] config: Self::Config,
     ) {
+        let _ = quantization; // TODO
+
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;

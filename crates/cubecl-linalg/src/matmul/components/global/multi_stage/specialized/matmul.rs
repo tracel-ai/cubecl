@@ -1,4 +1,4 @@
-use crate::matmul::components::global;
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, InputLoader};
@@ -6,6 +6,7 @@ use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBuffer
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::{global, MatmulSize};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
@@ -97,6 +98,11 @@ where
             problem.out_line_size as u32,
             cube_dim.y,
             global::LoadMode::Coalesced,
+            MatmulSize {
+                m: problem.m as u32,
+                n: problem.n as u32,
+                k: problem.k as u32,
+            },
         )
     }
 }
@@ -135,8 +141,11 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization>,
         #[comptime] config: Self::Config,
     ) {
+        let _ = quantization; // TODO
+
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.stage_tiling(Ident::Lhs).tile_count_col();

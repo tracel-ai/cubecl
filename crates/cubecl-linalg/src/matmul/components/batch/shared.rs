@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::args::OptionQuantization;
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::{global, MatmulPrecision};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
@@ -17,7 +17,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: OptionQuantization,
+    quantization: Option<Quantization>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();

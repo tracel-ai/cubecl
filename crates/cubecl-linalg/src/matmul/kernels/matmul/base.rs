@@ -3,7 +3,7 @@ use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
-    OutputRuntimeArg, SingleMatmulSpec,
+    OutputRuntimeArg, QuantizedMatmulSpec, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
@@ -141,7 +141,6 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         lhs_line_size,
         rhs_line_size,
         out_line_size,
-        // TODO consider a quantized field for MatmulProblem
     };
 
     let plane_size = client
@@ -184,7 +183,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if EG::QUANTIZED {
-        select_kernel::<SingleMatmulSpec<u8, u16, i32>, R, A>(
+        select_kernel::<QuantizedMatmulSpec, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),

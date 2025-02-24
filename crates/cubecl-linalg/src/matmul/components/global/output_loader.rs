@@ -57,6 +57,7 @@ impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
     }
 }
 
+// TODO: Merge with the main Unloaded.
 #[derive(CubeType)]
 pub struct UnloaderQuantized {
     pub tensor_view: TensorWriter<u8>,

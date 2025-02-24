@@ -9,8 +9,7 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, StageTiling};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-use super::args::{OptionQuantization, Quantization};
-use super::output_loader::UnloaderQuantized;
+use super::args::Quantization;
 use super::LoadMode;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
@@ -59,7 +58,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: OptionQuantization,
+        quantization: Option<Quantization>,
         #[comptime] config: Self::Config,
     );
 

@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     global::{self, LoadMode},
     stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatrixLayout, StageTiling,
+    Ident, MatmulConfig, MatmulSize, MatrixLayout, StageTiling,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -18,6 +18,7 @@ pub struct Config<S: stage::StageConfig> {
     out_line_size: u32,
     pub k_step: u32,
     load_mode: LoadMode,
+    shape: MatmulSize,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -86,6 +87,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     fn load_mode(&self) -> LoadMode {
         self.load_mode
     }
+
+    fn shape(&self) -> MatmulSize {
+        self.shape
+    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
@@ -104,6 +109,7 @@ impl<S: stage::StageConfig> Config<S> {
         out_line_size: u32,
         k_step: u32,
         load_mode: LoadMode,
+        shape: MatmulSize,
     ) -> Self {
         Self {
             smm_config,
@@ -117,6 +123,7 @@ impl<S: stage::StageConfig> Config<S> {
             out_line_size,
             k_step,
             load_mode,
+            shape,
         }
     }
 }
