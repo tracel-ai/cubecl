@@ -22,7 +22,6 @@ impl<T: LaunchArgExpand> LaunchArgExpand for Option<T> {
     type CompilationArg = Option<T::CompilationArg>;
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> Option<T::ExpandType> {
-        println!("ARG EXPAND : {arg:?}");
         arg.as_ref().map(|arg| T::expand(arg, builder))
     }
 
