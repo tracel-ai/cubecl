@@ -348,92 +348,39 @@ impl AsyncLoadingStrategy for WindowSplitUnitLoading {
             ),
         };
 
-        match ident.as_input() {
-            crate::matmul::components::InputIdent::Lhs => {
-                let plane_dim = config.plane_dim();
-                let plane_count = config.num_planes();
-                let unit_count = plane_dim * plane_count;
-                let unit_index = UNIT_POS;
+        let plane_dim = config.plane_dim();
+        let plane_count = config.num_planes();
+        let unit_count = plane_dim * plane_count;
+        let unit_index = UNIT_POS;
 
-                let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
+        let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
 
-                #[unroll(slices_per_unit==1)]
-                for nth_slice_local in 0..slices_per_unit {
-                    let nth_slice = unit_count * nth_slice_local + unit_index;
+        #[unroll(slices_per_unit==1)]
+        for nth_slice_local in 0..slices_per_unit {
+            let nth_slice = unit_count * nth_slice_local + unit_index;
 
-                    // TODO no if when always fits
-                    if nth_slice < num_slices {
-                        let window: Window<EG> =
-                            read_view.load_window_no_tile::<G>(nth_slice, ident, config);
-                        let mut destination: SliceMut<Line<ES>> =
-                            StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-                                stage_slice,
-                                nth_slice,
-                                ident,
-                                config.to_smm_config(),
-                            );
+            // TODO no if when always fits
+            if nth_slice < num_slices {
+                let window: Window<EG> =
+                    read_view.load_window_no_tile::<G>(nth_slice, ident, config);
+                let mut destination: SliceMut<Line<ES>> =
+                    StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
+                        stage_slice,
+                        nth_slice,
+                        ident,
+                        config.to_smm_config(),
+                    );
 
-                        CM::memcpy_async(
-                            &mechanism,
-                            &window.slice.try_cast_unchecked(),
-                            &mut destination,
-                        );
+                CM::memcpy_async(
+                    &mechanism,
+                    &window.slice.try_cast_unchecked(),
+                    &mut destination,
+                );
 
-                        // If padding needed: TODO comptime conditional
-                        // Or maybe reset stage to zero after computation?
-                        for i in window.size..expected_window_size {
-                            destination[i] = Line::cast_from(0);
-                        }
-                    }
-                }
-            }
-            crate::matmul::components::InputIdent::Rhs => {
-                // For Rhs, we need to know how many slices were done for lhs to know how many units to skip
-                let matrix_layout_lhs = config.matrix_layout(Ident::Lhs);
-                let tiling_dimensions_lhs = config.tiling_dimensions(Ident::Lhs);
-                let num_slices_lhs = match matrix_layout_lhs {
-                    MatrixLayout::RowMajor => tiling_dimensions_lhs.total_row(),
-                    MatrixLayout::ColMajor => tiling_dimensions_lhs.total_col(),
-                };
-
-                let plane_dim = config.plane_dim();
-                let plane_count = config.num_planes();
-                let unit_count = plane_dim * plane_count;
-
-                // Assuming slices_per_unit_lhs==1
-                let unit_index = UNIT_POS - num_slices_lhs;
-
-                let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
-
-                #[unroll(slices_per_unit==1)]
-                for nth_slice_local in 0..slices_per_unit {
-                    let nth_slice = unit_count * nth_slice_local + unit_index;
-
-                    if unit_count * nth_slice_local + UNIT_POS >= num_slices_lhs
-                        && unit_count * nth_slice_local + UNIT_POS < num_slices + num_slices_lhs
-                    {
-                        let window: Window<EG> =
-                            read_view.load_window_no_tile::<G>(nth_slice, ident, config);
-                        let mut destination: SliceMut<Line<ES>> =
-                            StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-                                stage_slice,
-                                nth_slice,
-                                ident,
-                                config.to_smm_config(),
-                            );
-
-                        CM::memcpy_async(
-                            &mechanism,
-                            &window.slice.try_cast_unchecked(),
-                            &mut destination,
-                        );
-
-                        // If padding needed: TODO comptime conditional
-                        // Or maybe reset stage to zero after computation?
-                        for i in window.size..expected_window_size {
-                            destination[i] = Line::cast_from(0);
-                        }
-                    }
+                // If padding needed: TODO comptime conditional
+                // Or maybe reset stage to zero after computation?
+                for i in window.size..expected_window_size {
+                    destination[i] = Line::cast_from(0);
                 }
             }
         }

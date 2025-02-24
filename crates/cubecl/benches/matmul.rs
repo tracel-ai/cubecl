@@ -143,27 +143,27 @@ fn main() {
     {
         use half::f16;
 
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Duplicated),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::ElectedOnly),
-        );
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Duplicated),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::ElectedOnly),
+        // );
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
             matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::SplitUnit),
         );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::SplitPlane),
-        );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::SplitPlane),
+        // );
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimplePipelined,

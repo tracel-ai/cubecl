@@ -47,7 +47,7 @@ where
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
+    type Matmul<MP: MatmulPrecision> = SimpleBarrierDummyMatmul<
         MP,
         SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
         LL,
@@ -115,7 +115,7 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleBarrierMatmul<
+pub struct SimpleBarrierDummyMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
     LL: AsyncLoadingStrategy,
@@ -128,7 +128,8 @@ pub struct SimpleBarrierMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP>
+    for SimpleBarrierDummyMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
         MP::ES,
