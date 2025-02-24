@@ -21,7 +21,7 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul = global::single_stage::simple::SimpleBarrierMatmulFamily<
+    type GlobalMatmul = global::single_stage::simple::SimpleBarrierDummyMatmulFamily<
         Self::StageMatmul,
         StageWindowLoading,
         StageWindowLoading,
