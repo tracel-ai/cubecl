@@ -20,7 +20,7 @@ pub fn test_option_scalar_none<R: Runtime>(client: ComputeClient<R::Server, R::C
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 1, 1),
-            Option::None,
+            None,
         )
     };
 
@@ -39,7 +39,7 @@ pub fn test_option_scalar_some<R: Runtime>(client: ComputeClient<R::Server, R::C
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 1, 1),
-            Option::Some(ScalarArg::new(10)),
+            Some(ScalarArg::new(10)),
         )
     };
 
@@ -54,8 +54,8 @@ pub fn test_option_scalar_some<R: Runtime>(client: ComputeClient<R::Server, R::C
 #[cube(launch)]
 pub fn kernel_option_array(array: &mut Array<i32>, data: &Option<Array<i32>>) {
     match comptime!(data) {
-        Option::Some(data) => array[UNIT_POS] = data[UNIT_POS],
-        Option::None => {}
+        Some(data) => array[UNIT_POS] = data[UNIT_POS],
+        None => {}
     }
 }
 
@@ -69,7 +69,7 @@ pub fn test_option_array_none<R: Runtime>(client: ComputeClient<R::Server, R::Ch
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 2, 1),
-            Option::None,
+            None,
         )
     };
 
@@ -89,7 +89,7 @@ pub fn test_option_array_some<R: Runtime>(client: ComputeClient<R::Server, R::Ch
             CubeCount::Static(1, 1, 1),
             CubeDim::new(2, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 2, 1),
-            Option::Some(ArrayArg::from_raw_parts::<i32>(&data, 2, 1)),
+            Some(ArrayArg::from_raw_parts::<i32>(&data, 2, 1)),
         )
     };
 
@@ -104,18 +104,16 @@ pub fn test_option_array_some<R: Runtime>(client: ComputeClient<R::Server, R::Ch
 #[cube(launch)]
 pub fn kernel_option_map(array: &mut Array<i32>, value: Option<i32>) {
     let memory = match comptime!(value) {
-        Option::Some(value) => {
+        Some(value) => {
             let mut m = SharedMemory::new(2);
             m[UNIT_POS] = value;
             some::<SharedMemory<i32>>(m)
         }
-        Option::None => Option::None,
+        None => None,
     };
     let slice = match comptime!(memory) {
-        Option::Some(memory) => {
-            some::<Slice<i32>>(memory.to_slice())
-        }
-        Option::None => Option::None,
+        Some(memory) => some::<Slice<i32>>(memory.to_slice()),
+        None => None,
     };
     option_map(array.to_slice_mut(), slice);
 }
@@ -123,8 +121,8 @@ pub fn kernel_option_map(array: &mut Array<i32>, value: Option<i32>) {
 #[cube]
 fn option_map(mut output: SliceMut<i32>, data: Option<Slice<i32>>) {
     match comptime!(data) {
-        Option::Some(data) => output[UNIT_POS] = data[UNIT_POS],
-        Option::None => {}
+        Some(data) => output[UNIT_POS] = data[UNIT_POS],
+        None => {}
     }
 }
 
@@ -137,7 +135,7 @@ pub fn test_option_map_none<R: Runtime>(client: ComputeClient<R::Server, R::Chan
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 2, 1),
-            Option::None,
+            None,
         )
     };
 
@@ -156,7 +154,7 @@ pub fn test_option_map_some<R: Runtime>(client: ComputeClient<R::Server, R::Chan
             CubeCount::Static(1, 1, 1),
             CubeDim::new(2, 1, 1),
             ArrayArg::from_raw_parts::<i32>(&array, 2, 1),
-            Option::Some(ScalarArg::new(10)),
+            Some(ScalarArg::new(10)),
         )
     };
 
