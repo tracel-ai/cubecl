@@ -320,9 +320,65 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_barrier() {
+        pub fn simple_barrier_duplicated() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM>,
+                SimpleBarrierAlgorithm<TMM, WindowDuplicatedLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_elected() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, WindowElectedLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_elected_only() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, WindowElectedOnlyLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_split_unit() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, WindowSplitUnitLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_split_plane() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, WindowSplitPlaneLoading>,
                 Precision,
                 TestRuntime,
             >(
