@@ -6,6 +6,7 @@ mod sequence;
 mod shared_memory;
 mod slice;
 mod tensor;
+mod option;
 
 pub use array::*;
 pub use iter::*;
@@ -15,3 +16,4 @@ pub use sequence::*;
 pub use shared_memory::*;
 pub use slice::*;
 pub use tensor::*;
+pub use option::*;
