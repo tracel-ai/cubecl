@@ -8,7 +8,7 @@ use cubecl_cpp::{
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, DeviceId, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
@@ -163,5 +163,9 @@ impl Runtime for HipRuntime {
 
     fn extension() -> &'static str {
         "hip"
+    }
+
+    fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
+        DeviceId::new(0, device.index as u32)
     }
 }

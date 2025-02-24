@@ -28,7 +28,6 @@ where
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
-    type Selection = MatmulSelection;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)

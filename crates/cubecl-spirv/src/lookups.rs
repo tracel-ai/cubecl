@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Id},
+    ir::{self, Id, VariableKind},
     prelude::KernelDefinition,
 };
 use cubecl_opt::{ConstArray, NodeIndex};
@@ -74,6 +74,7 @@ pub struct Array {
     pub id: Word,
     pub item: Item,
     pub len: u32,
+    pub var: ir::Variable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,7 +105,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .into_iter()
             .enumerate()
             .map(|(i, binding)| {
-                target.generate_binding(self, binding, format!("input({i})"), i as u32)
+                let var = ir::Variable::new(VariableKind::GlobalInputArray(i as u32), binding.item);
+                let name = self.name_of_var(var);
+                target.generate_binding(self, binding, name.into(), i as u32)
             })
             .collect();
         let offset = self.state.inputs.len() as u32;
@@ -113,7 +116,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .into_iter()
             .enumerate()
             .map(|(i, binding)| {
-                target.generate_binding(self, binding, format!("output({i})"), i as u32 + offset)
+                let var =
+                    ir::Variable::new(VariableKind::GlobalOutputArray(i as u32), binding.item);
+                let name = self.name_of_var(var);
+                target.generate_binding(self, binding, name.into(), i as u32 + offset)
             })
             .collect();
         let offset = offset + self.state.outputs.len() as u32;
@@ -175,25 +181,25 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn get_local(&mut self, id: Id, item: &Item) -> Word {
+    pub fn get_local(&mut self, id: Id, item: &Item, var: ir::Variable) -> Word {
         if let Some(existing) = self.state.variables.get(&id) {
             *existing
         } else {
             let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
             let word = self.declare_function_variable(ty);
             self.state.variables.insert(id, word);
-            self.debug_name(word, format!("local({})", id));
+            self.debug_var_name(word, var);
             word
         }
     }
 
-    pub fn get_binding(&mut self, id: Id) -> Word {
+    pub fn get_binding(&mut self, id: Id, var: &ir::Variable) -> Word {
         if let Some(existing) = self.state.bindings.get(&id) {
             *existing
         } else {
             let word = self.id();
             self.state.bindings.insert(id, word);
-            self.debug_name(word, format!("binding({})", id));
+            self.debug_var_name(word, *var);
             word
         }
     }
@@ -202,13 +208,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.bindings.insert(id, word);
     }
 
-    pub fn get_versioned(&mut self, id: (Id, u16)) -> Word {
+    pub fn get_versioned(&mut self, id: (Id, u16), var: &ir::Variable) -> Word {
         if let Some(existing) = self.state.versioned.get(&id) {
             *existing
         } else {
             let word = self.id();
             self.state.versioned.insert(id, word);
-            self.debug_name(word, format!("local({}).v{}", id.0, id.1));
+            let mut debug_var = *var;
+            debug_var.kind = VariableKind::LocalMut { id: id.0 };
+            let name = self.name_of_var(debug_var);
+            self.debug_name(word, format!("{name}.v{}", id.1));
             word
         }
     }
@@ -239,6 +248,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let item = self.compile_item(ir::Item::new(elem));
             Variable::GlobalScalar(existing, item.elem())
         } else {
+            let ir_var = ir::Variable::new(VariableKind::GlobalScalar(id), elem.into());
             let current_block = self.selected_block();
             let setup = self.setup_block;
             self.select_block(Some(setup)).unwrap();
@@ -249,7 +259,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let index = Variable::ConstantScalar(const_id, id.into(), Elem::Int(32, false));
             let read_id = self.id();
             let var = Variable::GlobalScalar(read_id, item.elem());
-            self.debug_name(read_id, format!("scalars<{elem}>({id})"));
+            self.debug_var_name(read_id, ir_var);
             self.read_indexed_unchecked(&var, &arr, &index);
             self.select_block(current_block).unwrap();
             self.state.scalars.insert((id, elem), read_id);
@@ -258,6 +268,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn register_const_array(&mut self, arr: ConstArray) {
+        let var = ir::Variable::new(
+            VariableKind::ConstantArray {
+                id: arr.id,
+                length: arr.length,
+            },
+            arr.item,
+        );
         let item = self.compile_item(arr.item);
         let array_ty = Item::Array(Box::new(item.clone()), arr.length);
         let pointer_ty = Item::Pointer(StorageClass::Function, Box::new(array_ty.clone())).id(self);
@@ -272,13 +289,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .collect::<Vec<_>>();
         let constant = self.constant_composite(array_ty, values);
         let id = self.variable(pointer_ty, None, StorageClass::Function, Some(constant));
-        self.debug_name(id, format!("const array({})", arr.id));
+        self.debug_var_name(id, var);
         self.state.const_arrays.insert(
             arr.id as usize,
             Array {
                 id,
                 item,
                 len: arr.length,
+                var,
             },
         );
     }

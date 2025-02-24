@@ -12,6 +12,7 @@ pub mod launch;
 pub mod line;
 pub mod memcpy_async;
 pub mod metadata;
+pub mod option;
 pub mod pipeline;
 pub mod plane;
 pub mod sequence;
@@ -121,6 +122,8 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
+
+        cubecl_core::testgen_option!();
     };
 }
 

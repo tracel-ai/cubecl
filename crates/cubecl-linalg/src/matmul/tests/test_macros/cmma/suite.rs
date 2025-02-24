@@ -5,7 +5,7 @@ use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorit
 use crate::matmul::tests::test_utils::TestPrecision;
 use cubecl_core::Runtime;
 
-pub fn test_algo<A: Algorithm<Selection = MatmulSelection>, P: TestPrecision, R: Runtime>(
+pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     layouts: (MatrixLayout, MatrixLayout),
     tile_shape: MatmulSize,
     tile_count: MatmulSize,

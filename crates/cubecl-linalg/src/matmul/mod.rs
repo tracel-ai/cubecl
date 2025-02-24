@@ -8,3 +8,6 @@ pub mod kernels;
 pub mod tests;
 
 pub use base::*;
+
+/// Autotune key for matmul.
+pub mod tune_key;

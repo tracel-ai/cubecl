@@ -1,176 +1,43 @@
-use std::marker::PhantomData;
-
 use cubecl_core::{client::ComputeClient, ir::Elem, prelude::CubePrimitive, Feature, Runtime};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        batch::TransposedDispatch, tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg,
-        MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
+        tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg, MatmulProblem,
+        MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
     },
     kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
 };
 
-use super::{
-    double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
-    simple_pipelined::SimplePipelinedAlgorithm, specialized::SpecializedAlgorithm,
-};
+use super::Algorithm;
 
 const NUM_SM_APPROX: usize = 50;
 const NUM_TENSOR_CORES_APPROX: usize = 8;
 
-pub trait MatmulSelector {
-    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-        quantized: bool,
-    ) -> Result<(), MatmulLaunchError>;
-    fn stage_tf32_supported() -> bool;
-}
+/// Select which kernel to launch for the given Algorithm.
+pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
+    problem: MatmulProblem,
+    plane_dim: u32,
+    quantized: bool,
+) -> Result<(), MatmulLaunchError> {
+    let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
+    let config_input = CompleteStageTiling {
+        tile_shape: selection.tile_shape,
+        tile_count: selection.tile_count,
+    };
 
-pub struct SimpleSelector<TMM: TileMatmulFamily, D = TransposedDispatch> {
-    _tmm: PhantomData<TMM>,
-    _dispatch: PhantomData<D>,
-}
-
-pub struct SimplePipelinedSelector<TMM: TileMatmulFamily, D = TransposedDispatch> {
-    _tmm: PhantomData<TMM>,
-    _dispatch: PhantomData<D>,
-}
-
-pub struct DoubleBufferingSelector<TMM: TileMatmulFamily> {
-    _tmm: PhantomData<TMM>,
-}
-
-pub struct SpecializedSelector<TMM: TileMatmulFamily> {
-    _tmm: PhantomData<TMM>,
-}
-
-impl<TMM: TileMatmulFamily> MatmulSelector for SimpleSelector<TMM> {
-    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-        quantized: bool,
-    ) -> Result<(), MatmulLaunchError> {
-        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CompleteStageTiling {
-            tile_shape: selection.tile_shape,
-            tile_count: selection.tile_count,
-        };
-
-        matmul_cube_preparation::<MS, R, SimpleAlgorithm<TMM>>(
-            client,
-            input,
-            output,
-            problem,
-            config_input,
-            selection,
-            quantized,
-        )
-    }
-
-    fn stage_tf32_supported() -> bool {
-        TMM::requires_tensor_cores()
-    }
-}
-
-impl<TMM: TileMatmulFamily> MatmulSelector for SimplePipelinedSelector<TMM> {
-    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-        quantized: bool,
-    ) -> Result<(), MatmulLaunchError> {
-        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CompleteStageTiling {
-            tile_shape: selection.tile_shape,
-            tile_count: selection.tile_count,
-        };
-
-        matmul_cube_preparation::<MS, R, SimplePipelinedAlgorithm<TMM>>(
-            client,
-            input,
-            output,
-            problem,
-            config_input,
-            selection,
-            quantized,
-        )
-    }
-
-    fn stage_tf32_supported() -> bool {
-        TMM::requires_tensor_cores()
-    }
-}
-
-impl<TMM: TileMatmulFamily> MatmulSelector for DoubleBufferingSelector<TMM> {
-    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-        quantized: bool,
-    ) -> Result<(), MatmulLaunchError> {
-        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CompleteStageTiling {
-            tile_shape: selection.tile_shape,
-            tile_count: selection.tile_count,
-        };
-
-        matmul_cube_preparation::<MS, R, DoubleBufferingAlgorithm<TMM>>(
-            client,
-            input,
-            output,
-            problem,
-            config_input,
-            selection,
-            quantized,
-        )
-    }
-
-    fn stage_tf32_supported() -> bool {
-        TMM::requires_tensor_cores()
-    }
-}
-
-impl<TMM: TileMatmulFamily> MatmulSelector for SpecializedSelector<TMM> {
-    fn select_kernel<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
-        problem: MatmulProblem,
-        plane_dim: u32,
-        quantized: bool,
-    ) -> Result<(), MatmulLaunchError> {
-        let selection = matmul_selection::<TMM, MS, R>(client, &problem, plane_dim);
-        let config_input = CompleteStageTiling {
-            tile_shape: selection.tile_shape,
-            tile_count: selection.tile_count,
-        };
-
-        matmul_cube_preparation::<MS, R, SpecializedAlgorithm<TMM>>(
-            client,
-            input,
-            output,
-            problem,
-            config_input,
-            selection,
-            quantized,
-        )
-    }
-
-    fn stage_tf32_supported() -> bool {
-        TMM::requires_tensor_cores()
-    }
+    matmul_cube_preparation::<MS, R, A>(
+        client,
+        input,
+        output,
+        problem,
+        config_input,
+        selection,
+        quantized,
+    )
 }
 
 /// A heuristic to choose the instruction to use, based on input shape

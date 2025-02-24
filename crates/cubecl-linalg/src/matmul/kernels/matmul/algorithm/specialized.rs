@@ -25,7 +25,6 @@ where
         global::multi_stage::specialized::SpecializedMatmulFamily<Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
-    type Selection = MatmulSelection;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(

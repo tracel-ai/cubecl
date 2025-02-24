@@ -1,7 +1,8 @@
 use crate::matmul;
 use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSpec,
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
@@ -13,21 +14,20 @@ use cubecl_core::{
 };
 use cubecl_std::MaybeQuantized;
 
-use super::algorithm::MatmulSelector;
 use super::config::AdvancedConfig;
-use super::Algorithm;
+use super::{select_kernel, Algorithm};
 
 /// Launch a matrix multiplication kernel.
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
-pub fn launch<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
+pub fn launch<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG::Numeric>,
     rhs: TensorHandle<R, EG::Numeric>,
     out: TensorHandle<R, EG::Numeric>,
 ) -> Result<TensorHandle<R, EG::Numeric>, MatmulLaunchError> {
-    let result = launch_ref::<R, EG, S>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
+    let result = launch_ref::<R, EG, A>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
 
     match result {
         Ok(_) => Ok(out),
@@ -39,7 +39,7 @@ pub fn launch<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
-pub fn launch_ref<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
+pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -58,28 +58,28 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);
 
     match (lhs_make_contiguous, rhs_make_contiguous) {
-        (false, false) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (false, false) => matmul_cmma_ref_no_check::<R, EG, A>(
             client,
             lhs,
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (false, true) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (false, true) => matmul_cmma_ref_no_check::<R, EG, A>(
             client,
             lhs,
             &into_contiguous::<R, EG::Numeric>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, false) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (true, false) => matmul_cmma_ref_no_check::<R, EG, A>(
             client,
             &into_contiguous::<R, EG::Numeric>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
-        (true, true) => matmul_cmma_ref_no_check::<R, EG, S>(
+        (true, true) => matmul_cmma_ref_no_check::<R, EG, A>(
             client,
             &into_contiguous::<R, EG::Numeric>(client, lhs).as_ref(),
             &into_contiguous::<R, EG::Numeric>(client, rhs).as_ref(),
@@ -89,7 +89,7 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     }
 }
 
-fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
+fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -163,7 +163,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
         }
     };
 
-    matmul_launch_kernel::<R, EG, S>(
+    matmul_launch_kernel::<R, EG, A>(
         client,
         lhs,
         rhs,
@@ -174,7 +174,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     )
 }
 
-fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
+fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -184,7 +184,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if EG::QUANTIZED {
-        S::select_kernel::<SingleMatmulSpec<u8, u16, i32>, R>(
+        select_kernel::<SingleMatmulSpec<u8, u16, i32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -198,7 +198,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     } else if TypeId::of::<EG::Numeric>() == TypeId::of::<half::f16>()
         || TypeId::of::<EG::Numeric>() == TypeId::of::<flex32>()
     {
-        S::select_kernel::<SingleMatmulSpec<EG::Numeric, half::f16, f32>, R>(
+        select_kernel::<SingleMatmulSpec<EG::Numeric, half::f16, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -210,7 +210,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
             false,
         )
     } else if TypeId::of::<EG::Numeric>() == TypeId::of::<half::bf16>() {
-        S::select_kernel::<SingleMatmulSpec<EG::Numeric, half::bf16, f32>, R>(
+        select_kernel::<SingleMatmulSpec<EG::Numeric, half::bf16, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -221,8 +221,8 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
             plane_dim,
             false,
         )
-    } else if S::stage_tf32_supported() {
-        S::select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R>(
+    } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() {
+        select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -234,7 +234,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
             false,
         )
     } else {
-        S::select_kernel::<SingleMatmulSpec<EG::Numeric, EG::Numeric, f32>, R>(
+        select_kernel::<SingleMatmulSpec<EG::Numeric, EG::Numeric, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -248,20 +248,20 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, S: MatmulSelector>(
     }
 }
 
-pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
+pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
-    config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
-    selection: D::Selection,
+    config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
+    selection: MatmulSelection,
     quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
-    let cube_dim = D::cube_dim(&selection);
-    let cube_count = D::cube_count(&selection, &problem);
-    let advanced_config = D::advanced_config();
+    let cube_dim = A::cube_dim(&selection);
+    let cube_count = A::cube_count(&selection, &problem);
+    let advanced_config = A::advanced_config();
 
-    launch_matmul::<MS, R, D>(
+    launch_matmul::<MS, R, A>(
         client,
         input,
         output,

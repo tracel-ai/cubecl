@@ -25,6 +25,7 @@ serde = { version = "1.0.204", default-features = false, features = [
     "alloc",
 ] } # alloc is for no_std, derive is needed
 serde_json = { version = "1.0.119", default-features = false }
+ron = { version = "0.8", default-features = false }
 variadics_please = "1"
 
 dashmap = "5.5.3"
