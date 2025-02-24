@@ -6,9 +6,10 @@ use crate::tensor::TensorHandle;
 use super::{
     components::{
         global::single_stage::{
-            WindowDuplicatedLoading, WindowElectedLoading, WindowElectedOnlyLoading,
-            WindowSplitPlaneLoading, WindowSplitUnitLoading,
+            CyclicWindowLoading, WindowDuplicatedLoading, WindowElectedLoading,
+            WindowElectedOnlyLoading, WindowSplitPlaneLoading, WindowSplitUnitLoading,
         },
+        stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
     },
     kernels::{
@@ -47,6 +48,7 @@ pub enum SimpleBarrierLoadingStrategy {
     ElectedOnly,
     SplitUnit,
     SplitPlane,
+    Cyclic,
 }
 
 pub fn launch<R: Runtime, EG: MaybeQuantized>(
@@ -101,6 +103,11 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
                 R,
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, WindowSplitPlaneLoading>,
+            >(client, lhs, rhs, out),
+            SimpleBarrierLoadingStrategy::Cyclic => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
             >(client, lhs, rhs, out),
         },
         Strategy::SimplePipelined => {
