@@ -10,9 +10,9 @@
 //! It also provides implementation of the [`ReduceInstruction`] trait for common operations in the [`instructions`] module.
 //! Finally, it provides many reusable primitives to perform different general reduction algorithms in the [`primitives`] module.
 
+pub mod args;
 pub mod instructions;
 pub mod primitives;
-pub mod args;
 
 mod config;
 mod error;
@@ -28,6 +28,8 @@ pub use shared_sum::*;
 pub use strategy::*;
 
 use launch::*;
+
+pub use launch::{reduce_kernel, ReduceParams};
 
 #[cfg(feature = "export_tests")]
 pub mod test;
