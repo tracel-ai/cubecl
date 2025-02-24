@@ -79,7 +79,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        pipeline: CM,
+        mechanism: CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
