@@ -80,9 +80,8 @@ pub trait CompilationArg:
     /// Without this, the compilation time is unreasonable. The performance drop isn't a concern
     /// since this is only done once when compiling a kernel for the first time.
     fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
-        let val = serde_json::to_string(self).unwrap();
-
-        serde_json::from_str(&val)
+        let val = ron::to_string(self).unwrap();
+        ron::from_str(&val)
             .expect("Compilation argument should be the same even with different element types")
     }
 }
