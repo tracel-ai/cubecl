@@ -15,8 +15,10 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
+    "msl",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
+msl = ["cubecl-msl"]
 spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
@@ -34,6 +36,9 @@ sanitize-filename = { workspace = true, optional = true }
 # SPIR-V
 ash = { version = "0.38", optional = true }
 cubecl-spirv = { path = "../cubecl-spirv", version = "0.5.0", optional = true }
+
+# Metal
+cubecl-msl = { path = "../cubecl-msl", version = "0.5.0", optional = true }
 
 bytemuck = { workspace = true }
 
