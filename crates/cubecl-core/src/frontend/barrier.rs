@@ -52,14 +52,18 @@ pub struct BarrierExpand<C: CubePrimitive> {
 }
 
 impl<C: CubePrimitive> Barrier<C> {
-    /// Create a barrier instance at the unit level, i.e. for the unit itself only
-    pub fn new_unit_level() -> Self {
+    /// Create a barrier instance
+    ///
+    /// unit_count should be either 1 for unit-level barrier
+    /// or a comptime value equal to CUBE_DIM for cube-level barrier
+    pub fn new(_unit_count: u32) -> Self {
         Self { _c: PhantomData }
     }
 
-    /// Create a barrier instance at the Cube level, i.e. for all units
-    pub fn new_cube_level(_unit_count: u32) -> Self {
-        Self { _c: PhantomData }
+    /// Init a barrier instance.
+    /// For shared barrier, only one unit should call init
+    pub fn initialize(&self) {
+        unexpanded!()
     }
 
     /// Copy the source slice to destination
@@ -77,20 +81,18 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new_unit_level(scope: &mut Scope) -> BarrierExpand<C> {
-        Self::__expand_new_cube_level(scope, 1)
-    }
-
-    pub fn __expand_new_cube_level(scope: &mut Scope, unit_count: u32) -> BarrierExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, unit_count: u32) -> BarrierExpand<C> {
         let elem = C::as_elem(scope);
 
-        // For now we assume the elected unit is always the first one.
-        let elected_unit = 0;
-        let variable = scope.create_barrier(Item::new(elem), unit_count, elected_unit);
+        let variable = scope.create_barrier(Item::new(elem), unit_count);
         BarrierExpand {
             elem: variable,
             _c: PhantomData,
         }
+    }
+
+    pub fn __expand_initialize(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_initialize_method(scope);
     }
 
     pub fn __expand_memcpy_async(
@@ -108,6 +110,14 @@ impl<C: CubePrimitive> Barrier<C> {
 }
 
 impl<C: CubePrimitive> BarrierExpand<C> {
+    pub fn __expand_initialize_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+
+        let mem_copy = BarrierOps::Init { barrier };
+
+        scope.register(mem_copy);
+    }
+
     pub fn __expand_memcpy_async_method(
         &self,
         scope: &mut Scope,
@@ -117,15 +127,11 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let barrier = *self.elem;
         let source = *source.expand;
         let destination = *destination.expand;
-        // For now we assume the elected unit is always the first one.
-        // In theory it can differ from the one in new
-        let elected_unit = 0.into();
 
         let mem_copy = BarrierOps::MemCopyAsync {
             barrier,
             source,
             destination,
-            elected_unit,
         };
 
         scope.register(mem_copy);

@@ -49,48 +49,18 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    LocalArray {
-        id: Id,
-        length: u32,
-    },
-    LocalMut {
-        id: Id,
-    },
-    LocalConst {
-        id: Id,
-    },
-    Versioned {
-        id: Id,
-        version: u16,
-    },
+    LocalArray { id: Id, length: u32 },
+    LocalMut { id: Id },
+    LocalConst { id: Id },
+    Versioned { id: Id, version: u16 },
     ConstantScalar(ConstantScalarValue),
-    ConstantArray {
-        id: Id,
-        length: u32,
-    },
-    SharedMemory {
-        id: Id,
-        length: u32,
-    },
-    Matrix {
-        id: Id,
-        mat: Matrix,
-    },
-    Slice {
-        id: Id,
-    },
+    ConstantArray { id: Id, length: u32 },
+    SharedMemory { id: Id, length: u32 },
+    Matrix { id: Id, mat: Matrix },
+    Slice { id: Id },
     Builtin(Builtin),
-    Pipeline {
-        id: Id,
-        item: Item,
-        num_stages: u8,
-    },
-    Barrier {
-        id: Id,
-        item: Item,
-        unit_count: u32,
-        elected_unit: u32,
-    },
+    Pipeline { id: Id, item: Item, num_stages: u8 },
+    Barrier { id: Id, item: Item, unit_count: u32 },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

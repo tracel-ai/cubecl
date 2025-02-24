@@ -4,16 +4,17 @@ use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
 pub enum BarrierOps<D: Dialect> {
+    New {
+        barrier: Variable<D>,
+        unit_count: u32,
+    },
     Init {
         barrier: Variable<D>,
-        num_units: u32,
-        elected_unit: u32,
     },
     MemCopyAsync {
         barrier: Variable<D>,
         source: Variable<D>,
         destination: Variable<D>,
-        elected_unit: Variable<D>,
     },
     Wait {
         barrier: Variable<D>,
@@ -25,6 +26,7 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::New { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier } => barrier.id().unwrap(),
         }
     }
@@ -37,41 +39,58 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 barrier,
                 source,
                 destination,
-                elected_unit,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
                 write!(
                     f,
                     "
-if (threadIdx.x == {elected_unit}) {{
-    cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
-}}
+cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
 "
                 )
             }
-            BarrierOps::Init {
+            BarrierOps::New {
                 barrier,
-                num_units,
-                elected_unit,
-            } => match num_units {
+                unit_count,
+            } => match unit_count {
                 1 => write!(
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-init(&{barrier}, 1);
                 "
                 ),
                 _ => write!(
                     f,
                     "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
-if (threadIdx.x == {elected_unit}) {{
-   init(&{barrier}, {num_units});
-}}
 "
                 ),
             },
+            BarrierOps::Init { barrier } => {
+                if let Variable::Barrier {
+                    id: _,
+                    item: _,
+                    unit_count,
+                } = barrier
+                {
+                    match unit_count {
+                        1 => write!(
+                            f,
+                            "
+    init(&{barrier}, 1);
+                    "
+                        ),
+                        _ => write!(
+                            f,
+                            "
+       init(&{barrier}, {unit_count});
+    "
+                        ),
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
             BarrierOps::Wait { barrier } => {
                 write!(
                     f,

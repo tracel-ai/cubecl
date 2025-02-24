@@ -395,19 +395,22 @@ impl<D: Dialect> CppCompiler<D> {
                     barrier,
                     source,
                     destination,
-                    elected_unit,
                 } => {
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsync {
                             barrier: self.compile_variable(barrier),
                             source: self.compile_variable(source),
                             destination: self.compile_variable(destination),
-                            elected_unit: self.compile_variable(elected_unit),
                         },
                     ));
                 }
                 gpu::BarrierOps::Wait { barrier } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
+                        barrier: self.compile_variable(barrier),
+                    }))
+                }
+                gpu::BarrierOps::Init { barrier } => {
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
                         barrier: self.compile_variable(barrier),
                     }))
                 }
@@ -1110,19 +1113,18 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Barrier {
                 id,
                 item,
-                unit_count: num_units,
-                elected_unit,
+                unit_count,
             } => {
                 self.barrier = true;
                 let barrier = Variable::Barrier {
                     id,
                     item: self.compile_item(item),
+                    unit_count,
                 };
                 if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                    self.barriers.push(BarrierOps::Init {
+                    self.barriers.push(BarrierOps::New {
                         barrier,
-                        num_units,
-                        elected_unit,
+                        unit_count,
                     });
                 }
                 barrier

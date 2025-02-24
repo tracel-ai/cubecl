@@ -3,7 +3,12 @@ use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let barrier = barrier::Barrier::<F>::new_unit_level();
+    let barrier = barrier::Barrier::<F>::new(1u32);
+    // Using 1 as the unit_count of barrier, we do not need to elect a unit to initialize,
+    // every unit initializes its own barrier
+    // Syncing afterwards also becomes irrelevant
+    barrier.initialize();
+
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);
@@ -46,7 +51,13 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let barrier = barrier::Barrier::new_cube_level(2u32);
+    let barrier = barrier::Barrier::new(2u32);
+    // When unit_count of the barrier is more than 1, we must elect one unit to
+    // initialize the barrier. Then sync_units is capital to ensure barrier
+    // is initialized for other units before they use it.
+    if UNIT_POS == 0 {
+        barrier.initialize();
+    }
     sync_units();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
@@ -71,7 +82,10 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier = barrier::Barrier::new_cube_level(2u32);
+    let barrier = barrier::Barrier::new(2u32);
+    if UNIT_POS == 0 {
+        barrier.initialize();
+    }
     sync_units();
 
     let start = UNIT_POS_X * num_data / 2;
@@ -99,10 +113,12 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier_0 = barrier::Barrier::new_cube_level(2u32);
-    let barrier_1 = barrier::Barrier::new_cube_level(2u32);
-    // At the Cube level, we must sync after barrier creation to make sure they
-    // exist for all units
+    let barrier_0 = barrier::Barrier::new(2u32);
+    let barrier_1 = barrier::Barrier::new(2u32);
+    if UNIT_POS == 0 {
+        barrier_0.initialize();
+        barrier_1.initialize();
+    }
     sync_units();
 
     let start = UNIT_POS_X * num_data / 2;

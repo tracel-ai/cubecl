@@ -15,10 +15,14 @@ pub enum BarrierOps {
         barrier: Variable,
         source: Variable,
         destination: Variable,
-        elected_unit: Variable,
     },
     /// Waits until data is loaded
-    Wait { barrier: Variable },
+    Wait {
+        barrier: Variable,
+    },
+    Init {
+        barrier: Variable,
+    },
 }
 
 impl Display for BarrierOps {
@@ -28,12 +32,12 @@ impl Display for BarrierOps {
                 barrier,
                 source,
                 destination,
-                elected_unit,
             } => write!(
                 f,
-                "mem_copy_async({barrier}, source: {source}, destination: {destination}, elected_unit: {elected_unit})",
+                "mem_copy_async({barrier}, source: {source}, destination: {destination})",
             ),
             BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
+            BarrierOps::Init { barrier } => write!(f, "init({barrier})"),
         }
     }
 }

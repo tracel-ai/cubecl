@@ -167,7 +167,10 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new_cube_level(config.num_planes() * config.plane_dim());
+        let barrier = Barrier::<MP::ES>::new(config.num_planes() * config.plane_dim());
+        if UNIT_POS == 0 {
+            barrier.initialize();
+        }
 
         for _ in 0..num_loops {
             sync_units();
