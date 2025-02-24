@@ -26,8 +26,8 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
                 // block allocations. However, we already batch allocations, so we
                 // can use MemoryHints::MemoryUsage to lower memory usage.
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
             },
-            None,
         )
         .await
         .map_err(|err| {

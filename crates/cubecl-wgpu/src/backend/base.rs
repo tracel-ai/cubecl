@@ -9,6 +9,8 @@ use wgpu::{
 
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
+#[cfg(feature = "msl")]
+use super::metal;
 #[cfg(feature = "spirv")]
 use super::vulkan;
 use super::wgsl;
@@ -29,6 +31,20 @@ impl WgpuServer {
                             label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
+                }
+            }
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => {
+                let source = &kernel.source;
+                unsafe {
+                    self.device.create_shader_module_msl(
+                        &wgpu::ShaderModuleDescriptorMsl {
+                            entry_point: kernel.entrypoint_name.clone(),
+                            label: Some(&kernel.entrypoint_name),
+                            source: Cow::Borrowed(source),
+                            num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                        },
+                    )
                 }
             }
             _ => {
@@ -58,6 +74,8 @@ impl WgpuServer {
         };
         let bindings = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => Some(metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
@@ -98,7 +116,7 @@ impl WgpuServer {
                 })
         });
 
-        Arc::new(
+        let pipeline = Arc::new(
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some(&kernel.entrypoint_name),
@@ -111,7 +129,8 @@ impl WgpuServer {
                     },
                     cache: None,
                 }),
-        )
+        );
+        pipeline
     }
 }
 

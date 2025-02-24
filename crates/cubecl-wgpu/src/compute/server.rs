@@ -86,12 +86,17 @@ impl WgpuServer {
         let mut compile = compiler.compile(self, kernel, mode);
 
         if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+            compile.debug_info = Some(DebugInformation::new(&compiler.lang_tag(), kernel_id.clone()));
         }
-
         let compile = self.logger.debug(compile);
-        let pipeline = self.create_pipeline(compile, mode);
+        // {
+        //     // Write shader in metal file then compile it for error
+        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     let status = std::process::Command::new("xcrun").args(vec!["-sdk", "macosx", "metal", "-o", "shader.ir", "-c", "shader.metal"]).status().expect("should launch the command");
+        //     std::process::exit(status.code().unwrap());
+        // }
 
+        let pipeline = self.create_pipeline(compile, mode);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
@@ -157,9 +162,26 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-        self.stream.register(pipeline, bindings, &count);
 
-        // If profiling, write out results.
+        // Store all the resources we'll be using. This could be eliminated if
+        // there was a way to tie the lifetime of the resource to the memory handle.
+        let resources: Vec<_> = bindings
+            .iter()
+            .map(|binding| self.get_resource(binding.clone()).into_resource())
+            .collect();
+
+        // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
+        // needs to be longer than the compute pass, so we can't do this just before dispatching.
+        let dispatch = match count.clone() {
+            CubeCount::Dynamic(binding) => {
+                PipelineDispatch::Dynamic(self.get_resource(binding).into_resource())
+            }
+            CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
+        };
+
+        // self.stream.register(pipeline, resources, dispatch);
+
+        // // If profiling, write out results.
         if let Some(level) = profile_level {
             let (name, kernel_id) = profile_info.unwrap();
 
@@ -250,6 +272,8 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        #[cfg(feature = "msl")]
+        wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
 }

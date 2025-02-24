@@ -31,6 +31,7 @@ hip = ["cubecl-hip"]
 hip-intrinsic = ["hip", "cubecl-hip/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
+wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
