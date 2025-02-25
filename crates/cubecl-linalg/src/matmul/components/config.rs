@@ -113,21 +113,21 @@ pub struct CompleteStageTiling {
 }
 
 impl CompleteStageTiling {
-    pub fn get(&self, ident: Ident) -> StageTiling {
+    pub fn get(&self, ident: Ident) -> TilingDimensions {
         match ident {
-            Ident::Lhs => StageTiling {
+            Ident::Lhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.k,
                 tile_count_row: self.tile_count.m,
                 tile_count_col: self.tile_count.k,
             },
-            Ident::Rhs => StageTiling {
+            Ident::Rhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.k,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.k,
                 tile_count_col: self.tile_count.n,
             },
-            Ident::Out => StageTiling {
+            Ident::Out => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.m,
@@ -147,14 +147,14 @@ impl CompleteStageTiling {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
-pub struct StageTiling {
+pub struct TilingDimensions {
     pub tile_shape_row: u32,
     pub tile_shape_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
 
-impl StageTiling {
+impl TilingDimensions {
     /// Returns the total number of elements of the stage.
     pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
