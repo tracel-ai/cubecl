@@ -24,9 +24,7 @@ pub enum BarrierOps {
         destination: Variable,
     },
     /// Waits until data is loaded
-    Wait {
-        barrier: Variable,
-    },
+    Wait { barrier: Variable },
 }
 
 impl Display for BarrierOps {

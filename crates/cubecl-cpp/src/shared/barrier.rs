@@ -52,6 +52,10 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
+<<<<<<< HEAD
+=======
+init(&{barrier}, 1);
+>>>>>>> main
                 "
                 ),
                 BarrierLevel::Cube(elected_unit) => write!(
