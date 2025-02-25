@@ -101,8 +101,8 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier_0 = barrier::Barrier::new(comptime!(BarrierLevel::Cube { elected_unit: 2 }));
-    let barrier_1 = barrier::Barrier::new(comptime!(BarrierLevel::Cube { elected_unit: 2 }));
+    let barrier_0 = barrier::Barrier::new(comptime!(BarrierLevel::Cube { elected_unit: 0 }));
+    let barrier_1 = barrier::Barrier::new(comptime!(BarrierLevel::Cube { elected_unit: 0 }));
     // At the Cube level, we must sync after barrier creation to make sure they
     // exist for all units
     sync_units();
