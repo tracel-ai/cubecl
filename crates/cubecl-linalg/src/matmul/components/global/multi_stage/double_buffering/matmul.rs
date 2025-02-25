@@ -1,5 +1,6 @@
+use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader, LoadMode};
+use crate::matmul::components::global::{self, CommonGlobalConfig, SyncInputLoader};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::Ident;
@@ -17,7 +18,9 @@ use crate::matmul::components::global::{GlobalMatmulFamily, LoadingValidation};
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::stage::StageConfig;
+use crate::matmul::components::stage::{
+    ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
+};
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
@@ -25,11 +28,12 @@ use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
-use super::loader::check_buffers_contiguous;
-
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
 }
+
+type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
+type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM>
 where
@@ -38,8 +42,10 @@ where
         RhsReader = RhsBufferReaderFamily,
     >,
 {
-    type Matmul<MP: MatmulPrecision> =
-        DoubleBufferingMatmul<MP, SMM::Matmul<MP::ES, MP::EG, MP::EA>>;
+    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
+        MP,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LhsTilingLayout, RhsTilingLayout>,
+    >;
 }
 
 impl<SMM> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM>
@@ -50,9 +56,6 @@ where
     type Config = CommonGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        check_buffers_contiguous::<Self::Config>(Ident::Lhs, config)?;
-        check_buffers_contiguous::<Self::Config>(Ident::Rhs, config)?;
-
         let tmm_config = config.smm_config.to_tmm_config();
         let tile_shape = tmm_config.tile_shape();
 
@@ -63,7 +66,7 @@ where
         BufferLoading::check::<Self::Config>(config, Ident::Lhs)?;
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
 
-        if config.stage_tiling(Ident::Lhs).tile_count_col() != 2 {
+        if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
         }
 
@@ -106,7 +109,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             cube_dim.y,
-            LoadMode::Coalesced,
         )
     }
 }
@@ -129,13 +131,13 @@ where
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsBufferReader<MP::ES>,
-        RhsReader = RhsBufferReader<MP::ES>,
+        LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
+        RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
     >,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config, LhsTilingLayout>;
+    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config, RhsTilingLayout>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
@@ -149,7 +151,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
-        let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
 
         let range = k_range.1 - k_range.0;

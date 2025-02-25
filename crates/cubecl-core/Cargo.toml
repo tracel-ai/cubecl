@@ -44,6 +44,7 @@ num-traits = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+ron = { workspace = true }
 variadics_please = { workspace = true }
 
 [dev-dependencies]

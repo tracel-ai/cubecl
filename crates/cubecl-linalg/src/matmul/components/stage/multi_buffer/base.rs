@@ -5,7 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
+use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
@@ -38,8 +38,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric> =
-        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>>;
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
+        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
@@ -48,7 +48,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         check_num_planes(
-            config.tiling(Ident::Lhs).tile_count_row(),
+            config.tiling_dimensions(Ident::Lhs).tile_count_row(),
             config.num_planes(),
         )?;
         TMM::check_config(&config.to_tmm_config())
@@ -86,14 +86,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             tile_count,
         };
 
-        CommonStageConfig::new(
-            tmm_config,
-            tiling,
-            cube_dim.y,
-            advanced_config.lhs_tiling_layout,
-            advanced_config.rhs_tiling_layout,
-            quantized,
-        )
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized)
     }
 }
 
@@ -103,32 +96,43 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct MultiBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::TileMatmul<I, EA>> {
+pub struct MultiBufferMatmul<
+    I: Numeric,
+    O: Numeric,
+    EA: Numeric,
+    TMM: tile::TileMatmul<I, EA>,
+    TL: TilingLayout,
+    TR: TilingLayout,
+> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
+    _tiling_layout_lhs: PhantomData<TL>,
+    _tiling_layout_rhs: PhantomData<TR>,
 }
 
 #[cube]
-impl<I, O, EA, TMM> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM>
+impl<I, O, EA, TMM, TL, TR> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM, TL, TR>
 where
     I: Numeric,
     O: Numeric,
     EA: Numeric,
     TMM: tile::TileMatmul<I, EA>,
+    TL: TilingLayout,
+    TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
-    type LhsReader = LhsReader<I>;
-    type RhsReader = RhsReader<I>;
+    type LhsReader = LhsReader<I, TL>;
+    type RhsReader = RhsReader<I, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
     fn execute(
-        lhs_reader: &LhsReader<I>,
-        rhs_reader: &RhsReader<I>,
+        lhs_reader: &LhsReader<I, TL>,
+        rhs_reader: &RhsReader<I, TR>,
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
@@ -170,7 +174,8 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
+        let num_tile_lines =
+            stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
         let mut out_smem = SharedMemory::<O>::new_lined(
