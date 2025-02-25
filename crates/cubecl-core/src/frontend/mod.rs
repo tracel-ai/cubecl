@@ -1,3 +1,4 @@
+pub mod barrier;
 pub mod branch;
 pub mod cmma;
 pub mod pipeline;

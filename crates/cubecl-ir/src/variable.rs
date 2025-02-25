@@ -1,7 +1,7 @@
 use core::num::NonZero;
 use core::{fmt::Display, hash::Hash};
 
-use crate::TypeHash;
+use crate::{BarrierLevel, TypeHash};
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
@@ -49,17 +49,47 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
-    LocalArray { id: Id, length: u32 },
-    LocalMut { id: Id },
-    LocalConst { id: Id },
-    Versioned { id: Id, version: u16 },
+    LocalArray {
+        id: Id,
+        length: u32,
+    },
+    LocalMut {
+        id: Id,
+    },
+    LocalConst {
+        id: Id,
+    },
+    Versioned {
+        id: Id,
+        version: u16,
+    },
     ConstantScalar(ConstantScalarValue),
-    ConstantArray { id: Id, length: u32 },
-    SharedMemory { id: Id, length: u32 },
-    Matrix { id: Id, mat: Matrix },
-    Slice { id: Id },
+    ConstantArray {
+        id: Id,
+        length: u32,
+    },
+    SharedMemory {
+        id: Id,
+        length: u32,
+    },
+    Matrix {
+        id: Id,
+        mat: Matrix,
+    },
+    Slice {
+        id: Id,
+    },
     Builtin(Builtin),
-    Pipeline { id: Id, item: Item, num_stages: u8 },
+    Pipeline {
+        id: Id,
+        item: Item,
+        num_stages: u8,
+    },
+    Barrier {
+        id: Id,
+        item: Item,
+        level: BarrierLevel,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -108,6 +138,7 @@ impl Variable {
             VariableKind::ConstantArray { .. } => true,
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
+            VariableKind::Barrier { .. } => false,
         }
     }
 
@@ -450,6 +481,7 @@ impl Display for Variable {
             VariableKind::Slice { id } => write!(f, "slice({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
+            VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
         }
     }
 }
