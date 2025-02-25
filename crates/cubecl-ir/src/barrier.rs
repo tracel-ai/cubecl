@@ -9,7 +9,7 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
 pub enum BarrierLevel {
     Unit,
-    Cube { elected_unit: u32 },
+    Cube(u32),
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

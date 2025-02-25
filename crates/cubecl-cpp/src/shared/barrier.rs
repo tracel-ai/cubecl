@@ -55,7 +55,7 @@ cuda::barrier<cuda::thread_scope_thread> {barrier};
 init(&{barrier}, 1);
                 "
                 ),
-                BarrierLevel::Cube { elected_unit } => write!(
+                BarrierLevel::Cube(elected_unit) => write!(
                     f,
                     "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};

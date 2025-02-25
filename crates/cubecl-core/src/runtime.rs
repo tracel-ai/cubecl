@@ -72,7 +72,7 @@ pub enum Feature {
     AtomicFloat(AtomicFeature),
     /// The pipeline feature enables pipelined (async) operations
     Pipeline,
-    /// The pipeline feature enables barrier (async) operations
+    /// The barrier feature enables barrier (async) operations
     Barrier,
 }
 

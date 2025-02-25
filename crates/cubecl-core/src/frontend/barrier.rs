@@ -15,8 +15,7 @@ use super::{
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
-/// Works at the Cube level
-/// Or at the Unit level, using unit_count=1
+/// Behaviour is defined by its [BarrierLevel](BarrierLevel).
 #[derive(Clone, Copy)]
 pub struct Barrier<C: CubePrimitive> {
     _c: PhantomData<C>,
@@ -52,22 +51,39 @@ pub struct BarrierExpand<C: CubePrimitive> {
 }
 
 #[derive(Clone)]
+/// Defines how many units must reach the barrier to allow continuation
 pub enum BarrierLevel {
+    /// Only waits for the unit who declared this barrier.
+    /// This may be useful for waiting upon async data loading
     Unit,
-    Cube { elected_unit: u32 },
+    /// All units in the Cube must reach the barrier before continuing
+    Cube(u32),
 }
 
 impl From<BarrierLevel> for cubecl_ir::BarrierLevel {
     fn from(val: BarrierLevel) -> Self {
         match val {
             BarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
-            BarrierLevel::Cube { elected_unit } => cubecl_ir::BarrierLevel::Cube { elected_unit },
+            BarrierLevel::Cube(elected_unit) => cubecl_ir::BarrierLevel::Cube(elected_unit),
         }
     }
 }
 
 impl<C: CubePrimitive> Barrier<C> {
+    /// Creates a barrier using a user defined comptime barrier level
     pub fn new(_level: BarrierLevel) -> Self {
+        Self { _c: PhantomData }
+    }
+
+    /// Creates a barrier for the unit itself
+    pub fn new_unit_level() -> Self {
+        Self { _c: PhantomData }
+    }
+
+    /// Creates a barrier for the whole Cube
+    /// This will always use unit at unit_pos 0 to initialize the barrier.
+    /// For other parameters, use Barrier::new
+    pub fn new_cube_level() -> Self {
         Self { _c: PhantomData }
     }
 
@@ -94,6 +110,14 @@ impl<C: CubePrimitive> Barrier<C> {
             elem: variable,
             _c: PhantomData,
         }
+    }
+
+    pub fn __expand_new_unit_level(scope: &mut Scope) -> BarrierExpand<C> {
+        Self::__expand_new(scope, BarrierLevel::Unit)
+    }
+
+    pub fn __expand_new_cube_level(scope: &mut Scope) -> BarrierExpand<C> {
+        Self::__expand_new(scope, BarrierLevel::Cube(0))
     }
 
     pub fn __expand_memcpy_async(
