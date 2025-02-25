@@ -113,14 +113,7 @@ impl Allocator {
 
     pub fn create_barrier(&self, item: Item, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
-        let variable = Variable::new(
-            VariableKind::Barrier {
-                id,
-                item,
-                level,
-            },
-            item,
-        );
+        let variable = Variable::new(VariableKind::Barrier { id, item, level }, item);
         ExpandElement::Plain(variable)
     }
 

@@ -138,9 +138,7 @@ impl Scope {
 
     /// Create a new barrier element.
     pub fn create_barrier(&mut self, item: Item, level: BarrierLevel) -> ExpandElement {
-        let barrier = self
-            .allocator
-            .create_barrier(item, level);
+        let barrier = self.allocator.create_barrier(item, level);
         self.add_barrier(*barrier);
         barrier
     }
