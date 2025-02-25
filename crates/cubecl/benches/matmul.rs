@@ -147,7 +147,7 @@ fn main() {
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Duplicated),
-        // );
+        // )
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),
