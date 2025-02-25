@@ -13,6 +13,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
 use barrier::Barrier;
+use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_core::Feature;
 use cubecl_core::{self as cubecl};
@@ -167,10 +168,7 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new(config.num_planes() * config.plane_dim());
-        if UNIT_POS == 0 {
-            barrier.initialize();
-        }
+        let barrier = Barrier::<MP::ES>::new(BarrierLevel::cube(0u32));
 
         for _ in 0..num_loops {
             sync_units();

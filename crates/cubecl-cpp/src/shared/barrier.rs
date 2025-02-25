@@ -1,15 +1,14 @@
 use std::fmt::Display;
 
+use cubecl_core::ir::BarrierLevel;
+
 use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
 pub enum BarrierOps<D: Dialect> {
-    New {
-        barrier: Variable<D>,
-        unit_count: u32,
-    },
     Init {
         barrier: Variable<D>,
+        level: BarrierLevel,
     },
     MemCopyAsync {
         barrier: Variable<D>,
@@ -26,7 +25,6 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
-            BarrierOps::New { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier } => barrier.id().unwrap(),
         }
     }
@@ -49,48 +47,23 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
 "
                 )
             }
-            BarrierOps::New {
-                barrier,
-                unit_count,
-            } => match unit_count {
-                1 => write!(
+            BarrierOps::Init { barrier, level } => match level {
+                BarrierLevel::Unit => write!(
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
                 "
                 ),
-                _ => write!(
+                BarrierLevel::Cube(elected_unit) => write!(
                     f,
                     "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
+if (threadIdxGlobal == {elected_unit}) {{
+   init(&{barrier}, blockDimGlobal);
+}}
 "
                 ),
             },
-            BarrierOps::Init { barrier } => {
-                if let Variable::Barrier {
-                    id: _,
-                    item: _,
-                    unit_count,
-                } = barrier
-                {
-                    match unit_count {
-                        1 => write!(
-                            f,
-                            "
-    init(&{barrier}, 1);
-                    "
-                        ),
-                        _ => write!(
-                            f,
-                            "
-       init(&{barrier}, {unit_count});
-    "
-                        ),
-                    }
-                } else {
-                    unreachable!()
-                }
-            }
             BarrierOps::Wait { barrier } => {
                 write!(
                     f,

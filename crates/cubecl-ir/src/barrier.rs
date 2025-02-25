@@ -6,6 +6,13 @@ use crate::OperationReflect;
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
+pub enum BarrierLevel {
+    Unit,
+    Cube(u32),
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
@@ -18,9 +25,6 @@ pub enum BarrierOps {
     },
     /// Waits until data is loaded
     Wait {
-        barrier: Variable,
-    },
-    Init {
         barrier: Variable,
     },
 }
@@ -37,7 +41,6 @@ impl Display for BarrierOps {
                 "mem_copy_async({barrier}, source: {source}, destination: {destination})",
             ),
             BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
-            BarrierOps::Init { barrier } => write!(f, "init({barrier})"),
         }
     }
 }

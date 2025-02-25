@@ -4,6 +4,8 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
+use crate::BarrierLevel;
+
 use super::{Item, Matrix, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
@@ -109,16 +111,9 @@ impl Allocator {
         ExpandElement::Plain(variable)
     }
 
-    pub fn create_barrier(&self, item: Item, unit_count: u32) -> ExpandElement {
+    pub fn create_barrier(&self, item: Item, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
-        let variable = Variable::new(
-            VariableKind::Barrier {
-                id,
-                item,
-                unit_count,
-            },
-            item,
-        );
+        let variable = Variable::new(VariableKind::Barrier { id, item, level }, item);
         ExpandElement::Plain(variable)
     }
 

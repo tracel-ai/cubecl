@@ -2,6 +2,7 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
+use cubecl_core::ir::BarrierLevel;
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -406,11 +407,6 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 gpu::BarrierOps::Wait { barrier } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
-                        barrier: self.compile_variable(barrier),
-                    }))
-                }
-                gpu::BarrierOps::Init { barrier } => {
-                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
                         barrier: self.compile_variable(barrier),
                     }))
                 }
@@ -1110,22 +1106,18 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier {
-                id,
-                item,
-                unit_count,
-            } => {
+            gpu::VariableKind::Barrier { id, item, level } => {
                 self.barrier = true;
+                self.settings.block_dim_global = true;
+                if let BarrierLevel::Cube { .. } = level {
+                    self.settings.thread_idx_global = true;
+                }
                 let barrier = Variable::Barrier {
                     id,
                     item: self.compile_item(item),
-                    unit_count,
                 };
                 if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                    self.barriers.push(BarrierOps::New {
-                        barrier,
-                        unit_count,
-                    });
+                    self.barriers.push(BarrierOps::Init { barrier, level });
                 }
                 barrier
             }

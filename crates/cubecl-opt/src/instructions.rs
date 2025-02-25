@@ -336,7 +336,6 @@ impl Optimizer {
                 visit_read(self, destination);
             }
             BarrierOps::Wait { barrier } => visit_read(self, barrier),
-            BarrierOps::Init { barrier } => visit_read(self, barrier),
         }
     }
 

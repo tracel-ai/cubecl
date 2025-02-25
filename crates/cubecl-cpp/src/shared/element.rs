@@ -233,7 +233,6 @@ pub enum Variable<D: Dialect> {
     Barrier {
         id: Id,
         item: Item<D>,
-        unit_count: u32,
     },
     Tmp {
         id: Id,
