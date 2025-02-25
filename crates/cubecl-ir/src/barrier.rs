@@ -6,6 +6,13 @@ use crate::OperationReflect;
 use super::Variable;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
+pub enum BarrierLevel {
+    Unit,
+    Cube { elected_unit: u32 },
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier

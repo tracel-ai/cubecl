@@ -2,7 +2,7 @@ use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
+use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
 
 use super::{
     processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -137,15 +137,10 @@ impl Scope {
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier(
-        &mut self,
-        item: Item,
-        unit_count: u32,
-        elected_unit: u32,
-    ) -> ExpandElement {
+    pub fn create_barrier(&mut self, item: Item, level: BarrierLevel) -> ExpandElement {
         let barrier = self
             .allocator
-            .create_barrier(item, unit_count, elected_unit);
+            .create_barrier(item, level);
         self.add_barrier(*barrier);
         barrier
     }

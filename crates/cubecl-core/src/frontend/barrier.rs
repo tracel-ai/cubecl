@@ -51,14 +51,23 @@ pub struct BarrierExpand<C: CubePrimitive> {
     _c: PhantomData<C>,
 }
 
-impl<C: CubePrimitive> Barrier<C> {
-    /// Create a barrier instance at the unit level, i.e. for the unit itself only
-    pub fn new_unit_level() -> Self {
-        Self { _c: PhantomData }
-    }
+#[derive(Clone)]
+pub enum BarrierLevel {
+    Unit,
+    Cube { elected_unit: u32 },
+}
 
-    /// Create a barrier instance at the Cube level, i.e. for all units
-    pub fn new_cube_level(_unit_count: u32) -> Self {
+impl From<BarrierLevel> for cubecl_ir::BarrierLevel {
+    fn from(val: BarrierLevel) -> Self {
+        match val {
+            BarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
+            BarrierLevel::Cube { elected_unit } => cubecl_ir::BarrierLevel::Cube { elected_unit },
+        }
+    }
+}
+
+impl<C: CubePrimitive> Barrier<C> {
+    pub fn new(_level: BarrierLevel) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -77,16 +86,10 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new_unit_level(scope: &mut Scope) -> BarrierExpand<C> {
-        Self::__expand_new_cube_level(scope, 1)
-    }
-
-    pub fn __expand_new_cube_level(scope: &mut Scope, unit_count: u32) -> BarrierExpand<C> {
+    pub fn __expand_new(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
         let elem = C::as_elem(scope);
 
-        // For now we assume the elected unit is always the first one.
-        let elected_unit = 0;
-        let variable = scope.create_barrier(Item::new(elem), unit_count, elected_unit);
+        let variable = scope.create_barrier(Item::new(elem), level.into());
         BarrierExpand {
             elem: variable,
             _c: PhantomData,

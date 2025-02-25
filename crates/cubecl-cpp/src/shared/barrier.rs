@@ -1,13 +1,14 @@
 use std::fmt::Display;
 
+use cubecl_core::ir::BarrierLevel;
+
 use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
 pub enum BarrierOps<D: Dialect> {
     Init {
         barrier: Variable<D>,
-        num_units: u32,
-        elected_unit: u32,
+        level: BarrierLevel,
     },
     MemCopyAsync {
         barrier: Variable<D>,
@@ -46,24 +47,20 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
 "
                 )
             }
-            BarrierOps::Init {
-                barrier,
-                num_units,
-                elected_unit,
-            } => match num_units {
-                1 => write!(
+            BarrierOps::Init { barrier, level } => match level {
+                BarrierLevel::Unit => write!(
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
 init(&{barrier}, 1);
                 "
                 ),
-                _ => write!(
+                BarrierLevel::Cube { elected_unit } => write!(
                     f,
                     "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
-if (threadIdx.x == {elected_unit}) {{
-   init(&{barrier}, {num_units});
+if (threadIdxGlobal == {elected_unit}) {{
+   init(&{barrier}, blockDimGlobal);
 }}
 "
                 ),

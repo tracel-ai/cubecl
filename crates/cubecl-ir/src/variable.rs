@@ -1,7 +1,7 @@
 use core::num::NonZero;
 use core::{fmt::Display, hash::Hash};
 
-use crate::TypeHash;
+use crate::{BarrierLevel, TypeHash};
 
 use super::{Elem, FloatKind, IntKind, Item, Matrix, UIntKind};
 use float_ord::FloatOrd;
@@ -88,8 +88,7 @@ pub enum VariableKind {
     Barrier {
         id: Id,
         item: Item,
-        unit_count: u32,
-        elected_unit: u32,
+        level: BarrierLevel,
     },
 }
 
