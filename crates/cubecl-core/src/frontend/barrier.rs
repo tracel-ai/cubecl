@@ -67,7 +67,7 @@ impl BarrierLevel {
     }
 
     /// Creates a Cube barrier level
-    /// 
+    ///
     /// The field elected_unit is the UNIT_POS of the unit that will
     /// perform the underlying initialization. Typically, 0 should work
     pub fn cube(elected_unit: u32) -> Self {
