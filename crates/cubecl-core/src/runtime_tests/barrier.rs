@@ -1,10 +1,10 @@
-use crate::{self as cubecl, as_bytes, Feature};
+use crate::{self as cubecl, as_bytes, prelude::barrier::BarrierLevel, Feature};
 use barrier::Barrier;
 use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::<F>::new_unit_level();
+    let barrier = Barrier::<F>::new(BarrierLevel::unit());
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);
@@ -47,7 +47,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let barrier = Barrier::<F>::new_cube_level();
+    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
     sync_units();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
@@ -72,7 +72,7 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier = Barrier::new_cube_level();
+    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
     sync_units();
 
     let start = UNIT_POS_X * num_data / 2;
@@ -100,8 +100,8 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier_0 = barrier::Barrier::new_cube_level();
-    let barrier_1 = barrier::Barrier::new_cube_level();
+    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube(0u32));
+    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube(0u32));
     // At the Cube level, we must sync after barrier creation to make sure they
     // exist for all units
     sync_units();

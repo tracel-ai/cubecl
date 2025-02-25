@@ -60,6 +60,29 @@ pub enum BarrierLevel {
     Cube(u32),
 }
 
+impl BarrierLevel {
+    /// Creates a Unit barrier level
+    pub fn unit() -> Self {
+        Self::Unit
+    }
+
+    /// Creates a Cube barrier level
+    /// 
+    /// The field elected_unit is the UNIT_POS of the unit that will
+    /// perform the underlying initialization. Typically, 0 should work
+    pub fn cube(elected_unit: u32) -> Self {
+        Self::Cube(elected_unit)
+    }
+
+    pub fn __expand_unit(_scope: &mut Scope) -> BarrierLevel {
+        Self::Unit
+    }
+
+    pub fn __expand_cube(_scope: &mut Scope, elected_unit: u32) -> Self {
+        Self::Cube(elected_unit)
+    }
+}
+
 impl From<BarrierLevel> for cubecl_ir::BarrierLevel {
     fn from(val: BarrierLevel) -> Self {
         match val {
@@ -72,18 +95,6 @@ impl From<BarrierLevel> for cubecl_ir::BarrierLevel {
 impl<C: CubePrimitive> Barrier<C> {
     /// Creates a barrier using a user defined comptime barrier level
     pub fn new(_level: BarrierLevel) -> Self {
-        Self { _c: PhantomData }
-    }
-
-    /// Creates a barrier for the unit itself
-    pub fn new_unit_level() -> Self {
-        Self { _c: PhantomData }
-    }
-
-    /// Creates a barrier for the whole Cube
-    /// This will always use unit at unit_pos 0 to initialize the barrier.
-    /// For other parameters, use Barrier::new
-    pub fn new_cube_level() -> Self {
         Self { _c: PhantomData }
     }
 
@@ -110,14 +121,6 @@ impl<C: CubePrimitive> Barrier<C> {
             elem: variable,
             _c: PhantomData,
         }
-    }
-
-    pub fn __expand_new_unit_level(scope: &mut Scope) -> BarrierExpand<C> {
-        Self::__expand_new(scope, BarrierLevel::Unit)
-    }
-
-    pub fn __expand_new_cube_level(scope: &mut Scope) -> BarrierExpand<C> {
-        Self::__expand_new(scope, BarrierLevel::Cube(0))
     }
 
     pub fn __expand_memcpy_async(
