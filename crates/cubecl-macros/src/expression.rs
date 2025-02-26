@@ -141,10 +141,16 @@ pub enum Expression {
         path: Path,
         fields: Vec<(Member, Expression)>,
     },
+    NamedEnumInit {
+        path: Path,
+        variant: Ident,
+        fields: Vec<(Member, Expression)>,
+    },
     Keyword {
-        name: syn::Ident,
+        name: Ident,
     },
     ConstMatch {
+        runtime_variant: bool,
         const_expr: syn::Expr,
         arms: Vec<ConstMatchArm>,
     },
@@ -159,6 +165,7 @@ pub struct ConstMatchArm {
     pub pat: syn::Pat,
     pub expr: Box<Expression>,
 }
+
 
 #[derive(Clone, Debug, Default)]
 pub struct Block {
@@ -199,6 +206,7 @@ impl Expression {
             Expression::VerbatimTerminated { .. } => None,
             Expression::Reference { inner } => inner.ty(),
             Expression::StructInit { .. } => None,
+            Expression::NamedEnumInit { .. } => None,
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
             Expression::CompilerIntrinsic { .. } => None,

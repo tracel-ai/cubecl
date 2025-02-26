@@ -297,10 +297,25 @@ impl Expression {
                 } else if let Some(switch) = numeric_match(mat, context) {
                     switch
                 } else {
-                    Err(syn::Error::new(
-                        span,
-                        "Only numeric match expression is supported at runtime",
-                    ))?
+                    // TODO: Runtime match to support funky enums.
+                    let mut arms = Vec::new();
+
+                    for arm in mat.arms.iter() {
+                        arms.push(RuntimeMatchArg { // TODO RuntimeMAtchArg
+                            pat: arm.pat.clone(),
+                            expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
+                        });
+                    }
+
+                    Expression::RuntimeMatch { // TODO RuntimeMatch
+                        const_expr: mat.expr.as_ref().clone(),
+                        arms,
+                    }
+
+                    // Err(syn::Error::new(
+                    //     span,
+                    //     "Only numeric match expression is supported at runtime",
+                    // ))?
                 }
             }
             Expr::Macro(mac) if is_comptime_macro(&mac.mac.path) => {

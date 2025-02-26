@@ -1,3 +1,5 @@
+use std::clone::CloneToUninit;
+
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{spanned::Spanned, Member, PathArguments};
@@ -467,6 +469,36 @@ impl Expression {
                     }
                 }
             }
+            Expression::NamedEnumInit {
+                path,
+                variant,
+                fields,
+            } => {
+                let cube_type = prelude_type("CubeType");
+                let fields = init_fields(fields, context);
+                let path_last = path.segments.last().unwrap();
+                let turbofish = path_last.arguments.clone();
+                let generics = match &turbofish {
+                    PathArguments::None => None,
+                    PathArguments::AngleBracketed(params) => {
+                        let params = params.args.iter();
+                        Some(quote![<#(#params),*>])
+                    }
+                    args => {
+                        return error!(
+                            args.span(),
+                            "Fn generics not supported when constructing runtime structs"
+                        )
+                    }
+                };
+
+                quote! {
+                    {
+                        type _Ty #generics = <#path as #cube_type>::ExpandType;
+                        _Ty::#variant #turbofish { #(#fields),* }
+                    }
+                }
+            }
             Expression::Closure {
                 params,
                 body,
@@ -478,7 +510,13 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
-            Expression::ConstMatch { const_expr, arms } => {
+            Expression::ConstMatch {
+                runtime_variants,
+                const_expr,
+                arms,
+            } => {
+                // TODO
+
                 let arms = arms.iter().map(|arm| arm.to_tokens(context));
 
                 quote! {
@@ -520,6 +558,26 @@ impl Expression {
 }
 
 impl ConstMatchArm {
+    pub fn to_tokens(&self, context: &mut Context, runtime_variants: bool) -> TokenStream {
+        let path: Pat = &self.pat;
+        let expr = self.expr.to_tokens(context);
+
+        if runtime_variants {
+            let type_path = Box::pin(path);
+            let variant_path = todo!();
+
+            quote! {
+                #type_path::variant_path => #expr
+            }
+        } else {
+            quote! {
+                #path => #expr
+            }
+        }
+    }
+}
+
+impl RuntimeMatchArm {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         let path = &self.pat;
         let expr = self.expr.to_tokens(context);
