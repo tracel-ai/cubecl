@@ -94,6 +94,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         }
         if self.barrier {
             f.write_str("#include <cooperative_groups.h>\n")?;
+            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
 

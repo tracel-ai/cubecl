@@ -35,28 +35,6 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::MemCopyAsync {
-                barrier,
-                source,
-                destination,
-                level,
-            } => {
-                let item = source.item();
-                let size = format!("sizeof({item})");
-                match level {
-                    BarrierLevel::Cooperative => write!(
-                        f,
-                        "
-                        "
-                    ),
-                    _ => write!(
-                        f,
-                        "
-cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
-                    "
-                    ),
-                }
-            }
             BarrierOps::Init { barrier, level } => match level {
                 BarrierLevel::Unit => write!(
                     f,
@@ -78,15 +56,41 @@ if (threadIdxGlobal == {elected_unit}) {{
                     write!(
                         f,
                         "
+cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
                     "
                     )
                 }
             },
+            BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                destination,
+                level,
+            } => {
+                let item = source.item();
+                let size = format!("sizeof({item})");
+                match level {
+                    BarrierLevel::Cooperative => write!(
+                        f,
+                        "
+cooperative_groups::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size});
+                        "
+                    ),
+                    _ => write!(
+                        f,
+                        "
+cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
+                    "
+                    ),
+                }
+            }
+
             BarrierOps::Wait { barrier, level } => match level {
                 BarrierLevel::Cooperative => write!(
                     f,
                     "
-                        "
+cooperative_groups::wait(block_{barrier});
+"
                 ),
                 _ => write!(
                     f,
