@@ -48,6 +48,12 @@ pub struct DummyLoader<ES: Numeric> {
     _e: PhantomData<ES>,
 }
 
+impl<ES: Numeric> Default for DummyLoader<ES> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cube]
 impl<ES: Numeric> DummyLoader<ES> {
     pub fn new() -> Self {
