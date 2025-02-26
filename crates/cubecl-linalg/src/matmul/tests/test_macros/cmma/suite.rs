@@ -297,6 +297,7 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
+        use $crate::matmul::kernels::matmul::simple_barrier_coop::SimpleBarrierCoopAlgorithm;
         use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
@@ -314,6 +315,20 @@ macro_rules! matmul_standard_tests {
         pub fn simple_pipelined() {
             cubecl_linalg::matmul::tests::test_algo::<
                 SimplePipelinedAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_coop() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierCoopAlgorithm<TMM, WindowDuplicatedLoading>,
                 Precision,
                 TestRuntime,
             >(
