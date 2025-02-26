@@ -60,6 +60,8 @@ enum InnerBarrierLevel {
     Unit,
     /// All units in the Cube must reach the barrier before continuing
     Cube(u32),
+    /// Will use cooperative groups copy
+    Cooperative,
 }
 
 impl BarrierLevel {
@@ -76,12 +78,21 @@ impl BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
     }
 
+    /// Creates a Cooperative barrier level
+    pub fn cooperative() -> Self {
+        BarrierLevel(InnerBarrierLevel::Cooperative)
+    }
+
     pub fn __expand_unit(_scope: &mut Scope) -> BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Unit)
     }
 
     pub fn __expand_cube(_scope: &mut Scope, elected_unit: u32) -> Self {
         BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
+    }
+
+    pub fn __expand_cooperative(_scope: &mut Scope) -> Self {
+        BarrierLevel(InnerBarrierLevel::Cooperative)
     }
 }
 
@@ -90,6 +101,7 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
         match val {
             InnerBarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
             InnerBarrierLevel::Cube(elected_unit) => cubecl_ir::BarrierLevel::Cube(elected_unit),
+            InnerBarrierLevel::Cooperative => cubecl_ir::BarrierLevel::Cooperative,
         }
     }
 }

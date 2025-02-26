@@ -39,16 +39,23 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 barrier,
                 source,
                 destination,
-                level: _,
+                level,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
-                write!(
-                    f,
-                    "
+                match level {
+                    BarrierLevel::Cooperative => write!(
+                        f,
+                        "
+                        "
+                    ),
+                    _ => write!(
+                        f,
+                        "
 cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
-"
-                )
+                    "
+                    ),
+                }
             }
             BarrierOps::Init { barrier, level } => match level {
                 BarrierLevel::Unit => write!(
@@ -67,15 +74,27 @@ if (threadIdxGlobal == {elected_unit}) {{
 }}
 "
                 ),
+                BarrierLevel::Cooperative => {
+                    write!(
+                        f,
+                        "
+                    "
+                    )
+                }
             },
-            BarrierOps::Wait { barrier, level: _ } => {
-                write!(
+            BarrierOps::Wait { barrier, level } => match level {
+                BarrierLevel::Cooperative => write!(
+                    f,
+                    "
+                        "
+                ),
+                _ => write!(
                     f,
                     "
 {barrier}.arrive_and_wait();
 "
-                )
-            }
+                ),
+            },
         }
     }
 }
