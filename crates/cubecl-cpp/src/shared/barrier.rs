@@ -14,9 +14,11 @@ pub enum BarrierOps<D: Dialect> {
         barrier: Variable<D>,
         source: Variable<D>,
         destination: Variable<D>,
+        level: BarrierLevel,
     },
     Wait {
         barrier: Variable<D>,
+        level: BarrierLevel,
     },
 }
 
@@ -25,7 +27,7 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
-            BarrierOps::Wait { barrier } => barrier.id().unwrap(),
+            BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
         }
     }
 }
@@ -37,6 +39,7 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 barrier,
                 source,
                 destination,
+                level: _,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
@@ -52,10 +55,7 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     f,
                     "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-<<<<<<< HEAD
-=======
 init(&{barrier}, 1);
->>>>>>> main
                 "
                 ),
                 BarrierLevel::Cube(elected_unit) => write!(
@@ -68,7 +68,7 @@ if (threadIdxGlobal == {elected_unit}) {{
 "
                 ),
             },
-            BarrierOps::Wait { barrier } => {
+            BarrierOps::Wait { barrier, level: _ } => {
                 write!(
                     f,
                     "
