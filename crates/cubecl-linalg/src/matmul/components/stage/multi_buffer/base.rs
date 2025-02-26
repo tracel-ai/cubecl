@@ -3,12 +3,14 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::output_loader::Quantizer;
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily};
+use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+    MatrixLayout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
@@ -111,12 +113,12 @@ pub struct MultiBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::Til
 }
 
 #[cube]
-impl<I, O, EA, TMM> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM>
+impl<I, O, Acc, TMM> StageMatmul<I, O, Acc> for MultiBufferMatmul<I, O, Acc, TMM>
 where
     I: Numeric,
     O: Numeric,
-    EA: Numeric,
-    TMM: tile::TileMatmul<I, EA>,
+    Acc: Numeric,
+    TMM: tile::TileMatmul<I, Acc>,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -126,32 +128,71 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
+    #[allow(clippy::single_match)]
     fn execute(
         lhs_reader: &LhsReader<I>,
         rhs_reader: &RhsReader<I>,
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
+        quantizer: &mut Option<Quantizer<Acc>>,
         #[comptime] config: Self::Config,
     ) {
+        // TODO Hacker ici pour faire les sommes.
+
+        // stage lhs
+        // [ tile00 tile01 tile02 UNIT_POS_Y = 0
+        //   tile10 tile11 tile11 UNIT_POS_Y = 1
+        // ]
+        //
+        // stage rhs
+        // [ tile00 tile01 tile02
+        //   tile10 tile11 tile12
+        //   tile20 tile21 tile22
+        // ] ai0    ai1    ai2
+        //
+        //
+        // stage out
+        // #tiles = NUM_PLANES x NUM_ACC
         #[unroll]
         for buffer_iter in 0..config.tile_count().k {
-            let tile_lhs =
+            let lhs_slice =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
-            TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
+
+            TMM::fill_lhs(&lhs_slice, lhs_tile, config.to_tmm_config());
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile::<TMM::Config>(
+                let rhs_slice = RhsReader::read_tile::<TMM::Config>(
                     rhs_reader,
                     buffer_iter,
                     accumulator_iter,
                     config,
                 );
-                TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
+                TMM::fill_rhs(&rhs_slice, rhs_tile, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
                 TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
+
+                // TODO figure out how to leverage async to make these sums concurrent to TMM::execute if possible.
+                match comptime!(quantizer.clone()) {
+                    Some(mut quantizer) => sum_rhs_cols::<I, Acc, Self::Config>(
+                        &rhs_slice,
+                        &mut quantizer.rhs_sums.to_slice_mut(),
+                        config,
+                    ),
+                    None => {}
+                }
+            }
+
+            // TODO figure out how to leverage async to make these sums concurrent to TMM::execute if possible.
+            match comptime!(quantizer.clone()) {
+                Some(mut quantizer) => sum_lhs_rows::<I, Acc, Self::Config>(
+                    &lhs_slice,
+                    &mut quantizer.lhs_sums.to_slice_mut(),
+                    config,
+                ),
+                None => {}
             }
         }
     }
@@ -163,9 +204,11 @@ where
         )
     }
 
+    #[allow(clippy::single_match)]
     fn read_accumulator<SW: StageWriter<O>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
+        quantizer: Option<Quantizer<Acc>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -173,7 +216,7 @@ where
         let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<O>::new_lined(
+        let mut out_smem = SharedMemory::<Acc>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -183,7 +226,16 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<O, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
+
+            match comptime!(quantizer.clone()) {
+                Some(quantizer) => {
+                    // TODO: Figure out how it works with the different accumulators.
+                    quantizer.add_quantization_into::<G>(&mut smem_slice, global_config);
+                }
+                None => {}
+            };
+
+            SW::write::<Acc, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
         }
     }
 
@@ -205,7 +257,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -228,4 +280,135 @@ fn check_num_planes(
     }
 
     Ok(())
+}
+
+#[cube]
+fn sum_lhs_rows<In: Numeric, Acc: Numeric, Config: StageConfig>(
+    tile: &Slice<Line<In>>,
+    sums: &mut SliceMut<Acc>,
+    #[comptime] config: Config,
+) {
+    let tiling = config.tiling(Ident::Lhs);
+    let num_rows = tiling.tile_shape_row();
+    let num_cols = tiling.tile_shape_col();
+    let line_size = config.line_size(Ident::Lhs);
+
+    match comptime!(config.layout(Ident::Lhs)) {
+        MatrixLayout::RowMajor => {
+            let num_sums_per_unit = div_ceil(num_rows, config.plane_dim());
+            for k in 0..num_sums_per_unit {
+                let row = UNIT_POS_X * num_sums_per_unit + k;
+                if row < num_rows {
+                    let start = row * num_cols;
+                    let end = start + num_cols;
+
+                    sums[row + UNIT_POS_Y * num_rows] +=
+                        sum_range_parallel::<In, Acc>(tile, start, end, line_size);
+                }
+            }
+        }
+        MatrixLayout::ColMajor => {
+            // TODO Are these always exact divisions? Fix with div_ceil
+            let num_lines_row_axis = num_rows / line_size;
+            let num_sums_per_unit = num_lines_row_axis / config.plane_dim();
+
+            for k in 0..num_sums_per_unit {
+                let start = UNIT_POS_X * num_sums_per_unit + k;
+                if start < num_lines_row_axis {
+                    let stride = num_lines_row_axis;
+                    let line = sum_range_perpendicular(tile, start, stride, line_size);
+                    #[unroll]
+                    for k in 0..line.size() {
+                        sums[start * line.size() + k] += line[k];
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cube]
+fn sum_rhs_cols<In: Numeric, Acc: Numeric, Config: StageConfig>(
+    tile: &Slice<Line<In>>,
+    sums: &mut SliceMut<Acc>,
+    #[comptime] config: Config,
+) {
+    let tiling = config.tiling(Ident::Lhs);
+    let num_rows = tiling.tile_shape_row();
+    let num_cols = tiling.tile_shape_col();
+    let line_size = config.line_size(Ident::Lhs);
+
+    match comptime!(config.layout(Ident::Lhs)) {
+        MatrixLayout::RowMajor => {
+            let num_sums_per_unit = div_ceil(num_rows, config.plane_dim());
+            for k in 0..num_sums_per_unit {
+                let row = UNIT_POS_X * num_sums_per_unit + k;
+                if row < num_rows {
+                    let start = row * num_cols;
+                    let end = start + num_cols;
+
+                    sums[row + UNIT_POS_Y * num_rows] +=
+                        sum_range_parallel::<In, Acc>(tile, start, end, line_size);
+                }
+            }
+        }
+        MatrixLayout::ColMajor => {
+            // // TODO Are these always exact divisions? Fix with div_ceil
+            // let num_lines_row_axis = num_rows / line_size;
+            // let num_sums_per_unit = num_lines_row_axis / config.plane_dim();
+
+            // let tile = LhsBufferReader::read_tile::<TMM::Config>(reader, UNIT_POS_Y, config);
+
+            // for k in 0..num_sums_per_unit {
+            //     let start = UNIT_POS_X * num_sums_per_unit + k;
+            //     if start < num_lines_row_axis {
+            //         let stride = num_lines_row_axis;
+
+            //         sums[start] += sum_range_perpendicular(&tile, start, stride, line_size);
+            //     }
+            // }
+        }
+    }
+}
+#[cube]
+fn sum_range_parallel<In: Numeric, Acc: Numeric>(
+    slice: &Slice<Line<In>>,
+    start: u32,
+    end: u32,
+    #[comptime] line_size: u32,
+) -> Acc {
+    // Sum all lines together
+    let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
+    for index in start..end {
+        acc += Line::<Acc>::cast_from(slice[index]);
+    }
+
+    // Sum the elements within the final line.
+    let mut sum = Acc::from_int(0);
+    #[unroll]
+    for k in 0..line_size {
+        sum += acc[k];
+    }
+
+    sum
+}
+
+#[cube]
+fn sum_range_perpendicular<In: Numeric, Acc: Numeric>(
+    slice: &Slice<Line<In>>,
+    start: u32,
+    stride: u32,
+    #[comptime] line_size: u32,
+) -> Line<Acc> {
+    let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
+    for index in range_stepped(start, slice.len(), stride) {
+        acc += Line::<Acc>::cast_from(slice[index]);
+    }
+    acc
+}
+
+#[cube]
+#[allow(clippy::manual_div_ceil)]
+fn div_ceil(a: u32, b: u32) -> u32 {
+    (a + b - 1) / b
 }

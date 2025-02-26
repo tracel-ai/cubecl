@@ -1,5 +1,4 @@
-use crate::matmul::components::global::args::Quantization;
-use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::output_loader::{Quantizer, Unloader};
 use crate::matmul::components::global::{self, CommonGlobalConfig, InputLoader, LoadMode};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -152,10 +151,9 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization>,
+        mut quantizer: Option<Quantizer<MP::EA>>,
         #[comptime] config: Self::Config,
     ) {
-        let _ = quantization; // TODO
 
         let num_buffers = 2;
         let buffer_step = config.stage_tiling(Ident::Lhs).tile_shape_col();
@@ -205,6 +203,7 @@ where
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
+                &mut quantizer,
                 config.to_smm_config(),
             );
 
@@ -226,6 +225,7 @@ where
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
+                &mut quantizer,
                 config.to_smm_config(),
             );
         }
@@ -235,6 +235,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantizer,
             config.to_smm_config(),
             config,
         );

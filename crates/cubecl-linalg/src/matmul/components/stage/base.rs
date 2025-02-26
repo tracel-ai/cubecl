@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::output_loader::Quantizer;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
@@ -70,6 +71,7 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
         instruction_lhs: &mut Self::LhsTile,
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
+        quantizer: &mut Option<Quantizer<Acc>>,
         #[comptime] config: Self::Config,
     );
 
@@ -79,6 +81,7 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
     fn read_accumulator<Out: StageWriter<O>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
+        quantizer: Option<Quantizer<Acc>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::output_loader::Quantizer;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::StageMatmulFamily;
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -110,12 +111,12 @@ pub struct SingleBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: TileMatm
 }
 
 #[cube]
-impl<I, O, EA, TMM> stage::StageMatmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM>
+impl<I, O, Acc, TMM> stage::StageMatmul<I, O, Acc> for SingleBufferMatmul<I, O, Acc, TMM>
 where
     I: Numeric,
     O: Numeric,
-    EA: Numeric,
-    TMM: TileMatmul<I, EA>,
+    Acc: Numeric,
+    TMM: TileMatmul<I, Acc>,
 {
     type Config = CommonStageConfig<TMM::Config>;
     type LhsReader = LhsBufferReader<I>;
@@ -130,6 +131,7 @@ where
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
+        quantizer: &mut Option<Quantizer<Acc>>,
         #[comptime] config: Self::Config,
     ) {
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
@@ -171,7 +173,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -186,9 +188,11 @@ where
     fn read_accumulator<SW: StageWriter<O>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
+        quantizer: Option<Quantizer<Acc>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
+        let _ = quantizer; // TODO See multi-buffer for example.
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
 
@@ -203,13 +207,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<O, G>(
-                out,
-                smem_slice,
-                UNIT_POS_Y,
-                accumulator_iter,
-                global_config,
-            );
+            SW::write::<O, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
         }
     }
 }

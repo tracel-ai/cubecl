@@ -1,5 +1,4 @@
-use crate::matmul::components::global::args::Quantization;
-use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::output_loader::{Quantizer, Unloader};
 use crate::matmul::components::global::single_stage::loader::{
     LhsLoader, LoadingStrategy, RhsLoader,
 };
@@ -145,23 +144,24 @@ where
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
+    #[allow(clippy::single_match)]
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization>,
+        mut quantizer: Option<Quantizer<MP::EA>>,
         #[comptime] config: Self::Config,
     ) {
-        let _ = quantization; // TODO
-
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
+
+        // TODO Maybe init quantizer here instead of providing a quantizer.
 
         for _ in 0..num_loops {
             sync_units();
@@ -171,6 +171,20 @@ where
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
+            // // TODO would be nice to have a macro for this pattern.
+            // match comptime!(quantizer.clone()) {
+            //     Some(mut quantizer) => {
+            //         SMM::sums_lhs_rows(
+            //             lhs_stage_reader,
+            //             &mut quantizer.lhs_sums.to_slice_mut(),
+            //             config.to_smm_config(),
+            //         );
+
+            //         // ...
+            //     }
+            //     None => {}
+            // }
+
             sync_units();
 
             SMM::execute(
@@ -179,6 +193,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                &mut quantizer,
                 config.to_smm_config(),
             );
 
@@ -189,6 +204,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantizer,
             config.to_smm_config(),
             config,
         );

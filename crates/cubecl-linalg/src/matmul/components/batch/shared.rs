@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::args::Quantization;
+use crate::matmul::components::global::output_loader::Quantizer;
 use crate::matmul::components::{global, MatmulPrecision};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
@@ -30,13 +31,20 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         batch_rhs += tmp % rhs.shape(b) * rhs.stride(b);
     }
 
+    let quantizer = match comptime!(quantization) {
+        Some(quantization) => {
+            some::<Quantizer::<MP::EA>>(Quantizer::new::<GMM::Config>(quantization, config))
+        }
+        None => None,
+    };
+
     GMM::execute(
         GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
         GMM::init_rhs_loader(rhs, k_range.0, y_offset, batch_rhs, config),
         GMM::init_unloader(out, x_offset, y_offset, batch_out),
         acc,
         k_range,
-        quantization,
+        quantizer,
         config,
     );
 }

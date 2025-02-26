@@ -9,6 +9,7 @@ use crate::tensor::ReadWrite;
 use crate::{matmul::components::global, tensor::VirtualTensor};
 
 use super::args::Quantization;
+use super::GlobalConfig;
 
 #[derive(CubeType)]
 pub struct Unloader<EG: Numeric> {
@@ -57,52 +58,44 @@ impl<EG: Numeric> StageWriter<EG> for Unloader<EG> {
     }
 }
 
-// TODO: Merge with the main Unloaded.
-#[derive(CubeType)]
-pub struct UnloaderQuantized {
-    pub tensor_view: TensorWriter<u8>,
-    pub lhs_sums: SharedMemory<i32>, // TODO Use Line
-    pub rhs_sums: SharedMemory<i32>,
+// TODO To make the type system happy, I use EA, but it should
+//      always be i32.
+#[derive(CubeType, Clone)]
+pub struct Quantizer<EA: Numeric> {
+    pub lhs_sums: SharedMemory<EA>, // TODO Use Line
+    pub rhs_sums: SharedMemory<EA>,
     pub quantization: Quantization,
 }
 
 #[cube]
-impl global::OutputLoader<u8> for UnloaderQuantized {
-    type StageWriter = Self;
+impl<EA: Numeric> Quantizer<EA> {
+    pub fn new<G: GlobalConfig>(quantization: Quantization, #[comptime] config: G) -> Self {
+        let row = config.stage_tiling(Ident::Lhs).total_row();
+        let col = config.stage_tiling(Ident::Rhs).total_col();
+        let unit_count = config.num_planes() * config.plane_dim();
 
-    fn as_stage_writer<G: global::GlobalConfig>(this: Self) -> Self::StageWriter {
-        this
-    }
-}
+        let mut lhs_sums = SharedMemory::new(row);
+        let row_count_per_unit = row / unit_count;
+        for k in 0..row_count_per_unit {
+            lhs_sums[k + UNIT_POS * row_count_per_unit] = EA::from_int(0);
+        }
 
-#[cube]
-impl UnloaderQuantized {
-    pub fn new(
-        tensor: VirtualTensor<u8, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-        quantization: Quantization,
-        #[comptime] out_shape: (u32, u32),
-    ) -> Self {
-        UnloaderQuantized {
-            tensor_view: TensorWriter::new(tensor, x_offset, y_offset, batch_offset),
-            lhs_sums: SharedMemory::new(out_shape.0),
-            rhs_sums: SharedMemory::new(out_shape.1),
+        let mut rhs_sums = SharedMemory::new(col);
+        let col_count_per_unit = col / unit_count;
+        for k in 0..col_count_per_unit {
+            rhs_sums[k + UNIT_POS * row_count_per_unit] = EA::from_int(0);
+        }
+
+        Quantizer::<EA> {
+            lhs_sums,
+            rhs_sums,
             quantization,
         }
     }
-}
 
-#[cube]
-impl StageWriter<u8> for UnloaderQuantized {
-    // ES must be i32
-    // TODO update StageWriter to avoid all the useless casting.
-    fn write<ES: Numeric, G: global::GlobalConfig>(
-        this: &mut Self,
-        mut slice: SliceMut<Line<ES>>,
-        compute_plane_offset: u32,
-        accumulator_offset: u32,
+    pub fn add_quantization_into<G: global::GlobalConfig>(
+        &self,
+        slice: &mut SliceMut<Line<EA>>,
         #[comptime] config: G,
     ) {
         let tiling = config.stage_tiling(Ident::Out);
@@ -119,34 +112,24 @@ impl StageWriter<u8> for UnloaderQuantized {
             let row = index * line_size / shape_col;
             let col = index * line_size % shape_col;
 
-            // All the ES::cast_from are trivial as I assume ES is i32.
-            slice[index] -= Line::new(ES::cast_from(
-                this.quantization.zero_offset_rhs * this.lhs_sums[row],
-            ));
-            slice[index] -= Line::new(ES::cast_from(
-                this.quantization.zero_offset_lhs * this.rhs_sums[col],
-            ));
-            slice[index] += Line::new(ES::cast_from(
-                this.quantization.zero_offset_lhs
-                    * this.quantization.zero_offset_rhs
+            // All the EA::cast_from are trivial as I assume EA is i32.
+            slice[index] -=
+                Line::new(EA::cast_from(self.quantization.zero_offset_rhs) * self.lhs_sums[row]);
+            slice[index] -=
+                Line::new(EA::cast_from(self.quantization.zero_offset_lhs) * self.rhs_sums[col]);
+            slice[index] += Line::new(EA::cast_from(
+                self.quantization.zero_offset_lhs
+                    * self.quantization.zero_offset_rhs
                     * i32::cast_from(config.shape().k),
             ));
             slice[index] = Line::cast_from(
-                this.quantization
+                self.quantization
                     .scale_approx(Line::cast_from(slice[index])),
             );
-            slice[index] += Line::new(ES::cast_from(this.quantization.zero_offset_rhs));
+            slice[index] += Line::new(EA::cast_from(self.quantization.zero_offset_rhs));
 
             slice[index] = clamp_to_u8_range(slice[index]);
         }
-
-        TilewiseUnloading::unload_from_slice::<u8, ES, G>(
-            &mut this.tensor_view,
-            slice.to_slice(),
-            compute_plane_offset,
-            accumulator_offset,
-            config,
-        );
     }
 }
 
