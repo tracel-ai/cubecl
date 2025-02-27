@@ -425,6 +425,7 @@ struct Config {
     num_planes: u32,
     smem_size: u32,
     acc_len: u32,
+    double_buffer: bool,
 }
 
 #[cube(launch_unchecked)]
@@ -435,32 +436,61 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
 ) {
     let data_count = input.shape(0);
 
-    let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let mut acc = Array::<Line<E>>::new(config.acc_len);
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
-    let barrier = Cpy::barrier();
-
-    for i in 0..num_iterations {
-        let start = i * config.smem_size;
-        let end = start + config.smem_size;
-
+    if config.double_buffer {
+        let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+        let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+        let barrier = Cpy::barrier();
         Cpy::memcpy(
-            &input.slice(start, end),
-            &mut smem.to_slice_mut(),
+            &input.slice(0, config.smem_size),
+            &mut smem1.to_slice_mut(),
             barrier,
             config,
-        );
+        ); // Prime first chunk
+        for i in 1..num_iterations {
+            let start = i * config.smem_size;
+            let end = start + config.smem_size;
+            Cpy::wait(barrier); // Wait for previous copy
+            Cpt::compute(&smem1.to_slice(), &mut acc, config); // Compute on smem1
+            Cpy::memcpy(
+                &input.slice(start, end),
+                &mut smem2.to_slice_mut(),
+                barrier,
+                config,
+            ); // Load next into smem2
 
-        Cpy::wait(barrier);
+            // Swap smem1 and smem2 pointers
+        }
+        Cpy::wait(barrier); // Last chunk
+        Cpt::compute(&smem1.to_slice(), &mut acc, config);
+    } else {
+        let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+        let barrier = Cpy::barrier();
 
-        Cpt::compute(&smem.to_slice(), &mut acc, config);
+        for i in 0..num_iterations {
+            let start = i * config.smem_size;
+            let end = start + config.smem_size;
+
+            Cpy::memcpy(
+                &input.slice(start, end),
+                &mut smem.to_slice_mut(),
+                barrier,
+                config,
+            );
+
+            Cpy::wait(barrier);
+
+            Cpt::compute(&smem.to_slice(), &mut acc, config);
+        }
+
+        Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
     }
-
-    Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[allow(unused)]
 enum CopyStrategyEnum {
     Dummy,
     CoalescedCopy,
@@ -477,6 +507,7 @@ enum CopyStrategyEnum {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[allow(unused)]
 enum ComputeTaskEnum {
     Dummy,
 }
@@ -497,6 +528,7 @@ fn launch_ref<R: Runtime, E: Float>(
         num_planes,
         smem_size,
         acc_len: smem_size / (plane_dim * num_planes),
+        double_buffer: false,
     };
 
     unsafe {
