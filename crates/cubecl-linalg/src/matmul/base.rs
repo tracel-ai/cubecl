@@ -4,11 +4,7 @@ use cubecl_std::MaybeQuantized;
 use crate::tensor::TensorHandle;
 
 use super::{
-    components::{
-        global::single_stage::{CyclicWindowLoading, WindowCooperativeLoading},
-        stage::ColMajorTilingOrder,
-        tile::accelerated::Accelerated,
-    },
+    components::tile::accelerated::Accelerated,
     kernels::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
