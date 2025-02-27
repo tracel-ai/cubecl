@@ -144,10 +144,6 @@ fn main() {
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrierCoop,
-        )
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),

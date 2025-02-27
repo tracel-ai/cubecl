@@ -53,14 +53,6 @@ if (threadIdxGlobal == {elected_unit}) {{
 }}
 "
                 ),
-                BarrierLevel::Cooperative => {
-                    write!(
-                        f,
-                        "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-                    "
-                    )
-                }
             },
             BarrierOps::MemCopyAsync {
                 barrier,
@@ -71,12 +63,6 @@ cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thre
                 let item = source.item();
                 let size = format!("sizeof({item})");
                 match level {
-                    BarrierLevel::Cooperative => write!(
-                                        f,
-                                        "
-cooperative_groups::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size});
-                        "
-                                    ),
                     BarrierLevel::Unit => write!(
                                         f,
                                         "
@@ -93,12 +79,6 @@ cuda::memcpy_async(block_{barrier}, shared, global_in + block_batch_idx, sizeof(
             }
 
             BarrierOps::Wait { barrier, level } => match level {
-                BarrierLevel::Cooperative => write!(
-                    f,
-                    "
-cooperative_groups::wait(block_{barrier});
-"
-                ),
                 _ => write!(
                     f,
                     "
