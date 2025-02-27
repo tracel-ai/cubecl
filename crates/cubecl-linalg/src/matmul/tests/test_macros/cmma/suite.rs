@@ -289,10 +289,11 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
+        use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
-        use $crate::matmul::kernels::matmul::simple_strided::SimpleStridedAlgorithm;
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
@@ -306,9 +307,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_strided() {
+        pub fn simple_pipelined() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleStridedAlgorithm<TMM>,
+                SimplePipelinedAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
@@ -320,9 +321,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_pipelined() {
+        pub fn simple_barrier() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimplePipelinedAlgorithm<TMM>,
+                SimpleBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

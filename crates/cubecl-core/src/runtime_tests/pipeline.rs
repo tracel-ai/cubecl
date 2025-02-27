@@ -19,8 +19,8 @@ fn pipelined_sum<F: Float>(
     // Copy the first batch to shared memory
     pipeline.producer_acquire();
     pipeline.memcpy_async(
-        input.slice(0, batch_len),
-        shared_memory.slice_mut(0, batch_len),
+        &input.slice(0, batch_len),
+        &mut shared_memory.slice_mut(0, batch_len),
     );
     pipeline.producer_commit();
 
@@ -32,8 +32,8 @@ fn pipelined_sum<F: Float>(
         // Copy the next batch to shared memory
         pipeline.producer_acquire();
         pipeline.memcpy_async(
-            input.slice(batch_len * input_batch, batch_len * (input_batch + 1)),
-            shared_memory.slice_mut(batch_len * copy_index, batch_len * (copy_index + 1)),
+            &input.slice(batch_len * input_batch, batch_len * (input_batch + 1)),
+            &mut shared_memory.slice_mut(batch_len * copy_index, batch_len * (copy_index + 1)),
         );
         pipeline.producer_commit();
 
@@ -68,10 +68,10 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
 
     if UNIT_POS == 0 {
         let source = input.slice(2, 3);
-        let destination = smem.slice_mut(0, 1);
+        let mut destination = smem.slice_mut(0, 1);
 
         pipeline.producer_acquire();
-        pipeline.memcpy_async(source, destination);
+        pipeline.memcpy_async(&source, &mut destination);
         pipeline.producer_commit();
 
         pipeline.consumer_wait();
@@ -145,7 +145,7 @@ fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let end = start + 2u32;
 
     pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    pipeline.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
     pipeline.consumer_wait();
@@ -171,8 +171,8 @@ fn two_loads<F: Float>(
     let end = start + num_data / 2;
 
     pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    pipeline.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
+    pipeline.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
     pipeline.consumer_wait();
@@ -207,11 +207,11 @@ fn two_independant_loads<F: Float>(
     }
 
     pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    pipeline.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
     pipeline.producer_acquire();
-    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    pipeline.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
     pipeline.producer_commit();
 
     let mut dot = Line::cast_from(0u32);

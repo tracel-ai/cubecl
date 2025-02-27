@@ -59,6 +59,7 @@ enum InnerBarrierLevel {
     /// This may be useful for waiting upon async data loading
     Unit,
     /// All units in the Cube must reach the barrier before continuing
+    /// Memory copy
     Cube(u32),
 }
 

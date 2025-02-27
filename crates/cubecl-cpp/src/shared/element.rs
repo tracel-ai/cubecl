@@ -1,5 +1,5 @@
 use cubecl_core::{
-    ir::{self as gpu, ConstantScalarValue, Id},
+    ir::{self as gpu, BarrierLevel, ConstantScalarValue, Id},
     tf32,
 };
 use half::{bf16, f16};
@@ -166,7 +166,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { id: _, item } => *item,
-            Variable::Barrier { id: _, item } => *item,
+            Variable::Barrier { id: _, item, .. } => *item,
         }
     }
 
@@ -184,10 +184,22 @@ pub enum Variable<D: Dialect> {
     GlobalScalar(Id, Elem<D>, gpu::Elem),
     ConstantArray(Id, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
-    LocalMut { id: Id, item: Item<D> },
-    LocalConst { id: Id, item: Item<D> },
-    Named { name: &'static str, item: Item<D> },
-    Slice { id: Id, item: Item<D> },
+    LocalMut {
+        id: Id,
+        item: Item<D>,
+    },
+    LocalConst {
+        id: Id,
+        item: Item<D>,
+    },
+    Named {
+        name: &'static str,
+        item: Item<D>,
+    },
+    Slice {
+        id: Id,
+        item: Item<D>,
+    },
     SharedMemory(Id, Item<D>, u32),
     LocalArray(Id, Item<D>, u32),
     IdxGlobal,
@@ -210,10 +222,23 @@ pub enum Variable<D: Dialect> {
     GridDimX,
     GridDimY,
     GridDimZ,
-    WmmaFragment { id: Id, frag: Fragment<D> },
-    Pipeline { id: Id, item: Item<D> },
-    Barrier { id: Id, item: Item<D> },
-    Tmp { id: Id, item: Item<D> },
+    WmmaFragment {
+        id: Id,
+        frag: Fragment<D>,
+    },
+    Pipeline {
+        id: Id,
+        item: Item<D>,
+    },
+    Barrier {
+        id: Id,
+        item: Item<D>,
+        level: BarrierLevel,
+    },
+    Tmp {
+        id: Id,
+        item: Item<D>,
+    },
 }
 
 impl<D: Dialect> Display for Variable<D> {
