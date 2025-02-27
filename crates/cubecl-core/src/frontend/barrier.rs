@@ -61,6 +61,7 @@ enum InnerBarrierLevel {
     /// All units in the Cube must reach the barrier before continuing
     /// Memory copy
     Cube(u32),
+    CubeNoCoop(u32),
 }
 
 impl BarrierLevel {
@@ -77,12 +78,20 @@ impl BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
     }
 
+    pub fn cube_no_coop(elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeNoCoop(elected_unit))
+    }
+
     pub fn __expand_unit(_scope: &mut Scope) -> BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Unit)
     }
 
     pub fn __expand_cube(_scope: &mut Scope, elected_unit: u32) -> Self {
         BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
+    }
+
+    pub fn __expand_cube_no_coop(_scope: &mut Scope, elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeNoCoop(elected_unit))
     }
 }
 
@@ -91,6 +100,9 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
         match val {
             InnerBarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
             InnerBarrierLevel::Cube(elected_unit) => cubecl_ir::BarrierLevel::Cube(elected_unit),
+            InnerBarrierLevel::CubeNoCoop(elected_unit) => {
+                cubecl_ir::BarrierLevel::CubeNoCoop(elected_unit)
+            }
         }
     }
 }

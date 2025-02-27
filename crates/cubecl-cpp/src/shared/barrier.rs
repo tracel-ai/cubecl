@@ -53,6 +53,15 @@ if (threadIdxGlobal == {elected_unit}) {{
 }}
 "
                 ),
+                BarrierLevel::CubeNoCoop(elected_unit) => write!(
+                    f,
+                    "
+__shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
+if (threadIdxGlobal == {elected_unit}) {{
+   init(&{barrier}, blockDimGlobal);
+}}
+"
+                ),
             },
             BarrierOps::MemCopyAsync {
                 barrier,
@@ -73,6 +82,12 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                         f,
                         "
 cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size}, {barrier});
+                        "
+                    ),
+                    BarrierLevel::CubeNoCoop(_) => write!(
+                        f,
+                        "
+cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
                         "
                     ),
                 }
