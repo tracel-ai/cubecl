@@ -289,10 +289,6 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::components::global::single_stage::{
-            CyclicWindowLoading, WindowDuplicatedLoading, WindowElectedLoading,
-            WindowElectedOnlyLoading, WindowSplitPlaneLoading, WindowSplitUnitLoading,
-        };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
@@ -325,79 +321,9 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_barrier_duplicated() {
+        pub fn simple_barrier() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowDuplicatedLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_elected() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowElectedLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_elected_only() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowElectedOnlyLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_split_unit() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowSplitUnitLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_split_plane() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowSplitPlaneLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_cyclic() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, CyclicWindowLoading<ColMajorTilingOrder>>,
+                SimpleBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
