@@ -9,27 +9,44 @@ use cubecl_linalg::tensor::TensorHandle;
 
 #[cube]
 trait CopyStrategy: Send + Sync + 'static {
+    type Barrier: CubeType + Copy + Clone;
+
+    fn barrier() -> Self::Barrier;
+
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     );
+
+    fn wait(_barrier: Self::Barrier);
 }
 
 #[derive(CubeType)]
 struct DummyCopy {}
+
 #[cube]
 impl CopyStrategy for DummyCopy {
+    type Barrier = ();
+
+    fn barrier() -> Self::Barrier {
+        ()
+    }
+
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Barrier<E>,
+        _barrier: Self::Barrier,
         #[comptime] _config: Config,
     ) {
         for i in 0..source.len() {
             destination[i] = source[i];
         }
+    }
+
+    fn wait(_barrier: Self::Barrier) {
+        // do nothing
     }
 }
 
@@ -37,10 +54,16 @@ impl CopyStrategy for DummyCopy {
 struct CoalescedCopy {}
 #[cube]
 impl CopyStrategy for CoalescedCopy {
+    type Barrier = ();
+
+    fn barrier() -> Self::Barrier {
+        ()
+    }
+
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Barrier<E>,
+        _barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let num_units = config.num_planes * config.plane_dim;
@@ -50,45 +73,81 @@ impl CopyStrategy for CoalescedCopy {
             destination[pos] = source[pos];
         }
     }
+
+    fn wait(_barrier: Self::Barrier) {
+        // do nothing
+    }
 }
 
 #[derive(CubeType)]
 struct MemcpyAsyncDuplicated {}
 #[cube]
-impl CopyStrategy for MemcpyAsyncDuplicated {
+impl<E: Float> CopyStrategy<E> for MemcpyAsyncDuplicated {
+    type Barrier = Barrier<E>;
+
+    fn barrier() -> Self::Barrier {
+        Barrier::<E>::new(BarrierLevel::cube(0u32))
+    }
+
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         barrier.memcpy_async(source, destination)
+    }
+
+    fn wait(barrier: Self::Barrier) {
+        barrier.wait();
     }
 }
 
 #[derive(CubeType)]
 struct MemcpyAsyncDispatched {}
 #[cube]
-impl CopyStrategy for MemcpyAsyncDispatched {
-    fn memcpy<E: Float>(
+impl<E: Float> CopyStrategy<E> for MemcpyAsyncDispatched {
+    type Barrier = Barrier<E>;
+
+    fn barrier() -> Self::Barrier {
+        Barrier::<E>::new(BarrierLevel::cube(0u32))
+    }
+
+    fn memcpy(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
+        barrier.memcpy_async(source, destination)
+    }
+
+    fn wait(barrier: Self::Barrier) {
+        barrier.wait();
     }
 }
 
 #[derive(CubeType)]
 struct MemcpyAsyncCooperative {}
 #[cube]
-impl CopyStrategy for MemcpyAsyncCooperative {
-    fn memcpy<E: Float>(
+impl<E: Float> CopyStrategy<E> for MemcpyAsyncCooperative {
+    type Barrier = Barrier<E>;
+
+    fn barrier() -> Self::Barrier {
+        Barrier::<E>::new(BarrierLevel::cube(0u32))
+    }
+
+    fn memcpy(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
+        barrier.memcpy_async(source, destination)
+    }
+
+    fn wait(barrier: Self::Barrier) {
+        barrier.wait();
     }
 }
 
@@ -113,7 +172,7 @@ struct Config {
 }
 
 #[cube(launch_unchecked)]
-fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
+fn memcpy_test<E: Float, Cpy: CopyStrategy<E>, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     #[comptime] config: Config,
 ) {
@@ -123,7 +182,7 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     let mut smem = SharedMemory::<E>::new_lined(smem_size, 1u32);
     let num_iterations = (data_count + smem_size - 1) / smem_size;
 
-    let barrier = Barrier::<E>::new(BarrierLevel::cube(0u32));
+    let barrier = Cpy::barrier();
 
     for i in 0..num_iterations {
         let start = i * smem_size;
@@ -138,7 +197,7 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
 
         Cpt::compute(&smem.to_slice());
 
-        barrier.wait();
+        Cpy::wait(barrier);
     }
 }
 
@@ -266,7 +325,8 @@ struct MemcpyAsyncBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
-    for data_count in [10000, 100000, 1000000, 10000000] {
+    // for data_count in [10000, 100000, 1000000, 10000000] {
+    for data_count in [10000000] {
         let bench = MemcpyAsyncBench::<R, E> {
             data_count,
             strategy: strategy.clone(),
