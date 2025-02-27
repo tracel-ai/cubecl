@@ -64,17 +64,17 @@ if (threadIdxGlobal == {elected_unit}) {{
                 let size = format!("sizeof({item})");
                 match level {
                     BarrierLevel::Unit => write!(
-                                        f,
-                                        "
+                        f,
+                        "
 cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
                     "
-                                    ),
+                    ),
                     BarrierLevel::Cube(_) => write!(
-                            f,
-                            "
+                        f,
+                        "
 cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size}, {barrier});
                         "
-                            )
+                    ),
                 }
             }
 
