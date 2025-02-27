@@ -86,7 +86,7 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     BarrierLevel::Cube(_) => write!(
                             f,
                             "
-cuda::memcpy_async(block_{barrier}, shared, global_in + block_batch_idx, sizeof(int) * block.size(), barrier);
+cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size}, {barrier});
                         "
                             )
                 }
