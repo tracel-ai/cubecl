@@ -10,7 +10,6 @@ use super::Variable;
 pub enum BarrierLevel {
     Unit,
     Cube(u32),
-    Cooperative,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

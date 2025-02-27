@@ -16,7 +16,6 @@ use super::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
-            simple_barrier_coop::SimpleBarrierCoopAlgorithm,
             simple_pipelined::SimplePipelinedAlgorithm, specialized::SpecializedAlgorithm,
         },
         naive,
@@ -29,7 +28,6 @@ use super::{
 pub enum Strategy {
     Simple,
     SimpleBarrier(SimpleBarrierLoadingStrategy),
-    SimpleBarrierCoop,
     SimplePipelined,
     DoubleBuffering,
     Specialized,
@@ -80,11 +78,6 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
         Strategy::Simple => {
             matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
-        Strategy::SimpleBarrierCoop => matmul::launch_ref::<
-            R,
-            EG,
-            SimpleBarrierCoopAlgorithm<Accelerated, WindowDuplicatedLoading>,
-        >(client, lhs, rhs, out),
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
             SimpleBarrierLoadingStrategy::Duplicated => matmul::launch_ref::<
                 R,
