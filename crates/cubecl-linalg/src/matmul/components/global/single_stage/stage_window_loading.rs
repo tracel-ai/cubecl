@@ -145,9 +145,9 @@ impl AsyncLoadingStrategy for WindowDuplicatedLoading {
             );
 
             // If padding needed: TODO comptime conditional
-            // for i in window.size..expected_window_size {
-            //     destination[i] = Line::cast_from(0);
-            // }
+            for i in window.size..expected_window_size {
+                destination[i] = Line::cast_from(0);
+            }
         }
     }
 }

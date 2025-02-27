@@ -46,6 +46,7 @@ init(&{barrier}, 1);
                 BarrierLevel::Cube(elected_unit) => write!(
                     f,
                     "
+cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdxGlobal == {elected_unit}) {{
    init(&{barrier}, blockDimGlobal);
@@ -71,17 +72,23 @@ cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thre
                 let size = format!("sizeof({item})");
                 match level {
                     BarrierLevel::Cooperative => write!(
-                        f,
-                        "
+                                        f,
+                                        "
 cooperative_groups::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size});
                         "
-                    ),
-                    _ => write!(
-                        f,
-                        "
+                                    ),
+                    BarrierLevel::Unit => write!(
+                                        f,
+                                        "
 cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
                     "
-                    ),
+                                    ),
+                    BarrierLevel::Cube(_) => write!(
+                            f,
+                            "
+cuda::memcpy_async(block_{barrier}, shared, global_in + block_batch_idx, sizeof(int) * block.size(), barrier);
+                        "
+                            )
                 }
             }
 
