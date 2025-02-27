@@ -9,35 +9,34 @@ use cubecl_linalg::tensor::TensorHandle;
 
 #[cube]
 trait CopyStrategy: Send + Sync + 'static {
-    type Barrier: CubeType + Copy + Clone;
+    type Barrier<E: Float>: CubeType + Copy + Clone;
 
-    fn barrier() -> Self::Barrier;
+    fn barrier<E: Float>() -> Self::Barrier<E>;
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier,
+        barrier: Self::Barrier<E>,
         #[comptime] config: Config,
     );
 
-    fn wait(_barrier: Self::Barrier);
+    fn wait<E: Float>(_barrier: Self::Barrier<E>);
 }
 
 #[derive(CubeType)]
 struct DummyCopy {}
-
 #[cube]
 impl CopyStrategy for DummyCopy {
-    type Barrier = ();
+    type Barrier<E: Float> = ();
 
-    fn barrier() -> Self::Barrier {
+    fn barrier<E: Float>() -> Self::Barrier<E> {
         ()
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Self::Barrier,
+        _barrier: Self::Barrier<E>,
         #[comptime] _config: Config,
     ) {
         for i in 0..source.len() {
@@ -45,7 +44,7 @@ impl CopyStrategy for DummyCopy {
         }
     }
 
-    fn wait(_barrier: Self::Barrier) {
+    fn wait<E: Float>(_barrier: Self::Barrier<E>) {
         // do nothing
     }
 }
@@ -54,16 +53,16 @@ impl CopyStrategy for DummyCopy {
 struct CoalescedCopy {}
 #[cube]
 impl CopyStrategy for CoalescedCopy {
-    type Barrier = ();
+    type Barrier<E: Float> = ();
 
-    fn barrier() -> Self::Barrier {
+    fn barrier<E: Float>() -> Self::Barrier<E> {
         ()
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Self::Barrier,
+        _barrier: Self::Barrier<E>,
         #[comptime] config: Config,
     ) {
         let num_units = config.num_planes * config.plane_dim;
@@ -74,7 +73,7 @@ impl CopyStrategy for CoalescedCopy {
         }
     }
 
-    fn wait(_barrier: Self::Barrier) {
+    fn wait<E: Float>(_barrier: Self::Barrier<E>) {
         // do nothing
     }
 }
@@ -82,71 +81,23 @@ impl CopyStrategy for CoalescedCopy {
 #[derive(CubeType)]
 struct MemcpyAsyncDuplicated {}
 #[cube]
-impl<E: Float> CopyStrategy<E> for MemcpyAsyncDuplicated {
-    type Barrier = Barrier<E>;
+impl CopyStrategy for MemcpyAsyncDuplicated {
+    type Barrier<E: Float> = Barrier<E>;
 
-    fn barrier() -> Self::Barrier {
+    fn barrier<E: Float>() -> Self::Barrier<E> {
         Barrier::<E>::new(BarrierLevel::cube(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier,
-        #[comptime] config: Config,
+        barrier: Self::Barrier<E>,
+        #[comptime] _config: Config,
     ) {
         barrier.memcpy_async(source, destination)
     }
 
-    fn wait(barrier: Self::Barrier) {
-        barrier.wait();
-    }
-}
-
-#[derive(CubeType)]
-struct MemcpyAsyncDispatched {}
-#[cube]
-impl<E: Float> CopyStrategy<E> for MemcpyAsyncDispatched {
-    type Barrier = Barrier<E>;
-
-    fn barrier() -> Self::Barrier {
-        Barrier::<E>::new(BarrierLevel::cube(0u32))
-    }
-
-    fn memcpy(
-        source: &Slice<Line<E>>,
-        destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier,
-        #[comptime] config: Config,
-    ) {
-        barrier.memcpy_async(source, destination)
-    }
-
-    fn wait(barrier: Self::Barrier) {
-        barrier.wait();
-    }
-}
-
-#[derive(CubeType)]
-struct MemcpyAsyncCooperative {}
-#[cube]
-impl<E: Float> CopyStrategy<E> for MemcpyAsyncCooperative {
-    type Barrier = Barrier<E>;
-
-    fn barrier() -> Self::Barrier {
-        Barrier::<E>::new(BarrierLevel::cube(0u32))
-    }
-
-    fn memcpy(
-        source: &Slice<Line<E>>,
-        destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier,
-        #[comptime] config: Config,
-    ) {
-        barrier.memcpy_async(source, destination)
-    }
-
-    fn wait(barrier: Self::Barrier) {
+    fn wait<E: Float>(barrier: Self::Barrier<E>) {
         barrier.wait();
     }
 }
@@ -172,7 +123,7 @@ struct Config {
 }
 
 #[cube(launch_unchecked)]
-fn memcpy_test<E: Float, Cpy: CopyStrategy<E>, Cpt: ComputeTask>(
+fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     #[comptime] config: Config,
 ) {
@@ -259,22 +210,22 @@ fn launch_ref<R: Runtime, E: Float>(
                 )
             }
             CopyStrategyEnum::MemcpyAsyncDispatched => {
-                memcpy_test::launch_unchecked::<E, MemcpyAsyncDispatched, DummyCompute, R>(
-                    client,
-                    cube_count,
-                    cube_dim,
-                    input.as_tensor_arg(1),
-                    config,
-                )
+                // memcpy_test::launch_unchecked::<E, MemcpyAsyncDispatched, DummyCompute, R>(
+                //     client,
+                //     cube_count,
+                //     cube_dim,
+                //     input.as_tensor_arg(1),
+                //     config,
+                // )
             }
             CopyStrategyEnum::MemcpyAsyncCooperative => {
-                memcpy_test::launch_unchecked::<E, MemcpyAsyncCooperative, DummyCompute, R>(
-                    client,
-                    cube_count,
-                    cube_dim,
-                    input.as_tensor_arg(1),
-                    config,
-                )
+                // memcpy_test::launch_unchecked::<E, MemcpyAsyncCooperative, DummyCompute, R>(
+                //     client,
+                //     cube_count,
+                //     cube_dim,
+                //     input.as_tensor_arg(1),
+                //     config,
+                // )
             }
         }
     }
