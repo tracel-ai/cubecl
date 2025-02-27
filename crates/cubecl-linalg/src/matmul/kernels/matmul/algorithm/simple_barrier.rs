@@ -2,30 +2,29 @@ use super::base;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::single_stage::loader::AsyncLoadingStrategy;
+use crate::matmul::components::{
+    batch::{self, CubeCountDispatch, CubeDispatch},
+    global::{self, single_stage::WindowCooperativeLoading},
+    stage, tile, MatmulProblem, MatmulSelection,
+};
 
-use crate::matmul::components::stage::{self};
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::{batch, global};
-use crate::matmul::components::{tile, MatmulSelection};
-
-pub struct SimpleBarrierAlgorithm<TMM, L, Dispatch = batch::TransposedDispatch> {
+pub struct SimpleBarrierAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
     pub _tmm: PhantomData<TMM>,
-    pub _loading_strategy: PhantomData<L>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, L, Dispatch> base::Algorithm for SimpleBarrierAlgorithm<TMM, L, Dispatch>
+impl<TMM, Dispatch> base::Algorithm for SimpleBarrierAlgorithm<TMM, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
     Dispatch: CubeDispatch + CubeCountDispatch,
-    L: AsyncLoadingStrategy,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul =
-        global::single_stage::simple::SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+    type GlobalMatmul = global::single_stage::simple::SimpleBarrierMatmulFamily<
+        Self::StageMatmul,
+        WindowCooperativeLoading,
+        WindowCooperativeLoading,
+    >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 

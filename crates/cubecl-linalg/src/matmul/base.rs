@@ -5,18 +5,15 @@ use crate::tensor::TensorHandle;
 
 use super::{
     components::{
-        global::single_stage::{
-            CyclicWindowLoading, WindowDuplicatedLoading, WindowElectedLoading,
-            WindowElectedOnlyLoading, WindowSplitPlaneLoading, WindowSplitUnitLoading,
-        },
+        global::single_stage::{CyclicWindowLoading, WindowCooperativeLoading},
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
     },
     kernels::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
-            simple_barrier::SimpleBarrierAlgorithm,
-            simple_pipelined::SimplePipelinedAlgorithm, specialized::SpecializedAlgorithm,
+            simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
+            specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -27,7 +24,7 @@ use super::{
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
     Simple,
-    SimpleBarrier(SimpleBarrierLoadingStrategy),
+    SimpleBarrier,
     SimplePipelined,
     DoubleBuffering,
     Specialized,
@@ -38,17 +35,6 @@ pub enum Strategy {
     Tiling2D(Tiling2dConfig),
     #[default]
     Auto,
-}
-
-#[derive(Debug, Clone, Default)]
-pub enum SimpleBarrierLoadingStrategy {
-    #[default]
-    Duplicated,
-    Elected,
-    ElectedOnly,
-    SplitUnit,
-    SplitPlane,
-    Cyclic,
 }
 
 pub fn launch<R: Runtime, EG: MaybeQuantized>(
@@ -78,38 +64,9 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
         Strategy::Simple => {
             matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
-        Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
-            SimpleBarrierLoadingStrategy::Duplicated => matmul::launch_ref::<
-                R,
-                EG,
-                SimpleBarrierAlgorithm<Accelerated, WindowDuplicatedLoading>,
-            >(client, lhs, rhs, out),
-            SimpleBarrierLoadingStrategy::Elected => {
-                matmul::launch_ref::<R, EG, SimpleBarrierAlgorithm<Accelerated, WindowElectedLoading>>(
-                    client, lhs, rhs, out,
-                )
-            }
-            SimpleBarrierLoadingStrategy::ElectedOnly => matmul::launch_ref::<
-                R,
-                EG,
-                SimpleBarrierAlgorithm<Accelerated, WindowElectedOnlyLoading>,
-            >(client, lhs, rhs, out),
-            SimpleBarrierLoadingStrategy::SplitUnit => matmul::launch_ref::<
-                R,
-                EG,
-                SimpleBarrierAlgorithm<Accelerated, WindowSplitUnitLoading>,
-            >(client, lhs, rhs, out),
-            SimpleBarrierLoadingStrategy::SplitPlane => matmul::launch_ref::<
-                R,
-                EG,
-                SimpleBarrierAlgorithm<Accelerated, WindowSplitPlaneLoading>,
-            >(client, lhs, rhs, out),
-            SimpleBarrierLoadingStrategy::Cyclic => matmul::launch_ref::<
-                R,
-                EG,
-                SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
-            >(client, lhs, rhs, out),
-        },
+        Strategy::SimpleBarrier => {
+            matmul::launch_ref::<R, EG, SimpleBarrierAlgorithm<Accelerated>>(client, lhs, rhs, out)
+        }
         Strategy::SimplePipelined => {
             matmul::launch_ref::<R, EG, SimplePipelinedAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,
