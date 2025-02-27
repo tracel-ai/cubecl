@@ -10,8 +10,8 @@ use cubecl_linalg::tensor::TensorHandle;
 #[cube]
 trait CopyStrategy: Send + Sync + 'static {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
         barrier: Barrier<E>,
         #[comptime] config: Config,
     );
@@ -22,9 +22,9 @@ struct DummyCopy {}
 #[cube]
 impl CopyStrategy for DummyCopy {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
-        barrier: Barrier<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
+        _barrier: Barrier<E>,
         #[comptime] _config: Config,
     ) {
         for i in 0..source.len() {
@@ -38,9 +38,9 @@ struct CoalescedCopy {}
 #[cube]
 impl CopyStrategy for CoalescedCopy {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
-        barrier: Barrier<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
+        _barrier: Barrier<E>,
         #[comptime] config: Config,
     ) {
         let num_units = config.num_planes * config.plane_dim;
@@ -57,11 +57,12 @@ struct MemcpyAsyncDuplicated {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncDuplicated {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
         barrier: Barrier<E>,
         #[comptime] config: Config,
     ) {
+        barrier.memcpy_async(source, destination)
     }
 }
 
@@ -70,8 +71,8 @@ struct MemcpyAsyncDispatched {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncDispatched {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
         barrier: Barrier<E>,
         #[comptime] config: Config,
     ) {
@@ -83,8 +84,8 @@ struct MemcpyAsyncCooperative {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncCooperative {
     fn memcpy<E: Float>(
-        source: &Slice<E>,
-        destination: &mut SliceMut<E>,
+        source: &Slice<Line<E>>,
+        destination: &mut SliceMut<Line<E>>,
         barrier: Barrier<E>,
         #[comptime] config: Config,
     ) {
@@ -93,14 +94,14 @@ impl CopyStrategy for MemcpyAsyncCooperative {
 
 #[cube]
 trait ComputeTask: Send + Sync + 'static {
-    fn compute<E: Float>(data: &Slice<E>);
+    fn compute<E: Float>(data: &Slice<Line<E>>);
 }
 
 #[derive(CubeType)]
 struct DummyCompute {}
 #[cube]
 impl ComputeTask for DummyCompute {
-    fn compute<E: Float>(_data: &Slice<E>) {
+    fn compute<E: Float>(_data: &Slice<Line<E>>) {
         // do nothing
     }
 }
@@ -113,13 +114,13 @@ struct Config {
 
 #[cube(launch_unchecked)]
 fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
-    input: &Tensor<E>,
+    input: &Tensor<Line<E>>,
     #[comptime] config: Config,
 ) {
     let data_count = input.shape(0);
     let smem_size = 1024;
 
-    let mut smem = SharedMemory::<E>::new(smem_size);
+    let mut smem = SharedMemory::<E>::new_lined(smem_size, 1u32);
     let num_iterations = (data_count + smem_size - 1) / smem_size;
 
     let barrier = Barrier::<E>::new(BarrierLevel::cube(0u32));
@@ -145,6 +146,9 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
 enum CopyStrategyEnum {
     Dummy,
     CoalescedCopy,
+    MemcpyAsyncDuplicated,
+    MemcpyAsyncDispatched,
+    MemcpyAsyncCooperative,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -179,6 +183,33 @@ fn launch_ref<R: Runtime, E: Float>(
             }
             CopyStrategyEnum::CoalescedCopy => {
                 memcpy_test::launch_unchecked::<E, CoalescedCopy, DummyCompute, R>(
+                    client,
+                    cube_count,
+                    cube_dim,
+                    input.as_tensor_arg(1),
+                    config,
+                )
+            }
+            CopyStrategyEnum::MemcpyAsyncDuplicated => {
+                memcpy_test::launch_unchecked::<E, MemcpyAsyncDuplicated, DummyCompute, R>(
+                    client,
+                    cube_count,
+                    cube_dim,
+                    input.as_tensor_arg(1),
+                    config,
+                )
+            }
+            CopyStrategyEnum::MemcpyAsyncDispatched => {
+                memcpy_test::launch_unchecked::<E, MemcpyAsyncDispatched, DummyCompute, R>(
+                    client,
+                    cube_count,
+                    cube_dim,
+                    input.as_tensor_arg(1),
+                    config,
+                )
+            }
+            CopyStrategyEnum::MemcpyAsyncCooperative => {
+                memcpy_test::launch_unchecked::<E, MemcpyAsyncCooperative, DummyCompute, R>(
                     client,
                     cube_count,
                     cube_dim,
@@ -254,17 +285,17 @@ fn main() {
     {
         use half::f16;
 
-        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), CopyStrategyEnum::Dummy);
-        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), CopyStrategyEnum::CoalescedCopy);
-        run::<cubecl::wgpu::WgpuRuntime, f32>(
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::Dummy);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::CoalescedCopy);
+        run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             CopyStrategyEnum::MemcpyAsyncDuplicated,
         );
-        run::<cubecl::wgpu::WgpuRuntime, f32>(
+        run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             CopyStrategyEnum::MemcpyAsyncDispatched,
         );
-        run::<cubecl::wgpu::WgpuRuntime, f32>(
+        run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             CopyStrategyEnum::MemcpyAsyncCooperative,
         );

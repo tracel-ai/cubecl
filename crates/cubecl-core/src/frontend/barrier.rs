@@ -106,7 +106,7 @@ impl<C: CubePrimitive> Barrier<C> {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    pub fn memcpy_async(&self, _source: Slice<Line<C>>, _destination: SliceMut<Line<C>>) {
+    pub fn memcpy_async(&self, _source: &Slice<Line<C>>, _destination: &mut SliceMut<Line<C>>) {
         unexpanded!()
     }
 
