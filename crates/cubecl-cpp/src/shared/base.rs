@@ -1129,9 +1129,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Barrier { id, item, level } => {
                 self.barrier = true;
                 self.settings.block_dim_global = true;
-                if let BarrierLevel::Cube { .. } = level {
-                    self.settings.thread_idx_global = true;
-                }
+                // if let BarrierLevel::Cube { .. } = level {
+                self.settings.thread_idx_global = true;
+                // }
                 let barrier = Variable::Barrier {
                     id,
                     item: self.compile_item(item),

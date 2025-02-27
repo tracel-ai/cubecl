@@ -616,7 +616,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
     // for data_count in [10000, 100000, 1000000, 10000000] {
-    for data_count in [10000000] {
+    for data_count in [100] {
         let bench = MemcpyAsyncBench::<R, E> {
             data_count,
             strategy: strategy.clone(),
