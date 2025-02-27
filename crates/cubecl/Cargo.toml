@@ -49,4 +49,8 @@ name = "matmul"
 
 [[bench]]
 harness = false
+name = "memcpy_async"
+
+[[bench]]
+harness = false
 name = "unary"
