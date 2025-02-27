@@ -26,3 +26,4 @@ cubecl-std = { path = "../cubecl-std", version = "0.5.0", default-features = fal
 num-traits = "0.2.19"
 pretty_assertions = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
+serde = { workspace = true }

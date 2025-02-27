@@ -100,7 +100,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
     valide_output_shape(input.shape, output.shape, axis)?;
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
-        .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
+        .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
     let config = ReduceConfig::generate::<R, In>(client, &input, &output, axis, &strategy);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {

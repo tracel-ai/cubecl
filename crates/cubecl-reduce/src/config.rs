@@ -135,7 +135,7 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_cube_dim<S: ComputeServer, C: ComputeChannel<S>>(
+    pub fn generate_cube_dim<S: ComputeServer, C: ComputeChannel<S>>(
         mut self,
         client: &ComputeClient<S, C>,
         use_planes: bool,
@@ -149,7 +149,7 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_cube_count<R: Runtime>(
+    pub fn generate_cube_count<R: Runtime>(
         mut self,
         reduce_count: u32,
         strategy: &ReduceStrategy,
