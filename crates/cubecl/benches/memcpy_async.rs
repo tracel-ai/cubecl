@@ -706,7 +706,7 @@ struct MemcpyAsyncBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
-    for (data_count, window_size) in [(10000000, 1024)] {
+    for (data_count, window_size) in [(10000000, 1024 * 4)] {
         let bench = MemcpyAsyncBench::<R, E> {
             data_count,
             window_size,
