@@ -80,12 +80,10 @@ __syncthreads();
 cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier});
                     "
                     ),
-                    BarrierLevel::CubeCoop(elected_unit) => write!(
+                    BarrierLevel::CubeCoop(_) => write!(
                         f,
                         "
-if (threadIdxGlobal == {elected_unit}) {{
-    cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size}, {barrier});
-}}
+cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source}_length * {size}, {barrier});
                         "
                     ),
                     BarrierLevel::CubeManual(_) => write!(

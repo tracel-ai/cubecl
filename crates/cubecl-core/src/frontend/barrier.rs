@@ -61,14 +61,16 @@ enum InnerBarrierLevel {
     Unit,
 
     /// All units in the Cube must reach the barrier before continuing.
-    /// The argument is the ID of the unit elected to perform certain calls.
-    /// - This unit initializes the barrier.  
-    /// - All units in the Cube must call `memcpy_async` with the same arguments.
+    /// The argument is the ID of the unit elected for initialization.
+    ///
+    /// `memcpy_async` is **cooperative**, so all units in the Cube must call `memcpy_async` with the same arguments.
+    /// The called is not elected by default, so it must be done manually if wanted
     CubeCoop(u32),
 
     /// All units in the Cube must reach the barrier before continuing.
-    /// The argument is the ID of the unit elected **only** for initialization.
-    /// - `memcpy_async` is **not cooperative**, so each unit must manually handle its own data slice.
+    /// The argument is the ID of the unit elected for initialization.
+    ///
+    /// `memcpy_async` is **not cooperative**, so each unit must manually handle its own data slice.
     CubeManual(u32),
 }
 
