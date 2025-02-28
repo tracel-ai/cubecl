@@ -138,33 +138,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
-    }
-
-    fn memcpy<E: Float>(
-        source: &Slice<Line<E>>,
-        destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
-        #[comptime] _config: Config,
-    ) {
-        barrier.memcpy_async(source, destination)
-    }
-
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
-    }
-}
-
-#[derive(CubeType)]
-/// All units will call one slice that encompasses all data
-/// using a cooperative memcpy_async
-struct MemcpyAsyncSingleSliceCooperative {}
-#[cube]
-impl CopyStrategy for MemcpyAsyncSingleSliceCooperative {
-    type Barrier<E: Float> = Barrier<E>;
-
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -192,7 +166,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -222,7 +196,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_coop(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -231,9 +205,8 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
         barrier: Self::Barrier<E>,
         #[comptime] _config: Config,
     ) {
-        if UNIT_POS == 0 {
-            barrier.memcpy_async(source, destination)
-        }
+        // Elected unit is done under the hood
+        barrier.memcpy_async(source, destination)
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
@@ -251,7 +224,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -285,7 +258,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -322,7 +295,7 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -357,7 +330,7 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -394,7 +367,7 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -433,7 +406,7 @@ impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_no_coop(0u32))
+        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
@@ -569,12 +542,11 @@ fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[allow(unused)]
-/// Strategy in use. Refer to the struct of the same name as the variant.
+/// Strategy in use. Refer to the struct of the same name as the variant for doc.
 enum CopyStrategyEnum {
     DummyCopy,
     CoalescedCopy,
     MemcpyAsyncSingleSliceDuplicatedAll,
-    MemcpyAsyncSingleSliceCooperative,
     MemcpyAsyncSingleSliceElected,
     MemcpyAsyncSingleSliceElectedCooperative,
     MemcpyAsyncSplitPlaneDuplicatedUnit,
@@ -640,16 +612,6 @@ fn launch_ref<R: Runtime, E: Float>(
                     DummyCompute,
                     R,
                 >(
-                    client,
-                    cube_count,
-                    cube_dim,
-                    input.as_tensor_arg(1),
-                    output.as_tensor_arg(1),
-                    config,
-                )
-            }
-            CopyStrategyEnum::MemcpyAsyncSingleSliceCooperative => {
-                memcpy_test::launch_unchecked::<E, MemcpyAsyncSingleSliceCooperative, DummyCompute, R>(
                     client,
                     cube_count,
                     cube_dim,
@@ -846,10 +808,6 @@ fn main() {
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
             CopyStrategyEnum::MemcpyAsyncSingleSliceDuplicatedAll,
-        );
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            CopyStrategyEnum::MemcpyAsyncSingleSliceCooperative,
         );
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
