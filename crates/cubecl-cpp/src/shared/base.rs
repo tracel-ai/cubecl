@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{BarrierLevel, VariableKind};
+use cubecl_core::ir::VariableKind;
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,

@@ -8,6 +8,51 @@ use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
 #[cube]
+trait ComputeTask: Send + Sync + 'static {
+    fn compute<E: Float>(
+        input: &Slice<Line<E>>,
+        acc: &mut Array<Line<E>>,
+        #[comptime] config: Config,
+    );
+
+    fn to_output<E: Float>(
+        acc: &mut Array<Line<E>>,
+        output: &mut SliceMut<Line<E>>,
+        #[comptime] config: Config,
+    );
+}
+
+#[derive(CubeType)]
+struct DummyCompute {}
+#[cube]
+impl ComputeTask for DummyCompute {
+    fn compute<E: Float>(
+        input: &Slice<Line<E>>,
+        acc: &mut Array<Line<E>>,
+        #[comptime] config: Config,
+    ) {
+        // An offset to make sure units need the data loaded by other units
+        let offset = 256;
+
+        let position = (UNIT_POS * config.acc_len + offset) % config.smem_size;
+        for i in 0..config.acc_len {
+            acc[i] += input[position + i];
+        }
+    }
+
+    fn to_output<E: Float>(
+        acc: &mut Array<Line<E>>,
+        output: &mut SliceMut<Line<E>>,
+        #[comptime] config: Config,
+    ) {
+        let position = UNIT_POS * config.acc_len;
+        for i in 0..config.acc_len {
+            acc[i] += output[position + i];
+        }
+    }
+}
+
+#[cube]
 trait CopyStrategy: Send + Sync + 'static {
     type Barrier<E: Float>: CubeType + Copy + Clone;
 
@@ -24,6 +69,8 @@ trait CopyStrategy: Send + Sync + 'static {
 }
 
 #[derive(CubeType)]
+/// All units perform all loads, duplicatively
+/// Not async
 struct DummyCopy {}
 #[cube]
 impl CopyStrategy for DummyCopy {
@@ -50,6 +97,8 @@ impl CopyStrategy for DummyCopy {
 }
 
 #[derive(CubeType)]
+/// Units worked in a coalesced manner to share the loading
+/// Not async
 struct CoalescedCopy {}
 #[cube]
 impl CopyStrategy for CoalescedCopy {
@@ -79,6 +128,10 @@ impl CopyStrategy for CoalescedCopy {
 }
 
 #[derive(CubeType)]
+/// All units will call one slice that encompasses all data
+/// using a per-unit memcpy_async
+///
+/// Probably very slow as all units perform the copy duplicatively
 struct MemcpyAsyncSingleSliceDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
@@ -103,6 +156,8 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
 }
 
 #[derive(CubeType)]
+/// All units will call one slice that encompasses all data
+/// using a cooperative memcpy_async
 struct MemcpyAsyncSingleSliceCooperative {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceCooperative {
@@ -127,6 +182,10 @@ impl CopyStrategy for MemcpyAsyncSingleSliceCooperative {
 }
 
 #[derive(CubeType)]
+/// One unit is elected to call one slice that encompasses all data
+/// using a per-unit memcpy_async
+///
+/// Probably very slow as one unit does everything
 struct MemcpyAsyncSingleSliceElected {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElected {
@@ -153,6 +212,10 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
 }
 
 #[derive(CubeType)]
+/// One unit is elected to call one slice that encompasses all data
+/// using a cooperative memcpy_async
+///
+/// Probably the best for contiguous data
 struct MemcpyAsyncSingleSliceElectedCooperative {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
@@ -179,9 +242,12 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
 }
 
 #[derive(CubeType)]
-struct MemcpyAsyncSplitWarpDuplicatedUnit {}
+/// The slice is divided by the number of planes, then each subslice
+/// is handled by a plane.
+/// In this case all units of the plane call memcpy
+struct MemcpyAsyncSplitPlaneDuplicatedUnit {}
 #[cube]
-impl CopyStrategy for MemcpyAsyncSplitWarpDuplicatedUnit {
+impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
@@ -210,9 +276,12 @@ impl CopyStrategy for MemcpyAsyncSplitWarpDuplicatedUnit {
 }
 
 #[derive(CubeType)]
-struct MemcpyAsyncSplitWarpElectedUnit {}
+/// The slice is divided by the number of planes, then each subslice
+/// is handled by a plane.
+/// In this case one unit of the plane is elected to call memcpy
+struct MemcpyAsyncSplitPlaneElectedUnit {}
 #[cube]
-impl CopyStrategy for MemcpyAsyncSplitWarpElectedUnit {
+impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
     type Barrier<E: Float> = Barrier<E>;
 
     fn barrier<E: Float>() -> Self::Barrier<E> {
@@ -243,6 +312,10 @@ impl CopyStrategy for MemcpyAsyncSplitWarpElectedUnit {
 }
 
 #[derive(CubeType)]
+/// The slice is divided by the number of planes (arbitrartily), but each
+/// unit calls each slice
+///
+/// Probably the worst
 struct MemcpyAsyncSplitDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
@@ -276,6 +349,8 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
 }
 
 #[derive(CubeType)]
+/// The slice is divided by the number of planes n (arbitrarily)
+/// Then the first n units in absolute each perform a call
 struct MemcpyAsyncSplitLargeUnitWithIdle {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
@@ -310,6 +385,9 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
 }
 
 #[derive(CubeType)]
+/// The slice is divided into single elements.
+/// then all units make coalesced calls for a single element,
+/// looping cyclicly until the end
 struct MemcpyAsyncSplitSmallUnitCoalescedLoop {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
@@ -345,6 +423,10 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
 }
 
 #[derive(CubeType)]
+/// The slice is divided by the number of units,
+/// then all units make one coalesced call of the length of the subslices
+///
+/// Probably the fastest for a non contiguous series of contiguous slices
 struct MemcpyAsyncSplitMediumUnitCoalescedOnce {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
@@ -376,56 +458,13 @@ impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
     }
 }
 
-#[cube]
-trait ComputeTask: Send + Sync + 'static {
-    fn compute<E: Float>(
-        input: &Slice<Line<E>>,
-        acc: &mut Array<Line<E>>,
-        #[comptime] config: Config,
-    );
-    fn to_output<E: Float>(
-        acc: &mut Array<Line<E>>,
-        output: &mut SliceMut<Line<E>>,
-        #[comptime] config: Config,
-    );
-}
-
-#[derive(CubeType)]
-struct DummyCompute {}
-#[cube]
-impl ComputeTask for DummyCompute {
-    fn compute<E: Float>(
-        input: &Slice<Line<E>>,
-        acc: &mut Array<Line<E>>,
-        #[comptime] config: Config,
-    ) {
-        // An offset to make sure units need the data loaded by other units
-        let offset = 256;
-
-        let position = (UNIT_POS * config.acc_len + offset) % config.smem_size;
-        for i in 0..config.acc_len {
-            acc[i] += input[position + i];
-        }
-    }
-    fn to_output<E: Float>(
-        acc: &mut Array<Line<E>>,
-        output: &mut SliceMut<Line<E>>,
-        #[comptime] config: Config,
-    ) {
-        let position = UNIT_POS * config.acc_len;
-        for i in 0..config.acc_len {
-            acc[i] += output[position + i];
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 struct Config {
     plane_dim: u32,
     num_planes: u32,
     smem_size: u32,
     acc_len: u32,
-    double_buffer: bool,
+    double_buffering: bool,
 }
 
 #[cube(launch_unchecked)]
@@ -434,158 +473,112 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     output: &mut Tensor<Line<E>>,
     #[comptime] config: Config,
 ) {
+    if config.double_buffering {
+        memcpy_test_single_buffer::<E, Cpy, Cpt>(input, output, config);
+    } else {
+        memcpy_test_double_buffer::<E, Cpy, Cpt>(input, output, config);
+    }
+}
+
+#[cube(launch_unchecked)]
+fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
+    input: &Tensor<Line<E>>,
+    output: &mut Tensor<Line<E>>,
+    #[comptime] config: Config,
+) {
     let data_count = input.shape(0);
     let mut acc = Array::<Line<E>>::new(config.acc_len);
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
-    if config.double_buffer {
-        let data_count = input.shape(0);
-        let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-        let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-        let mut acc = Array::<Line<E>>::new(config.acc_len);
-        let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
+    let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let barrier = Cpy::barrier();
 
-        let barrier1 = Cpy::barrier();
-        let barrier2 = Cpy::barrier();
+    for i in 0..num_iterations {
+        let start = i * config.smem_size;
+        let end = start + config.smem_size;
 
-        for i in 0..num_iterations {
-            let start = i * config.smem_size;
-            let end = if start + config.smem_size < data_count {
-                start + config.smem_size
-            } else {
-                data_count
-            };
+        Cpy::memcpy(
+            &input.slice(start, end),
+            &mut smem.to_slice_mut(),
+            barrier,
+            config,
+        );
 
-            if i % 2 == 0 {
-                Cpy::memcpy(
-                    &input.slice(start, end),
-                    &mut smem1.to_slice_mut(),
-                    barrier1,
-                    config,
-                );
-                if i > 0 {
-                    Cpy::wait(barrier2);
-                    Cpt::compute(&smem2.to_slice(), &mut acc, config);
-                }
-            } else {
-                Cpy::memcpy(
-                    &input.slice(start, end),
-                    &mut smem2.to_slice_mut(),
-                    barrier2,
-                    config,
-                );
+        Cpy::wait(barrier);
 
-                Cpy::wait(barrier1);
-                Cpt::compute(&smem1.to_slice(), &mut acc, config);
-            }
-        }
+        Cpt::compute(&smem.to_slice(), &mut acc, config);
+    }
 
-        Cpy::wait(barrier2);
-        Cpt::compute(&smem2.to_slice(), &mut acc, config);
+    Cpy::wait(barrier);
+    Cpt::compute(&smem.to_slice(), &mut acc, config);
+    Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
+}
 
-        Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
-    } else {
-        let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-        let barrier = Cpy::barrier();
+#[cube(launch_unchecked)]
+fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
+    input: &Tensor<Line<E>>,
+    output: &mut Tensor<Line<E>>,
+    #[comptime] config: Config,
+) {
+    let data_count = input.shape(0);
+    let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let mut acc = Array::<Line<E>>::new(config.acc_len);
+    let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
-        for i in 0..num_iterations {
-            let start = i * config.smem_size;
-            let end = start + config.smem_size;
+    let barrier1 = Cpy::barrier();
+    let barrier2 = Cpy::barrier();
 
+    for i in 0..num_iterations {
+        let start = i * config.smem_size;
+        let end = if start + config.smem_size < data_count {
+            start + config.smem_size
+        } else {
+            data_count
+        };
+
+        if i % 2 == 0 {
             Cpy::memcpy(
                 &input.slice(start, end),
-                &mut smem.to_slice_mut(),
-                barrier,
+                &mut smem1.to_slice_mut(),
+                barrier1,
+                config,
+            );
+            if i > 0 {
+                Cpy::wait(barrier2);
+                Cpt::compute(&smem2.to_slice(), &mut acc, config);
+            }
+        } else {
+            Cpy::memcpy(
+                &input.slice(start, end),
+                &mut smem2.to_slice_mut(),
+                barrier2,
                 config,
             );
 
-            Cpy::wait(barrier);
-
-            Cpt::compute(&smem.to_slice(), &mut acc, config);
+            Cpy::wait(barrier1);
+            Cpt::compute(&smem1.to_slice(), &mut acc, config);
         }
-
-        Cpy::wait(barrier);
-        Cpt::compute(&smem.to_slice(), &mut acc, config);
-        Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
     }
+
+    Cpy::wait(barrier2);
+    Cpt::compute(&smem2.to_slice(), &mut acc, config);
+
+    Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
 }
-
-// #[cube(launch_unchecked)]
-// fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
-//     input: &Tensor<Line<E>>,
-//     output: &mut Tensor<Line<E>>,
-//     #[comptime] config: Config,
-// ) {
-//     let data_count = input.shape(0);
-
-//     let mut acc = Array::<Line<E>>::new(config.acc_len);
-//     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
-
-//     let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-//     let barrier = Cpy::barrier();
-
-//     let mut local_acc = Array::<Line<E>>::new(config.acc_len);
-
-//     for i in 0..num_iterations {
-//         let start = i * config.smem_size;
-//         let end = if start + config.smem_size < data_count {
-//             start + config.smem_size
-//         } else {
-//             data_count
-//         };
-
-//         Cpy::memcpy(
-//             &input.slice(start, end),
-//             &mut smem.to_slice_mut(),
-//             barrier,
-//             config,
-//         );
-
-//         // Overlap: Massive memory thrashing + compute
-//         if i > 0 {
-//             // Skip first iteration
-//             let stride = config.num_planes * config.plane_dim; // 256
-//             let base = (i - 1) * config.smem_size; // Previous chunk
-//                                                    // 32 scattered reads per thread, 256 threads = 8192 reads
-//             for k in 0..32 {
-//                 let pos = base + UNIT_POS * k; // Wildly scattered
-//                 if pos < data_count {
-//                     for j in 0..config.acc_len {
-//                         let idx = pos + j * stride * k; // Extra scatter
-//                         if idx < data_count {
-//                             let val = input[idx];
-//                             // Heavy compute: simulate matmul-like ops
-//                             local_acc[j] += val * val * Line::sin(val) + Line::cast_from(1.234);
-//                         }
-//                     }
-//                 }
-//             }
-//             // Fold with more compute
-//             for j in 0..config.acc_len {
-//                 acc[j] = acc[j] + Line::sqrt(local_acc[j]) * Line::cast_from(2.345);
-//                 local_acc[j] = Line::cast_from(0.0);
-//             }
-//         }
-
-//         Cpy::wait(barrier);
-
-//         Cpt::compute(&smem.to_slice(), &mut acc, config);
-//     }
-
-//     Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
-// }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[allow(unused)]
+/// Strategy in use. Refer to the struct of the same name as the variant.
 enum CopyStrategyEnum {
-    Dummy,
+    DummyCopy,
     CoalescedCopy,
     MemcpyAsyncSingleSliceDuplicatedAll,
     MemcpyAsyncSingleSliceCooperative,
     MemcpyAsyncSingleSliceElected,
     MemcpyAsyncSingleSliceElectedCooperative,
-    MemcpyAsyncSplitWarpDuplicatedUnit,
-    MemcpyAsyncSplitWarpElectedUnit,
+    MemcpyAsyncSplitPlaneDuplicatedUnit,
+    MemcpyAsyncSplitPlaneElectedUnit,
     MemcpyAsyncSplitDuplicatedAll,
     MemcpyAsyncSplitLargeUnitWithIdle,
     MemcpyAsyncSplitSmallUnitCoalescedLoop,
@@ -604,6 +597,7 @@ fn launch_ref<R: Runtime, E: Float>(
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     smem_size: u32,
+    double_buffering: bool,
 ) {
     let cube_count = CubeCount::Static(1, 1, 1);
     let plane_dim = 32;
@@ -614,12 +608,12 @@ fn launch_ref<R: Runtime, E: Float>(
         num_planes,
         smem_size,
         acc_len: smem_size / (plane_dim * num_planes),
-        double_buffer: true,
+        double_buffering,
     };
 
     unsafe {
         match strategy {
-            CopyStrategyEnum::Dummy => {
+            CopyStrategyEnum::DummyCopy => {
                 memcpy_test::launch_unchecked::<E, DummyCopy, DummyCompute, R>(
                     client,
                     cube_count,
@@ -689,10 +683,10 @@ fn launch_ref<R: Runtime, E: Float>(
                     config,
                 )
             }
-            CopyStrategyEnum::MemcpyAsyncSplitWarpDuplicatedUnit => {
+            CopyStrategyEnum::MemcpyAsyncSplitPlaneDuplicatedUnit => {
                 memcpy_test::launch_unchecked::<
                     E,
-                    MemcpyAsyncSplitWarpDuplicatedUnit,
+                    MemcpyAsyncSplitPlaneDuplicatedUnit,
                     DummyCompute,
                     R,
                 >(
@@ -704,8 +698,8 @@ fn launch_ref<R: Runtime, E: Float>(
                     config,
                 )
             }
-            CopyStrategyEnum::MemcpyAsyncSplitWarpElectedUnit => {
-                memcpy_test::launch_unchecked::<E, MemcpyAsyncSplitWarpElectedUnit, DummyCompute, R>(
+            CopyStrategyEnum::MemcpyAsyncSplitPlaneElectedUnit => {
+                memcpy_test::launch_unchecked::<E, MemcpyAsyncSplitPlaneElectedUnit, DummyCompute, R>(
                     client,
                     cube_count,
                     cube_dim,
@@ -788,6 +782,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
             &args.0.as_ref(),
             &args.1.as_ref(),
             smem_size,
+            self.double_buffering,
         );
     }
 
@@ -815,6 +810,7 @@ struct MemcpyAsyncBench<R: Runtime, E> {
     data_count: usize,
     window_size: usize,
     strategy: CopyStrategyEnum,
+    double_buffering: bool,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
     _e: PhantomData<E>,
@@ -829,6 +825,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
             data_count,
             window_size,
             strategy: strategy.clone(),
+            double_buffering: true,
             client: client.clone(),
             device: device.clone(),
             _e: PhantomData,
@@ -844,7 +841,7 @@ fn main() {
     {
         use half::f16;
 
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::Dummy);
+        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::DummyCopy);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::CoalescedCopy);
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
@@ -864,11 +861,11 @@ fn main() {
         );
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
-            CopyStrategyEnum::MemcpyAsyncSplitWarpDuplicatedUnit,
+            CopyStrategyEnum::MemcpyAsyncSplitPlaneDuplicatedUnit,
         );
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
-            CopyStrategyEnum::MemcpyAsyncSplitWarpElectedUnit,
+            CopyStrategyEnum::MemcpyAsyncSplitPlaneElectedUnit,
         );
         run::<cubecl::cuda::CudaRuntime, f32>(
             Default::default(),
