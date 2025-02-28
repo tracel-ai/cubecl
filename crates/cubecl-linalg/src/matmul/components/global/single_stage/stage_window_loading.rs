@@ -15,7 +15,19 @@ use super::loader::{AsyncLoadingStrategy, CopyMechanism};
 pub struct WindowCooperativeLoading {}
 
 impl LoadingValidation for WindowCooperativeLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
+            return Err(Box::new(
+                "Check bounds are not yet supported on window loading.",
+            ));
+        }
+
+        if config.transpose_load(ident) {
+            return Err(Box::new(
+                "Transpose load is not supported with window loading.",
+            ));
+        }
+
         Ok(())
     }
 }
@@ -33,17 +45,10 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
     ) {
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
 
-        let (num_slices, expected_window_size) = match matrix_layout {
-            MatrixLayout::RowMajor => (
-                tiling_dimensions.total_row(),
-                tiling_dimensions.total_col() / line_size,
-            ),
-            MatrixLayout::ColMajor => (
-                tiling_dimensions.total_col(),
-                tiling_dimensions.total_row() / line_size,
-            ),
+        let num_slices = match matrix_layout {
+            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
+            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
         };
 
         for nth_slice in 0..num_slices {
@@ -61,11 +66,6 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
                 &window.slice.try_cast_unchecked(),
                 &mut destination,
             );
-
-            // If padding needed: TODO comptime conditional
-            for i in window.size..expected_window_size {
-                destination[i] = Line::cast_from(0);
-            }
         }
     }
 }

@@ -49,6 +49,12 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 
 impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
+            return Err(Box::new(
+                "Check bounds are not yet supported on window loading.",
+            ));
+        }
+
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
 
@@ -123,10 +129,6 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                     slice_destination_offset,
                     slice_destination_offset + slice_length_in_lines,
                 );
-                // If padding needed: TODO comptime conditional
-                for i in window.size..slice_length_in_lines {
-                    destination[i] = Line::cast_from(0);
-                }
 
                 CM::memcpy_async(
                     &mechanism,
