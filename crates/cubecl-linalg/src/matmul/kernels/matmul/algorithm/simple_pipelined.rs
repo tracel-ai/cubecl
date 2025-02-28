@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self, single_stage::loader::CyclicWindowLoading},
+    global::{self, single_stage::loader::r#async::CyclicWindowLoading},
     stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
     tile, MatmulProblem, MatmulSelection,
 };

@@ -8,7 +8,7 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-use super::single_stage::loader::CopyMechanism;
+use super::single_stage::loader::r#async::CopyMechanism;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:

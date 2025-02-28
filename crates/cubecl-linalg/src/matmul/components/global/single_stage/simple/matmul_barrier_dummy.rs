@@ -1,10 +1,10 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::DummyLoader;
-use crate::matmul::components::global::single_stage::loader::{
-    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
-};
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncLhsLoader;
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncLoadingStrategy;
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::loader::r#async::DummyLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
