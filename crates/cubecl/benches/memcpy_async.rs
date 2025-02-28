@@ -1,3 +1,5 @@
+#![allow(clippy::manual_div_ceil)]
+
 use cubecl::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl::prelude::*;
 use std::marker::PhantomData;
@@ -76,9 +78,7 @@ struct DummyCopy {}
 impl CopyStrategy for DummyCopy {
     type Barrier<E: Float> = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        ()
-    }
+    fn barrier<E: Float>() -> Self::Barrier<E> {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
@@ -104,9 +104,7 @@ struct CoalescedCopy {}
 impl CopyStrategy for CoalescedCopy {
     type Barrier<E: Float> = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        ()
-    }
+    fn barrier<E: Float>() -> Self::Barrier<E> {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
@@ -454,7 +452,7 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     }
 }
 
-#[cube(launch_unchecked)]
+#[cube]
 fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     output: &mut Tensor<Line<E>>,
@@ -488,7 +486,7 @@ fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
 }
 
-#[cube(launch_unchecked)]
+#[cube]
 fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     output: &mut Tensor<Line<E>>,
@@ -783,20 +781,21 @@ struct MemcpyAsyncBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
-    for (data_count, window_size) in [(10000000, 1024 * 2)] {
-        let bench = MemcpyAsyncBench::<R, E> {
-            data_count,
-            window_size,
-            strategy: strategy.clone(),
-            double_buffering: true,
-            client: client.clone(),
-            device: device.clone(),
-            _e: PhantomData,
-        };
-        println!("Data count: {data_count:?}, strategy: {strategy:?}");
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::Full));
-    }
+    let data_count = 10000000;
+    let window_size = 2048;
+
+    let bench = MemcpyAsyncBench::<R, E> {
+        data_count,
+        window_size,
+        strategy,
+        double_buffering: true,
+        client: client.clone(),
+        device: device.clone(),
+        _e: PhantomData,
+    };
+    println!("Data count: {data_count:?}, strategy: {strategy:?}");
+    println!("{}", bench.name());
+    println!("{}", bench.run(TimingMethod::Full));
 }
 
 fn main() {
