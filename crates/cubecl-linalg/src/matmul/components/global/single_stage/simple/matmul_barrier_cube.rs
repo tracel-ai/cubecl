@@ -1,9 +1,9 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::r#async::AsyncLhsLoader;
-use crate::matmul::components::global::single_stage::loader::r#async::AsyncLoadingStrategy;
-use crate::matmul::components::global::single_stage::loader::r#async::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::loader::r#async::{
+    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
+};
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -12,8 +12,7 @@ use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
 use crate::tensor::{ReadWrite, VirtualTensor};
 
-use barrier::Barrier;
-use cubecl_core::prelude::barrier::BarrierLevel;
+use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::Feature;
 use cubecl_core::{self as cubecl};
@@ -168,7 +167,9 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new(BarrierLevel::cube_coop(0u32));
+        let barrier_level = LL::barrier_level();
+        let _ = comptime!(assert!(barrier_level == RL::barrier_level()));
+        let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for _ in 0..num_loops {
             sync_units();

@@ -8,38 +8,26 @@ use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{global, Ident};
 use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
-use cubecl_core::prelude::barrier::Barrier;
+use cubecl_core::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait CopyMechanism<ES: Numeric>: CubeType {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    );
+pub trait CopyMechanism<ES: Numeric>: CubeType + Sync + Send + 'static {
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>);
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    ) {
-        mechanism.memcpy_async(source, destination)
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
+        this.memcpy_async(source, destination)
     }
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    ) {
-        mechanism.memcpy_async(source, destination)
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
+        this.memcpy_async(source, destination)
     }
 }
 
@@ -87,6 +75,8 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
+
+    fn barrier_level() -> BarrierLevel;
 }
 
 #[derive(CubeType)]

@@ -6,8 +6,8 @@ use crate::matmul::components::{
     stage::StridedTilingLayout,
     Ident, InvalidConfigError, MatrixLayout,
 };
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
 use super::{AsyncLoadingStrategy, CopyMechanism};
 
@@ -71,5 +71,9 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
                 &mut destination,
             );
         }
+    }
+
+    fn barrier_level() -> BarrierLevel {
+        BarrierLevel::cube_coop(0u32)
     }
 }

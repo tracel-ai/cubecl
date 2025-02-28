@@ -5,8 +5,8 @@ use crate::matmul::components::{
     stage::{ContiguousTilingLayout, TilingOrder},
     Ident, InvalidConfigError, MatrixLayout,
 };
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
 use super::{AsyncLoadingStrategy, CopyMechanism};
 
@@ -107,5 +107,9 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                 );
             }
         }
+    }
+
+    fn barrier_level() -> BarrierLevel {
+        BarrierLevel::cube_manual(0u32)
     }
 }
