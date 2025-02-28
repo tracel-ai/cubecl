@@ -175,8 +175,8 @@ where
             sync_units();
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, barrier, config);
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);

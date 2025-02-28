@@ -43,7 +43,7 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {

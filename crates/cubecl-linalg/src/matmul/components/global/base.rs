@@ -121,7 +121,7 @@ pub trait AsyncInputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     InputLoader<EG, ES, G>
 {
     /// Fills the stage at the current k offset.
-    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: CM, #[comptime] config: G);
+    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
 }
 
 #[cube]

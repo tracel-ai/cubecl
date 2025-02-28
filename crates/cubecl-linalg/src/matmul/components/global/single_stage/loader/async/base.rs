@@ -71,7 +71,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -103,7 +103,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(
@@ -175,7 +175,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(

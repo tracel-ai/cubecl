@@ -49,7 +49,7 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice_destination: &mut SliceMut<Line<ES>>,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
