@@ -205,8 +205,9 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
         barrier: Self::Barrier<E>,
         #[comptime] _config: Config,
     ) {
-        // Elected unit is done under the hood
-        barrier.memcpy_async(source, destination)
+        if UNIT_POS == 0 {
+            barrier.memcpy_async(source, destination)
+        }
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
