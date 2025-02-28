@@ -435,7 +435,6 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     #[comptime] config: Config,
 ) {
     let data_count = input.shape(0);
-
     let mut acc = Array::<Line<E>>::new(config.acc_len);
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
@@ -505,9 +504,76 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
             Cpt::compute(&smem.to_slice(), &mut acc, config);
         }
 
+        Cpy::wait(barrier);
+        Cpt::compute(&smem.to_slice(), &mut acc, config);
         Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
     }
 }
+
+// #[cube(launch_unchecked)]
+// fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
+//     input: &Tensor<Line<E>>,
+//     output: &mut Tensor<Line<E>>,
+//     #[comptime] config: Config,
+// ) {
+//     let data_count = input.shape(0);
+
+//     let mut acc = Array::<Line<E>>::new(config.acc_len);
+//     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
+
+//     let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+//     let barrier = Cpy::barrier();
+
+//     let mut local_acc = Array::<Line<E>>::new(config.acc_len);
+
+//     for i in 0..num_iterations {
+//         let start = i * config.smem_size;
+//         let end = if start + config.smem_size < data_count {
+//             start + config.smem_size
+//         } else {
+//             data_count
+//         };
+
+//         Cpy::memcpy(
+//             &input.slice(start, end),
+//             &mut smem.to_slice_mut(),
+//             barrier,
+//             config,
+//         );
+
+//         // Overlap: Massive memory thrashing + compute
+//         if i > 0 {
+//             // Skip first iteration
+//             let stride = config.num_planes * config.plane_dim; // 256
+//             let base = (i - 1) * config.smem_size; // Previous chunk
+//                                                    // 32 scattered reads per thread, 256 threads = 8192 reads
+//             for k in 0..32 {
+//                 let pos = base + UNIT_POS * k; // Wildly scattered
+//                 if pos < data_count {
+//                     for j in 0..config.acc_len {
+//                         let idx = pos + j * stride * k; // Extra scatter
+//                         if idx < data_count {
+//                             let val = input[idx];
+//                             // Heavy compute: simulate matmul-like ops
+//                             local_acc[j] += val * val * Line::sin(val) + Line::cast_from(1.234);
+//                         }
+//                     }
+//                 }
+//             }
+//             // Fold with more compute
+//             for j in 0..config.acc_len {
+//                 acc[j] = acc[j] + Line::sqrt(local_acc[j]) * Line::cast_from(2.345);
+//                 local_acc[j] = Line::cast_from(0.0);
+//             }
+//         }
+
+//         Cpy::wait(barrier);
+
+//         Cpt::compute(&smem.to_slice(), &mut acc, config);
+//     }
+
+//     Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
+// }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[allow(unused)]
@@ -548,7 +614,7 @@ fn launch_ref<R: Runtime, E: Float>(
         num_planes,
         smem_size,
         acc_len: smem_size / (plane_dim * num_planes),
-        double_buffer: false,
+        double_buffer: true,
     };
 
     unsafe {
@@ -758,7 +824,7 @@ struct MemcpyAsyncBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
-    for (data_count, window_size) in [(10000000, 1024)] {
+    for (data_count, window_size) in [(10000000, 1024 * 4)] {
         let bench = MemcpyAsyncBench::<R, E> {
             data_count,
             window_size,
