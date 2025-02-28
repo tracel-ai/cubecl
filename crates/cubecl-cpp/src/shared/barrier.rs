@@ -96,11 +96,11 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
             }
 
             BarrierOps::Wait { barrier, level } => write!(
-                                f,
-                                "
+                f,
+                "
             {barrier}.arrive_and_wait();
             "
-                            ),
+            ),
         }
     }
 }
