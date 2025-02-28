@@ -51,6 +51,7 @@ __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdxGlobal == {elected_unit}) {{
    init(&{barrier}, blockDimGlobal);
 }}
+__syncthreads();
 "
                 ),
                 BarrierLevel::CubeManual(elected_unit) => write!(
@@ -60,6 +61,7 @@ __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdxGlobal == {elected_unit}) {{
    init(&{barrier}, blockDimGlobal);
 }}
+__syncthreads();
 "
                 ),
             },
