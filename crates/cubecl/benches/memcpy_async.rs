@@ -440,31 +440,51 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
     if config.double_buffer {
+        let data_count = input.shape(0);
         let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
         let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-        let barrier = Cpy::barrier();
-        Cpy::memcpy(
-            &input.slice(0, config.smem_size),
-            &mut smem1.to_slice_mut(),
-            barrier,
-            config,
-        ); // Prime first chunk
-        for i in 1..num_iterations {
-            let start = i * config.smem_size;
-            let end = start + config.smem_size;
-            Cpy::wait(barrier); // Wait for previous copy
-            Cpt::compute(&smem1.to_slice(), &mut acc, config); // Compute on smem1
-            Cpy::memcpy(
-                &input.slice(start, end),
-                &mut smem2.to_slice_mut(),
-                barrier,
-                config,
-            ); // Load next into smem2
+        let mut acc = Array::<Line<E>>::new(config.acc_len);
+        let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
-            // Swap smem1 and smem2 pointers
+        let barrier1 = Cpy::barrier();
+        let barrier2 = Cpy::barrier();
+
+        for i in 0..num_iterations {
+            let start = i * config.smem_size;
+            let end = if start + config.smem_size < data_count {
+                start + config.smem_size
+            } else {
+                data_count
+            };
+
+            if i % 2 == 0 {
+                Cpy::memcpy(
+                    &input.slice(start, end),
+                    &mut smem1.to_slice_mut(),
+                    barrier1,
+                    config,
+                );
+                if i > 0 {
+                    Cpy::wait(barrier2);
+                    Cpt::compute(&smem2.to_slice(), &mut acc, config);
+                }
+            } else {
+                Cpy::memcpy(
+                    &input.slice(start, end),
+                    &mut smem2.to_slice_mut(),
+                    barrier2,
+                    config,
+                );
+
+                Cpy::wait(barrier1);
+                Cpt::compute(&smem1.to_slice(), &mut acc, config);
+            }
         }
-        Cpy::wait(barrier); // Last chunk
-        Cpt::compute(&smem1.to_slice(), &mut acc, config);
+
+        Cpy::wait(barrier2);
+        Cpt::compute(&smem2.to_slice(), &mut acc, config);
+
+        Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
     } else {
         let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
         let barrier = Cpy::barrier();
