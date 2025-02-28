@@ -289,6 +289,10 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::matmul::components::global::single_stage::loader::r#async::{
+            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
+            WindowCooperativeLoading,
+        };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
@@ -321,9 +325,51 @@ macro_rules! matmul_standard_tests {
         }
 
         #[test]
-        pub fn simple_barrier() {
+        pub fn simple_barrier_cooperative() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM>,
+                SimpleBarrierAlgorithm<TMM, WindowCooperativeLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_cyclic() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, CyclicWindowLoading<ColMajorTilingOrder>>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_maximize_slice_length() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, MaximizeSliceLengthLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_barrier_maximize_unit_count() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleBarrierAlgorithm<TMM, MaximizeUnitCountLoading>,
                 Precision,
                 TestRuntime,
             >(

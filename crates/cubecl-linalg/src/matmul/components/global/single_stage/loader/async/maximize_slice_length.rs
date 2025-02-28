@@ -14,9 +14,9 @@ use super::{AsyncLoadingStrategy, CopyMechanism};
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct MaximizeSliceLength {}
+pub struct MaximizeSliceLengthLoading {}
 
-impl LoadingValidation for MaximizeSliceLength {
+impl LoadingValidation for MaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
             return Err(Box::new(
@@ -35,7 +35,7 @@ impl LoadingValidation for MaximizeSliceLength {
 }
 
 #[cube]
-impl AsyncLoadingStrategy for MaximizeSliceLength {
+impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
