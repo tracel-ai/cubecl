@@ -79,11 +79,15 @@ impl BarrierLevel {
     }
 
     /// Creates a CubeCoop barrier level
+    ///
+    /// Will sync all units
     pub fn cube_coop(elected_unit: u32) -> Self {
         BarrierLevel(InnerBarrierLevel::CubeCoop(elected_unit))
     }
 
     /// Creates a CubeManual barrier level
+    ///
+    /// Will sync all units
     pub fn cube_manual(elected_unit: u32) -> Self {
         BarrierLevel(InnerBarrierLevel::CubeManual(elected_unit))
     }
