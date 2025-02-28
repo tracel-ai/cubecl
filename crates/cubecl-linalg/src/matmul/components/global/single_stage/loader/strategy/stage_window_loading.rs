@@ -1,11 +1,12 @@
+use crate::matmul::components::global::single_stage::loader::{
+    AsyncLoadingStrategy, CopyMechanism,
+};
 use crate::matmul::components::global::tensor_view::{TensorReader, Window};
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::StridedTilingLayout;
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::loader::{AsyncLoadingStrategy, CopyMechanism};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without modification,  
