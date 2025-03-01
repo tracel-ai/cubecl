@@ -393,3 +393,63 @@ pub mod plane_ballot {
         output.into()
     }
 }
+
+#[allow(unused_variables)]
+pub fn plane_shuffle<E: CubePrimitive>(value: E, index: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle()].
+pub mod plane_shuffle {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        id: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.item);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *id.expand;
+
+        scope.register(Instruction::new(
+            Plane::Shuffle(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+#[allow(unused_variables)]
+pub fn plane_shuffle_up<E: CubePrimitive>(value: E, index: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle_up()].
+pub mod plane_shuffle_up {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle_up()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        id: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.item);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *id.expand;
+
+        scope.register(Instruction::new(
+            Plane::ShuffleUp(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
