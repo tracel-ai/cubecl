@@ -440,6 +440,16 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
+            cube::Plane::Shuffle(op) => Subgroup::Shuffle {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleUp(op) => Subgroup::ShuffleUp {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
             cube::Plane::Sum(op) => Subgroup::Sum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

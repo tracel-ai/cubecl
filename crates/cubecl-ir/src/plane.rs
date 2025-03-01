@@ -18,6 +18,8 @@ pub enum Plane {
     Any(UnaryOperator),
     Ballot(UnaryOperator),
     Broadcast(BinaryOperator),
+    Shuffle(BinaryOperator),
+    ShuffleUp(BinaryOperator),
     Sum(UnaryOperator),
     InclusiveSum(UnaryOperator),
     ExclusiveSum(UnaryOperator),
@@ -37,6 +39,12 @@ impl Display for Plane {
             Plane::Ballot(op) => writeln!(f, "plane_ballot({})", op.input),
             Plane::Broadcast(op) => {
                 writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
+            }
+            Plane::Shuffle(op) => {
+                writeln!(f, "plane_shuffle({}, {})", op.lhs, op.rhs)
+            }
+            Plane::ShuffleUp(op) => {
+                writeln!(f, "plane_shuffle_up({}, {})", op.lhs, op.rhs)
             }
             Plane::Sum(op) => writeln!(f, "plane_sum({})", op.input),
             Plane::InclusiveSum(op) => writeln!(f, "plane_inclusive_sum({})", op.input),

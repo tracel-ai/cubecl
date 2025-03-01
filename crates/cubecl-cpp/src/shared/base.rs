@@ -331,6 +331,12 @@ impl<D: Dialect> CppCompiler<D> {
                             out,
                         }))
                     }
+                    gpu::Plane::Shuffle(_) => {
+                        std::panic!("Not impl yet")
+                    }
+                    gpu::Plane::ShuffleUp(_) => {
+                        std::panic!("Not impl yet")
+                    }
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
