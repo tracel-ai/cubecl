@@ -42,6 +42,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
             Operation::Pipeline(_) => panic!("Pipeline not supported in SPIR-V"),
+            Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
         }
     }
 

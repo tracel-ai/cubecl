@@ -72,6 +72,8 @@ pub enum Feature {
     AtomicFloat(AtomicFeature),
     /// The pipeline feature enables pipelined (async) operations
     Pipeline,
+    /// The barrier feature enables barrier (async) operations
+    Barrier,
 }
 
 // Atomic features that may be supported by a [cube runtime](Runtime).

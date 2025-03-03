@@ -450,6 +450,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
+            ir::VariableKind::Barrier { .. } => panic!("Barrier not supported."),
         }
     }
 

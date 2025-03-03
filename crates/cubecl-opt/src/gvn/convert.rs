@@ -86,6 +86,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::Slice { id } => Value::Slice(id, item),
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
+        VariableKind::Barrier { .. } => panic!("Barrier is not supported"),
     };
     Some(val)
 }

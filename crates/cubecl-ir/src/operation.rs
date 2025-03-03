@@ -5,7 +5,7 @@ use crate::{
     comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
     OperationReflect, Operator,
 };
-use crate::{SourceLoc, TypeHash};
+use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
     format,
     string::{String, ToString},
@@ -50,6 +50,8 @@ pub enum Operation {
     CoopMma(CoopMma),
     #[operation(nested)]
     Pipeline(PipelineOps),
+    #[operation(nested)]
+    Barrier(BarrierOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
@@ -149,6 +151,7 @@ impl Display for Operation {
             Operation::Copy(variable) => write!(f, "{}", variable),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
+            Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
         }
     }
 }

@@ -7,7 +7,10 @@ use crate::{
 use cubecl_common::{flex32, tf32};
 use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
-use std::marker::PhantomData;
+use std::{
+    any::{Any, TypeId},
+    marker::PhantomData,
+};
 use variadics_please::all_tuples;
 
 /// Types used in a cube function must implement this trait
@@ -80,10 +83,14 @@ pub trait CompilationArg:
     /// Without this, the compilation time is unreasonable. The performance drop isn't a concern
     /// since this is only done once when compiling a kernel for the first time.
     fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
-        let val = serde_json::to_string(self).unwrap();
-
-        serde_json::from_str(&val)
-            .expect("Compilation argument should be the same even with different element types")
+        if TypeId::of::<Arg>() == TypeId::of::<Self>() {
+            let tmp: Box<dyn Any> = Box::new(self.clone());
+            *tmp.downcast().unwrap()
+        } else {
+            let val = serde_json::to_string(self).unwrap();
+            serde_json::from_str(&val)
+                .expect("Compilation argument should be the same even with different element types")
+        }
     }
 }
 
@@ -341,6 +348,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::ConstantArray { .. }
         | VariableKind::Slice { .. }
         | VariableKind::Matrix { .. }
+        | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. } => elem,
     }
 }
