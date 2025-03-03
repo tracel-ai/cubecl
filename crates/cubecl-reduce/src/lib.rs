@@ -13,6 +13,7 @@
 pub mod args;
 pub mod instructions;
 pub mod primitives;
+pub mod tune_key;
 
 mod config;
 mod error;
