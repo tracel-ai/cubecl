@@ -68,7 +68,6 @@ impl Uniformity {
                     // Broadcast maps to shuffle or broadcast, if id or value is uniform, so will
                     // the output, otherwise not.
                     Plane::Shuffle(op)
-                    | Plane::ShuffleUp(op)
                     | Plane::Broadcast(op) => {
                         let input_uniform =
                             self.is_var_uniform(op.lhs) || self.is_var_uniform(op.rhs);

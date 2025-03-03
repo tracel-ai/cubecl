@@ -252,7 +252,6 @@ impl Optimizer {
         match plane {
             Plane::Elect => {}
             Plane::Shuffle(binary_operator)
-            | Plane::ShuffleUp(binary_operator)
             | Plane::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
             Plane::All(unary_operator)
             | Plane::Any(unary_operator)
