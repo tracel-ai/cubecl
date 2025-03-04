@@ -10,7 +10,7 @@ use cubecl_core::prelude::*;
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
 pub struct Stage<ES: Numeric, T: TilingLayout> {
-    pub smem: SharedMemory<Line<ES>>,
+    smem: SharedMemory<Line<ES>>,
     tiling_layout: PhantomData<T>,
 }
 
@@ -25,6 +25,11 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             line_size,
         );
 
+        Self::new_with_smem(smem)
+    }
+
+    /// Instantiate with a custom shared memory
+    pub fn new_with_smem(smem: SharedMemory<Line<ES>>) -> Stage<ES, T> {
         Stage::<ES, T> {
             smem,
             tiling_layout: PhantomData::<T>.runtime(),
