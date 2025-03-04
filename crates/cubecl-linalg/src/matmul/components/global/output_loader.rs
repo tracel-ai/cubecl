@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global;
 use crate::matmul::components::global::tensor_view::TensorWriter;
 use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
 use crate::matmul::components::stage::StageWriter;
-use crate::tensor::ReadWrite;
-use crate::{matmul::components::global, tensor::VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[derive(CubeType)]
 pub struct Unloader<EG: Numeric> {
