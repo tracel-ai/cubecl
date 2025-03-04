@@ -30,6 +30,33 @@ impl LoadingValidation for MaximizeUnitCountLoading {
             ));
         }
 
+        let matrix_layout = config.matrix_layout(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let line_size = config.global_line_size(ident);
+
+        let (num_slices, slice_length) = match matrix_layout {
+            MatrixLayout::RowMajor => (
+                tiling_dimensions.total_row(),
+                tiling_dimensions.total_col() / line_size,
+            ),
+            MatrixLayout::ColMajor => (
+                tiling_dimensions.total_col(),
+                tiling_dimensions.total_row() / line_size,
+            ),
+        };
+        let unit_count = config.plane_dim() * config.num_planes();
+
+        if unit_count % num_slices != 0 {
+            return Err(Box::new(
+                "Number of slices must divide number of units evenly",
+            ));
+        }
+        if slice_length % (unit_count / num_slices) != 0 {
+            return Err(Box::new(
+                "Number of units per slice must divide slice length evenly",
+            ));
+        }
+
         Ok(())
     }
 }
@@ -45,15 +72,26 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        // TODO
-        //
-        // Find num_slices
-        // Divide unit_count per num_slices
-        // -> if num_slices > unit_count, abort
-        // -> if not exactly divisible, abort
-        // Gives how many units_per_slice
-        // Divide slice_length per units_per_slice
-        // -> if not exactly divisible, abort
+        let matrix_layout = config.matrix_layout(ident);
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let line_size = config.global_line_size(ident);
+
+        let (num_slices, slice_length) = match matrix_layout {
+            MatrixLayout::RowMajor => (
+                tiling_dimensions.total_row(),
+                tiling_dimensions.total_col() / line_size,
+            ),
+            MatrixLayout::ColMajor => (
+                tiling_dimensions.total_col(),
+                tiling_dimensions.total_row() / line_size,
+            ),
+        };
+
+        let unit_count = config.plane_dim() * config.num_planes();
+
+        let units_per_slice = unit_count / num_slices;
+        let unit_slice_length = slice_length / units_per_slice;
+
         // No for loop.
         // Will need a new load_window and layout::slice because it's not exactly nth_slice
         // Then perform memcpy

@@ -52,8 +52,8 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
             MatrixLayout::RowMajor => tiling_dimensions.total_row(),
             MatrixLayout::ColMajor => tiling_dimensions.total_col(),
         };
-
         let unit_count = config.plane_dim() * config.num_planes();
+
         let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
 
         // Typically there will be only 1 slice per unit
