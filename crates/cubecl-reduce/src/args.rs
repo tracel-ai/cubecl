@@ -6,12 +6,12 @@ use cubecl_std::tensor::r#virtual::{
     ReadWrite, VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
 };
 
-pub trait ReducePrecision {
+pub trait ReduceDType {
     type In: Numeric;
     type Out: Numeric;
 }
 
-impl<In: Numeric, Out: Numeric> ReducePrecision for (In, Out) {
+impl<In: Numeric, Out: Numeric> ReduceDType for (In, Out) {
     type In = In;
     type Out = Out;
 }
@@ -21,36 +21,32 @@ impl<In: Numeric, Out: Numeric> ReducePrecision for (In, Out) {
 pub trait ReduceArgs: Send + Sync + 'static + Clone {
     type Input<E: Numeric>: LaunchArg + CubeType;
     type Output<E: Numeric>: LaunchArg + CubeType;
-    type State<P: ReducePrecision>: CubeType;
+    type State<P: ReduceDType>: CubeType;
 
-    fn init_state<P: ReducePrecision>(
+    fn init_state<P: ReduceDType>(
         input: &Self::Input<P::In>,
         output: &mut Self::Output<P::Out>,
     ) -> Self::State<P>;
 
-    fn read_input<P: ReducePrecision>(state: &Self::State<P>, index: u32) -> Line<P::In>;
-    fn read_output<P: ReducePrecision>(state: &Self::State<P>, index: u32) -> Line<P::Out>;
+    fn read_input<P: ReduceDType>(state: &Self::State<P>, index: u32) -> Line<P::In>;
+    fn read_output<P: ReduceDType>(state: &Self::State<P>, index: u32) -> Line<P::Out>;
 
-    fn write_output<P: ReducePrecision>(
-        state: &mut Self::State<P>,
-        index: u32,
-        value: Line<P::Out>,
-    );
+    fn write_output<P: ReduceDType>(state: &mut Self::State<P>, index: u32, value: Line<P::Out>);
 
-    fn len_input<P: ReducePrecision>(state: &Self::State<P>) -> u32;
-    fn len_output<P: ReducePrecision>(state: &Self::State<P>) -> u32;
+    fn len_input<P: ReduceDType>(state: &Self::State<P>) -> u32;
+    fn len_output<P: ReduceDType>(state: &Self::State<P>) -> u32;
 
-    fn buffer_len_input<P: ReducePrecision>(state: &Self::State<P>) -> u32;
-    fn buffer_len_output<P: ReducePrecision>(state: &Self::State<P>) -> u32;
+    fn buffer_len_input<P: ReduceDType>(state: &Self::State<P>) -> u32;
+    fn buffer_len_output<P: ReduceDType>(state: &Self::State<P>) -> u32;
 
-    fn rank_input<P: ReducePrecision>(state: &Self::State<P>) -> u32;
-    fn rank_output<P: ReducePrecision>(state: &Self::State<P>) -> u32;
+    fn rank_input<P: ReduceDType>(state: &Self::State<P>) -> u32;
+    fn rank_output<P: ReduceDType>(state: &Self::State<P>) -> u32;
 
-    fn shape_input<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32;
-    fn shape_output<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32;
+    fn shape_input<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
+    fn shape_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
 
-    fn stride_input<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32;
-    fn stride_output<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32;
+    fn stride_input<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
+    fn stride_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
 }
 
 #[cube]
@@ -77,67 +73,63 @@ pub struct TensorArgs;
 impl ReduceArgs for TensorArgs {
     type Input<EG: Numeric> = Tensor<Line<EG>>;
     type Output<EG: Numeric> = Tensor<Line<EG>>;
-    type State<P: ReducePrecision> = (*const Tensor<Line<P::In>>, *mut Tensor<Line<P::Out>>);
+    type State<P: ReduceDType> = (*const Tensor<Line<P::In>>, *mut Tensor<Line<P::Out>>);
 
-    fn init_state<P: ReducePrecision>(
+    fn init_state<P: ReduceDType>(
         input: &Self::Input<P::In>,
         output: &mut Self::Output<P::Out>,
     ) -> Self::State<P> {
         (input, output)
     }
 
-    fn read_input<P: ReducePrecision>(state: &Self::State<P>, index: u32) -> Line<P::In> {
+    fn read_input<P: ReduceDType>(state: &Self::State<P>, index: u32) -> Line<P::In> {
         unsafe { (*state.0)[index] }
     }
 
-    fn read_output<P: ReducePrecision>(state: &Self::State<P>, index: u32) -> Line<P::Out> {
+    fn read_output<P: ReduceDType>(state: &Self::State<P>, index: u32) -> Line<P::Out> {
         unsafe { (*state.1)[index] }
     }
 
-    fn write_output<P: ReducePrecision>(
-        state: &mut Self::State<P>,
-        index: u32,
-        value: Line<P::Out>,
-    ) {
+    fn write_output<P: ReduceDType>(state: &mut Self::State<P>, index: u32, value: Line<P::Out>) {
         unsafe { (*state.1)[index] = value }
     }
 
-    fn buffer_len_input<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn buffer_len_input<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.0).buffer_len() }
     }
 
-    fn buffer_len_output<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn buffer_len_output<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.1).buffer_len() }
     }
 
-    fn len_input<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn len_input<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.0).len() }
     }
 
-    fn len_output<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn len_output<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.1).len() }
     }
-    fn rank_input<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn rank_input<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.0).rank() }
     }
 
-    fn rank_output<P: ReducePrecision>(state: &Self::State<P>) -> u32 {
+    fn rank_output<P: ReduceDType>(state: &Self::State<P>) -> u32 {
         unsafe { (*state.1).rank() }
     }
 
-    fn shape_input<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32 {
+    fn shape_input<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_output<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32 {
+    fn shape_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32 {
         unsafe { (*state.1).shape(dim) }
     }
 
-    fn stride_input<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32 {
+    fn stride_input<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32 {
         unsafe { (*state.0).stride(dim) }
     }
 
-    fn stride_output<P: ReducePrecision>(state: &Self::State<P>, dim: u32) -> u32 {
+    fn stride_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32 {
         unsafe { (*state.1).stride(dim) }
     }
 }
@@ -145,17 +137,17 @@ impl ReduceArgs for TensorArgs {
 pub struct Input;
 pub struct Output;
 
-pub struct TensorArg<P: ReducePrecision, RA: ReduceArgs, Tag> {
+pub struct TensorArg<P: ReduceDType, RA: ReduceArgs, Tag> {
     _state: *mut RA::State<P>,
     tag: PhantomData<Tag>,
 }
 
-pub struct TensorArgExpand<P: ReducePrecision, RA: ReduceArgs, Tag> {
+pub struct TensorArgExpand<P: ReduceDType, RA: ReduceArgs, Tag> {
     state: <RA::State<P> as CubeType>::ExpandType,
     tag: PhantomData<Tag>,
 }
 
-impl<P: ReducePrecision, RA: ReduceArgs> TensorArg<P, RA, Input> {
+impl<P: ReduceDType, RA: ReduceArgs> TensorArg<P, RA, Input> {
     pub fn new_input(_state: &RA::State<P>) -> Self {
         unexpanded!()
     }
@@ -170,7 +162,7 @@ impl<P: ReducePrecision, RA: ReduceArgs> TensorArg<P, RA, Input> {
     }
 }
 
-impl<P: ReducePrecision, RA: ReduceArgs> TensorArg<P, RA, Output> {
+impl<P: ReduceDType, RA: ReduceArgs> TensorArg<P, RA, Output> {
     pub fn new_output(_state: &mut RA::State<P>) -> Self {
         unexpanded!()
     }
@@ -185,16 +177,10 @@ impl<P: ReducePrecision, RA: ReduceArgs> TensorArg<P, RA, Output> {
     }
 }
 
-impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperations<P::Out>
-    for TensorArg<P, RA, Output>
-{
-}
-impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperations<P::In>
-    for TensorArg<P, RA, Input>
-{
-}
+impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperations<P::Out> for TensorArg<P, RA, Output> {}
+impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperations<P::In> for TensorArg<P, RA, Input> {}
 
-impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
+impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     for TensorArgExpand<P, RA, Input>
 {
     fn __expand_read_method(
@@ -250,7 +236,7 @@ impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     }
 }
 
-impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
+impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
     for TensorArgExpand<P, RA, Output>
 {
     fn __expand_read_method(
@@ -310,18 +296,18 @@ impl<P: ReducePrecision, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
 mod __tensor_arg {
     use super::*;
 
-    impl<P: ReducePrecision, RA: ReduceArgs, Tag> CubeType for TensorArg<P, RA, Tag> {
+    impl<P: ReduceDType, RA: ReduceArgs, Tag> CubeType for TensorArg<P, RA, Tag> {
         type ExpandType = TensorArgExpand<P, RA, Tag>;
     }
 
-    impl<P: ReducePrecision, RA: ReduceArgs, Tag> Init for TensorArgExpand<P, RA, Tag> {
+    impl<P: ReduceDType, RA: ReduceArgs, Tag> Init for TensorArgExpand<P, RA, Tag> {
         fn init(self, _scope: &mut Scope) -> Self {
             self
         }
     }
 
-    impl<P: ReducePrecision, RA: ReduceArgs, Tag> CubeDebug for TensorArgExpand<P, RA, Tag> {}
-    impl<P: ReducePrecision, RA: ReduceArgs, Tag> Clone for TensorArgExpand<P, RA, Tag> {
+    impl<P: ReduceDType, RA: ReduceArgs, Tag> CubeDebug for TensorArgExpand<P, RA, Tag> {}
+    impl<P: ReduceDType, RA: ReduceArgs, Tag> Clone for TensorArgExpand<P, RA, Tag> {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),

@@ -285,6 +285,7 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
     }
 
     /// Get the length of the tensor.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unsafe {
             match comptime![&self.ident] {
@@ -333,6 +334,7 @@ impl<EG: Numeric, GA: MatmulArgs> TensorOutput<EG, GA> {
     }
 
     /// Get the length of the tensor.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u32 {
         unsafe { GA::len_out(&(*self.state)) }
     }
