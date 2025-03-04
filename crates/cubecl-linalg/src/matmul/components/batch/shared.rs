@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{global, MatmulPrecision};
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.

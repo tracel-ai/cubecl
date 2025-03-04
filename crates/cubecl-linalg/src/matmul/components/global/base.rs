@@ -7,7 +7,7 @@ use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:

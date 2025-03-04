@@ -11,10 +11,10 @@ use crate::matmul::components::{
 };
 use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::tensor::{ReadWrite, VirtualTensor};
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, CubeDispatch};
 

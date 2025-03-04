@@ -9,7 +9,7 @@ use crate::matmul::components::stage::{
 };
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulPrecision;
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
 use super::loader::{LhsBufferLoader, RhsBufferLoader};

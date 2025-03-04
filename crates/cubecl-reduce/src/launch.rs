@@ -1,6 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
+use crate::args::init_tensors;
+use crate::args::ReduceArgs;
+use crate::args::TensorArgs;
 use crate::instructions::*;
 use crate::primitives::*;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
@@ -30,7 +35,7 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
         bound_checks: config.bound_checks,
     };
     unsafe {
-        reduce_kernel::launch_unchecked::<In, Out, Rd, Run>(
+        reduce_kernel::launch_unchecked::<In, Out, Rd, TensorArgs, Run>(
             client,
             config.cube_count,
             config.cube_dim,
@@ -43,21 +48,22 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct ReduceParams {
-    shared: Option<u32>, // shared if Some(x) where x is the accumulator size.
-    use_planes: bool,
-    line_size: u32,
-    line_mode: LineMode,
-    bound_checks: bool,
+pub struct ReduceParams {
+    pub shared: Option<u32>, // shared if Some(x) where x is the accumulator size.
+    pub use_planes: bool,
+    pub line_size: u32,
+    pub line_mode: LineMode,
+    pub bound_checks: bool,
 }
 
 #[cube(launch_unchecked)]
-fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
-    input: &Tensor<Line<In>>,
-    output: &mut Tensor<Out>,
+pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
+    input: &RA::Input<In>,
+    output: &mut RA::Output<Out>,
     axis_reduce: u32,
     #[comptime] params: ReduceParams,
 ) {
+    let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     let reduce_index = get_reduce_index(params);
 
     if params.bound_checks && reduce_index >= get_reduce_count(output.len(), params) {
@@ -66,8 +72,8 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
 
     let range = ReduceRange::new::<In, Out>(
         reduce_index,
-        input,
-        output,
+        &input,
+        &mut output,
         axis_reduce,
         params.line_size,
         params.line_mode,
@@ -76,7 +82,7 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
             let mut accumulator = reduce_slice_shared::<In, R::Instruction<In>>(
-                input.to_slice(),
+                &input,
                 range,
                 accumulator_size,
                 params.line_size,
@@ -87,13 +93,13 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
             reduce_tree::<In, R::Instruction<In>>(&mut accumulator, accumulator_size)
         }
         (None, true) => reduce_slice_plane::<In, R::Instruction<In>>(
-            input.to_slice(),
+            &input,
             range,
             params.line_size,
             params.line_mode,
         ),
         (None, false) => reduce_slice::<In, R::Instruction<In>>(
-            input.to_slice(),
+            &input,
             range,
             params.line_size,
             params.line_mode,
@@ -102,7 +108,7 @@ fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce>(
 
     if elected_writer(params) {
         write_to_output::<In, Out, R::Instruction<In>>(
-            output,
+            &mut output,
             accumulator,
             reduce_index,
             input.shape(axis_reduce),
@@ -143,7 +149,7 @@ fn elected_writer(#[comptime] settings: ReduceParams) -> bool {
 
 #[cube]
 fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
-    output: &mut Tensor<Out>,
+    output: &mut VirtualTensor<Out, ReadWrite>,
     accumulator: R::AccumulatorItem,
     reduce_index: u32,
     shape_axis_reduce: u32,
@@ -151,14 +157,17 @@ fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
 ) {
     match comptime!(settings.line_mode) {
         LineMode::Parallel => {
-            output[reduce_index] = R::merge_line::<Out>(accumulator, shape_axis_reduce)
+            let result = R::merge_line::<Out>(accumulator, shape_axis_reduce);
+            output.write(reduce_index, Line::cast_from(result))
         }
         LineMode::Perpendicular => {
             let out = R::to_output_perpendicular(accumulator, shape_axis_reduce);
 
             #[unroll]
             for k in 0..settings.line_size {
-                output[settings.line_size * reduce_index + k] = out[k];
+                let result: Out = out[k];
+                let index = settings.line_size * reduce_index + k;
+                output.write(index, Line::cast_from(result));
             }
         }
     }

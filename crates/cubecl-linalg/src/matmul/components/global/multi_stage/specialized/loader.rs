@@ -7,9 +7,9 @@ use crate::matmul::components::global::{InputLoader, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::Ident;
-use crate::tensor::VirtualTensor;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use super::config::Config;
 

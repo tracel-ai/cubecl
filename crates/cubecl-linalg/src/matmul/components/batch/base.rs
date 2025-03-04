@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
