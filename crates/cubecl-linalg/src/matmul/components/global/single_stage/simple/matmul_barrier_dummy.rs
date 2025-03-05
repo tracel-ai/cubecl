@@ -11,10 +11,11 @@ use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
-use crate::tensor::{ReadWrite, VirtualTensor};
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
