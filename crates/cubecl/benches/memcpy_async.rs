@@ -76,9 +76,7 @@ struct DummyCopy {}
 impl CopyStrategy for DummyCopy {
     type Barrier<E: Float> = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        ()
-    }
+    fn barrier<E: Float>() -> Self::Barrier<E> {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
@@ -104,9 +102,7 @@ struct CoalescedCopy {}
 impl CopyStrategy for CoalescedCopy {
     type Barrier<E: Float> = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        ()
-    }
+    fn barrier<E: Float>() -> Self::Barrier<E> {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
@@ -783,20 +779,21 @@ struct MemcpyAsyncBench<R: Runtime, E> {
 fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     let client = R::client(&device);
 
-    for (data_count, window_size) in [(10000000, 1024 * 2)] {
-        let bench = MemcpyAsyncBench::<R, E> {
-            data_count,
-            window_size,
-            strategy: strategy.clone(),
-            double_buffering: true,
-            client: client.clone(),
-            device: device.clone(),
-            _e: PhantomData,
-        };
-        println!("Data count: {data_count:?}, strategy: {strategy:?}");
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::Full));
-    }
+    let data_count = 10000000;
+    let window_size = 2048;
+
+    let bench = MemcpyAsyncBench::<R, E> {
+        data_count,
+        window_size,
+        strategy,
+        double_buffering: true,
+        client: client.clone(),
+        device: device.clone(),
+        _e: PhantomData,
+    };
+    println!("Data count: {data_count:?}, strategy: {strategy:?}");
+    println!("{}", bench.name());
+    println!("{}", bench.run(TimingMethod::Full));
 }
 
 fn main() {
