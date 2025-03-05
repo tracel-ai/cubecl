@@ -1,32 +1,39 @@
+use std::mem;
+
 use cubecl_core as cubecl;
 
 use cubecl::{frontend::Atomic, prelude::*, server::Handle};
 
-// const ACTIVE_FLAG: u32 = 0x_40_00_00_00u32; // 01
 const FLAG_MASK: u32 = 0x_C0_00_00_00u32; // 11
 const VALUE_MASK: u32 = 0x_3F_FF_FF_FFu32; // 00
 
-// 00
-// const FLAG_NOT_READY: u32 = 0x_00_00_00_00u32; //Flag value inidicating neither inclusive sum, nor reduction of a partition tile is ready
-// 01
 const FLAG_REDUCTION: u32 = 0x_40_00_00_00u32; //Flag value indicating reduction of a partition tile is ready
                                                // 10
 const FLAG_INCLUSIVE: u32 = 0x_80_00_00_00u32;
 
 #[cube(launch)]
-fn ex_scan(
+pub fn memclean(
     input: &mut Array<u32>,
-    #[comptime] cube_size: u32,
-    #[comptime] wave_width: u32,
+    #[comptime] keys: u32,
 ) {
-    let pos = CUBE_POS * CUBE_DIM + UNIT_POS;
-    input[pos] =
-        ex_block_reduce::<u32>(input[pos], cube_size, wave_width)
-            | FLAG_INCLUSIVE;
+    let mut idx = CUBE_POS * CUBE_DIM * keys + UNIT_POS;
+    if CUBE_POS == CUBE_COUNT - 1 {
+        for _ in 0..keys {
+            if idx < input.len() {
+                input[idx] = 0;
+            }
+            idx += CUBE_DIM;
+        }
+    } else {
+        for _ in 0..keys {
+            input[idx] = 0;
+            idx += CUBE_DIM;
+        }
+    }
 }
 
 #[cube]
-trait AsRadix:
+pub trait AsRadix:
     CubeType<ExpandType = ExpandElementTyped<Self>>
     + Sized
     + CubePrimitive
@@ -44,7 +51,7 @@ impl AsRadix for u32 {
 }
 
 #[cube]
-trait RadixData:
+pub trait RadixData:
     CubeType<ExpandType = ExpandElementTyped<Self>> + Sized
 {
     const BYTECNT: u32;
@@ -71,6 +78,7 @@ impl<T: Int> RadixData for T {
 fn global_histogram<N: AsRadix>(
     input: &Array<N>,
     global_histogram: &Array<Atomic<u32>>,
+    block_cnt: u32,
     #[comptime] key_per_thread: u32,
 ) where
     Array<N>: LaunchArg,
@@ -108,10 +116,26 @@ fn global_histogram<N: AsRadix>(
     #[unroll]
     for i in 0..N::Radix::BYTECNT {
         Atomic::add(
-            &global_histogram[UNIT_POS + i * 256],
-            Atomic::load(&shared[UNIT_POS + i * 256]),
+            &global_histogram
+                [UNIT_POS + (((block_cnt + 1) * i) << 8)],
+            // &global_histogram[UNIT_POS + (block_cnt + 1 * i) << 8],
+            Atomic::load(&shared[UNIT_POS + (i << 8)]),
         );
     }
+}
+
+#[cube(launch)]
+fn ex_scan(
+    input: &mut Array<u32>,
+    block_cnt: u32,
+    #[comptime] cube_size: u32, // radix
+    #[comptime] wave_width: u32,
+) {
+    let pos = ((block_cnt + 1) * CUBE_POS << 8) + UNIT_POS;
+    // let pos = (block_cnt + 1) * CUBE_POS << 8 + UNIT_POS;
+    input[pos] =
+        ex_block_reduce::<u32>(input[pos], cube_size, wave_width)
+            | FLAG_INCLUSIVE;
 }
 
 #[cube(launch)]
@@ -119,7 +143,6 @@ fn one_sweep<N: RadixSort + CubePrimitive>(
     input: &Array<N>,
     output: &mut Array<N>,
     global_histogram: &Array<Atomic<u32>>,
-    histogram: &Array<Atomic<u32>>,
     index: &Array<Atomic<u32>>,
     radix_shift: u32,
     #[comptime] key_per_thread: u32,
@@ -132,36 +155,52 @@ fn one_sweep<N: RadixSort + CubePrimitive>(
         input,
         output,
         global_histogram,
-        histogram,
         &index[pass],
         key_per_thread,
         radix_shift,
     );
 }
 
-async fn radix_sort<'a, R: Runtime, N: RadixSort + AsRadix>(
+pub async fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
     client: &cubecl::prelude::ComputeClient<R::Server, R::Channel>,
     len: usize,
     mut input: Handle,
-    mut output: Handle,
+    mut buffer: Handle,
 ) -> Handle {
-    let width = 32;
-    let block_size = 256;
-    let radix = 256;
-
-    let bytecnt = N::Radix::BYTECNT as usize;
-    // let global_histogram_handle =
-    //     client.empty(radix * bytecnt * mem::size_of::<u32>());
-    let global_histogram_handle =
-        client.create(u32::as_bytes(&vec![0u32; radix * bytecnt]));
-
-    let key_per_thread = 15;
-    let key_per_block = (block_size * key_per_thread) as usize;
-
-    let block_cnt =
-        ((len + key_per_block - 1) / key_per_block) as u32;
-
     unsafe {
+        let width = 32;
+        let block_size = 256;
+        let radix = 256;
+
+        let bytecnt = N::Radix::BYTECNT as usize;
+
+        let key_per_thread = 15;
+        let key_per_block = (block_size * key_per_thread) as usize;
+
+        let block_cnt =
+            ((len + key_per_block - 1) / key_per_block) as u32;
+
+        let global_histogram_handle = {
+            let len = radix
+                * (block_cnt as usize + 1)
+                * mem::size_of::<u32>()
+                * bytecnt;
+            let handle = client.empty(len);
+            let keys = 64;
+            memclean::launch::<R>(
+                client,
+                CubeCount::Static(
+                    (len as u32 + (1024 * keys) - 1) / (1024 * keys),
+                    1,
+                    1,
+                ),
+                CubeDim::new(1024, 1, 1),
+                ArrayArg::from_raw_parts::<u32>(&handle, len, 1),
+                keys,
+            );
+            handle
+        };
+
         let global_histogram = ArrayArg::from_raw_parts::<Atomic<u32>>(
             &global_histogram_handle,
             radix * bytecnt,
@@ -173,11 +212,9 @@ async fn radix_sort<'a, R: Runtime, N: RadixSort + AsRadix>(
             CubeDim::new(block_size, 1, 1),
             ArrayArg::from_raw_parts::<N>(&input, len, 1),
             global_histogram,
+            ScalarArg::new(block_cnt),
             key_per_thread,
         );
-
-        client.sync().await;
-        // print_handle::<R>(&client, global_histogram_handle.clone());
 
         ex_scan::launch::<R>(
             client,
@@ -188,79 +225,56 @@ async fn radix_sort<'a, R: Runtime, N: RadixSort + AsRadix>(
                 radix * bytecnt,
                 1,
             ),
+            ScalarArg::new(block_cnt),
             block_size,
             width,
         );
 
-        // print_handle::<R>(&client, global_histogram_handle.clone());
-
         let index_handle =
             client.create(u32::as_bytes(&vec![0u32; bytecnt]));
 
-        for i in 0..4 {
+        for i in 0..bytecnt {
+            let offset = (block_cnt + 1) as usize
+                * radix
+                * i
+                * size_of::<u32>();
             let global_histogram_handle = global_histogram_handle
                 .clone()
-                .offset_start((radix * size_of::<u32>() * i) as u64);
+                .offset_start(offset as u64);
 
-            // let index_handle =
-            // index_handle.clone().offset_start(4 * i as u64);
-
-            let index = ArrayArg::from_raw_parts::<N>(
-                &index_handle,
-                bytecnt,
-                1,
-            );
-            let histogram = client.create(u32::as_bytes(&vec![
-                    0;
-                    (block_cnt
-                        as usize)
-                        * radix
-                ]));
-            let histogram = ArrayArg::from_raw_parts::<N>(
-                &histogram,
-                (block_cnt as usize) * radix,
-                1,
-            );
-            let global_histogram =
-                ArrayArg::from_raw_parts::<Atomic<u32>>(
-                    &global_histogram_handle,
-                    radix * bytecnt,
-                    1,
-                );
-            // client.properties()
-            client.sync().await;
             one_sweep::launch::<N, R>(
                 client,
                 CubeCount::Static(block_cnt, 1, 1),
                 CubeDim::new(block_size, 1, 1),
                 ArrayArg::from_raw_parts::<N>(&input, len, 1),
-                ArrayArg::from_raw_parts::<N>(&output, len, 1),
-                global_histogram,
-                histogram,
-                index,
+                ArrayArg::from_raw_parts::<N>(&buffer, len, 1),
+                ArrayArg::from_raw_parts::<Atomic<u32>>(
+                    &global_histogram_handle,
+                    radix * bytecnt,
+                    1,
+                ),
+                ArrayArg::from_raw_parts::<N>(
+                    &index_handle,
+                    bytecnt,
+                    1,
+                ),
                 ScalarArg::new(i as u32 * 8),
                 key_per_thread,
                 width,
             );
-            client.sync().await;
-            (input, output) = (output, input);
-            // (input, output) =
-            //     (output, client.empty(len * size_of::<N>()));
+            (input, buffer) = (buffer, input);
         }
     };
     input
 }
 
 #[cube]
-// trait RadixSort<N: CubeType> {
-trait RadixSort: CubeType + Sized {
+pub trait RadixSort: CubeType + Sized {
     fn one_sweep(
         #[comptime] min_wave_width: u32,
         input: &Array<Self>,
         output: &mut Array<Self>,
         global_histogram: &Array<Atomic<u32>>,
-        // global_histogram: &Slice<Atomic<u32>>,
-        histogram: &Array<Atomic<u32>>,
         index: &Atomic<u32>,
         #[comptime] key_per_thread: u32,
         radix_shift: u32,
@@ -268,14 +282,12 @@ trait RadixSort: CubeType + Sized {
 }
 
 #[cube]
-// impl RadixSort<u32> for u32 {
 impl RadixSort for u32 {
     fn one_sweep(
         #[comptime] wave_width: u32, // or min wave width
         input: &Array<u32>,
         output: &mut Array<u32>,
         global_histogram: &Array<Atomic<u32>>,
-        pass_histogram: &Array<Atomic<u32>>,
         index: &Atomic<u32>,
         #[comptime] key_per_thread: u32,
         radix_shift: u32,
@@ -321,17 +333,13 @@ impl RadixSort for u32 {
             };
             idx += PLANE_DIM;
         }
-        //
-        // sync_units();
 
         let mut offsets = Array::<u32>::new(key_per_thread);
         {
-            // sync_units();
             #[unroll]
             for i in 0..key_per_thread {
                 let mut warp_flags =
                     Line::empty(4).fill(0xFF_FF_FF_FFu32);
-                // let mut warp_flags = 0xFF_FF_FF_FFu32;
 
                 #[unroll]
                 for k in 0..8 {
@@ -339,10 +347,8 @@ impl RadixSort for u32 {
                         (keys[i] >> (k + radix_shift)) & 1 == 1;
                     warp_flags &= if cond {
                         Line::empty(4).fill(0u32)
-                        // 0u32
                     } else {
                         Line::empty(4).fill(0xFF_FF_FF_FFu32)
-                        // 0xFF_FF_FF_FFu32
                     } ^ plane_ballot(cond);
                 }
                 warp_flags &= count_to_mask(PLANE_DIM);
@@ -350,21 +356,12 @@ impl RadixSort for u32 {
                 let bits = sum_line(Line::count_ones(
                     warp_flags & count_to_mask(UNIT_POS_PLANE),
                 ));
-                // let bits = u32::count_ones(
-                //     warp_flags & count_to_mask(UNIT_POS_PLANE)[0],
-                // );
                 let pre_increment_val = if bits == 0 {
                     Atomic::add(
                         &wave_hist
                             [(keys[i] >> radix_shift) & radix_mask],
                         sum_line(Line::count_ones(warp_flags)),
-                        // u32::count_ones(warp_flags),
                     )
-                    // Atomic::add(
-                    //     &wave_hist[0],
-                    //     (keys[i] >> radix_shift) & radix_mask,
-                    // );
-                    // 0u32
                 } else {
                     0u32
                 };
@@ -372,13 +369,9 @@ impl RadixSort for u32 {
                 offsets[i] = plane_shuffle(
                     pre_increment_val,
                     ffs(warp_flags) - 1,
-                    // u32::find_first_set(warp_flags) - 1,
                 ) + bits;
             }
-            // Atomic::add(&wave_hist[0], 10);
-            // sync will cause ub????
             sync_units();
-            // Atomic::store(&wave_hist[0], 20);
 
             {
                 let mut reducetion = 0;
@@ -392,17 +385,14 @@ impl RadixSort for u32 {
                 }
 
                 Atomic::add(
-                    &pass_histogram[UNIT_POS + partition_index * 256],
+                    &global_histogram
+                        [UNIT_POS + ((partition_index + 1) << 8)],
                     reducetion | FLAG_REDUCTION,
                 );
 
-                // sync_units();
-                // local_histogram[UNIT_POS] = reducetion;
                 local_histogram[UNIT_POS] = ex_block_reduce::<u32>(
                     reducetion, 256u32, wave_width,
                 );
-                // local_histogram[UNIT_POS] =
-                // plane_inclusive_sum(reducetion);
             }
             sync_units();
             {
@@ -411,11 +401,9 @@ impl RadixSort for u32 {
                     let t2 = (keys[i] >> radix_shift) & radix_mask;
                     offsets[i] += Atomic::load(&wave_hist[t2])
                         + local_histogram[t2];
-                    // offsets[i] += Atomic::load(&wave_hist[t2]);
                 }
             }
             sync_units();
-            // ebable this will cause local_historgram unorder? why???? 😓
             // maybe locally ordered data is more advantageous for global scatter
             // not generic
             // for i in 0..key_per_thread {
@@ -426,18 +414,14 @@ impl RadixSort for u32 {
             let mut k = partition_index;
             let mut reducetion = 0u32;
             loop {
-                let flag_payload = if k == 0 {
-                    Atomic::load(&global_histogram[UNIT_POS])
-                } else {
-                    Atomic::load(
-                        &pass_histogram[(k - 1) * 256 + UNIT_POS],
-                    )
-                };
+                let flag_payload = Atomic::load(
+                    &global_histogram[(k << 8) + UNIT_POS],
+                );
                 if (flag_payload & FLAG_MASK) == FLAG_INCLUSIVE {
                     reducetion += flag_payload & VALUE_MASK;
                     Atomic::add(
-                        &pass_histogram
-                            [UNIT_POS + partition_index * 256],
+                        &global_histogram
+                            [UNIT_POS + ((partition_index + 1) << 8)],
                         reducetion | FLAG_REDUCTION,
                     );
                     local_histogram[UNIT_POS] =
@@ -459,8 +443,6 @@ impl RadixSort for u32 {
                         + offsets[i];
                     if target_idx < input.len() {
                         output[target_idx] = keys[i];
-                        // output[target_idx] = target_idx + 1;
-                        // output[target_idx] = 10;
                     }
                 }
             } else {
@@ -471,63 +453,6 @@ impl RadixSort for u32 {
                         + offsets[i]] = keys[i];
                 }
             }
-
-            // if partition_index == CUBE_COUNT - 1 {
-            //     // let mut tidx = UNIT_POS;
-            //     // #[unroll]
-            //     // for _ in 0..key_per_thread {
-            //     //     let key = Atomic::load(&wave_histograms[tidx]);
-            //     //     let t = local_histogram
-            //     //         [key >> radix_shift & 0xFF]
-            //     //         + tidx;
-            //     //     if t < input.len() {
-            //     //         // output[t] = key;
-            //     //         output[t] = 10;
-            //     //     }
-            //     //     tidx += CUBE_DIM;
-            //     // }
-
-            //     {
-            //         let mut idx = UNIT_POS_PLANE
-            //             + plane_pos * (key_per_thread << log_wave)
-            //             + partition_index * key_per_thread * CUBE_DIM;
-
-            //         #[unroll]
-            //         for i in 0..key_per_thread {
-            //             let target_idx = local_histogram
-            //                 [keys[i] >> radix_shift & radix_mask]
-            //                 + offsets[i];
-
-            //             // output[idx] = offsets[i];
-            //             // output[idx] = target_idx;
-            //             // output[idx] =
-            //             //     Atomic::load(&wave_histograms[idx]);
-            //             // if idx < input.len() {
-            //             if idx < 256 {
-            //                 output[idx] = local_histogram[idx];
-            //                 // output[idx] = idx;
-            //                 // ok
-            //                 // output[idx] =
-            //                 //     Atomic::load(&global_histogram[idx])
-            //                 //         & 0x_3F_FF_FF_FFu32;
-            //             }
-            //             idx += PLANE_DIM;
-            //         }
-            //     }
-            // } else {
-            //     let mut tidx = UNIT_POS;
-            //     #[unroll]
-            //     for _ in 0..key_per_thread {
-            //         // output[local_histogram[tidx] + tidx] =
-            //         // Atomic::load(&wave_histograms[tidx]);
-            //         let key = Atomic::load(&wave_histograms[tidx]);
-            //         output[local_histogram
-            //             [key >> radix_shift & 0xFF]
-            //             // + tidx] = key;
-            //             + tidx] = 20;
-            //         tidx += CUBE_DIM;
-            //     }
-            // }
         }
     }
 }
@@ -675,7 +600,6 @@ fn sum_line<N: Numeric>(l: Line<N>) -> N {
 #[cube]
 fn ffs(l: Line<u32>) -> u32 {
     let mut r = 0;
-    // #[unroll]
     for i in 0..4 {
         let pos = u32::find_first_set(l[i]);
         if pos != 0u32 {
@@ -691,7 +615,6 @@ fn ffs(l: Line<u32>) -> u32 {
 fn count_to_mask(count: u32) -> Line<u32> {
     let mut cnt = count;
     let mut res = Line::empty(4).fill(0);
-    // #[unroll]
     for i in 0..4 {
         if cnt >= 32 {
             res[i] = 0xFF_FF_FF_FFu32;
