@@ -174,18 +174,18 @@ where
 
         // TODO: could be only for limitroph cubes
         if comptime!(config.check_row_bounds(Ident::Lhs)) {
-            Self::LhsLoader::clear_stage(&mut lhs_loader);
+            Self::LhsLoader::clear_stage(&mut lhs_loader, config);
         }
         if comptime!(config.check_col_bounds(Ident::Rhs)) {
-            Self::RhsLoader::clear_stage(&mut rhs_loader);
+            Self::RhsLoader::clear_stage(&mut rhs_loader, config);
         }
 
         for _ in 0..num_loops {
             sync_units();
 
             if comptime!(config.check_k_bounds()) {
-                Self::LhsLoader::clear_stage(&mut lhs_loader);
-                Self::RhsLoader::clear_stage(&mut rhs_loader);
+                Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                Self::RhsLoader::clear_stage(&mut rhs_loader, config);
             }
 
             // Start loading

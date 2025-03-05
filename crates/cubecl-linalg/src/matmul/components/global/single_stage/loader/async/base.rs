@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::{single_stage, AsyncInputLoader, InputLoader};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{global, Ident};
@@ -130,8 +130,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
 
-    fn clear_stage(this: &mut Self) {
-        // TODO
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -172,8 +172,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
 
-    fn clear_stage(this: &mut Self) {
-        // TODO
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 
