@@ -58,16 +58,15 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             comptime!(config.tiling_dimensions(ident).total_size() / config.line_size(ident));
 
         let unit_count = config.num_planes() * config.plane_dim();
-        let units_divide_evenly = comptime!(smem_length % unit_count == 0);
-
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
+
         let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let offset = unit_base_position + i * unit_count;
 
             #[allow(clippy::collapsible_else_if)]
-            if units_divide_evenly {
+            if comptime!(smem_length % unit_count == 0) {
                 self.smem[offset] = Line::cast_from(0);
             } else {
                 if offset < smem_length {

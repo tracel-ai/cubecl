@@ -180,12 +180,14 @@ where
             Self::RhsLoader::clear_stage(&mut rhs_loader, config);
         }
 
-        for _ in 0..num_loops {
+        for loop_iter in 0..num_loops {
             sync_units();
 
             if comptime!(config.check_k_bounds()) {
-                Self::LhsLoader::clear_stage(&mut lhs_loader, config);
-                Self::RhsLoader::clear_stage(&mut rhs_loader, config);
+                if loop_iter == num_loops - 1 {
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
+                }
             }
 
             // Start loading
