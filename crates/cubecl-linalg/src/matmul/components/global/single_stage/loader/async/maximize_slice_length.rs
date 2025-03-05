@@ -61,7 +61,7 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
         for nth_slice_local in 0..slices_per_unit {
             let nth_slice = unit_count * nth_slice_local + UNIT_POS;
 
-            #[allow(clippy::collapsible_if)]
+            #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
                     nth_slice,
