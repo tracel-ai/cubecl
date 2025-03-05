@@ -90,11 +90,28 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
         let unit_count = config.plane_dim() * config.num_planes();
 
         let units_per_slice = unit_count / num_slices;
-        let unit_slice_length = slice_length / units_per_slice;
+        let segment_length = slice_length / units_per_slice;
+        let nth_slice = UNIT_POS / units_per_slice;
+        let nth_segment = UNIT_POS % units_per_slice;
+        let seg_start = nth_segment * segment_length;
+        let seg_end = seg_start + segment_length;
 
-        // No for loop.
-        // Will need a new load_window and layout::slice because it's not exactly nth_slice
-        // Then perform memcpy
+        let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
+        let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
+            stage_slice,
+            nth_slice,
+            ident,
+            config.to_smm_config(),
+        );
+
+        let src_segment = window.slice.slice(seg_start, seg_end);
+        let mut dest_segment = destination.slice_mut(seg_start, seg_end);
+
+        CM::memcpy_async(
+            &mechanism,
+            &src_segment.try_cast_unchecked(),
+            &mut dest_segment,
+        );
     }
 
     fn barrier_level() -> BarrierLevel {
