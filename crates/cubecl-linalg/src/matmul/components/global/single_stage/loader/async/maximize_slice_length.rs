@@ -38,7 +38,6 @@ impl LoadingValidation for MaximizeSliceLengthLoading {
 impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    #[allow(clippy::collapsible_if)]
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
@@ -62,6 +61,7 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
         for nth_slice_local in 0..slices_per_unit {
             let nth_slice = unit_count * nth_slice_local + UNIT_POS;
 
+            #[allow(clippy::collapsible_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
                     nth_slice,
