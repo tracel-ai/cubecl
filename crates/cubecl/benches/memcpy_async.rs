@@ -452,7 +452,7 @@ fn memcpy_test<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     }
 }
 
-#[cube(launch_unchecked)]
+#[cube]
 fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     output: &mut Tensor<Line<E>>,
@@ -486,7 +486,7 @@ fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     Cpt::to_output(&mut acc, &mut output.to_slice_mut(), config);
 }
 
-#[cube(launch_unchecked)]
+#[cube]
 fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     input: &Tensor<Line<E>>,
     output: &mut Tensor<Line<E>>,
