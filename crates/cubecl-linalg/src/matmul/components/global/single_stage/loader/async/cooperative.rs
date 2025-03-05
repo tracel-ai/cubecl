@@ -20,12 +20,6 @@ pub struct WindowCooperativeLoading {}
 
 impl LoadingValidation for WindowCooperativeLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
-            return Err(Box::new(
-                "Check bounds are not yet supported on window loading.",
-            ));
-        }
-
         if config.transpose_load(ident) {
             return Err(Box::new(
                 "Transpose load is not supported with window loading.",
