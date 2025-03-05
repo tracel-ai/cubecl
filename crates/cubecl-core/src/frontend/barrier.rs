@@ -53,13 +53,25 @@ pub struct BarrierExpand<C: CubePrimitive> {
 pub struct BarrierLevel(InnerBarrierLevel);
 
 #[derive(Clone)]
-/// Defines how many units must reach the barrier to allow continuation
+/// Defines how many units must reach the barrier before execution can continue.
+/// This also determines how `memcpy_async` operations should be handled.
 enum InnerBarrierLevel {
-    /// Only waits for the unit who declared this barrier.
-    /// This may be useful for waiting upon async data loading
+    /// Waits only for the unit that declared this barrier.
+    /// Useful for synchronizing after async data loading.
     Unit,
-    /// All units in the Cube must reach the barrier before continuing
-    Cube(u32),
+
+    /// All units in the Cube must reach the barrier before continuing.
+    /// The argument is the ID of the unit elected for initialization.
+    ///
+    /// `memcpy_async` is **cooperative**, so all units in the Cube must call `memcpy_async` with the same arguments.
+    /// The called is not elected by default, so it must be done manually if wanted
+    CubeCoop(u32),
+
+    /// All units in the Cube must reach the barrier before continuing.
+    /// The argument is the ID of the unit elected for initialization.
+    ///
+    /// `memcpy_async` is **not cooperative**, so each unit must manually handle its own data slice.
+    CubeManual(u32),
 }
 
 impl BarrierLevel {
@@ -68,20 +80,30 @@ impl BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Unit)
     }
 
-    /// Creates a Cube barrier level
+    /// Creates a CubeCoop barrier level
     ///
-    /// The field elected_unit is the UNIT_POS of the unit that will
-    /// perform the underlying initialization. Typically, 0 should work
-    pub fn cube(elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
+    /// Will sync all units
+    pub fn cube_coop(elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeCoop(elected_unit))
+    }
+
+    /// Creates a CubeManual barrier level
+    ///
+    /// Will sync all units
+    pub fn cube_manual(elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeManual(elected_unit))
     }
 
     pub fn __expand_unit(_scope: &mut Scope) -> BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Unit)
     }
 
-    pub fn __expand_cube(_scope: &mut Scope, elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::Cube(elected_unit))
+    pub fn __expand_cube_coop(_scope: &mut Scope, elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeCoop(elected_unit))
+    }
+
+    pub fn __expand_cube_manual(_scope: &mut Scope, elected_unit: u32) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeManual(elected_unit))
     }
 }
 
@@ -89,7 +111,12 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
     fn from(val: InnerBarrierLevel) -> Self {
         match val {
             InnerBarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
-            InnerBarrierLevel::Cube(elected_unit) => cubecl_ir::BarrierLevel::Cube(elected_unit),
+            InnerBarrierLevel::CubeCoop(elected_unit) => {
+                cubecl_ir::BarrierLevel::CubeCoop(elected_unit)
+            }
+            InnerBarrierLevel::CubeManual(elected_unit) => {
+                cubecl_ir::BarrierLevel::CubeManual(elected_unit)
+            }
         }
     }
 }
@@ -106,7 +133,7 @@ impl<C: CubePrimitive> Barrier<C> {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    pub fn memcpy_async(&self, _source: Slice<Line<C>>, _destination: SliceMut<Line<C>>) {
+    pub fn memcpy_async(&self, _source: &Slice<Line<C>>, _destination: &mut SliceMut<Line<C>>) {
         unexpanded!()
     }
 

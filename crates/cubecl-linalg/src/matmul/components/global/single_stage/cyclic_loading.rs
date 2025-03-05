@@ -6,9 +6,8 @@ use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use pipeline::Pipeline;
 
-use super::loader::{AsyncLoadingStrategy, SyncLoadingStrategy};
+use super::loader::{AsyncLoadingStrategy, CopyMechanism, SyncLoadingStrategy};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -50,6 +49,12 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 
 impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
+            return Err(Box::new(
+                "Check bounds are not yet supported on window loading.",
+            ));
+        }
+
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
 
@@ -71,10 +76,10 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice_destination: &mut SliceMut<Line<ES>>,
-        pipeline: Pipeline<ES>,
+        mechanism: CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -124,12 +129,12 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                     slice_destination_offset,
                     slice_destination_offset + slice_length_in_lines,
                 );
-                // If padding needed: TODO comptime conditional
-                for i in window.size..slice_length_in_lines {
-                    destination[i] = Line::cast_from(0);
-                }
 
-                pipeline.memcpy_async(window.slice.try_cast_unchecked(), destination);
+                CM::memcpy_async(
+                    &mechanism,
+                    &window.slice.try_cast_unchecked(),
+                    &mut destination,
+                );
             }
         }
     }

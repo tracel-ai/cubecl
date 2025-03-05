@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::BarrierLevel;
+use cubecl_core::ir::VariableKind;
 use cubecl_core::{
     ir::{self as gpu},
     Compiler, Feature,
@@ -397,18 +397,38 @@ impl<D: Dialect> CppCompiler<D> {
                     source,
                     destination,
                 } => {
-                    instructions.push(Instruction::Barrier(
-                        super::barrier::BarrierOps::MemCopyAsync {
-                            barrier: self.compile_variable(barrier),
-                            source: self.compile_variable(source),
-                            destination: self.compile_variable(destination),
-                        },
-                    ));
+                    if let VariableKind::Barrier {
+                        id: _,
+                        item: _,
+                        level,
+                    } = barrier.kind
+                    {
+                        instructions.push(Instruction::Barrier(
+                            super::barrier::BarrierOps::MemCopyAsync {
+                                barrier: self.compile_variable(barrier),
+                                source: self.compile_variable(source),
+                                destination: self.compile_variable(destination),
+                                level,
+                            },
+                        ));
+                    } else {
+                        unreachable!()
+                    }
                 }
                 gpu::BarrierOps::Wait { barrier } => {
-                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
-                        barrier: self.compile_variable(barrier),
-                    }))
+                    if let VariableKind::Barrier {
+                        id: _,
+                        item: _,
+                        level,
+                    } = barrier.kind
+                    {
+                        instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
+                            barrier: self.compile_variable(barrier),
+                            level,
+                        }))
+                    } else {
+                        unreachable!()
+                    }
                 }
             },
         }
@@ -1108,13 +1128,17 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::Barrier { id, item, level } => {
                 self.barrier = true;
-                self.settings.block_dim_global = true;
-                if let BarrierLevel::Cube { .. } = level {
-                    self.settings.thread_idx_global = true;
+                match level {
+                    gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
+                        self.settings.block_dim_global = true;
+                        self.settings.thread_idx_global = true;
+                    }
+                    _ => {}
                 }
                 let barrier = Variable::Barrier {
                     id,
                     item: self.compile_item(item),
+                    level,
                 };
                 if !self.barriers.iter().any(|s| s.barrier_id() == id) {
                     self.barriers.push(BarrierOps::Init { barrier, level });
