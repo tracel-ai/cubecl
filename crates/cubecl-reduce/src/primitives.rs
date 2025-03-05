@@ -1,5 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::instructions::*;
 use crate::LineMode;
@@ -16,8 +18,8 @@ pub struct ReduceRange {
 impl ReduceRange {
     pub(crate) fn new<In: Numeric, Out: Numeric>(
         reduce_index: u32,
-        input: &Tensor<Line<In>>,
-        output: &mut Tensor<Out>,
+        input: &VirtualTensor<In>,
+        output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] line_size: u32,
         #[comptime] line_mode: LineMode,
@@ -38,8 +40,8 @@ impl ReduceRange {
 
     fn new_parallel<In: Numeric, Out: Numeric>(
         reduce_index: u32,
-        input: &Tensor<Line<In>>,
-        output: &mut Tensor<Out>,
+        input: &VirtualTensor<In>,
+        output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] line_size: u32,
     ) -> ReduceRange {
@@ -62,8 +64,8 @@ impl ReduceRange {
 
     fn new_perpendicular<In: Numeric, Out: Numeric>(
         reduce_index: u32,
-        input: &Tensor<Line<In>>,
-        output: &mut Tensor<Out>,
+        input: &VirtualTensor<In>,
+        output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
         #[comptime] line_size: u32,
     ) -> ReduceRange {
@@ -93,7 +95,7 @@ impl ReduceRange {
 /// with either a different `items` for each unit, a different `range` or both based on ABSOLUTE_UNIT_POS.
 #[cube]
 pub fn reduce_slice<N: Numeric, R: ReduceInstruction<N>>(
-    items: Slice<Line<N>>,
+    items: &VirtualTensor<N>,
     range: ReduceRange,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
@@ -104,7 +106,7 @@ pub fn reduce_slice<N: Numeric, R: ReduceInstruction<N>>(
     let mut coordinate = 0;
     while index < range.end {
         let coordinates = fill_coordinate_line(coordinate, line_size, line_mode);
-        reduce_inplace::<N, R>(&mut accumulator, items[index], coordinates, false);
+        reduce_inplace::<N, R>(&mut accumulator, items.read(index), coordinates, false);
         index += range.step;
         coordinate += 1;
     }
@@ -125,7 +127,7 @@ pub fn reduce_slice<N: Numeric, R: ReduceInstruction<N>>(
 /// the absolute plane position (`CUBE_POS * CUBE_DIM_Y + UNIT_POS_Y`).
 #[cube]
 pub fn reduce_slice_plane<N: Numeric, R: ReduceInstruction<N>>(
-    items: Slice<Line<N>>,
+    items: &VirtualTensor<N>,
     range: ReduceRange,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
@@ -138,7 +140,11 @@ pub fn reduce_slice_plane<N: Numeric, R: ReduceInstruction<N>>(
         let coordinates = fill_coordinate_line(first_coordinate + UNIT_POS_X, line_size, line_mode);
 
         let index = first_index + UNIT_POS_X * range.step;
-        let item = select(index < range.end, items[index], R::null_input(line_size));
+        let item = select(
+            index < range.end,
+            items.read(index),
+            R::null_input(line_size),
+        );
 
         reduce_inplace::<N, R>(&mut accumulator, item, coordinates, true);
 
@@ -163,7 +169,7 @@ pub fn reduce_slice_plane<N: Numeric, R: ReduceInstruction<N>>(
 /// with either a different `items` for each cube, a different `range` or both based on `CUBE_POS`.
 #[cube]
 pub fn reduce_slice_shared<N: Numeric, R: ReduceInstruction<N>>(
-    items: Slice<Line<N>>,
+    items: &VirtualTensor<N>,
     range: ReduceRange,
     #[comptime] accumulator_size: u32,
     #[comptime] line_size: u32,
@@ -185,7 +191,11 @@ pub fn reduce_slice_shared<N: Numeric, R: ReduceInstruction<N>>(
     let mut first_coordinate = 0;
     while first_index < range.end {
         let index = first_index + UNIT_POS * range.step;
-        let item = select(index < range.end, items[index], R::null_input(line_size));
+        let item = select(
+            index < range.end,
+            items.read(index),
+            R::null_input(line_size),
+        );
         let coordinate = fill_coordinate_line(first_coordinate + UNIT_POS, line_size, line_mode);
         let coordinate = select(
             index < range.end,

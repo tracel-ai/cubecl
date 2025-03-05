@@ -1,6 +1,6 @@
-use crate::tensor::{VirtualTensorOperations, VirtualTensorOperationsExpand};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_std::tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand};
 
 #[cube]
 /// Arguments for the matrix multiplication algorithm.
@@ -46,6 +46,20 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     fn rank_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
     /// Get the rank of the out tensor using the state.
     fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32;
+
+    /// Get the length of the lhs tensor using the state.
+    fn len_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
+    /// Get the length of the rhs tensor using the state.
+    fn len_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
+    /// Get the length of the out tensor using the state.
+    fn len_out<EG: Numeric>(state: &Self::State<EG>) -> u32;
+
+    /// Get the buffer length of the lhs tensor using the state.
+    fn buffer_len_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
+    /// Get the buffer length of the rhs tensor using the state.
+    fn buffer_len_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32;
+    /// Get the buffer length of the out tensor using the state.
+    fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32;
 
     /// Get the shape of the lhs tensor using the state.
     fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
@@ -126,6 +140,14 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
     fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorOutputExpand::__expand_rank_method(self.clone(), scope)
     }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_len_method(self.clone(), scope)
+    }
+
+    fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorOutputExpand::__expand_buffer_len_method(self.clone(), scope)
+    }
 }
 
 impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorInputExpand<EG, MA> {
@@ -172,6 +194,14 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
 
     fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorInputExpand::__expand_rank_method(self.clone(), scope)
+    }
+
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_len_method(self.clone(), scope)
+    }
+
+    fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        TensorInputExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 }
 
@@ -253,6 +283,27 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
             }
         }
     }
+
+    /// Get the length of the tensor.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Lhs => MA::len_lhs(&(*self.state)),
+                TensorInputIdent::Rhs => MA::len_rhs(&(*self.state)),
+            }
+        }
+    }
+
+    /// Get the buffer length of the tensor.
+    pub fn buffer_len(&self) -> u32 {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Lhs => MA::buffer_len_lhs(&(*self.state)),
+                TensorInputIdent::Rhs => MA::buffer_len_rhs(&(*self.state)),
+            }
+        }
+    }
 }
 
 #[cube]
@@ -280,6 +331,17 @@ impl<EG: Numeric, GA: MatmulArgs> TensorOutput<EG, GA> {
     /// Get the rank of the tensor.
     pub fn rank(&self) -> u32 {
         unsafe { GA::rank_out(&(*self.state)) }
+    }
+
+    /// Get the length of the tensor.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        unsafe { GA::len_out(&(*self.state)) }
+    }
+
+    /// Get the buffer length of the tensor.
+    pub fn buffer_len(&self) -> u32 {
+        unsafe { GA::len_out(&(*self.state)) }
     }
 }
 
@@ -378,6 +440,30 @@ impl MatmulArgs for TensorArgs {
 
     fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).rank() }
+    }
+
+    fn len_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.0).len() }
+    }
+
+    fn len_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.1).len() }
+    }
+
+    fn len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).len() }
+    }
+
+    fn buffer_len_lhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.0).buffer_len() }
+    }
+
+    fn buffer_len_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.1).buffer_len() }
+    }
+
+    fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).buffer_len() }
     }
 }
 

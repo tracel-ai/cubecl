@@ -10,8 +10,10 @@
 //! It also provides implementation of the [`ReduceInstruction`] trait for common operations in the [`instructions`] module.
 //! Finally, it provides many reusable primitives to perform different general reduction algorithms in the [`primitives`] module.
 
+pub mod args;
 pub mod instructions;
 pub mod primitives;
+pub mod tune_key;
 
 mod config;
 mod error;
@@ -27,6 +29,8 @@ pub use shared_sum::*;
 pub use strategy::*;
 
 use launch::*;
+
+pub use launch::{reduce_kernel, ReduceParams};
 
 #[cfg(feature = "export_tests")]
 pub mod test;
@@ -97,7 +101,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
     valide_output_shape(input.shape, output.shape, axis)?;
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
-        .unwrap_or(Ok(ReduceStrategy::fallback_strategy::<R>(client)))?;
+        .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
     let config = ReduceConfig::generate::<R, In>(client, &input, &output, axis, &strategy);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {

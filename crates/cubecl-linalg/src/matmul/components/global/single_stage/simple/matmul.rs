@@ -9,7 +9,7 @@ use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
