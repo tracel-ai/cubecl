@@ -148,11 +148,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) -> Self {
         let mut stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
 
-        // If loader works out-of-bounds
-        if x_offset
-            > tensor.shape(tensor.rank() - 2) - config.tiling_dimensions(Ident::Lhs).total_row()
-        {
-            stage.clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        #[allow(clippy::collapsible_if)]
+        if config.check_row_bounds(Ident::Lhs) {
+            if x_offset
+                > tensor.shape(tensor.rank() - 2) - config.tiling_dimensions(Ident::Lhs).total_row()
+            {
+                stage.clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+            }
         }
 
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
@@ -217,11 +219,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) -> Self {
         let mut stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
 
-        // If loader works out-of-bounds
-        if y_offset
-            > tensor.shape(tensor.rank() - 1) - config.tiling_dimensions(Ident::Rhs).total_col()
-        {
-            stage.clear::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        #[allow(clippy::collapsible_if)]
+        if config.check_row_bounds(Ident::Lhs) {
+            if y_offset
+                > tensor.shape(tensor.rank() - 1) - config.tiling_dimensions(Ident::Rhs).total_col()
+            {
+                stage.clear::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+            }
         }
 
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
