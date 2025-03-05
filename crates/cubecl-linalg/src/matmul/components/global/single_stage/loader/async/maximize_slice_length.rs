@@ -109,7 +109,7 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     );
 
     CM::memcpy_async(
-        &mechanism,
+        mechanism,
         &window.slice.try_cast_unchecked(),
         &mut destination,
     );
