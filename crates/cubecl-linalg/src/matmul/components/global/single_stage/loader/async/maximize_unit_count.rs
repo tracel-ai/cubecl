@@ -108,7 +108,7 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
         let mut dest_segment = destination.slice_mut(seg_start, seg_end);
 
         CM::memcpy_async(
-            &mechanism,
+            mechanism,
             &src_segment.try_cast_unchecked(),
             &mut dest_segment,
         );

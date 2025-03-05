@@ -168,7 +168,7 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         let barrier_level = LL::barrier_level();
-        let _ = comptime!(assert!(barrier_level == RL::barrier_level()));
+        comptime!(assert!(barrier_level == RL::barrier_level()));
         let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for _ in 0..num_loops {

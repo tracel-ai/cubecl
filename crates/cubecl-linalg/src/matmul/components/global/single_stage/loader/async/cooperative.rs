@@ -66,7 +66,7 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
                 );
 
             CM::memcpy_async(
-                &mechanism,
+                mechanism,
                 &window.slice.try_cast_unchecked(),
                 &mut destination,
             );
