@@ -52,7 +52,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
 
-    fn clear_stage(this: &mut Self) {}
+    fn clear_stage(this: &mut Self) {
+        this.stage.clear()
+    }
 }
 
 #[cube]
