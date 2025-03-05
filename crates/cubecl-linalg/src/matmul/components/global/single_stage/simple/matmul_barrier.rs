@@ -172,14 +172,6 @@ where
         comptime!(assert!(barrier_level == RL::barrier_level()));
         let barrier = Barrier::<MP::ES>::new(barrier_level);
 
-        // TODO: could be only for limitroph cubes
-        if comptime!(config.check_row_bounds(Ident::Lhs)) {
-            Self::LhsLoader::clear_stage(&mut lhs_loader, config);
-        }
-        if comptime!(config.check_col_bounds(Ident::Rhs)) {
-            Self::RhsLoader::clear_stage(&mut rhs_loader, config);
-        }
-
         for loop_iter in 0..num_loops {
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
