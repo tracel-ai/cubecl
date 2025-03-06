@@ -1,6 +1,10 @@
+use std::iter;
+
 use darling::FromDeriveInput;
 use proc_macro2::Span;
-use syn::{spanned::Spanned, Ident};
+use syn::{parse_quote, punctuated::Punctuated, spanned::Spanned, Generics, Ident};
+
+use crate::paths::prelude_type;
 
 #[derive(Debug)]
 pub struct CubeTypeEnum {
@@ -71,5 +75,21 @@ impl FromDeriveInput for CubeTypeEnum {
             }),
             _ => Err(darling::Error::custom("Only enum are supported.")),
         }
+    }
+}
+
+impl CubeTypeEnum {
+    pub fn expanded_generics(&self) -> Generics {
+        let runtime = prelude_type("Runtime");
+        let mut generics = self.generics.clone();
+        generics.params.push(parse_quote![R: #runtime]);
+        let all = iter::once(parse_quote!['a]).chain(generics.params);
+        generics.params = Punctuated::from_iter(all);
+        generics
+    }
+
+    pub fn assoc_generics(&self) -> Generics {
+        let runtime = prelude_type("Runtime");
+        parse_quote![<'a, R: #runtime>]
     }
 }
