@@ -1,7 +1,8 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, RangeLimits, Type, UnOp,
+    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment,
+    RangeLimits, Type, UnOp,
 };
 
 use crate::{
@@ -408,7 +409,7 @@ fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
         Pat::TupleStruct(pat) => pat.elems.iter().for_each(|pat| {
             add_variables_from_pat(pat, context);
         }),
-        _ => {},
+        _ => {}
     }
 }
 

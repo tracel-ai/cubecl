@@ -8,6 +8,7 @@ pub mod const_match;
 pub mod constants;
 pub mod debug;
 pub mod different_rank;
+pub mod enums;
 pub mod index;
 pub mod launch;
 pub mod line;
@@ -21,7 +22,6 @@ pub mod tensor;
 pub mod topology;
 pub mod traits;
 pub mod unary;
-pub mod enums;
 
 #[allow(missing_docs)]
 #[macro_export]
