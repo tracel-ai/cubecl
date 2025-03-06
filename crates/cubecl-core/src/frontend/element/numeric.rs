@@ -124,7 +124,7 @@ pub trait ScalarArgSettings: Send + Sync {
 
 #[derive(new)]
 pub struct ScalarArg<T: Numeric> {
-    elem: T,
+    pub elem: T,
 }
 
 impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {
