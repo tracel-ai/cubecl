@@ -72,8 +72,13 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                 config.to_smm_config(),
             );
 
-            let line_read =
-                read_view.load_coalesced_in_tile::<G>(tile_x, tile_y, pos_within_tile, ident, config);
+            let line_read = read_view.load_coalesced_in_tile::<G>(
+                tile_x,
+                tile_y,
+                pos_within_tile,
+                ident,
+                config,
+            );
 
             match config.transpose_load(ident) {
                 false => {
