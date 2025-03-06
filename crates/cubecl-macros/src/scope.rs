@@ -37,7 +37,7 @@ pub const KEYWORDS: [&str; 22] = [
 pub type Scope = usize;
 type ManagedScope = Vec<ManagedVar>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Context {
     pub return_type: Type,
     scopes: Vec<ManagedScope>,

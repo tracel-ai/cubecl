@@ -8,6 +8,7 @@ pub mod const_match;
 pub mod constants;
 pub mod debug;
 pub mod different_rank;
+pub mod enums;
 pub mod index;
 pub mod launch;
 pub mod line;
@@ -124,6 +125,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_debug!();
 
         cubecl_core::testgen_option!();
+        cubecl_core::testgen_enums!();
     };
 }
 

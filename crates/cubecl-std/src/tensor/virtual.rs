@@ -33,7 +33,6 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn read(&self, index: u32) -> Line<E> {
         unexpanded!();
     }
-    /// TODO
     pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
         unexpanded!();
     }
@@ -49,6 +48,15 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn rank(&self) -> u32 {
         unexpanded!();
     }
+
+    pub fn len(&self) -> u32 {
+        unexpanded!();
+    }
+
+    pub fn buffer_len(&self) -> u32 {
+        unexpanded!();
+    }
+
     pub fn __expand_read(
         scope: &mut Scope,
         this: <Self as CubeType>::ExpandType,
@@ -83,6 +91,18 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
         this: <Self as CubeType>::ExpandType,
     ) -> <u32 as CubeType>::ExpandType {
         this.__expand_rank_method(scope)
+    }
+    pub fn __expand_len(
+        scope: &mut Scope,
+        this: <Self as CubeType>::ExpandType,
+    ) -> <u32 as CubeType>::ExpandType {
+        this.__expand_len_method(scope)
+    }
+    pub fn __expand_buffer_len(
+        scope: &mut Scope,
+        this: <Self as CubeType>::ExpandType,
+    ) -> <u32 as CubeType>::ExpandType {
+        this.__expand_buffer_len_method(scope)
     }
 }
 
@@ -135,6 +155,14 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
         self.state.clone().__expand_rank_method(scope)
     }
 
+    pub fn __expand_len_method(self, scope: &mut Scope) -> <u32 as CubeType>::ExpandType {
+        self.state.clone().__expand_len_method(scope)
+    }
+
+    pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> <u32 as CubeType>::ExpandType {
+        self.state.clone().__expand_buffer_len_method(scope)
+    }
+
     pub fn __expand_read(
         scope: &mut Scope,
         this: Self,
@@ -161,6 +189,14 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 
     pub fn __expand_rank(scope: &mut Scope, this: Self) -> <u32 as CubeType>::ExpandType {
         VirtualTensor::<E, IO>::__expand_rank(scope, this)
+    }
+}
+
+#[cube]
+impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
+    pub fn coordinate(&self, index: u32, dim: u32) -> u32 {
+        let num_strides = index / self.stride(dim);
+        num_strides % self.shape(dim)
     }
 }
 
@@ -310,6 +346,8 @@ pub trait VirtualTensorOperationsExpand<E: Numeric> {
         axis: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<u32>;
     fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
+    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
+    fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
 }
 
 /// Making [virtual tensors](VirtualTensor) a proper [cube type](CubeType).
@@ -385,6 +423,12 @@ mod __tensor {
 
         fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             self.clone().__expand_rank_method(scope)
+        }
+        fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+            self.clone().__expand_len_method(scope)
+        }
+        fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+            self.clone().__expand_buffer_len_method(scope)
         }
     }
 }

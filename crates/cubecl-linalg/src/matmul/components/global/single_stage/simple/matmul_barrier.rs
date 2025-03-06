@@ -1,23 +1,25 @@
-use crate::matmul::components::{
-    global::{
-        base::InputLoader,
-        output_loader::{Quantizer, Unloader},
-        single_stage::{
-            loader::sync::{SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader},
-            Config,
-        },
-        GlobalMatmul, SyncInputLoader, ZeroAccumulatorLoader,
-    },
-    stage::{
-        multi_buffer::{LhsReader, RhsReader},
-        StageMatmul,
-    },
+use crate::matmul::components::global::base::AsyncInputLoader;
+use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::single_stage::loader::r#async::{
+    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
 };
-use crate::matmul::components::{MatmulPrecision, MatmulSize};
-use core::marker::PhantomData;
-use cubecl_core as cubecl;
-use cubecl_core::{client::ComputeClient, prelude::*, CubeCount, CubeDim, Runtime};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::MatmulPrecision;
+
+use barrier::Barrier;
+use cubecl_core::prelude::*;
+use cubecl_core::Feature;
+use cubecl_core::{self as cubecl};
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+use std::marker::PhantomData;
+
+use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
 
 use crate::matmul::{
     components::{
@@ -31,23 +33,23 @@ use crate::matmul::{
     kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
 
-pub struct SimpleMatmulFamily<
+pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
 }
 
-impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleMatmul<
+    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
         MP,
         SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
         LL,
@@ -55,11 +57,11 @@ where
     >;
 }
 
-impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -74,7 +76,13 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
+
+        if !client.properties().feature_enabled(Feature::Barrier) {
+            return Err(MatmulAvailabilityError::BarrierUnavailable);
+        }
+
+        Ok(())
     }
 
     fn make_config(
@@ -106,11 +114,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            MatmulSize {
-                m: problem.m as u32,
-                n: problem.n as u32,
-                k: problem.k as u32,
-            },
         )
     }
 }
@@ -118,11 +121,11 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleMatmul<
+pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -131,7 +134,7 @@ pub struct SimpleMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
         MP::ES,
@@ -140,24 +143,22 @@ where
         LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
-    #[allow(clippy::single_match)]
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        mut quantizer: Option<Quantizer<MP::EA>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -167,31 +168,30 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        // TODO Maybe init quantizer here instead of providing a quantizer.
+        let barrier_level = LL::barrier_level();
+        comptime!(assert!(barrier_level == RL::barrier_level()));
+        let barrier = Barrier::<MP::ES>::new(barrier_level);
 
-        for _ in 0..num_loops {
+        for loop_iter in 0..num_loops {
             sync_units();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            #[allow(clippy::collapsible_if)]
+            if comptime!(config.check_k_bounds()) {
+                if loop_iter == num_loops - 1 {
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
+                    sync_units();
+                }
+            }
+
+            // Start loading
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-            // // TODO would be nice to have a macro for this pattern.
-            // match comptime!(quantizer.clone()) {
-            //     Some(mut quantizer) => {
-            //         SMM::sums_lhs_rows(
-            //             lhs_stage_reader,
-            //             &mut quantizer.lhs_sums.to_slice_mut(),
-            //             config.to_smm_config(),
-            //         );
-
-            //         // ...
-            //     }
-            //     None => {}
-            // }
-
-            sync_units();
+            barrier.wait();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -199,7 +199,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                &mut quantizer,
                 config.to_smm_config(),
             );
 
@@ -210,7 +209,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            quantizer,
             config.to_smm_config(),
             config,
         );

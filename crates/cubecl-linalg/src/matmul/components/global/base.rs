@@ -1,5 +1,4 @@
 use cubecl_core as cubecl;
-use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::{self, StageWriter};
@@ -7,7 +6,9 @@ use crate::matmul::components::{config::MatmulConfig, tile};
 use crate::matmul::components::{Ident, MatmulSize, MatrixLayout};
 use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
-use crate::tensor::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+
+use super::single_stage::loader::r#async::CopyMechanism;
 
 use super::output_loader::Quantizer;
 
@@ -108,6 +109,9 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
+
+    /// Fills the stage with zeros
+    fn clear_stage(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
@@ -123,7 +127,7 @@ pub trait AsyncInputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     InputLoader<EG, ES, G>
 {
     /// Fills the stage at the current k offset.
-    fn fill_stage(this: &mut Self, pipeline: Pipeline<ES>, #[comptime] config: G);
+    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
 }
 
 #[cube]
@@ -192,6 +196,9 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col would exceed bounds.
     fn check_col_bounds(&self, ident: Ident) -> bool;
+
+    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
+    fn check_k_bounds(&self) -> bool;
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;

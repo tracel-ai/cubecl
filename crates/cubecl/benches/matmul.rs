@@ -144,42 +144,61 @@ fn main() {
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::SimpleStrided);
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimplePipelined,
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::DoubleBuffering,
-        );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::ElectedOnly),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::SplitUnit),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Cyclic),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::SplitPlane),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimplePipelined,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::DoubleBuffering,
+        // );
 
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Simple);
-        run::<cubecl::cuda::CudaRuntime, flex32>(
-            Default::default(),
-            matmul::Strategy::SimpleStrided,
-        );
-        run::<cubecl::cuda::CudaRuntime, flex32>(
-            Default::default(),
-            matmul::Strategy::SimplePipelined,
-        );
-        run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, flex32>(
-            Default::default(),
-            matmul::Strategy::DoubleBuffering,
-        );
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Simple);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, flex32>(
+        //     Default::default(),
+        //     matmul::Strategy::SimplePipelined,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, flex32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, flex32>(
+        //     Default::default(),
+        //     matmul::Strategy::DoubleBuffering,
+        // );
 
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Simple);
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::SimpleStrided);
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::SimplePipelined,
-        );
-        run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
-        run::<cubecl::cuda::CudaRuntime, f32>(
-            Default::default(),
-            matmul::Strategy::DoubleBuffering,
-        );
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Simple);
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::SimpleBarrier);
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::SimplePipelined,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), matmul::Strategy::Specialized);
+        // run::<cubecl::cuda::CudaRuntime, f32>(
+        //     Default::default(),
+        //     matmul::Strategy::DoubleBuffering,
+        // );
     }
 }

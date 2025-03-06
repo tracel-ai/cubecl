@@ -1,24 +1,24 @@
-use crate::matmul::components::global::base::AsyncInputLoader;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::output_loader::Quantizer;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::{
-    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
+use crate::matmul::components::{
+    global::{
+        base::{AsyncInputLoader, InputLoader},
+        output_loader::{Quantizer, Unloader},
+        single_stage::{
+            loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
+            Config,
+        },
+        GlobalMatmul, ZeroAccumulatorLoader,
+    },
+    stage::{
+        multi_buffer::{LhsReader, RhsReader},
+        StageMatmul,
+    },
+    MatmulPrecision, MatmulSize,
 };
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::{MatmulPrecision, MatmulSize};
-use crate::tensor::{ReadWrite, VirtualTensor};
-
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, Feature};
+use cubecl_core as cubecl;
+use cubecl_core::{prelude::*, Feature};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use pipeline::Pipeline;
 use std::marker::PhantomData;
-
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
 
 use crate::matmul::{
     components::{
@@ -181,8 +181,8 @@ where
 
             // Start loading
             pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, &pipeline, config);
+            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
             pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);

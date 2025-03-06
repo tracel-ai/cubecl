@@ -1,15 +1,13 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
-use crate::matmul::components::global::tensor_view::TensorWriter;
-use crate::matmul::components::global::tilewise_unloading::TilewiseUnloading;
-use crate::matmul::components::stage::StageWriter;
-use crate::matmul::components::Ident;
-use crate::tensor::ReadWrite;
-use crate::{matmul::components::global, tensor::VirtualTensor};
-
 use super::args::Quantization;
 use super::GlobalConfig;
+use crate::matmul::components::{
+    global::{self, tensor_view::TensorWriter, tilewise_unloading::TilewiseUnloading},
+    stage::StageWriter,
+    Ident,
+};
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[derive(CubeType)]
 pub struct Unloader<EG: Numeric> {

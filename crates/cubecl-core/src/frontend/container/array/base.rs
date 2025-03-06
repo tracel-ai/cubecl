@@ -183,7 +183,7 @@ mod vectorization {
                     self.clone(),
                     ExpandElementTyped::from_lit(scope, 0u32),
                 );
-                assign::expand(scope, element, new_var.clone().into());
+                assign::expand::<C>(scope, element, new_var.clone().into());
                 new_var
             } else {
                 let new_var = scope.create_local_mut(item);

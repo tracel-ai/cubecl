@@ -1,9 +1,9 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Member, PathArguments};
+use syn::{spanned::Spanned, Ident, Member, Pat, Path, PathArguments};
 
 use crate::{
-    expression::{Block, ConstMatchArm, Expression},
+    expression::{Block, Expression, MatchArm},
     operator::Operator,
     paths::{frontend_path, frontend_type, prelude_type},
     scope::Context,
@@ -182,6 +182,7 @@ impl Expression {
                 let debug_call = frontend_type("debug_call_expand");
                 let (args, arg_names) = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
+
                 quote_spanned! {*span=>
                     {
                         #(#args)*
@@ -478,9 +479,14 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
-            Expression::ConstMatch { const_expr, arms } => {
-                let arms = arms.iter().map(|arm| arm.to_tokens(context));
-
+            Expression::Match {
+                runtime_variants,
+                expr: const_expr,
+                arms,
+            } => {
+                let arms = arms
+                    .iter()
+                    .map(|arm| arm.to_tokens(context, *runtime_variants));
                 quote! {
                     match #const_expr {
                         #(#arms,)*
@@ -519,14 +525,69 @@ impl Expression {
     }
 }
 
-impl ConstMatchArm {
-    pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
-        let path = &self.pat;
+impl MatchArm {
+    pub fn to_tokens(&self, context: &mut Context, runtime_variants: bool) -> TokenStream {
+        let mut pat = self.pat.clone();
+
+        // If using runtime variants, we need to replace the variant Name with NameExpand.
+        if runtime_variants {
+            Self::expand_pat(&mut pat);
+        }
+
         let expr = self.expr.to_tokens(context);
 
         quote! {
-            #path => #expr
+            #pat => #expr
         }
+    }
+
+    fn expand_pat(pat: &mut Pat) {
+        match pat {
+            // Match simple ident like x in Enum::Variant(x).
+            // Useful for recursive call.
+            Pat::Ident(_) => {}
+            // Match path::Enum::Ident
+            Pat::Path(ref mut pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match path::Enum::Variant {a, b, c}
+            Pat::Struct(ref mut pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match path::Enum::Variant(a, b, c)
+            Pat::TupleStruct(ref mut pat) => {
+                let mut path = pat.path.clone();
+                append_expand_to_enum_name(&mut path);
+                pat.path = path;
+            }
+            // Match Pat1 | Pat2 | ...
+            Pat::Or(ref mut pat) => {
+                pat.cases.iter_mut().for_each(Self::expand_pat);
+            }
+            // Match the underscore pattern _
+            Pat::Wild(_) => {}
+            _ => {
+                panic!("unsupported pattern in match");
+                // NOTE: From the documentation https://docs.rs/syn/latest/syn/enum.Pat.html
+                //       I don't think we should support any other patterns.
+                //       Users can always use a big if, else if, else pattern instead.
+                //       Currently, the goal is to support CubeType enums.
+            }
+        }
+    }
+}
+
+// Replace something like `some_path::Enum::Variant` with `some_path::EnumExpand::Variant`.
+fn append_expand_to_enum_name(path: &mut Path) {
+    if path.segments.len() >= 2 {
+        let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if
+        segment.ident = Ident::new(&format!("{}Expand", segment.ident), Span::call_site());
+    } else {
+        panic!("unsupported pattern in match");
     }
 }
 

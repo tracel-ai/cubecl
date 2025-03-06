@@ -1,3 +1,5 @@
+use super::config::Config;
+use super::loader::{LhsBufferLoader, RhsBufferLoader};
 use crate::matmul::components::{
     global::{
         self,
@@ -11,13 +13,10 @@ use crate::matmul::components::{
     },
     Ident, MatmulPrecision, MatmulSize,
 };
-use crate::tensor::{ReadWrite, VirtualTensor};
-
-use super::config::Config;
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use std::marker::PhantomData;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
 

@@ -3,13 +3,7 @@ use crate::{
     prelude::{ArgSettings, CompilationArg, LaunchArg, LaunchArgExpand},
     Runtime,
 };
-use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct CubeOptionCompilationArg<C> {
-    pub inner: Option<C>,
-}
 
 impl<C: CompilationArg> CompilationArg for Option<C> {}
 
@@ -43,7 +37,6 @@ impl<R: Runtime, A: ArgSettings<R>> ArgSettings<R> for Option<A> {
 
 impl<T: LaunchArg> LaunchArg for Option<T> {
     type RuntimeArg<'a, R: Runtime> = Option<T::RuntimeArg<'a, R>>;
-
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         runtime_arg.as_ref().map(T::compilation_arg)
     }

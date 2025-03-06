@@ -8,9 +8,9 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);
-    let destination = smem.slice_mut(0, 1);
+    let mut destination = smem.slice_mut(0, 1);
 
-    barrier.memcpy_async(source, destination);
+    barrier.memcpy_async(&source, &mut destination);
 
     barrier.wait();
     output[0] = smem[0];
@@ -47,11 +47,11 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
+    let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
     sync_units();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
-    barrier.memcpy_async(lhs.slice(0u32, 4u32), lhs_smem.to_slice_mut());
+    barrier.memcpy_async(&lhs.slice(0u32, 4u32), &mut lhs_smem.to_slice_mut());
 
     barrier.wait();
 
@@ -72,14 +72,14 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
+    let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
     sync_units();
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;
 
-    barrier.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    barrier.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    barrier.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
+    barrier.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
     barrier.wait();
     let mut dot = Line::cast_from(0u32);
@@ -100,8 +100,8 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube(0u32));
-    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube(0u32));
+    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube_manual(0u32));
+    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube_manual(0u32));
     // At the Cube level, we must sync after barrier creation to make sure they
     // exist for all units
     sync_units();
@@ -115,8 +115,8 @@ fn two_independant_loads<F: Float>(
         output[i] = Line::cast_from(0u32);
     }
 
-    barrier_0.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    barrier_1.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    barrier_0.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
+    barrier_1.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
     let mut dot = Line::cast_from(0u32);
 

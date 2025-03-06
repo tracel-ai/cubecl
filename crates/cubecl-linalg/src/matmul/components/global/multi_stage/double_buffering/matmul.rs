@@ -18,11 +18,10 @@ use crate::matmul::components::{
     tile::TileConfig,
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
 };
-use crate::matmul::kernels::matmul::AdvancedConfig;
-use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::tensor::{ReadWrite, VirtualTensor};
+use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {

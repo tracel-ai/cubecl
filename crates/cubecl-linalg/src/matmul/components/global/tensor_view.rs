@@ -1,9 +1,9 @@
 use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
-use crate::tensor::{ReadWrite, VirtualTensor};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
