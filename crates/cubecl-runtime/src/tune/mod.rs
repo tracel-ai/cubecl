@@ -26,7 +26,7 @@
 //! # Tunable
 //!
 //! [`Tunable`](crate::tune::Tunable) is implemented automatically for all functions and closures
-//! that take a set of clonable inputs, and return a `Result<Out, impl Into<AutotuneError>>`. If the
+//! that take a set of cloneable inputs, and return a `Result<Out, impl Into<AutotuneError>>`. If the
 //! kernel does not return a [`Result`], use `kernel_fn.ok()` to wrap it in `Ok` and turn it into a
 //! tunable.
 //!

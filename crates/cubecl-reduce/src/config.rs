@@ -96,7 +96,7 @@ impl ReduceConfig {
                 // contiguous in the input and output. This is obtained by taking the head of each list until they are different.
                 // In the above example, only the 0 axis is contiguous in both tensor, but it output sorted axis were [0, 1, 3, 2] instead,
                 // both the 0 and 3 axes would be contiguous in the two tensors.
-                // The corresponding number of entries is the product of the shape for the contigous axes.
+                // The corresponding number of entries is the product of the shape for the contiguous axes.
                 // In the example, it is simply 2.
                 //
                 // This gives us an upper bound on the line size we can used.

@@ -46,7 +46,7 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
-    /// An error catched with panic unwind.
+    /// An error caught with panic unwind.
     PanicUnwind(ManuallyDrop<Box<dyn Any + Send>>),
 }
 
