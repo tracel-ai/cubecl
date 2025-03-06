@@ -175,6 +175,7 @@ where
         for loop_iter in 0..num_loops {
             sync_units();
 
+            #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
                     Self::LhsLoader::clear_stage(&mut lhs_loader, config);
