@@ -1,5 +1,6 @@
 pub mod assign;
 pub mod atomic;
+pub mod barrier;
 pub mod binary;
 pub mod branch;
 pub mod cmma;
@@ -10,7 +11,6 @@ pub mod different_rank;
 pub mod index;
 pub mod launch;
 pub mod line;
-pub mod memcpy_async;
 pub mod metadata;
 pub mod option;
 pub mod pipeline;
@@ -77,6 +77,7 @@ macro_rules! testgen_all {
 macro_rules! testgen_float {
     () => {
         cubecl_core::testgen_assign!();
+        cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_branch!();
         cubecl_core::testgen_const_match!();
@@ -85,7 +86,6 @@ macro_rules! testgen_float {
         cubecl_core::testgen_launch!();
         cubecl_core::testgen_line!();
         cubecl_core::testgen_pipeline!();
-        cubecl_core::testgen_memcpy_async!();
         cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();

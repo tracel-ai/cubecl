@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    stage::{shared::CommonStageConfig, ReaderFamily},
-    tile::TileConfig,
+    stage::{shared::CommonStageConfig, ReaderFamily, TilingLayout},
+    tile::{Tile, TileConfig},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -8,14 +8,14 @@ use cubecl_core::prelude::*;
 use crate::matmul::components::{stage::Stage, Ident};
 
 #[derive(CubeType)]
-pub struct LhsBufferReader<ES: Numeric> {
-    pub stage: Stage<ES>,
+pub struct LhsBufferReader<ES: Numeric, T: TilingLayout> {
+    pub stage: Stage<ES, T>,
     pub buffer: u32,
 }
 
 #[derive(CubeType)]
-pub struct RhsBufferReader<ES: Numeric> {
-    pub stage: Stage<ES>,
+pub struct RhsBufferReader<ES: Numeric, T: TilingLayout> {
+    pub stage: Stage<ES, T>,
     pub buffer: u32,
 }
 
@@ -23,21 +23,21 @@ pub struct LhsBufferReaderFamily;
 pub struct RhsBufferReaderFamily;
 
 impl ReaderFamily for LhsBufferReaderFamily {
-    type Reader<I: Numeric> = LhsBufferReader<I>;
+    type Reader<I: Numeric, T: TilingLayout> = LhsBufferReader<I, T>;
 }
 
 impl ReaderFamily for RhsBufferReaderFamily {
-    type Reader<I: Numeric> = RhsBufferReader<I>;
+    type Reader<I: Numeric, T: TilingLayout> = RhsBufferReader<I, T>;
 }
 
 #[cube]
-impl<ES: Numeric> LhsBufferReader<ES> {
-    pub fn read_tile<T: TileConfig>(
+impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
+    pub fn read_tile<TC: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
-        #[comptime] config: CommonStageConfig<T>,
-    ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<CommonStageConfig<T>>(
+        #[comptime] config: CommonStageConfig<TC>,
+    ) -> Tile<ES> {
+        this.stage.get_tile::<CommonStageConfig<TC>>(
             compute_plane_offset,
             this.buffer,
             Ident::Lhs,
@@ -47,13 +47,13 @@ impl<ES: Numeric> LhsBufferReader<ES> {
 }
 
 #[cube]
-impl<ES: Numeric> RhsBufferReader<ES> {
-    pub fn read_tile<T: TileConfig>(
+impl<ES: Numeric, T: TilingLayout> RhsBufferReader<ES, T> {
+    pub fn read_tile<TC: TileConfig>(
         this: &Self,
         accumulator_offset: u32,
-        #[comptime] config: CommonStageConfig<T>,
-    ) -> Slice<Line<ES>> {
-        this.stage.get_tile::<CommonStageConfig<T>>(
+        #[comptime] config: CommonStageConfig<TC>,
+    ) -> Tile<ES> {
+        this.stage.get_tile::<CommonStageConfig<TC>>(
             this.buffer,
             accumulator_offset,
             Ident::Rhs,

@@ -70,8 +70,8 @@ pub struct Quantizer<EA: Numeric> {
 #[cube]
 impl<EA: Numeric> Quantizer<EA> {
     pub fn new<G: GlobalConfig>(quantization: Quantization, #[comptime] config: G) -> Self {
-        let row = config.stage_tiling(Ident::Lhs).total_row();
-        let col = config.stage_tiling(Ident::Rhs).total_col();
+        let row = config.tiling_dimensions(Ident::Lhs).total_row();
+        let col = config.tiling_dimensions(Ident::Rhs).total_col();
         let unit_count = config.num_planes() * config.plane_dim();
 
         let mut lhs_sums = SharedMemory::new(row);
@@ -98,7 +98,7 @@ impl<EA: Numeric> Quantizer<EA> {
         slice: &mut SliceMut<Line<EA>>,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(Ident::Out);
+        let tiling = config.tiling_dimensions(Ident::Out);
 
         let shape_col = tiling.tile_shape_col();
 

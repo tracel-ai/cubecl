@@ -4,7 +4,7 @@ use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, StageTiling,
+    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
 };
 use crate::matmul::components::{
     InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -133,8 +133,8 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         let cubes_y = config.cube_count_y();
         let cubes_z = config.cube_count_batch();
 
-        let stage_x = config.stage_tiling(Ident::Out).total_row();
-        let stage_y = config.stage_tiling(Ident::Out).total_col();
+        let stage_x = config.tiling_dimensions(Ident::Out).total_row();
+        let stage_y = config.tiling_dimensions(Ident::Out).total_col();
         let stage_z = 1;
 
         let (x_index, y_index) = C::x_y_indices();
@@ -170,8 +170,8 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
         self.gmm_config
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.gmm_config.stage_tiling(ident)
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        self.gmm_config.tiling_dimensions(ident)
     }
 
     fn max_m(&self) -> u32 {

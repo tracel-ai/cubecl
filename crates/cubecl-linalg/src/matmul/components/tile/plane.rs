@@ -9,6 +9,8 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
 use tile::{TileConfig, TileMatmul, TileMatmulFamily};
 
+use super::Tile;
+
 /// PlaneMMA instruction uses plane cooperation but does not rely on tensor cores
 ///
 /// # Note
@@ -79,21 +81,23 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         Array::new(config.size.k * config.size.n / config.plane_dim())
     }
 
-    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
-        match config.layout(Ident::Lhs) {
+    fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+        match config.matrix_layout(Ident::Lhs) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
-                slice,
+                &tile.slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
+                tile.stride,
                 config.size.m,
                 config.size.k,
                 config.line_size(Ident::Lhs),
                 config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_perpendicular_lhs(
-                slice,
+                &tile.slice,
                 &mut lhs.to_slice_mut(),
                 UNIT_POS_X,
+                tile.stride,
                 config.size.m,
                 config.size.k,
                 config.line_size(Ident::Lhs),
@@ -102,21 +106,23 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
-        match comptime!(config.layout(Ident::Rhs)) {
+    fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+        match comptime!(config.matrix_layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
-                slice,
+                &tile.slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
+                tile.stride,
                 config.size.n,
                 config.size.k,
                 config.line_size(Ident::Rhs),
                 config.plane_dim(),
             ),
             MatrixLayout::ColMajor => fill_parallel_rhs(
-                slice,
+                &tile.slice,
                 &mut rhs.to_slice_mut(),
                 UNIT_POS_X,
+                tile.stride,
                 config.size.n,
                 config.size.k,
                 config.line_size(Ident::Rhs),
@@ -125,12 +131,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_accumulator(
-        slice: &Slice<Line<O>>,
-        acc: &mut Self::Accumulator,
-        stride: u32,
-        #[comptime] config: Config,
-    ) {
+    fn fill_accumulator(tile: &Tile<O>, acc: &mut Self::Accumulator, #[comptime] config: Config) {
         let unit = UNIT_POS_X;
         let n = config.size.n;
         let line_size = config.line_size(Ident::Out);
@@ -139,7 +140,6 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         let m_row_alt = unit / n;
         let col = unit % n;
 
-        let num_lines = stride / line_size;
         let col_idx = col / line_size;
         let line_idx = col % line_size;
 
@@ -148,8 +148,8 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         #[unroll]
         for m_iter in 0..config.size.m / row_jump {
             let m_row = row_jump * m_iter + m_row_alt;
-            let offset = m_row * num_lines + col_idx;
-            let line = slice[offset];
+            let offset = m_row * tile.stride + col_idx;
+            let line = tile.slice[offset];
 
             acc[m_iter] = if comptime!(line_size == 1) {
                 O::cast_from(line)
@@ -235,6 +235,7 @@ fn fill_parallel_lhs<E: Numeric>(
     slice_from: &Slice<Line<E>>,
     slice_to: &mut SliceMut<E>,
     unit: u32,
+    stride: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
     #[comptime] line_size: u32,
@@ -245,7 +246,7 @@ fn fill_parallel_lhs<E: Numeric>(
 
     #[unroll]
     for col in 0..num_lines {
-        let line = slice_from[row * num_lines + col];
+        let line = slice_from[row * stride + col];
         if comptime!(line_size == 1) {
             slice_to[col * line_size] = E::cast_from(line);
         } else {
@@ -262,12 +263,12 @@ fn fill_perpendicular_lhs<E: Numeric>(
     slice_from: &Slice<Line<E>>,
     slice_to: &mut SliceMut<E>,
     unit: u32,
+    stride: u32,
     #[comptime] m: u32,
     #[comptime] k: u32,
     #[comptime] line_size: u32,
     #[comptime] plane_dim: u32,
 ) {
-    let num_lines = m / line_size;
     let row = unit * m / plane_dim;
 
     let row_idx = row / line_size;
@@ -275,7 +276,7 @@ fn fill_perpendicular_lhs<E: Numeric>(
 
     #[unroll]
     for col in 0..k {
-        let line = slice_from[row_idx + col * num_lines];
+        let line = slice_from[row_idx + col * stride];
         slice_to[col] = if comptime!(line_size == 1) {
             E::cast_from(line)
         } else {
@@ -289,6 +290,7 @@ fn fill_perpendicular_rhs<E: Numeric>(
     slice_from: &Slice<Line<E>>,
     slice_to: &mut SliceMut<E>,
     unit: u32,
+    stride: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
     #[comptime] line_size: u32,
@@ -297,7 +299,6 @@ fn fill_perpendicular_rhs<E: Numeric>(
     let k_row_alt = unit / n;
     let col = unit % n;
 
-    let num_lines = n / line_size;
     let col_idx = col / line_size;
     let line_idx = col % line_size;
 
@@ -306,7 +307,7 @@ fn fill_perpendicular_rhs<E: Numeric>(
     #[unroll]
     for k_iter in 0..k / row_jump {
         let k_row = row_jump * k_iter + k_row_alt;
-        let offset = k_row * num_lines + col_idx;
+        let offset = k_row * stride + col_idx;
         let line = slice_from[offset];
 
         slice_to[k_iter] = if comptime!(line_size == 1) {
@@ -322,6 +323,7 @@ fn fill_parallel_rhs<E: Numeric>(
     slice_from: &Slice<Line<E>>,
     slice_to: &mut SliceMut<E>,
     unit: u32,
+    stride: u32,
     #[comptime] n: u32,
     #[comptime] k: u32,
     #[comptime] line_size: u32,
@@ -330,7 +332,7 @@ fn fill_parallel_rhs<E: Numeric>(
     let k_row_alt = unit / n;
     let col = unit % n;
     let row_jump = plane_dim / n;
-    let col_offset = col * k / line_size;
+    let col_offset = col * stride;
 
     #[unroll]
     for k_iter in 0..k / row_jump {
@@ -433,7 +435,7 @@ impl TileConfig for Config {
         self.plane_dim
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
         match ident {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,

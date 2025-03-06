@@ -12,7 +12,7 @@ pub struct BufferLoading {}
 
 impl LoadingValidation for BufferLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_stage_elements = tiling.total_size();
@@ -46,7 +46,7 @@ impl BufferLoading {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_buffer_elements = tiling.buffer_size(ident.as_input());

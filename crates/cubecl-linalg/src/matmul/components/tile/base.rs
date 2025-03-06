@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, Ident, MatmulConfigFactory, MatmulSize, MatrixLayout,
+    config::MatmulConfig, Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout,
 };
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
@@ -59,16 +59,15 @@ pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Slice<Line<I>>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs(slice: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Fill the container of RHS with data
-    fn fill_rhs(slice: &Slice<Line<I>>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs(slice: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
     fn fill_accumulator(
-        slice: &Slice<Line<O>>,
+        tile: &Tile<O>,
         acc: &mut Self::Accumulator,
-        stride: u32,
         #[comptime] config: Self::Config,
     );
 
@@ -99,11 +98,58 @@ pub trait TileConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
 
     /// Returns the line size for the given ident
     fn line_size(&self, ident: Ident) -> u32;
 
     /// Returns the shape of the tiles in the three axes m, k and n.
     fn tile_shape(&self) -> &MatmulSize;
+}
+
+#[derive(CubeType)]
+/// Data to be handed to the tile matmul
+pub struct Tile<ES: Numeric> {
+    /// Slice containing all data
+    pub slice: Slice<Line<ES>>,
+    /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
+    pub stride: u32,
+}
+
+#[cube]
+impl<ES: Numeric> Tile<ES> {
+    pub fn new_contiguous<T: TileConfig>(
+        slice: Slice<Line<ES>>,
+        #[comptime] ident: Ident,
+        #[comptime] config: T,
+    ) -> Tile<ES> {
+        let stride = comptime! {
+            (match ident.as_input() {
+            InputIdent::Lhs => match config.matrix_layout(ident) {
+                MatrixLayout::RowMajor => config.tile_shape().k,
+                MatrixLayout::ColMajor => config.tile_shape().m,
+            },
+            InputIdent::Rhs => match config.matrix_layout(ident) {
+                MatrixLayout::RowMajor => config.tile_shape().n,
+                MatrixLayout::ColMajor => config.tile_shape().k,
+            },
+        }) / config.line_size(ident)};
+
+        Tile::<ES> { slice, stride }
+    }
+
+    pub fn new_strided(slice: Slice<Line<ES>>, stride: u32) -> Tile<ES> {
+        Tile::<ES> { slice, stride }
+    }
+
+    pub fn as_unlined<T: TileConfig>(
+        &self,
+        #[comptime] ident: Ident,
+        #[comptime] config: T,
+    ) -> (Slice<ES>, u32) {
+        (
+            self.slice.try_cast_unchecked(),
+            self.stride * config.line_size(ident),
+        )
+    }
 }

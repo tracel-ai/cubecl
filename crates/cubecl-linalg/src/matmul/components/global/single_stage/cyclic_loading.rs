@@ -1,71 +1,88 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadMode, LoadingValidation};
-use crate::matmul::components::stage::TilingLayout;
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use pipeline::Pipeline;
 
-use super::loader::LoadingStrategy;
+use super::loader::{AsyncLoadingStrategy, SyncLoadingStrategy};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicLoading {}
+pub struct CyclicCoalescedLoading<T: TilingOrder> {
+    tiling_order: PhantomData<T>,
+}
 
-impl LoadingValidation for CyclicLoading {
+#[derive(CubeType, Clone, Copy)]
+/// Loads the content of all tiles in the tensor view using all planes,
+/// iterating with steps determined by the plane's dimension.
+pub struct CyclicWindowLoading<T: TilingOrder> {
+    tiling_order: PhantomData<T>,
+}
+
+impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
-        match config.load_mode() {
-            LoadMode::Coalesced => {
-                if num_stage_lines % total_units != 0 {
-                    return Err(Box::new(
-                "Too many data will be loaded, resulting in out of bounds. 
+        if num_stage_lines % total_units != 0 {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out of bounds.
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
-                }
-                if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
-                    return Err(Box::new(
-                        "Line size for stage is not supported when transposing",
-                    ));
-                }
-            }
-            LoadMode::Window => {
-                let num_slices = tiling.tile_shape_row() * tiling.tile_count();
-                if num_slices >= total_units && num_slices % total_units != 0 {
-                    return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
-                }
-                if config.transpose_load(ident) {
-                    return Err(Box::new(
-                        "Transpose load is not supported with window load mode",
-                    ));
-                }
-            }
-        };
+        }
+        if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
+            return Err(Box::new(
+                "Line size for stage is not supported when transposing",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let tiling = config.tiling_dimensions(ident);
+        let total_units = config.num_planes() * config.plane_dim();
+
+        let num_slices = tiling.tile_shape_row() * tiling.tile_count();
+        if num_slices >= total_units && num_slices % total_units != 0 {
+            return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+        }
+        if config.transpose_load(ident) {
+            return Err(Box::new(
+                "Transpose load is not supported with window load mode",
+            ));
+        }
 
         Ok(())
     }
 }
 
 #[cube]
-impl LoadingStrategy for CyclicLoading {
-    fn load_window<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
+    type TilingLayout = ContiguousTilingLayout<T>;
+
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice_destination: &mut SliceMut<Line<ES>>,
         pipeline: Pipeline<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.stage_tiling(ident);
+        let stage_dim = config.tiling_dimensions(ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.layout(ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (
                 stage_dim.tile_shape_row(),
                 stage_dim.tile_shape_col() / line_size,
@@ -86,17 +103,17 @@ impl LoadingStrategy for CyclicLoading {
             let slice_index = unit_id + total_units * i;
 
             let nth_tile = slice_index / num_slices_per_tile;
-            let (tile_x, tile_y) = TilingLayout::to_x_y(
-                config.tiling_layout(ident),
+            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
-                stage_dim.tile_count_row(),
-                stage_dim.tile_count_col(),
+                ident,
+                config.to_smm_config(),
             );
             let nth_slice = slice_index % num_slices_per_tile;
 
             // TODO make branching comptime conditional
             if slice_index < num_slices {
-                let window = read_view.load_window::<G>(tile_x, tile_y, nth_slice, ident, config);
+                let window =
+                    read_view.load_window_in_tile::<G>((tile_x, tile_y), nth_slice, ident, config);
 
                 // Where this unit writes source in the stage
                 let slice_destination_offset =
@@ -116,14 +133,19 @@ impl LoadingStrategy for CyclicLoading {
             }
         }
     }
+}
 
-    fn load_to_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+#[cube]
+impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
+    type TilingLayout = ContiguousTilingLayout<T>;
+
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let tiling = config.stage_tiling(ident);
+        let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
         let num_stage_elements = tiling.total_size();
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
@@ -139,11 +161,10 @@ impl LoadingStrategy for CyclicLoading {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = TilingLayout::to_x_y(
-                config.tiling_layout(ident),
+            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
-                tiling.tile_count_row(),
-                tiling.tile_count_col(),
+                ident,
+                config.to_smm_config(),
             );
 
             let line_read =
@@ -156,10 +177,10 @@ impl LoadingStrategy for CyclicLoading {
                 true => {
                     let tile_offset = nth_tile * tile_num_elements;
 
-                    let tile_shape_x = config.stage_tiling(ident).tile_shape_row();
-                    let tile_shape_y = config.stage_tiling(ident).tile_shape_col();
+                    let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
+                    let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
 
-                    let (height, width) = match config.layout(ident) {
+                    let (height, width) = match config.matrix_layout(ident) {
                         MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),
                         MatrixLayout::ColMajor => (tile_shape_y, tile_shape_x),
                     };

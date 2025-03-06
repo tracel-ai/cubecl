@@ -1,9 +1,9 @@
 use crate::matmul::components::{
-    tile::TileConfig, CompleteStageTiling, Ident, InputIdent, MatmulConfig, MatmulSize,
-    MatrixLayout, StageTiling,
+    tile::TileConfig, CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout,
+    TilingDimensions,
 };
 
-use super::{StageConfig, TilingLayout};
+use super::StageConfig;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
@@ -11,8 +11,6 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tmm_config: T,
     pub tiling: CompleteStageTiling,
     pub num_planes: u32,
-    pub lhs_tiling_layout: TilingLayout,
-    pub rhs_tiling_layout: TilingLayout,
     pub quantized: bool,
 }
 
@@ -27,12 +25,12 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         self.tmm_config.line_size(ident)
     }
 
-    fn tiling(&self, ident: Ident) -> StageTiling {
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
         self.tiling.get(ident)
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
-        self.tmm_config.layout(ident)
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
+        self.tmm_config.matrix_layout(ident)
     }
 
     fn num_planes(&self) -> u32 {
@@ -41,13 +39,6 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
 
     fn plane_dim(&self) -> u32 {
         self.tmm_config.plane_dim()
-    }
-
-    fn tiling_layout(&self, ident: Ident) -> TilingLayout {
-        match ident.as_input() {
-            InputIdent::Lhs => self.lhs_tiling_layout,
-            InputIdent::Rhs => self.rhs_tiling_layout,
-        }
     }
 
     fn tile_count(&self) -> &MatmulSize {
@@ -63,16 +54,12 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tmm_config: T,
         tiling: CompleteStageTiling,
         num_planes: u32,
-        lhs_tiling_layout: TilingLayout,
-        rhs_tiling_layout: TilingLayout,
         quantized: bool,
     ) -> Self {
         Self {
             tmm_config,
             tiling,
             num_planes,
-            lhs_tiling_layout,
-            rhs_tiling_layout,
             quantized,
         }
     }

@@ -52,6 +52,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub body: Body<D>,
     pub wmma_activated: bool,
     pub pipeline: bool,
+    pub barrier: bool,
     pub bf16: bool,
     pub f16: bool,
     pub fast_math: bool,
@@ -90,6 +91,10 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         if self.pipeline {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
+        }
+        if self.barrier {
+            f.write_str("#include <cooperative_groups.h>\n")?;
+            f.write_str("#include <cuda/barrier>\n")?;
         }
 
         f.write_str("typedef unsigned char uint8;\n")?;

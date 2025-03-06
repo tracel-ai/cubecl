@@ -2,7 +2,7 @@ use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
+use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
 
 use super::{
     processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
@@ -25,6 +25,7 @@ pub struct Scope {
     pub locals: Vec<Variable>,
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
+    barriers: Vec<Variable>,
     slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
@@ -59,6 +60,7 @@ impl core::hash::Hash for Scope {
         self.locals.hash(ra_expand_state);
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
+        self.barriers.hash(ra_expand_state);
         self.slices.hash(ra_expand_state);
         self.shared_memories.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
@@ -94,6 +96,7 @@ impl Scope {
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
+            barriers: Vec::new(),
             slices: Vec::new(),
             local_arrays: Vec::new(),
             shared_memories: Vec::new(),
@@ -133,8 +136,19 @@ impl Scope {
         pipeline
     }
 
+    /// Create a new barrier element.
+    pub fn create_barrier(&mut self, item: Item, level: BarrierLevel) -> ExpandElement {
+        let barrier = self.allocator.create_barrier(item, level);
+        self.add_barrier(*barrier);
+        barrier
+    }
+
     pub fn add_pipeline(&mut self, variable: Variable) {
         self.pipelines.push(variable);
+    }
+
+    pub fn add_barrier(&mut self, variable: Variable) {
+        self.barriers.push(variable);
     }
 
     /// Create a new slice element.
@@ -282,6 +296,7 @@ impl Scope {
             locals: Vec::new(),
             matrices: Vec::new(),
             pipelines: Vec::new(),
+            barriers: Vec::new(),
             slices: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),

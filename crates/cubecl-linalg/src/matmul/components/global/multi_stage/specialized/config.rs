@@ -1,7 +1,7 @@
 use crate::matmul::components::{
-    global::{self, GlobalConfig, LoadMode},
-    stage::{self, TilingLayout},
-    Ident, MatmulConfig, MatmulSize, MatrixLayout, StageTiling,
+    global::{self, GlobalConfig},
+    stage::{self},
+    Ident, MatmulConfig, MatrixLayout, TilingDimensions, MatmulSize,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,7 +17,6 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     num_planes: u32,
-    load_mode: LoadMode,
     shape: MatmulSize,
 }
 
@@ -40,15 +39,15 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.line_size(ident)
     }
 
-    fn stage_tiling(&self, ident: Ident) -> StageTiling {
-        self.smm_config.tiling(ident)
+    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        self.smm_config.tiling_dimensions(ident)
     }
 
-    fn layout(&self, ident: Ident) -> MatrixLayout {
+    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
         match ident {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
-            Ident::Out => self.smm_config.layout(Ident::Out),
+            Ident::Out => self.smm_config.matrix_layout(Ident::Out),
         }
     }
 
@@ -58,10 +57,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
 
     fn plane_dim(&self) -> u32 {
         self.smm_config.plane_dim()
-    }
-
-    fn tiling_layout(&self, ident: Ident) -> TilingLayout {
-        self.smm_config.tiling_layout(ident)
     }
 
     fn check_row_bounds(&self, ident: Ident) -> bool {
@@ -81,11 +76,7 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     }
 
     fn transpose_load(&self, ident: Ident) -> bool {
-        self.layout(ident) != self.smm_config.layout(ident)
-    }
-
-    fn load_mode(&self) -> LoadMode {
-        self.load_mode
+        self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
 
     fn shape(&self) -> MatmulSize {
@@ -108,7 +99,6 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
-        load_mode: LoadMode,
         shape: MatmulSize,
     ) -> Self {
         Self {
@@ -122,7 +112,6 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
-            load_mode,
             shape,
         }
     }

@@ -3,23 +3,18 @@ use std::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::output_loader::Quantizer;
-use crate::matmul::components::global::AccumulatorLoader;
-use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily};
-use crate::matmul::components::tile::TileMatmulFamily;
-use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
-    MatrixLayout,
-};
-use crate::matmul::kernels::MatmulAvailabilityError;
 use crate::matmul::{
     components::{
-        global,
-        stage::{StageConfig as _, StageWriter},
-        tile, Ident, MatmulProblem,
+        global::{self, output_loader::Quantizer, AccumulatorLoader},
+        stage::{
+            shared::CommonStageConfig, StageConfig, StageMatmul, StageMatmulFamily, StageWriter,
+            TilingLayout,
+        },
+        tile::{self, TileMatmulFamily},
+        CompleteStageTiling, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
+        MatmulProblem, MatmulSize, MatrixLayout,
     },
-    kernels::matmul::AdvancedConfig,
+    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
 
 use super::reader::{LhsReader, RhsReader};
@@ -40,8 +35,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric> =
-        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>>;
+    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
+        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
@@ -50,7 +45,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         check_num_planes(
-            config.tiling(Ident::Lhs).tile_count_row(),
+            config.tiling_dimensions(Ident::Lhs).tile_count_row(),
             config.num_planes(),
         )?;
         TMM::check_config(&config.to_tmm_config())
@@ -88,14 +83,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             tile_count,
         };
 
-        CommonStageConfig::new(
-            tmm_config,
-            tiling,
-            cube_dim.y,
-            advanced_config.lhs_tiling_layout,
-            advanced_config.rhs_tiling_layout,
-            quantized,
-        )
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized)
     }
 }
 
@@ -105,33 +93,44 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct MultiBufferMatmul<I: Numeric, O: Numeric, EA: Numeric, TMM: tile::TileMatmul<I, EA>> {
+pub struct MultiBufferMatmul<
+    I: Numeric,
+    O: Numeric,
+    EA: Numeric,
+    TMM: tile::TileMatmul<I, EA>,
+    TL: TilingLayout,
+    TR: TilingLayout,
+> {
     _input_precision: PhantomData<I>,
     _output_precision: PhantomData<O>,
     _accumulator_precision: PhantomData<EA>,
     _instruction: PhantomData<TMM>,
+    _tiling_layout_lhs: PhantomData<TL>,
+    _tiling_layout_rhs: PhantomData<TR>,
 }
 
 #[cube]
-impl<I, O, Acc, TMM> StageMatmul<I, O, Acc> for MultiBufferMatmul<I, O, Acc, TMM>
+impl<I, O, Acc, TMM, TL, TR> StageMatmul<I, O, Acc> for MultiBufferMatmul<I, O, Acc, TMM, TL, TR>
 where
     I: Numeric,
     O: Numeric,
     Acc: Numeric,
     TMM: tile::TileMatmul<I, Acc>,
+    TL: TilingLayout,
+    TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
-    type LhsReader = LhsReader<I>;
-    type RhsReader = RhsReader<I>;
+    type LhsReader = LhsReader<I, TL>;
+    type RhsReader = RhsReader<I, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
     #[allow(clippy::single_match)]
     fn execute(
-        lhs_reader: &LhsReader<I>,
-        rhs_reader: &RhsReader<I>,
+        lhs_reader: &LhsReader<I, TL>,
+        rhs_reader: &RhsReader<I, TR>,
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
@@ -213,13 +212,31 @@ where
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
-        let num_tile_lines = stage_config.tiling(Ident::Out).tile_size() / out_smem_line_size;
+        let num_tile_lines =
+            stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
+                                      // <O>
         let mut out_smem = SharedMemory::<Acc>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
+
+        // i32 -> matmul - sum_row - sum_col + offset
+        // 
+        // TODO replace out_smem with the above snippet.
+        //      also fix enum with #[derive(CubeType)].
+        // let mut out_smem: Either<Acc, O> = if comptime!(quantizer.is_some()) {
+        //     Either::Left(SharedMemory::<Acc>::new_lined(
+        //         num_tile_lines * stage_config.num_planes(),
+        //         out_smem_line_size,
+        //     ))
+        // } else {
+        //     Either::Right(SharedMemory::<O>::new_lined(
+        //         num_tile_lines * stage_config.num_planes(),
+        //         out_smem_line_size,
+        //     ))
+        // };
 
         #[unroll]
         for accumulator_iter in 0..acc.len() {
@@ -288,12 +305,12 @@ fn sum_lhs_rows<In: Numeric, Acc: Numeric, Config: StageConfig>(
     sums: &mut SliceMut<Acc>,
     #[comptime] config: Config,
 ) {
-    let tiling = config.tiling(Ident::Lhs);
+    let tiling = config.tiling_dimensions(Ident::Lhs);
     let num_rows = tiling.tile_shape_row();
     let num_cols = tiling.tile_shape_col();
     let line_size = config.line_size(Ident::Lhs);
 
-    match comptime!(config.layout(Ident::Lhs)) {
+    match comptime!(config.matrix_layout(Ident::Lhs)) {
         MatrixLayout::RowMajor => {
             let num_sums_per_unit = div_ceil(num_rows, config.plane_dim());
             for k in 0..num_sums_per_unit {
@@ -333,12 +350,12 @@ fn sum_rhs_cols<In: Numeric, Acc: Numeric, Config: StageConfig>(
     sums: &mut SliceMut<Acc>,
     #[comptime] config: Config,
 ) {
-    let tiling = config.tiling(Ident::Lhs);
+    let tiling = config.tiling_dimensions(Ident::Lhs);
     let num_rows = tiling.tile_shape_row();
     let num_cols = tiling.tile_shape_col();
     let line_size = config.line_size(Ident::Lhs);
 
-    match comptime!(config.layout(Ident::Lhs)) {
+    match comptime!(config.matrix_layout(Ident::Lhs)) {
         MatrixLayout::RowMajor => {
             let num_sums_per_unit = div_ceil(num_rows, config.plane_dim());
             for k in 0..num_sums_per_unit {
@@ -412,3 +429,4 @@ fn sum_range_perpendicular<In: Numeric, Acc: Numeric>(
 fn div_ceil(a: u32, b: u32) -> u32 {
     (a + b - 1) / b
 }
+

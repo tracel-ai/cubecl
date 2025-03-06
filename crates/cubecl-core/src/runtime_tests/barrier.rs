@@ -1,25 +1,65 @@
-use crate::{self as cubecl, as_bytes, Feature};
+use crate::{self as cubecl, as_bytes, prelude::barrier::BarrierLevel, Feature};
+use barrier::Barrier;
 use cubecl::prelude::*;
-use pipeline::Pipeline;
+
+#[cube(launch)]
+pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
+    let barrier = Barrier::<F>::new(BarrierLevel::unit());
+    let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
+
+    let source = input.slice(2, 3);
+    let destination = smem.slice_mut(0, 1);
+
+    barrier.memcpy_async(source, destination);
+
+    barrier.wait();
+    output[0] = smem[0];
+}
+
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) {
+    if !client.properties().feature_enabled(Feature::Barrier) {
+        // We can't execute the test, skip.
+        return;
+    }
+
+    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let output = client.empty(core::mem::size_of::<F>());
+
+    unsafe {
+        async_copy_test::launch::<F, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&input, 5, 1),
+            ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+        )
+    };
+
+    let actual = client.read_one(output.binding());
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual[0], F::new(2.0));
+}
 
 #[cube(launch)]
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let pipeline = Pipeline::new(1);
+    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
+    sync_units();
+
+    // Can't use lhs.to_slice() because then generated input_length will not exist
+    barrier.memcpy_async(lhs.slice(0u32, 4u32), lhs_smem.to_slice_mut());
+
+    barrier.wait();
 
     let start = UNIT_POS_X * 2u32;
     let end = start + 2u32;
-
-    pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    pipeline.producer_commit();
-
-    pipeline.consumer_wait();
     for i in start..end {
         output[i] = lhs_smem[i];
     }
-    pipeline.consumer_release();
 }
 
 #[cube(launch)]
@@ -32,22 +72,20 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let pipeline = Pipeline::new(1);
+    let barrier = Barrier::<F>::new(BarrierLevel::cube(0u32));
+    sync_units();
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;
 
-    pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
-    pipeline.producer_commit();
+    barrier.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    barrier.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
 
-    pipeline.consumer_wait();
+    barrier.wait();
     let mut dot = Line::cast_from(0u32);
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
     }
-    pipeline.consumer_release();
 
     output[UNIT_POS_X] = dot;
 }
@@ -62,7 +100,11 @@ fn two_independant_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let pipeline = Pipeline::new(2);
+    let barrier_0 = barrier::Barrier::new(BarrierLevel::cube(0u32));
+    let barrier_1 = barrier::Barrier::new(BarrierLevel::cube(0u32));
+    // At the Cube level, we must sync after barrier creation to make sure they
+    // exist for all units
+    sync_units();
 
     let start = UNIT_POS_X * num_data / 2;
     let end = start + num_data / 2;
@@ -73,25 +115,16 @@ fn two_independant_loads<F: Float>(
         output[i] = Line::cast_from(0u32);
     }
 
-    pipeline.producer_acquire();
-    pipeline.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    pipeline.producer_commit();
-
-    pipeline.producer_acquire();
-    pipeline.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
-    pipeline.producer_commit();
+    barrier_0.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
+    barrier_1.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
 
     let mut dot = Line::cast_from(0u32);
 
-    pipeline.consumer_wait();
-    pipeline.consumer_wait();
-    pipeline.consumer_wait();
+    barrier_0.wait();
+    barrier_1.wait();
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
     }
-    pipeline.consumer_release();
-    pipeline.consumer_release();
-    pipeline.consumer_release();
 
     output[UNIT_POS_X] = dot;
 }
@@ -99,7 +132,7 @@ fn two_independant_loads<F: Float>(
 pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    if !client.properties().feature_enabled(Feature::Pipeline) {
+    if !client.properties().feature_enabled(Feature::Barrier) {
         // We can't execute the test, skip.
         return;
     }
@@ -128,7 +161,7 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independant: bool,
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    if !client.properties().feature_enabled(Feature::Pipeline) {
+    if !client.properties().feature_enabled(Feature::Barrier) {
         // We can't execute the test, skip.
         return;
     }
@@ -189,33 +222,37 @@ fn dot<F: Float>(vec1: &[F], vec2: &[F]) -> F {
 
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! testgen_memcpy_async {
+macro_rules! testgen_barrier {
     () => {
         use super::*;
 
         #[test]
-        fn test_memcpy_async_one_load() {
+        fn test_barrier_async_copy() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::memcpy_async::test_memcpy_one_load::<TestRuntime, FloatType>(
+            cubecl_core::runtime_tests::barrier::test_async_copy::<TestRuntime, FloatType>(client);
+        }
+
+        #[test]
+        fn test_barrier_memcpy_async_one_load() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::barrier::test_memcpy_one_load::<TestRuntime, FloatType>(
                 client,
             );
         }
 
         #[test]
-        fn test_memcpy_async_two_loads() {
+        fn test_barrier_memcpy_async_two_loads() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::memcpy_async::test_memcpy_two_loads::<TestRuntime, FloatType>(
-                false,
-                client,
+            cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(
+                false, client,
             );
         }
 
         #[test]
-        fn test_memcpy_async_two_independant_loads() {
+        fn test_barrier_memcpy_async_two_independant_loads() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::memcpy_async::test_memcpy_two_loads::<TestRuntime, FloatType>(
-                true,
-                client,
+            cubecl_core::runtime_tests::barrier::test_memcpy_two_loads::<TestRuntime, FloatType>(
+                true, client,
             );
         }
     };

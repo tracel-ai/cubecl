@@ -75,6 +75,7 @@ pub struct Quantization {
     scaling_multiplier: i64,
     scaling_rounding: i64,
     scaling_shift: i64,
+    // TODO consider adding k shape here.
 }
 
 #[cube]
