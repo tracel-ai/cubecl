@@ -73,7 +73,7 @@ impl<ES: Numeric> StageViewExpand<ES> {
 
     pub fn stage_dim<S: StageConfig>(&self, ident: Ident, config: S) -> TilingDimensions {
         match self {
-            StageViewExpand::Full(_) => todo!(),
+            StageViewExpand::Full(_) => config.tiling_dimensions(ident),
             StageViewExpand::Buffer(_) => todo!(),
         }
     }
