@@ -18,12 +18,6 @@ pub struct MaximizeUnitCountLoading {}
 
 impl LoadingValidation for MaximizeUnitCountLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
-            return Err(Box::new(
-                "Check bounds are not yet supported on window loading.",
-            ));
-        }
-
         if config.transpose_load(ident) {
             return Err(Box::new(
                 "Transpose load is not supported with window loading.",
@@ -90,11 +84,7 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
         let unit_count = config.plane_dim() * config.num_planes();
 
         let units_per_slice = unit_count / num_slices;
-        let segment_length = slice_length / units_per_slice;
         let nth_slice = UNIT_POS / units_per_slice;
-        let nth_segment = UNIT_POS % units_per_slice;
-        let seg_start = nth_segment * segment_length;
-        let seg_end = seg_start + segment_length;
 
         let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
@@ -103,6 +93,12 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
             ident,
             config.to_smm_config(),
         );
+
+        let segment_length = slice_length / units_per_slice;
+        let nth_segment = UNIT_POS % units_per_slice;
+
+        let seg_start = Min::min(nth_segment * segment_length, window.size);
+        let seg_end = Min::min((nth_segment + 1) * segment_length, window.size);
 
         let src_segment = window.slice.slice(seg_start, seg_end);
         let mut dest_segment = destination.slice_mut(seg_start, seg_end);

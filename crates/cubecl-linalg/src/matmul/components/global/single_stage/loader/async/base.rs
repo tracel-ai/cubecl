@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::{single_stage, AsyncInputLoader, InputLoader};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{global, Ident};
@@ -28,39 +28,6 @@ impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
 impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
     fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
         this.memcpy_async(source, destination)
-    }
-}
-
-#[derive(CubeType, Copy, Clone)]
-pub struct DummyLoader<ES: Numeric> {
-    _e: PhantomData<ES>,
-}
-
-impl<ES: Numeric> Default for DummyLoader<ES> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cube]
-impl<ES: Numeric> DummyLoader<ES> {
-    pub fn new() -> Self {
-        DummyLoader::<ES> {
-            _e: PhantomData::<ES>.runtime(),
-        }
-    }
-}
-
-#[cube]
-impl<ES: Numeric> CopyMechanism<ES> for DummyLoader<ES> {
-    fn memcpy_async(
-        _mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    ) {
-        for i in 0..source.len() {
-            destination[i] = source[i];
-        }
     }
 }
 
@@ -129,6 +96,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    }
 }
 
 #[cube]
@@ -142,7 +113,17 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let mut stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+
+        #[allow(clippy::collapsible_if)]
+        if config.check_row_bounds(Ident::Lhs) {
+            if x_offset
+                > tensor.shape(tensor.rank() - 2) - config.tiling_dimensions(Ident::Lhs).total_row()
+            {
+                stage.clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+            }
+        }
+
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         AsyncLhsLoader::<EG, ES, S, L> {
@@ -166,6 +147,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
+    }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 
@@ -199,7 +184,17 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let mut stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+
+        #[allow(clippy::collapsible_if)]
+        if config.check_row_bounds(Ident::Lhs) {
+            if y_offset
+                > tensor.shape(tensor.rank() - 1) - config.tiling_dimensions(Ident::Rhs).total_col()
+            {
+                stage.clear::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+            }
+        }
+
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         AsyncRhsLoader::<EG, ES, S, L> {

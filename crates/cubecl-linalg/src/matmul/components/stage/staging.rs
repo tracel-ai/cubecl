@@ -51,4 +51,28 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     pub fn as_slice_mut(&mut self) -> SliceMut<Line<ES>> {
         self.smem.to_slice_mut()
     }
+
+    pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: Ident, #[comptime] config: S) {
+        // TODO: this assumes the stage was created with new
+        let smem_length =
+            comptime!(config.tiling_dimensions(ident).total_size() / config.line_size(ident));
+
+        let unit_count = config.num_planes() * config.plane_dim();
+        let num_writes_per_unit = smem_length.div_ceil(unit_count);
+
+        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+
+        for i in 0..num_writes_per_unit {
+            let offset = unit_base_position + i * unit_count;
+
+            #[allow(clippy::collapsible_else_if)]
+            if comptime!(smem_length % unit_count == 0) {
+                self.smem[offset] = Line::cast_from(0);
+            } else {
+                if offset < smem_length {
+                    self.smem[offset] = Line::cast_from(0);
+                }
+            }
+        }
+    }
 }

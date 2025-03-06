@@ -106,6 +106,9 @@ pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
+
+    /// Fills the stage with zeros
+    fn clear_stage(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
@@ -190,6 +193,9 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col would exceed bounds.
     fn check_col_bounds(&self, ident: Ident) -> bool;
+
+    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
+    fn check_k_bounds(&self) -> bool;
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;

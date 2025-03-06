@@ -19,12 +19,6 @@ pub struct CyclicWindowLoading<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.check_row_bounds(ident) || config.check_col_bounds(ident) {
-            return Err(Box::new(
-                "Check bounds are not yet supported on window loading.",
-            ));
-        }
-
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
 

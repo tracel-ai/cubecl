@@ -46,6 +46,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
         this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
+        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    }
 }
 
 #[cube]
@@ -103,6 +107,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Rhs);
+    }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
+        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 
