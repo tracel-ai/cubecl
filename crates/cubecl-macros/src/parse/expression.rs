@@ -67,14 +67,12 @@ impl Expression {
             Expr::Path(path) => {
                 let name = path.path.get_ident();
                 if let Some(var) = name.and_then(|ident| context.variable(ident)) {
-                    // panic!("HELLO NATH {var:?};");
                     if var.is_keyword {
                         Expression::Keyword { name: var.name }
                     } else {
                         Expression::Variable(var)
                     }
                 } else {
-                    // panic!("NAME  {name:?}\n CONTEXT {context:?}");
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
                     Expression::Path { path: path.path }

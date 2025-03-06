@@ -572,7 +572,6 @@ impl MatchArm {
             Pat::Wild(_) => {}
             _ => {
                 panic!("unsupported pattern in match");
-                // panic!("{pat:?}");
                 // NOTE: From the documentation https://docs.rs/syn/latest/syn/enum.Pat.html
                 //       I don't think we should support any other patterns.
                 //       Users can always use a big if, else if, else pattern instead.

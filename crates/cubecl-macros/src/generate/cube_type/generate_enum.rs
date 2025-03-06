@@ -379,7 +379,6 @@ impl CubeTypeEnum {
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
 
-        // let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let branches_expand = self
