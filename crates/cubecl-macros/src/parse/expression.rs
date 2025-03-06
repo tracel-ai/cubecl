@@ -32,7 +32,6 @@ impl Expression {
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
-                    // panic!("left -> {left:?}");
                     Expression::Verbatim {
                         tokens: quote![#expr],
                     }
