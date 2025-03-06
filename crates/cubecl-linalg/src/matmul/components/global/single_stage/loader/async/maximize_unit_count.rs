@@ -86,7 +86,7 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
         let units_per_slice = unit_count / num_slices;
         let nth_slice = UNIT_POS / units_per_slice;
 
-        let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
+        let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
             stage_slice,
             nth_slice,
