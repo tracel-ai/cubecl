@@ -1,5 +1,2 @@
-mod r#async;
-mod sync;
-
-pub use r#async::*;
-pub use sync::*;
+pub mod r#async;
+pub mod sync;

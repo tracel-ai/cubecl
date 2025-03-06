@@ -7,39 +7,27 @@ use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
-use cubecl_core::prelude::barrier::Barrier;
+use cubecl_core::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-pub trait CopyMechanism<ES: Numeric>: CubeType {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    );
+pub trait CopyMechanism<ES: Numeric>: CubeType + Sync + Send + 'static {
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>);
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    ) {
-        mechanism.memcpy_async(source, destination)
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
+        this.memcpy_async(source, destination)
     }
 }
 
 #[cube]
 impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
-    fn memcpy_async(
-        mechanism: &Self,
-        source: &Slice<Line<ES>>,
-        destination: &mut SliceMut<Line<ES>>,
-    ) {
-        mechanism.memcpy_async(source, destination)
+    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
+        this.memcpy_async(source, destination)
     }
 }
 
@@ -83,10 +71,12 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
+
+    fn barrier_level() -> BarrierLevel;
 }
 
 #[derive(CubeType)]
@@ -113,7 +103,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(
@@ -185,7 +175,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
-        mechanism: CM,
+        mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(

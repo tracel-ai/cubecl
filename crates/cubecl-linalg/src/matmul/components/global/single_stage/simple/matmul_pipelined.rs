@@ -1,9 +1,9 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::{
-    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
-};
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncLhsLoader;
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncLoadingStrategy;
+use crate::matmul::components::global::single_stage::loader::r#async::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -174,8 +174,8 @@ where
 
             // Start loading
             pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, &pipeline, config);
+            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
             pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);

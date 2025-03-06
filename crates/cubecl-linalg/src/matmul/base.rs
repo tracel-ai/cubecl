@@ -4,7 +4,14 @@ use cubecl_std::MaybeQuantized;
 use crate::tensor::TensorHandle;
 
 use super::{
-    components::tile::accelerated::Accelerated,
+    components::{
+        global::single_stage::loader::r#async::{
+            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
+            WindowCooperativeLoading,
+        },
+        stage::ColMajorTilingOrder,
+        tile::accelerated::Accelerated,
+    },
     kernels::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
@@ -20,7 +27,7 @@ use super::{
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
     Simple,
-    SimpleBarrier,
+    SimpleBarrier(LoadingStrategy),
     SimplePipelined,
     DoubleBuffering,
     Specialized,
@@ -31,6 +38,14 @@ pub enum Strategy {
     Tiling2D(Tiling2dConfig),
     #[default]
     Auto,
+}
+
+#[derive(Debug, Clone)]
+pub enum LoadingStrategy {
+    Cooperative,
+    Cyclic,
+    MaximizeSliceLength,
+    MaximizeUnitCount,
 }
 
 pub fn launch<R: Runtime, EG: MaybeQuantized>(
@@ -60,9 +75,28 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
         Strategy::Simple => {
             matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
-        Strategy::SimpleBarrier => {
-            matmul::launch_ref::<R, EG, SimpleBarrierAlgorithm<Accelerated>>(client, lhs, rhs, out)
-        }
+        Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
+            LoadingStrategy::Cooperative => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleBarrierAlgorithm<Accelerated, WindowCooperativeLoading>,
+            >(client, lhs, rhs, out),
+            LoadingStrategy::Cyclic => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
+            >(client, lhs, rhs, out),
+            LoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleBarrierAlgorithm<Accelerated, MaximizeSliceLengthLoading>,
+            >(client, lhs, rhs, out),
+            LoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,
+            >(client, lhs, rhs, out),
+        },
         Strategy::SimplePipelined => {
             matmul::launch_ref::<R, EG, SimplePipelinedAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,

@@ -1,6 +1,6 @@
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::{
+use crate::matmul::components::global::single_stage::loader::sync::{
     SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;

@@ -8,7 +8,7 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::single_stage::loader::CopyMechanism;
+use super::single_stage::loader::r#async::CopyMechanism;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -121,7 +121,7 @@ pub trait AsyncInputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     InputLoader<EG, ES, G>
 {
     /// Fills the stage at the current k offset.
-    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: CM, #[comptime] config: G);
+    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
 }
 
 #[cube]

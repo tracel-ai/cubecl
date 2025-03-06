@@ -1,7 +1,7 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::{
+use crate::matmul::components::global::single_stage::loader::r#async::{
     AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
 };
 use crate::matmul::components::global::single_stage::Config;
@@ -12,7 +12,6 @@ use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
 
 use barrier::Barrier;
-use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_core::Feature;
 use cubecl_core::{self as cubecl};
@@ -169,14 +168,16 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new(BarrierLevel::cube_coop(0u32));
+        let barrier_level = LL::barrier_level();
+        comptime!(assert!(barrier_level == RL::barrier_level()));
+        let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for _ in 0..num_loops {
             sync_units();
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, barrier, config);
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
