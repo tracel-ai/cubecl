@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
+use crate::matmul::components::stage::{ContiguousTilingLayout, StageView, TilingOrder};
 use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -46,7 +46,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -77,7 +77,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
 
             match config.transpose_load(ident) {
                 false => {
-                    slice[unit_position / line_size] = Line::cast_from(line_read);
+                    stage_view.set_at(unit_position / line_size, Line::cast_from(line_read));
                 }
                 true => {
                     let tile_offset = nth_tile * tile_num_elements;
@@ -101,9 +101,10 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                     for iter in 0..config.global_line_size(ident) {
                         let slice_strided_idx = slice_strided_root + iter;
                         let elem = line_read[iter];
-                        slice[tile_offset
-                            + slice_strided_idx * slice_stride
-                            + slice_contiguous_idx] = Line::cast_from(elem);
+                        stage_view.set_at(
+                            tile_offset + slice_strided_idx * slice_stride + slice_contiguous_idx,
+                            Line::cast_from(elem),
+                        );
                     }
                 }
             }

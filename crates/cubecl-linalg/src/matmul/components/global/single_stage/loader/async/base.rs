@@ -4,7 +4,7 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{single_stage, AsyncInputLoader, InputLoader};
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, Stage, StageView, TilingLayout};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::{Barrier, BarrierLevel};
@@ -37,7 +37,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
 
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -75,7 +75,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage.as_full_view(),
             mechanism,
             Ident::Lhs,
             config,
@@ -165,7 +165,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) {
         L::load::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage.as_full_view(),
             mechanism,
             Ident::Rhs,
             config,

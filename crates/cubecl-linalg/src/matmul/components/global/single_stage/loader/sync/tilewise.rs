@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
-    stage::{ContiguousTilingLayout, TilingOrder},
+    stage::{ContiguousTilingLayout, StageView, TilingOrder},
     FormattedConfigError, Ident, InvalidConfigError,
 };
 use cubecl_core as cubecl;
@@ -56,7 +56,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -88,7 +88,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
             );
 
             let offset = offset_base + pos_within_tile;
-            slice[offset] = Line::cast_from(line_read);
+            stage_view.set_at(offset, Line::cast_from(line_read));
         }
     }
 }

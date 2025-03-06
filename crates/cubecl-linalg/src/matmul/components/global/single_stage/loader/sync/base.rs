@@ -4,7 +4,7 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{single_stage, GlobalConfig, InputLoader};
 use crate::matmul::components::global::{LoadingValidation, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, Stage, StageView, TilingLayout};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -16,7 +16,7 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
 
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        slice: &mut StageView<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -64,7 +64,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage.as_full_view(),
             Ident::Lhs,
             config,
         );
@@ -120,7 +120,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage.as_full_view(),
             Ident::Rhs,
             config,
         );

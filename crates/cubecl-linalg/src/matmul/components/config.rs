@@ -114,26 +114,26 @@ pub struct CompleteStageTiling {
 
 impl CompleteStageTiling {
     pub fn get(&self, ident: Ident) -> TilingDimensions {
-        match ident {
-            Ident::Lhs => TilingDimensions {
+        TilingDimensions::Full(match ident {
+            Ident::Lhs => TilingDimensionsInner {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.k,
                 tile_count_row: self.tile_count.m,
                 tile_count_col: self.tile_count.k,
             },
-            Ident::Rhs => TilingDimensions {
+            Ident::Rhs => TilingDimensionsInner {
                 tile_shape_row: self.tile_shape.k,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.k,
                 tile_count_col: self.tile_count.n,
             },
-            Ident::Out => TilingDimensions {
+            Ident::Out => TilingDimensionsInner {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.n,
                 tile_count_row: self.tile_count.m,
                 tile_count_col: self.tile_count.n,
             },
-        }
+        })
     }
 
     pub fn total_shape(&self) -> MatmulSize {
@@ -147,14 +147,85 @@ impl CompleteStageTiling {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
-pub struct TilingDimensions {
+pub struct TilingDimensionsInner {
     pub tile_shape_row: u32,
     pub tile_shape_col: u32,
     pub tile_count_row: u32,
     pub tile_count_col: u32,
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+/// Dimensions for stage.
+pub enum TilingDimensions {
+    Full(TilingDimensionsInner),
+}
+
 impl TilingDimensions {
+    /// Returns the total number of elements of the stage.
+    pub fn total_size(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.total_size(),
+        }
+    }
+
+    /// Returns the total number of rows of the stage.
+    pub fn total_row(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.total_row(),
+        }
+    }
+
+    /// Returns the total number of columns of the stage.
+    pub fn total_col(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.total_col(),
+        }
+    }
+
+    /// Returns the number of elements within one tile.
+    pub fn tile_size(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_size(),
+        }
+    }
+
+    /// Returns the size of the row axis of a tile.
+    pub fn tile_shape_row(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_shape_row(),
+        }
+    }
+
+    /// Returns the size of the column axis of a tile.
+    pub fn tile_shape_col(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_shape_col(),
+        }
+    }
+
+    /// Returns the number of tiles within the stage.
+    pub fn tile_count(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_count(),
+        }
+    }
+
+    /// Returns the number of tiles across the row axis of the stage.
+    pub fn tile_count_row(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_count_row(),
+        }
+    }
+
+    /// Returns the number of tiles across the column axis of the stage.
+    pub fn tile_count_col(&self) -> u32 {
+        match self {
+            TilingDimensions::Full(inner) => inner.tile_count_col(),
+        }
+    }
+}
+
+impl TilingDimensionsInner {
     /// Returns the total number of elements of the stage.
     pub fn total_size(&self) -> u32 {
         self.total_row() * self.total_col()
@@ -198,13 +269,5 @@ impl TilingDimensions {
     /// Returns the number of tiles across the column axis of the stage.
     pub fn tile_count_col(&self) -> u32 {
         self.tile_count_col
-    }
-
-    /// Number of elements in a buffer.
-    pub fn buffer_size(&self, ident: InputIdent) -> u32 {
-        match ident {
-            InputIdent::Lhs => self.tile_count_row() * self.tile_size(),
-            InputIdent::Rhs => self.tile_count_col() * self.tile_size(),
-        }
     }
 }

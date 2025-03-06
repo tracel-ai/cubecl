@@ -6,7 +6,7 @@ use cubecl_core::{self as cubecl};
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, MatrixLayout};
 
-use super::StageConfig;
+use super::{StageConfig, StageView};
 
 #[cube]
 pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
@@ -145,7 +145,7 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
 impl StridedTilingLayout {
     /// Returns the nth slice of the stage
     pub fn nth_slice<ES: Numeric, S: StageConfig>(
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage_slice: &mut StageView<ES>,
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,

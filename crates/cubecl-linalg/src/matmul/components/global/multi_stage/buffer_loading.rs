@@ -49,7 +49,9 @@ impl BufferLoading {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
 
-        let num_buffer_elements = tiling.buffer_size(ident.as_input());
+        // TODO
+        let num_buffer_elements = 0;
+        // let num_buffer_elements = tiling.buffer_size(ident.as_input());
 
         let total_units = comptime!(num_producer_planes * config.plane_dim());
         let jump_length = comptime!(total_units * line_size);

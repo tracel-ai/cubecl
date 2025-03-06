@@ -3,8 +3,8 @@ use crate::matmul::components::{
         tensor_view::{TensorReader, Window},
         GlobalConfig, LoadingValidation,
     },
-    stage::StridedTilingLayout,
-    Ident, InvalidConfigError, MatrixLayout,
+    stage::{StageView, StridedTilingLayout},
+    Ident, InvalidConfigError,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -36,24 +36,18 @@ impl AsyncLoadingStrategy for WindowCooperativeLoading {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-
-        let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
-        };
+        let num_slices = stage_view.num_slices::<G::SmmConfig>(ident, config.to_smm_config());
 
         for nth_slice in 0..num_slices {
             let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
             let mut destination: SliceMut<Line<ES>> =
                 StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-                    stage_slice,
+                    stage_view,
                     nth_slice,
                     ident,
                     config.to_smm_config(),

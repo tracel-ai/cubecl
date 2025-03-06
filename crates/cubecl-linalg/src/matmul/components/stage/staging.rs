@@ -6,6 +6,8 @@ use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use super::{FullStageView, StageView};
+
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
@@ -47,9 +49,10 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         T::get_tile::<ES, S>(self.smem.to_slice(), x, y, ident, config)
     }
 
-    /// Return the whole stage as a mutable slice, for loading
-    pub fn as_slice_mut(&mut self) -> SliceMut<Line<ES>> {
-        self.smem.to_slice_mut()
+    pub fn as_full_view(&mut self) -> StageView<ES> {
+        StageView::new_Full(FullStageView::<ES> {
+            slice: self.smem.to_slice_mut(),
+        })
     }
 
     pub fn clear<S: StageConfig>(&mut self, #[comptime] ident: Ident, #[comptime] config: S) {

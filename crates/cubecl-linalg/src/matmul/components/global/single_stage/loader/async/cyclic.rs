@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
-    stage::{ContiguousTilingLayout, TilingOrder},
+    stage::{ContiguousTilingLayout, StageView, TilingOrder},
     Ident, InvalidConfigError, MatrixLayout,
 };
 use cubecl_core::prelude::*;
@@ -42,12 +42,13 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        slice_destination: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.tiling_dimensions(ident);
+        let stage_dim =
+            comptime!(stage_view.stage_dim::<G::SmmConfig>(ident, config.to_smm_config()));
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(ident);
 
@@ -89,7 +90,7 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                     (nth_tile * num_slices_per_tile + nth_slice) * slice_length_in_lines;
 
                 // Make destination start at offset
-                let mut destination = slice_destination.slice_mut(
+                let mut destination = stage_view.slice_mut(
                     slice_destination_offset,
                     slice_destination_offset + slice_length_in_lines,
                 );

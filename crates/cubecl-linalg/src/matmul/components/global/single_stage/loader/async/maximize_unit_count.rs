@@ -3,7 +3,7 @@ use crate::matmul::components::{
         tensor_view::{TensorReader, Window},
         GlobalConfig, LoadingValidation,
     },
-    stage::StridedTilingLayout,
+    stage::{StageView, StridedTilingLayout},
     Ident, InvalidConfigError, MatrixLayout,
 };
 use cubecl_core::prelude::*;
@@ -61,34 +61,21 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
-
-        let (num_slices, slice_length) = match matrix_layout {
-            MatrixLayout::RowMajor => (
-                tiling_dimensions.total_row(),
-                tiling_dimensions.total_col() / line_size,
-            ),
-            MatrixLayout::ColMajor => (
-                tiling_dimensions.total_col(),
-                tiling_dimensions.total_row() / line_size,
-            ),
-        };
-
         let unit_count = config.plane_dim() * config.num_planes();
+        let num_slices = stage_view.num_slices::<G::SmmConfig>(ident, config.to_smm_config());
+        let slice_length = stage_view.slice_length::<G::SmmConfig>(ident, config.to_smm_config());
 
         let units_per_slice = unit_count / num_slices;
         let nth_slice = UNIT_POS / units_per_slice;
 
         let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-            stage_slice,
+            stage_view,
             nth_slice,
             ident,
             config.to_smm_config(),

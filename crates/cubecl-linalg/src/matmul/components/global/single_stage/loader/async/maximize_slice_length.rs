@@ -3,8 +3,8 @@ use crate::matmul::components::{
         tensor_view::{TensorReader, Window},
         GlobalConfig, LoadingValidation,
     },
-    stage::StridedTilingLayout,
-    Ident, InvalidConfigError, MatrixLayout,
+    stage::{StageView, StridedTilingLayout},
+    Ident, InvalidConfigError,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -34,18 +34,12 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
 
     fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage_view: &mut StageView<ES>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-
-        let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
-        };
+        let num_slices = stage_view.num_slices::<G::SmmConfig>(ident, config.to_smm_config());
         let unit_count = config.plane_dim() * config.num_planes();
 
         let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
@@ -58,22 +52,12 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
-                    nth_slice,
-                    read_view,
-                    stage_slice,
-                    mechanism,
-                    ident,
-                    config,
+                    nth_slice, read_view, stage_view, mechanism, ident, config,
                 );
             } else {
                 if nth_slice < num_slices {
                     load_nth_slice::<EG, ES, CM, G>(
-                        nth_slice,
-                        read_view,
-                        stage_slice,
-                        mechanism,
-                        ident,
-                        config,
+                        nth_slice, read_view, stage_view, mechanism, ident, config,
                     );
                 }
             };
@@ -89,14 +73,14 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConfig>(
     nth_slice: u32,
     read_view: &TensorReader<EG>,
-    stage_slice: &mut SliceMut<Line<ES>>,
+    stage_view: &mut StageView<ES>,
     mechanism: &CM,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
     let window: Window<EG> = read_view.load_window_no_tile::<G>(nth_slice, ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-        stage_slice,
+        stage_view,
         nth_slice,
         ident,
         config.to_smm_config(),

@@ -173,22 +173,23 @@ fn load_buffer<EG: Numeric, ES: Numeric, S: stage::StageConfig, T: TilingLayout>
     #[comptime] ident: Ident,
     #[comptime] config: Config<S>,
 ) {
-    let buffer_num_elements = config
-        .tiling_dimensions(ident)
-        .buffer_size(ident.as_input());
-    let line_size = config.stage_line_size(ident);
-    let buffer_num_lines = buffer_num_elements / line_size;
+    // TODO
+    // let buffer_num_elements = config
+    //     .tiling_dimensions(ident)
+    //     .buffer_size(ident.as_input());
+    // let line_size = config.stage_line_size(ident);
+    // let buffer_num_lines = buffer_num_elements / line_size;
 
-    let start = buffer_iter * buffer_num_lines;
-    let end = start + buffer_num_lines;
-    let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
+    // let start = buffer_iter * buffer_num_lines;
+    // let end = start + buffer_num_lines;
+    // let buffer_slice = &mut stage.as_slice_mut().slice_mut(start, end);
 
-    BufferLoading::load_to_slice::<EG, ES, Config<S>>(
-        tensor_view,
-        buffer_slice,
-        config.num_producers(),
-        config.num_consumers(),
-        ident,
-        config,
-    );
+    // BufferLoading::load_to_slice::<EG, ES, Config<S>>(
+    //     tensor_view,
+    //     buffer_slice,
+    //     config.num_producers(),
+    //     config.num_consumers(),
+    //     ident,
+    //     config,
+    // );
 }
