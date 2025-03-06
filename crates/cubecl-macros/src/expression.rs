@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use syn::{
-    AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
+    AngleBracketedGenericArguments, Expr, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
     PathSegment, Type,
 };
 
@@ -141,18 +141,17 @@ pub enum Expression {
         path: Path,
         fields: Vec<(Member, Expression)>,
     },
-    NamedEnumInit {
-        path: Path,
-        variant: Ident,
-        fields: Vec<(Member, Expression)>,
-    },
     Keyword {
         name: Ident,
     },
-    ConstMatch {
-        runtime_variant: bool,
-        const_expr: syn::Expr,
-        arms: Vec<ConstMatchArm>,
+    Match {
+        // True implies that discriminants are matched at comptime,
+        // but the values of the variants are only known at runtime.
+        // False implies that both the discriminants and the variant's values are known at comptime.
+        runtime_variants: bool,
+
+        expr: Expr,
+        arms: Vec<MatchArm>,
     },
     Comment {
         content: LitStr,
@@ -161,11 +160,10 @@ pub enum Expression {
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstMatchArm {
-    pub pat: syn::Pat,
+pub struct MatchArm {
+    pub pat: Pat,
     pub expr: Box<Expression>,
 }
-
 
 #[derive(Clone, Debug, Default)]
 pub struct Block {
@@ -206,11 +204,10 @@ impl Expression {
             Expression::VerbatimTerminated { .. } => None,
             Expression::Reference { inner } => inner.ty(),
             Expression::StructInit { .. } => None,
-            Expression::NamedEnumInit { .. } => None,
             Expression::Closure { .. } => None,
             Expression::Keyword { .. } => None,
             Expression::CompilerIntrinsic { .. } => None,
-            Expression::ConstMatch { .. } => None,
+            Expression::Match { .. } => None,
             Expression::Comment { .. } => None,
             Expression::Terminate => None,
         }

@@ -363,7 +363,7 @@ impl<C: CubePrimitive> IfElseExprExpand<C> {
             } => {
                 let mut else_child = scope.child();
                 let ret = else_block(&mut else_child);
-                assign::expand(&mut else_child, ret, out.clone());
+                assign::expand::<C>(&mut else_child, ret, out.clone());
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
                     cond: *runtime_cond,
@@ -394,7 +394,7 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
             let mut then_child = scope.child();
             let ret = then_block(&mut then_child);
             let out: ExpandElementTyped<C> = scope.create_local_mut(ret.expand.item).into();
-            assign::expand(&mut then_child, ret, out.clone());
+            assign::expand::<C>(&mut then_child, ret, out.clone());
 
             IfElseExprExpand::Runtime {
                 runtime_cond,
@@ -471,7 +471,7 @@ impl<I: Int, C: CubePrimitive> SwitchExpandExpr<I, C> {
         let value = I::from(value).unwrap();
         let mut case_child = scope.child();
         let ret = block(&mut case_child);
-        assign::expand(&mut case_child, ret, self.out.clone());
+        assign::expand::<C>(&mut case_child, ret, self.out.clone());
         self.cases.push((value.into(), case_child));
         self
     }
@@ -499,7 +499,7 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
     let mut default_child = scope.child();
     let default = default_block(&mut default_child);
     let out: ExpandElementTyped<C> = scope.create_local_mut(default.expand.item).into();
-    assign::expand(&mut default_child, default, out.clone());
+    assign::expand::<C>(&mut default_child, default, out.clone());
 
     SwitchExpandExpr {
         value,

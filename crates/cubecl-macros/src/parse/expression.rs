@@ -1,12 +1,11 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
-    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Path, PathSegment, RangeLimits,
-    Type, UnOp,
+    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, RangeLimits, Type, UnOp,
 };
 
 use crate::{
-    expression::{is_intrinsic, Block, ConstMatchArm, Expression},
+    expression::{is_intrinsic, Block, Expression, MatchArm},
     operator::Operator,
     scope::Context,
 };
@@ -32,6 +31,7 @@ impl Expression {
                 let left = Self::from_expr(*binary.left, context)?;
                 let right = Self::from_expr(*binary.right, context)?;
                 if left.is_const() && right.is_const() {
+                    // panic!("left -> {left:?}");
                     Expression::Verbatim {
                         tokens: quote![#expr],
                     }
@@ -66,12 +66,14 @@ impl Expression {
             Expr::Path(path) => {
                 let name = path.path.get_ident();
                 if let Some(var) = name.and_then(|ident| context.variable(ident)) {
+                    // panic!("HELLO NATH {var:?};");
                     if var.is_keyword {
                         Expression::Keyword { name: var.name }
                     } else {
                         Expression::Variable(var)
                     }
                 } else {
+                    // panic!("NAME  {name:?}\n CONTEXT {context:?}");
                     // If it's not in the scope, it's not a managed local variable. Treat it as an
                     // external value like a Rust `const`.
                     Expression::Path { path: path.path }
@@ -277,45 +279,43 @@ impl Expression {
                 }
             }
             Expr::Match(mat) => {
-                let span = mat.span();
                 let elem = Expression::from_expr(*mat.expr.clone(), context)?;
-
                 if elem.is_const() {
                     let mut arms = Vec::new();
 
                     for arm in mat.arms.iter() {
-                        arms.push(ConstMatchArm {
+                        arms.push(MatchArm {
                             pat: arm.pat.clone(),
                             expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
                         });
                     }
 
-                    Expression::ConstMatch {
-                        const_expr: mat.expr.as_ref().clone(),
+                    Expression::Match {
+                        runtime_variants: false,
+                        expr: mat.expr.as_ref().clone(),
                         arms,
                     }
-                } else if let Some(switch) = numeric_match(mat, context) {
+                } else if let Some(switch) = numeric_match(mat.clone(), context) {
                     switch
                 } else {
-                    // TODO: Runtime match to support funky enums.
                     let mut arms = Vec::new();
 
                     for arm in mat.arms.iter() {
-                        arms.push(RuntimeMatchArg { // TODO RuntimeMAtchArg
+                        let (expr, _) = context.in_scope(|context| {
+                            add_variables_from_pat(&arm.pat, context);
+                            Self::from_expr(arm.body.as_ref().clone(), context)
+                        })?;
+                        arms.push(MatchArm {
                             pat: arm.pat.clone(),
-                            expr: Box::new(Self::from_expr(arm.body.as_ref().clone(), context)?),
+                            expr: Box::new(expr),
                         });
                     }
 
-                    Expression::RuntimeMatch { // TODO RuntimeMatch
-                        const_expr: mat.expr.as_ref().clone(),
+                    Expression::Match {
+                        runtime_variants: true,
+                        expr: mat.expr.as_ref().clone(),
                         arms,
                     }
-
-                    // Err(syn::Error::new(
-                    //     span,
-                    //     "Only numeric match expression is supported at runtime",
-                    // ))?
                 }
             }
             Expr::Macro(mac) if is_comptime_macro(&mac.mac.path) => {
@@ -384,6 +384,31 @@ impl Expression {
             ))?,
         };
         Ok(result)
+    }
+}
+
+fn add_variables_from_pat(pat: &Pat, context: &mut Context) {
+    match pat {
+        Pat::Ident(pat) => {
+            context.push_variable(
+                pat.ident.clone(),
+                None,
+                false,
+                pat.by_ref.is_some(),
+                pat.mutability.is_some(),
+            );
+        }
+        Pat::Or(pat) => pat
+            .cases
+            .iter()
+            .for_each(|pat| add_variables_from_pat(pat, context)),
+        Pat::Struct(pat) => pat.fields.iter().for_each(|f| {
+            add_variables_from_pat(f.pat.as_ref(), context);
+        }),
+        Pat::TupleStruct(pat) => pat.elems.iter().for_each(|pat| {
+            add_variables_from_pat(pat, context);
+        }),
+        _ => {},
     }
 }
 

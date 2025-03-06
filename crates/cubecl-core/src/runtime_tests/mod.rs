@@ -21,6 +21,7 @@ pub mod tensor;
 pub mod topology;
 pub mod traits;
 pub mod unary;
+pub mod enums;
 
 #[allow(missing_docs)]
 #[macro_export]
@@ -124,6 +125,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_debug!();
 
         cubecl_core::testgen_option!();
+        cubecl_core::testgen_enums!();
     };
 }
 
