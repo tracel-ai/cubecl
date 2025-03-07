@@ -45,38 +45,42 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
-        let num_stage_elements = tiling.total_size();
-        let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
-        let num_loads_per_unit = comptime!(num_stage_elements / jump_length);
-
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
-        let unit_position_base = unit_id * line_size;
-
-        for i in 0..num_loads_per_unit {
-            let unit_position = unit_position_base + i * jump_length;
-
-            let tile_num_elements = tiling.tile_size();
-            let nth_tile = unit_position / tile_num_elements;
-            let pos_within_tile = unit_position % tile_num_elements;
-
-            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y_from_nth::<G::SmmConfig>(
-                nth_tile,
-                ident,
-                config.to_smm_config(),
-            );
-
-            let line_read = read_view.load_coalesced_in_tile::<G>(
-                tile_x,
-                tile_y,
-                pos_within_tile,
-                ident,
-                config,
-            );
-
-            stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
+        for buffer_index in 0..2 {
+            Self::load_buffer::<EG, ES, G>(read_view, stage, buffer_index, ident, config);
         }
+
+        // let tiling = config.tiling_dimensions(ident);
+        // let line_size = config.global_line_size(ident);
+        // let num_stage_elements = tiling.total_size();
+        // let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
+        // let num_loads_per_unit = comptime!(num_stage_elements / jump_length);
+
+        // let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        // let unit_position_base = unit_id * line_size;
+
+        // for i in 0..num_loads_per_unit {
+        //     let unit_position = unit_position_base + i * jump_length;
+
+        //     let tile_num_elements = tiling.tile_size();
+        //     let nth_tile = unit_position / tile_num_elements;
+        //     let pos_within_tile = unit_position % tile_num_elements;
+
+        //     let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y_from_nth::<G::SmmConfig>(
+        //         nth_tile,
+        //         ident,
+        //         config.to_smm_config(),
+        //     );
+
+        //     let line_read = read_view.load_coalesced_in_tile::<G>(
+        //         tile_x,
+        //         tile_y,
+        //         pos_within_tile,
+        //         ident,
+        //         config,
+        //     );
+
+        //     stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
+        // }
     }
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(

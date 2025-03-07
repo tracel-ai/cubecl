@@ -1,7 +1,8 @@
-use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::base::InputBufferLoader;
+use crate::matmul::components::global::base::SyncInputBufferLoader;
 use crate::matmul::components::global::loader::sync::SyncLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig, SyncInputLoader};
+use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::Ident;
@@ -126,6 +127,20 @@ pub struct DoubleBufferingMatmul<
     _rhs_loading: PhantomData<RL>,
 }
 
+pub enum BufferId {
+    A,
+    B,
+}
+
+impl BufferId {
+    pub fn to_u32(&self) -> u32 {
+        match self {
+            BufferId::A => 0,
+            BufferId::B => 1,
+        }
+    }
+}
+
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL>
@@ -157,7 +172,7 @@ where
     ) {
         let num_buffers = 2;
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step; // equal to SMM::K
+        let k_step = num_buffers * buffer_step;
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
@@ -170,30 +185,33 @@ where
 
         ///////////////
         // Load A
-        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+        // can_advance_for_a = true
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader);
+        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
 
         ///////////////
         // Get B
-        Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-        Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+        // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+        // Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
 
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader);
+        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
 
         for _ in 0..num_loops {
             sync_units();
+            // can_compute_a = true
 
             ///////////////
             // Load B & Advance
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            // can_advance_for_b = true
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
+            // Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
 
             ///////////////
             // Execute A
@@ -205,16 +223,21 @@ where
                 acc,
                 config.to_smm_config(),
             );
+            // can_compute_a = false
 
             sync_units();
+            // can_compute_b = true
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            // can_advance_for_a = false;
+            // can_advance_for_b = false;
 
             ///////////////
             // Load Next A
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
-
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+            // can_advance_for_a = true;
 
             ///////////////
             // Execute B
@@ -226,6 +249,7 @@ where
                 acc,
                 config.to_smm_config(),
             );
+            // can_compute_b = false
         }
 
         sync_units();
