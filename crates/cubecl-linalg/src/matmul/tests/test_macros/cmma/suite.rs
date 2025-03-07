@@ -289,11 +289,11 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::components::global::single_stage::loader::r#async::{
+        use $crate::matmul::components::global::loader::r#async::{
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
             WindowCooperativeLoading,
         };
-        use $crate::matmul::components::global::single_stage::loader::sync::StridedCoalescedLoading;
+        use $crate::matmul::components::global::loader::sync::StridedCoalescedLoading;
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;

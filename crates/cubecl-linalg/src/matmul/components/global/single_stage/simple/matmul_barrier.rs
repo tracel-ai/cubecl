@@ -1,9 +1,9 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::r#async::{
+use crate::matmul::components::global::loader::r#async::{
     AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
 };
+use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;

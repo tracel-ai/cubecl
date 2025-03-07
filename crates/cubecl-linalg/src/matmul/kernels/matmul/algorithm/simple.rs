@@ -6,7 +6,7 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        single_stage::loader::sync::{CyclicCoalescedLoading, SyncLoadingStrategy},
+        loader::sync::{CyclicCoalescedLoading, SyncLoadingStrategy},
     },
     stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
     tile, MatmulProblem, MatmulSelection,
