@@ -1,6 +1,6 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::StridedTilingLayout;
+use crate::matmul::components::stage::{Stage, StridedTilingLayout};
 use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -37,7 +37,7 @@ impl SyncLoadingStrategy for StridedCoalescedLoading {
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -55,13 +55,13 @@ impl SyncLoadingStrategy for StridedCoalescedLoading {
             let line_read =
                 read_view.load_coalesced_in_stage::<G>(unit_position * line_size, ident, config);
 
-            slice[unit_position] = Line::cast_from(line_read);
+            stage.as_slice_mut()[unit_position] = Line::cast_from(line_read);
         }
     }
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         _read_view: &TensorReader<EG>,
-        _stage_slice: &mut SliceMut<Line<ES>>,
+        _stage: &mut Stage<ES, Self::TilingLayout>,
         _buffer_index: u32,
         #[comptime] _ident: Ident,
         #[comptime] _config: G,

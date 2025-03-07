@@ -44,7 +44,12 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        T::get_tile::<ES, S>(self.smem.to_slice(), x, y, ident, config)
+        T::get_tile::<ES, S>(self, x, y, ident, config)
+    }
+
+    /// Return the whole stage as a slice, for reading
+    pub fn as_slice(&self) -> Slice<Line<ES>> {
+        self.smem.to_slice()
     }
 
     /// Return the whole stage as a mutable slice, for loading

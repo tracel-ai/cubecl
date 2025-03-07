@@ -39,7 +39,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -48,7 +48,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         buffer_index: u32,
         mechanism: &CM,
         #[comptime] ident: Ident,
@@ -88,7 +88,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) {
         L::load_full::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             mechanism,
             Ident::Lhs,
             config,
@@ -178,7 +178,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
     ) {
         L::load_full::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             mechanism,
             Ident::Rhs,
             config,

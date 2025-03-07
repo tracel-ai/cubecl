@@ -18,7 +18,7 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
     /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -26,7 +26,7 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -75,7 +75,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             Ident::Lhs,
             config,
         );
@@ -131,7 +131,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             Ident::Rhs,
             config,
         );
