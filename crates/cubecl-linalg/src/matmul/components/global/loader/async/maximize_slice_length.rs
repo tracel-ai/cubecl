@@ -3,7 +3,7 @@ use crate::matmul::components::{
         tensor_view::{TensorReader, Window},
         GlobalConfig, LoadingValidation,
     },
-    stage::StridedTilingLayout,
+    stage::{Stage, StridedTilingLayout},
     Ident, InvalidConfigError, MatrixLayout,
 };
 use cubecl_core::prelude::*;
@@ -17,13 +17,7 @@ use super::{AsyncLoadingStrategy, CopyMechanism};
 pub struct MaximizeSliceLengthLoading {}
 
 impl LoadingValidation for MaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load is not supported with window loading.",
-            ));
-        }
-
+    fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
@@ -32,9 +26,9 @@ impl LoadingValidation for MaximizeSliceLengthLoading {
 impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -58,26 +52,27 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
-                    nth_slice,
-                    read_view,
-                    stage_slice,
-                    mechanism,
-                    ident,
-                    config,
+                    nth_slice, read_view, stage, mechanism, ident, config,
                 );
             } else {
                 if nth_slice < num_slices {
                     load_nth_slice::<EG, ES, CM, G>(
-                        nth_slice,
-                        read_view,
-                        stage_slice,
-                        mechanism,
-                        ident,
-                        config,
+                        nth_slice, read_view, stage, mechanism, ident, config,
                     );
                 }
             };
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        _read_view: &TensorReader<EG>,
+        _stage: &mut Stage<ES, Self::TilingLayout>,
+        _buffer_index: u32,
+        _mechanism: &CM,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
+    ) {
+        // TODO
     }
 
     fn barrier_level() -> BarrierLevel {
@@ -89,14 +84,14 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConfig>(
     nth_slice: u32,
     read_view: &TensorReader<EG>,
-    stage_slice: &mut SliceMut<Line<ES>>,
+    stage: &mut Stage<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
     let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-        stage_slice,
+        stage,
         nth_slice,
         ident,
         config.to_smm_config(),

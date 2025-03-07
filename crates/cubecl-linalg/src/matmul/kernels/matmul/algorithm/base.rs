@@ -4,7 +4,7 @@ use crate::matmul::components::{
     batch, global, stage, tile, CompleteStageTiling, MatmulConfigFactory, MatmulPrecision,
     MatmulProblem, MatmulSelection,
 };
-use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError, MatmulLaunchError};
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
@@ -22,17 +22,10 @@ pub trait Algorithm {
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Result<<Self::BatchMatmul as MatmulConfigFactory>::Config, MatmulLaunchError> {
-        let config = Self::BatchMatmul::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let config =
+            Self::BatchMatmul::make_config(input, problem, cube_dim, cube_count, quantized);
         problem.check_config(&config)?;
         Self::BatchMatmul::check_config(&config)?;
         Ok(config)
@@ -43,9 +36,5 @@ pub trait Algorithm {
         config: &<Self::BatchMatmul as MatmulConfigFactory>::Config,
     ) -> Result<(), MatmulAvailabilityError> {
         Self::BatchMatmul::check_availability::<R, MP>(client, config)
-    }
-
-    fn advanced_config() -> AdvancedConfig {
-        AdvancedConfig::default()
     }
 }

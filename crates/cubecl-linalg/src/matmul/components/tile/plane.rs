@@ -3,7 +3,6 @@ use crate::matmul::components::{
     tile, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
 };
 use crate::matmul::components::{MatmulProblem, MatmulSize};
-use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -370,26 +369,15 @@ impl MatmulConfigFactory for PlaneMma {
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         _cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         _quantized: bool,
     ) -> Self::Config {
-        let (lhs_tile_layout, lhs_tile_line_size) = match advanced_config.enforced_matrix_layout.0 {
-            Some(enforced_layout) if enforced_layout != problem.lhs_layout => (enforced_layout, 1),
-            _ => (problem.lhs_layout, problem.lhs_line_size),
-        };
-
-        let (rhs_tile_layout, rhs_tile_line_size) = match advanced_config.enforced_matrix_layout.1 {
-            Some(enforced_layout) if enforced_layout != problem.rhs_layout => (enforced_layout, 1),
-            _ => (problem.rhs_layout, problem.rhs_line_size),
-        };
-
         Config::new(
             input,
             cube_dim.x,
-            lhs_tile_layout,
-            rhs_tile_layout,
-            lhs_tile_line_size as u32,
-            rhs_tile_line_size as u32,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            problem.lhs_line_size as u32,
+            problem.rhs_line_size as u32,
             problem.out_line_size as u32,
         )
     }

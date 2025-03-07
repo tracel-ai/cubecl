@@ -1,8 +1,8 @@
 use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::loader::sync::{
+use crate::matmul::components::global::loader::sync::{
     SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
 };
+use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
@@ -26,7 +26,7 @@ use crate::matmul::{
         },
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
-    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
+    kernels::MatmulAvailabilityError,
 };
 
 pub struct SimpleMatmulFamily<
@@ -80,17 +80,9 @@ where
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(

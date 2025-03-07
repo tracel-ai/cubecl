@@ -25,7 +25,6 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
-use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
@@ -67,7 +66,7 @@ where
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
 
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
-            return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
+            return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
         }
 
         SMM::check_config(&config.to_smm_config())
@@ -85,17 +84,9 @@ where
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         CommonGlobalConfig::new(

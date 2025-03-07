@@ -1,4 +1,3 @@
-pub mod loader;
 pub mod simple;
 
 mod config;
