@@ -40,7 +40,7 @@ impl LoadingValidation for StridedCoalescedLoading {
 impl SyncLoadingStrategy for StridedCoalescedLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
@@ -62,5 +62,15 @@ impl SyncLoadingStrategy for StridedCoalescedLoading {
 
             slice[unit_position] = Line::cast_from(line_read);
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+        read_view: &TensorReader<EG>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        buffer_index: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        // TODO
     }
 }

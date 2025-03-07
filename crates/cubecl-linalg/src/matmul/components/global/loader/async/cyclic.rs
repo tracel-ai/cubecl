@@ -40,7 +40,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         slice_destination: &mut SliceMut<Line<ES>>,
         mechanism: &CM,
@@ -101,6 +101,17 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
                 );
             }
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EG>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        buffer_index: u32,
+        mechanism: &CM,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        // TODO
     }
 
     fn barrier_level() -> BarrierLevel {

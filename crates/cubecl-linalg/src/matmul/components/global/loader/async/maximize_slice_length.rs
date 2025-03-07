@@ -32,7 +32,7 @@ impl LoadingValidation for MaximizeSliceLengthLoading {
 impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
         mechanism: &CM,
@@ -78,6 +78,17 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
                 }
             };
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EG>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        buffer_index: u32,
+        mechanism: &CM,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        // TODO
     }
 
     fn barrier_level() -> BarrierLevel {

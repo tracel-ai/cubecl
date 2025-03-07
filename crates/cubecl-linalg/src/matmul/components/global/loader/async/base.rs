@@ -35,9 +35,18 @@ impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
 pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     type TilingLayout: TilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        mechanism: &CM,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    );
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EG>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        buffer_index: u32,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -73,7 +82,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load::<EG, ES, single_stage::Config<S>, CM>(
+        L::load_full::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             mechanism,
@@ -163,7 +172,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load::<EG, ES, single_stage::Config<S>, CM>(
+        L::load_full::<EG, ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
             mechanism,

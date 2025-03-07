@@ -54,7 +54,7 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
 impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         slice: &mut SliceMut<Line<ES>>,
         #[comptime] ident: Ident,
@@ -90,5 +90,15 @@ impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
             let offset = offset_base + pos_within_tile;
             slice[offset] = Line::cast_from(line_read);
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+        read_view: &TensorReader<EG>,
+        stage_slice: &mut SliceMut<Line<ES>>,
+        buffer_index: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) {
+        // TODO
     }
 }
