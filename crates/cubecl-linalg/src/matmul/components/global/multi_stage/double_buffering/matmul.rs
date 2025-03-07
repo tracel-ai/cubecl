@@ -1,4 +1,5 @@
 use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::loader::sync::SyncLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig, SyncInputLoader};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
@@ -11,45 +12,51 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
 
-use crate::matmul::components::global::multi_stage::buffer_loading::BufferLoading;
-use crate::matmul::components::global::{GlobalMatmulFamily, LoadingValidation};
+use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::stage::{
-    ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
-};
+use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
-pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
+pub struct DoubleBufferingMatmulFamily<
+    SMM: stage::StageMatmulFamily,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
+> {
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
-type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
-type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
-
-impl<SMM> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM>
+impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
         LhsReader = LhsBufferReaderFamily,
         RhsReader = RhsBufferReaderFamily,
     >,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
         MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LhsTilingLayout, RhsTilingLayout>,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
+        LL,
+        RL,
     >;
 }
 
-impl<SMM> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM>
+impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = CommonGlobalConfig<SMM::Config>;
@@ -62,8 +69,8 @@ where
             return Err(Box::new("Only support square tiling"));
         }
 
-        BufferLoading::check::<Self::Config>(config, Ident::Lhs)?;
-        BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
+        LL::check::<Self::Config>(config, Ident::Lhs)?;
+        RL::check::<Self::Config>(config, Ident::Rhs)?;
 
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
@@ -110,25 +117,32 @@ where
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for DoubleBufferingMatmul<MP, SMM>
+impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
+    for DoubleBufferingMatmul<MP, SMM, LL, RL>
 where
     SMM: stage::StageMatmul<
         MP::ES,
         MP::EG,
         MP::EA,
-        LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
-        RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
+        LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+        RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
     >,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config, LhsTilingLayout>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config, RhsTilingLayout>;
+    type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
