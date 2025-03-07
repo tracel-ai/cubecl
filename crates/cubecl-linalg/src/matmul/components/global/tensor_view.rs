@@ -125,7 +125,7 @@ impl<EG: Numeric> TensorReader<EG> {
     ///
     /// If the slice would be partly out-of-bounds, it will simply be shorter.
     /// The caller must do the padding if necessary.
-    pub fn load_window_no_tile<G: global::GlobalConfig>(
+    pub fn load_window_in_stage<G: global::GlobalConfig>(
         &self,
         nth_window: u32,
         #[comptime] ident: Ident,
@@ -227,28 +227,65 @@ impl<EG: Numeric> TensorReader<EG> {
     /// # Note
     ///
     /// Out-of-bounds reads will be translated to zeros.
-    pub fn load_coalesced<G: global::GlobalConfig>(
+    pub fn load_coalesced_in_tile<G: global::GlobalConfig>(
         &self,
         tile_x: u32,
         tile_y: u32,
-        unit_id: u32,
+        position: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Line<EG> {
+        let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
+        let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
+
+        let view_tile_x = tile_x * tile_shape_x;
+        let view_tile_y = tile_y * tile_shape_y;
+
+        let (load_x, load_y) = match config.matrix_layout(ident) {
+            MatrixLayout::RowMajor => (position / tile_shape_y, position % tile_shape_y),
+            MatrixLayout::ColMajor => (position % tile_shape_x, position / tile_shape_x),
+        };
+
+        self.load_coalesced::<G>((load_x + view_tile_x, load_y + view_tile_y), ident, config)
+    }
+
+    /// Reads data from the tensor view at the specified index within the whole view,
+    /// without regards to tiles
+    ///
+    /// Each unit loads one line in a coalesced manner for improved efficiency.
+    /// For row-major tensors, subsequent units read lines horizontally within the tile,
+    /// while for column-major tensors, they read lines vertically.
+    ///
+    /// # Note
+    ///
+    /// Out-of-bounds reads will be translated to zeros.
+    pub fn load_coalesced_in_stage<G: global::GlobalConfig>(
+        &self,
+        position: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    ) -> Line<EG> {
+        let stage_shape_x = config.tiling_dimensions(ident).total_row();
+        let stage_shape_y = config.tiling_dimensions(ident).total_col();
+
+        let load_offsets = match config.matrix_layout(ident) {
+            MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),
+            MatrixLayout::ColMajor => (position % stage_shape_x, position / stage_shape_x),
+        };
+
+        self.load_coalesced::<G>(load_offsets, ident, config)
+    }
+
+    fn load_coalesced<G: global::GlobalConfig>(
+        &self,
+        load_offsets: (u32, u32),
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Line<EG> {
         let line_size = config.global_line_size(ident);
-        let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
-        let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
 
-        let view_tile_x = tile_x * tile_shape_x + self.x_offset;
-        let view_tile_y = tile_y * tile_shape_y + self.y_offset;
-
-        let (load_x, load_y) = match config.matrix_layout(ident) {
-            MatrixLayout::RowMajor => (unit_id / tile_shape_y, unit_id % tile_shape_y),
-            MatrixLayout::ColMajor => (unit_id % tile_shape_x, unit_id / tile_shape_x),
-        };
-
-        let view_x = view_tile_x + load_x;
-        let view_y = view_tile_y + load_y;
+        let view_x = load_offsets.0 + self.x_offset;
+        let view_y = load_offsets.1 + self.y_offset;
 
         let read_pos =
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
