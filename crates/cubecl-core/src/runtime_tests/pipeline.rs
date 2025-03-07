@@ -186,7 +186,7 @@ fn two_loads<F: Float>(
 }
 
 #[cube(launch)]
-fn two_independant_loads<F: Float>(
+fn two_independent_loads<F: Float>(
     lhs: &Tensor<Line<F>>,
     rhs: &Tensor<Line<F>>,
     output: &mut Tensor<Line<F>>,
@@ -258,7 +258,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
-    independant: bool,
+    independent: bool,
     client: ComputeClient<R::Server, R::Channel>,
 ) {
     if !client.properties().feature_enabled(Feature::Pipeline) {
@@ -274,9 +274,9 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     let rhs = client.create(F::as_bytes(&rhs_data));
     let output = client.empty(2 * core::mem::size_of::<F>());
 
-    if independant {
+    if independent {
         unsafe {
-            two_independant_loads::launch::<F, R>(
+            two_independent_loads::launch::<F, R>(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new(2, 1, 1),
@@ -357,7 +357,7 @@ macro_rules! testgen_pipeline {
         }
 
         #[test]
-        fn test_pipeline_memcpy_async_two_independant_loads() {
+        fn test_pipeline_memcpy_async_two_independent_loads() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::pipeline::test_memcpy_two_loads::<TestRuntime, FloatType>(
                 true, client,

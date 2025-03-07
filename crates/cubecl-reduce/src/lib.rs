@@ -98,7 +98,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
     strategy: Option<ReduceStrategy>,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
-    valide_output_shape(input.shape, output.shape, axis)?;
+    valid_output_shape(input.shape, output.shape, axis)?;
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
@@ -124,7 +124,7 @@ fn validate_axis(rank: usize, axis: usize) -> Result<(), ReduceError> {
 }
 
 // Check that the output shape match the input shape with the given axis set to 1.
-fn valide_output_shape(
+fn valid_output_shape(
     input_shape: &[usize],
     output_shape: &[usize],
     axis: usize,

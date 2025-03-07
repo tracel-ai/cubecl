@@ -20,7 +20,7 @@ pub trait CubePrimitive:
 {
     /// Return the element type to use on GPU.
     fn as_elem(_context: &Scope) -> Elem {
-        Self::as_elem_native().expect("To be overriden if not native")
+        Self::as_elem_native().expect("To be overridden if not native")
     }
 
     /// Native or static element type.

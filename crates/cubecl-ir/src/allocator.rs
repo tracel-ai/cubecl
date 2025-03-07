@@ -22,7 +22,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 ///
 /// In order, prefer immutable local variables, then mutable, then restricted.
 ///
-/// To enable many compiler optimizations, it is prefered to use the [static single-assignment] strategy for immutable variables.
+/// To enable many compiler optimizations, it is preferred to use the [static single-assignment] strategy for immutable variables.
 /// That is, each variable must be declared and used exactly once.
 ///
 /// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)

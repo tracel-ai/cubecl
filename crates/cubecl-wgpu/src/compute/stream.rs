@@ -82,7 +82,7 @@ impl WgpuStream {
             memory_config,
         );
 
-        // Allocate a seperate storage & memory management for 'uniforms' (small bits of data
+        // Allocate a separate storage & memory management for 'uniforms' (small bits of data
         // that need to be uploaded quickly). We allocate these with the BufferUsages::UNIFORM flag
         // to allow binding them as uniforms.
         let uniforms_memory_management = MemoryManagement::from_configuration(
@@ -468,7 +468,7 @@ impl WgpuStream {
             .unwrap();
 
         if let Some(size) = NonZeroU64::new(aligned_len) {
-            // Small buffers are 'locked' if they were previosuly used for compute operations,
+            // Small buffers are 'locked' if they were previously used for compute operations,
             // so we can safely do the data upload first in the copy_uniforms_encoder.
             if uniform_alloc {
                 // Use the staging belt to allocate a staging buffer and write to it.
@@ -525,7 +525,7 @@ impl WgpuStream {
 
     fn flush_if_needed(&mut self) {
         // Flush when there are too many tasks, or when too many handles are locked.
-        // Locked handles should only accumlate in rare circumstances (where uniforms
+        // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
         if self.tasks_count >= self.tasks_max
             || self.locked_copy_handles.len() >= self.tasks_max * 8

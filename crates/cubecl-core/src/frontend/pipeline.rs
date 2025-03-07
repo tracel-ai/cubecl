@@ -1,4 +1,4 @@
-//! This module exposes pipeling utilities for multi-stage asynchronous data copies
+//! This module exposes pipelining utilities for multi-stage asynchronous data copies
 //! with latency hiding.
 //! We call producers all threads that call producer_acquire and producer_commit,
 //! and consumers threads that call consumer_wait and consumer_release.
