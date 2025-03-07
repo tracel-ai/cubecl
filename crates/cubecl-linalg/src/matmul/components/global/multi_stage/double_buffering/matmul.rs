@@ -66,7 +66,7 @@ where
         BufferLoading::check::<Self::Config>(config, Ident::Rhs)?;
 
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
-            return Err(Box::new("Pipelined matmul needs exactly 2 buffers."));
+            return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
         }
 
         SMM::check_config(&config.to_smm_config())
