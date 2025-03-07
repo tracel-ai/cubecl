@@ -139,6 +139,11 @@ where
         quantizer: &mut Option<Quantizer<Acc>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantizer.is_some() {
+                unimplemented!()
+            }
+        }
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
 
@@ -197,7 +202,11 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let _ = quantizer; // TODO See multi-buffer for example.
+        comptime! {
+            if quantizer.is_some() {
+                unimplemented!()
+            }
+        }
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;

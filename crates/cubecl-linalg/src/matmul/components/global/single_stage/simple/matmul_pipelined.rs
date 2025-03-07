@@ -1,36 +1,28 @@
-use crate::matmul::components::{
-    global::{
-        base::{AsyncInputLoader, InputLoader},
-        output_loader::{Quantizer, Unloader},
-        single_stage::{
-            loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
-            Config,
+use crate::matmul::{
+    components::{
+        global::{
+            base::{AsyncInputLoader, InputLoader},
+            output_loader::{Quantizer, Unloader},
+            single_stage::{
+                loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
+                Config,
+            },
+            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, ZeroAccumulatorLoader,
         },
-        GlobalMatmul, ZeroAccumulatorLoader,
+        stage::{
+            self,
+            multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+            StageMatmul,
+        },
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     },
-    stage::{
-        multi_buffer::{LhsReader, RhsReader},
-        StageMatmul,
-    },
-    MatmulPrecision, MatmulSize,
+    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
+use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, Feature};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use pipeline::Pipeline;
-use std::marker::PhantomData;
-
-use crate::matmul::{
-    components::{
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-    },
-    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
-};
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -113,11 +105,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            MatmulSize {
-                m: problem.m as u32,
-                n: problem.n as u32,
-                k: problem.k as u32,
-            },
         )
     }
 }

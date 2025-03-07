@@ -10,7 +10,7 @@ use crate::matmul::{
             shared::CommonStageConfig, StageConfig, StageMatmul, StageMatmulFamily, StageWriter,
             TilingLayout,
         },
-        tile::{self, TileMatmulFamily},
+        tile::{self, Tile, TileMatmulFamily},
         CompleteStageTiling, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision,
         MatmulProblem, MatmulSize, MatrixLayout,
     },
@@ -173,7 +173,6 @@ where
                 let accumulator = acc.index_mut(accumulator_iter);
                 TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
 
-                // TODO figure out how to leverage async to make these sums concurrent to TMM::execute if possible.
                 match comptime!(quantizer.clone()) {
                     Some(mut quantizer) => sum_rhs_cols::<I, Acc, Self::Config>(
                         &rhs_slice,
@@ -184,7 +183,6 @@ where
                 }
             }
 
-            // TODO figure out how to leverage async to make these sums concurrent to TMM::execute if possible.
             match comptime!(quantizer.clone()) {
                 Some(mut quantizer) => sum_lhs_rows::<I, Acc, Self::Config>(
                     &lhs_slice,
@@ -211,48 +209,51 @@ where
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_smem_line_size = global_config.stage_line_size(Ident::Out);
+        let smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
-            stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
+            stage_config.tiling_dimensions(Ident::Out).tile_size() / smem_line_size;
+        let smem_length = num_tile_lines * stage_config.num_planes();
 
         let start = num_tile_lines * UNIT_POS_Y;
-                                      // <O>
-        let mut out_smem = SharedMemory::<Acc>::new_lined(
-            num_tile_lines * stage_config.num_planes(),
-            out_smem_line_size,
-        );
 
-        // i32 -> matmul - sum_row - sum_col + offset
-        // 
-        // TODO replace out_smem with the above snippet.
-        //      also fix enum with #[derive(CubeType)].
-        // let mut out_smem: Either<Acc, O> = if comptime!(quantizer.is_some()) {
-        //     Either::Left(SharedMemory::<Acc>::new_lined(
-        //         num_tile_lines * stage_config.num_planes(),
-        //         out_smem_line_size,
-        //     ))
-        // } else {
-        //     Either::Right(SharedMemory::<O>::new_lined(
-        //         num_tile_lines * stage_config.num_planes(),
-        //         out_smem_line_size,
-        //     ))
-        // };
+        match comptime!(quantizer) {
+            Some(quantizer) => {
+                let mut acc_smem = SharedMemory::<Acc>::new_lined(smem_length, smem_line_size);
+                #[unroll]
+                for accumulator_iter in 0..acc.len() {
+                    let accumulator = acc.index(accumulator_iter);
 
-        #[unroll]
-        for accumulator_iter in 0..acc.len() {
-            let accumulator = acc.index(accumulator_iter);
-            let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
-            TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-
-            match comptime!(quantizer.clone()) {
-                Some(quantizer) => {
-                    // TODO: Figure out how it works with the different accumulators.
+                    let mut smem_slice = acc_smem.slice_mut(start, start + num_tile_lines);
+                    TMM::read_accumulator(
+                        accumulator,
+                        &mut smem_slice,
+                        stage_config.to_tmm_config(),
+                    );
                     quantizer.add_quantization_into::<G>(&mut smem_slice, global_config);
+                    SW::write::<Acc, G>(
+                        out,
+                        smem_slice,
+                        UNIT_POS_Y,
+                        accumulator_iter,
+                        global_config,
+                    );
                 }
-                None => {}
-            };
+            }
+            _ => {
+                let mut out_smem = SharedMemory::<O>::new_lined(smem_length, smem_line_size);
+                #[unroll]
+                for accumulator_iter in 0..acc.len() {
+                    let accumulator = acc.index(accumulator_iter);
 
-            SW::write::<Acc, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
+                    let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
+                    TMM::read_accumulator(
+                        accumulator,
+                        &mut smem_slice,
+                        stage_config.to_tmm_config(),
+                    );
+                    SW::write::<O, G>(out, smem_slice, UNIT_POS_Y, accumulator_iter, global_config);
+                }
+            }
         }
     }
 
@@ -301,7 +302,7 @@ fn check_num_planes(
 
 #[cube]
 fn sum_lhs_rows<In: Numeric, Acc: Numeric, Config: StageConfig>(
-    tile: &Slice<Line<In>>,
+    tile: &Tile<In>,
     sums: &mut SliceMut<Acc>,
     #[comptime] config: Config,
 ) {
@@ -346,7 +347,7 @@ fn sum_lhs_rows<In: Numeric, Acc: Numeric, Config: StageConfig>(
 
 #[cube]
 fn sum_rhs_cols<In: Numeric, Acc: Numeric, Config: StageConfig>(
-    tile: &Slice<Line<In>>,
+    tile: &Tile<In>,
     sums: &mut SliceMut<Acc>,
     #[comptime] config: Config,
 ) {
@@ -370,6 +371,7 @@ fn sum_rhs_cols<In: Numeric, Acc: Numeric, Config: StageConfig>(
             }
         }
         MatrixLayout::ColMajor => {
+            comptime!(todo!());
             // // TODO Are these always exact divisions? Fix with div_ceil
             // let num_lines_row_axis = num_rows / line_size;
             // let num_sums_per_unit = num_lines_row_axis / config.plane_dim();
@@ -387,13 +389,15 @@ fn sum_rhs_cols<In: Numeric, Acc: Numeric, Config: StageConfig>(
         }
     }
 }
+
 #[cube]
 fn sum_range_parallel<In: Numeric, Acc: Numeric>(
-    slice: &Slice<Line<In>>,
+    tile: &Tile<In>,
     start: u32,
     end: u32,
     #[comptime] line_size: u32,
 ) -> Acc {
+    let slice = tile.slice;
     // Sum all lines together
     let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
     for index in start..end {
@@ -412,11 +416,13 @@ fn sum_range_parallel<In: Numeric, Acc: Numeric>(
 
 #[cube]
 fn sum_range_perpendicular<In: Numeric, Acc: Numeric>(
-    slice: &Slice<Line<In>>,
+    tile: &Tile<In>,
     start: u32,
     stride: u32,
     #[comptime] line_size: u32,
 ) -> Line<Acc> {
+    let slice = tile.slice;
+
     let mut acc = Line::<Acc>::empty(line_size).fill(Acc::from_int(0));
     for index in range_stepped(start, slice.len(), stride) {
         acc += Line::<Acc>::cast_from(slice[index]);
@@ -429,4 +435,3 @@ fn sum_range_perpendicular<In: Numeric, Acc: Numeric>(
 fn div_ceil(a: u32, b: u32) -> u32 {
     (a + b - 1) / b
 }
-

@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    global, stage, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions
+    global, stage, Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -15,7 +15,6 @@ pub struct Config<S: stage::StageConfig> {
     rhs_line_size: u32,
     out_line_size: u32,
     pub k_step: u32,
-    shape: MatmulSize,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
@@ -80,10 +79,6 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
     fn transpose_load(&self, ident: Ident) -> bool {
         self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
-
-    fn shape(&self) -> MatmulSize {
-        self.shape
-    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for Config<S> {}
@@ -101,7 +96,6 @@ impl<S: stage::StageConfig> Config<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         k_step: u32,
-        shape: MatmulSize,
     ) -> Self {
         Self {
             smm_config,
@@ -114,7 +108,6 @@ impl<S: stage::StageConfig> Config<S> {
             rhs_line_size,
             out_line_size,
             k_step,
-            shape,
         }
     }
 }

@@ -1,16 +1,13 @@
+use super::{output_loader::Quantizer, single_stage::loader::r#async::CopyMechanism};
+use crate::matmul::components::{
+    config::MatmulConfig,
+    stage::{self, StageWriter},
+    tile, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    TilingDimensions,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::components::stage::{self, StageWriter};
-use crate::matmul::components::{config::MatmulConfig, tile};
-use crate::matmul::components::{Ident, MatmulSize, MatrixLayout};
-use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
-use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
-use super::single_stage::loader::r#async::CopyMechanism;
-
-use super::output_loader::Quantizer;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -202,7 +199,4 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether we transpose data when loading to the stage
     fn transpose_load(&self, ident: Ident) -> bool;
-
-    // TODO Remove
-    fn shape(&self) -> MatmulSize;
 }

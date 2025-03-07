@@ -16,13 +16,13 @@ use crate::matmul::components::{
         ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
     },
     tile::TileConfig,
-    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
 };
 use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
@@ -105,12 +105,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             cube_dim.y,
-            MatmulSize {
-                // TODO Remove because we don't want different shapes to yield different kernels.
-                m: problem.m as u32,
-                n: problem.n as u32,
-                k: problem.k as u32,
-            },
         )
     }
 }

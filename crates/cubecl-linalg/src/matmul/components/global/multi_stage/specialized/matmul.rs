@@ -1,36 +1,29 @@
 use super::config::Config;
 use super::loader::{LhsBufferLoader, RhsBufferLoader};
-use crate::matmul::components::{
-    global::{
-        self,
-        base::InputLoader,
-        output_loader::{Quantizer, Unloader},
-        GlobalMatmul, SyncInputLoader, ZeroAccumulatorLoader,
+use crate::matmul::{
+    components::{
+        global::{
+            self,
+            base::InputLoader,
+            output_loader::{Quantizer, Unloader},
+            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, SyncInputLoader, ZeroAccumulatorLoader,
+        },
+        stage::{
+            self,
+            single_buffer::{
+                LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
+            },
+            ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul,
+        },
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     },
-    stage::{
-        single_buffer::{LhsBufferReader, RhsBufferReader},
-        ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul,
-    },
-    Ident, MatmulPrecision, MatmulSize,
+    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
 use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
-
-use crate::matmul::{
-    components::{
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
-        },
-        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-    },
-    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
-};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
@@ -106,11 +99,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             cube_dim.y,
-            MatmulSize {
-                m: problem.m as u32,
-                n: problem.n as u32,
-                k: problem.k as u32,
-            },
         )
     }
 }

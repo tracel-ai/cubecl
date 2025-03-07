@@ -118,7 +118,7 @@ impl<EA: Numeric> Quantizer<EA> {
             slice[index] += Line::new(EA::cast_from(
                 self.quantization.zero_offset_lhs
                     * self.quantization.zero_offset_rhs
-                    * i32::cast_from(config.shape().k),
+                    * self.quantization.shape_k,
             ));
             slice[index] = Line::cast_from(
                 self.quantization

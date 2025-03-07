@@ -1,7 +1,4 @@
-use crate::matmul::components::{
-    stage::{self},
-    Ident, MatmulConfig, MatrixLayout, TilingDimensions, MatmulSize
-};
+use crate::matmul::components::{stage, Ident, MatmulConfig, MatrixLayout, TilingDimensions};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
@@ -16,7 +13,6 @@ pub struct CommonGlobalConfig<S: stage::StageConfig> {
     pub rhs_line_size: u32,
     pub out_line_size: u32,
     pub num_planes: u32,
-    pub shape: MatmulSize,
 }
 
 impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
@@ -81,10 +77,6 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     fn transpose_load(&self, ident: Ident) -> bool {
         self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
     }
-
-    fn shape(&self) -> MatmulSize {
-        self.shape
-    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}
@@ -102,7 +94,6 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
         rhs_line_size: u32,
         out_line_size: u32,
         num_planes: u32,
-        shape: MatmulSize,
     ) -> Self {
         Self {
             smm_config,
@@ -115,7 +106,6 @@ impl<S: stage::StageConfig> CommonGlobalConfig<S> {
             rhs_line_size,
             out_line_size,
             num_planes,
-            shape
         }
     }
 }

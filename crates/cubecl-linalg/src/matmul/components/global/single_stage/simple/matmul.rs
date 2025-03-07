@@ -1,35 +1,27 @@
-use crate::matmul::components::{
-    global::{
-        base::InputLoader,
-        output_loader::{Quantizer, Unloader},
-        single_stage::{
-            loader::sync::{SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader},
-            Config,
+use crate::matmul::{
+    components::{
+        global::{
+            base::InputLoader,
+            output_loader::{Quantizer, Unloader},
+            single_stage::{
+                loader::sync::{SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader},
+                Config,
+            },
+            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, SyncInputLoader, ZeroAccumulatorLoader,
         },
-        GlobalMatmul, SyncInputLoader, ZeroAccumulatorLoader,
+        stage::{
+            self,
+            multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+            StageMatmul,
+        },
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     },
-    stage::{
-        multi_buffer::{LhsReader, RhsReader},
-        StageMatmul,
-    },
+    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
 };
-use crate::matmul::components::{MatmulPrecision, MatmulSize};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::{client::ComputeClient, prelude::*, CubeCount, CubeDim, Runtime};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
-use crate::matmul::{
-    components::{
-        global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-    },
-    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
-};
 
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -106,11 +98,6 @@ where
             problem.rhs_line_size as u32,
             problem.out_line_size as u32,
             stage_shape.k,
-            MatmulSize {
-                m: problem.m as u32,
-                n: problem.n as u32,
-                k: problem.k as u32,
-            },
         )
     }
 }
@@ -176,20 +163,6 @@ where
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
-
-            // // TODO would be nice to have a macro for this pattern.
-            // match comptime!(quantizer.clone()) {
-            //     Some(mut quantizer) => {
-            //         SMM::sums_lhs_rows(
-            //             lhs_stage_reader,
-            //             &mut quantizer.lhs_sums.to_slice_mut(),
-            //             config.to_smm_config(),
-            //         );
-
-            //         // ...
-            //     }
-            //     None => {}
-            // }
 
             sync_units();
 

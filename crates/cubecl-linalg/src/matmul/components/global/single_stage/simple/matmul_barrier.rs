@@ -1,5 +1,6 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::output_loader::Quantizer;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::loader::r#async::{
     AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
@@ -159,8 +160,14 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        mut quantizer: Option<Quantizer<MP::EA>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantizer.is_some() {
+                unimplemented!();
+            }
+        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -199,6 +206,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                &mut quantizer,
                 config.to_smm_config(),
             );
 
@@ -209,6 +217,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantizer,
             config.to_smm_config(),
             config,
         );
