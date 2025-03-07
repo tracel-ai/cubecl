@@ -36,6 +36,6 @@ pub trait RadixData:
 impl RadixData for u32 {
     const BYTECNT: u32 = 4;
     fn shift_mask(this: &Self, shift: u32, mask: u32) -> u32 {
-        this >> shift & mask
+        (this >> shift) & mask
     }
 }

@@ -156,7 +156,7 @@ fn ex_scan(
     #[comptime] cube_size: u32,
     #[comptime] wave_width: u32,
 ) {
-    let pos = ((block_cnt + 1) * CUBE_POS << 8) + UNIT_POS;
+    let pos = (((block_cnt + 1) * CUBE_POS) << 8) + UNIT_POS;
     input[pos] = cube_ex_scan::<u32>(input[pos], cube_size, wave_width) | FLAG_INCLUSIVE;
 }
 
