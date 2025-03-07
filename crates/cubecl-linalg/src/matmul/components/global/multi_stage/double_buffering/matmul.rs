@@ -183,38 +183,20 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        ///////////////
-        // Load A
-        Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
-        // can_advance_for_a = true
-
         let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
         let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
-
-        ///////////////
-        // Get B
-        // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-        // Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
         let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
         let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
 
+        Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+
         for _ in 0..num_loops {
             sync_units();
-            // can_compute_a = true
 
-            ///////////////
-            // Load B & Advance
             Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
-            // can_advance_for_b = true
 
-            // Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            // Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
-
-            ///////////////
-            // Execute A
             SMM::execute(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -223,24 +205,15 @@ where
                 acc,
                 config.to_smm_config(),
             );
-            // can_compute_a = false
 
             sync_units();
-            // can_compute_b = true
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
-            // can_advance_for_a = false;
-            // can_advance_for_b = false;
 
-            ///////////////
-            // Load Next A
             Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
-            // can_advance_for_a = true;
 
-            ///////////////
-            // Execute B
             SMM::execute(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -249,7 +222,6 @@ where
                 acc,
                 config.to_smm_config(),
             );
-            // can_compute_b = false
         }
 
         sync_units();
