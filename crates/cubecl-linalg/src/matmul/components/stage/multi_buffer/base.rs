@@ -137,22 +137,6 @@ where
         quantizer: &mut Option<Quantizer<Acc>>,
         #[comptime] config: Self::Config,
     ) {
-        // TODO Hacker ici pour faire les sommes.
-
-        // stage lhs
-        // [ tile00 tile01 tile02 UNIT_POS_Y = 0
-        //   tile10 tile11 tile11 UNIT_POS_Y = 1
-        // ]
-        //
-        // stage rhs
-        // [ tile00 tile01 tile02
-        //   tile10 tile11 tile12
-        //   tile20 tile21 tile22
-        // ] ai0    ai1    ai2
-        //
-        //
-        // stage out
-        // #tiles = NUM_PLANES x NUM_ACC
         #[unroll]
         for buffer_iter in 0..config.tile_count().k {
             let lhs_slice =
