@@ -3,10 +3,7 @@ use cubecl_core as cubecl;
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn memclean(
-    input: &mut Array<u32>,
-    #[comptime] keys: u32,
-) {
+pub fn memclean(input: &mut Array<u32>, #[comptime] keys: u32) {
     let mut idx = CUBE_POS * CUBE_DIM * keys + UNIT_POS;
     if CUBE_POS == CUBE_COUNT - 1 {
         for _ in 0..keys {
@@ -71,8 +68,7 @@ pub fn cube_ex_scan<N: Numeric>(
 ) -> N {
     let log_wave = u32::find_first_set(PLANE_DIM) - 1;
 
-    let mut wave_scan =
-        SharedMemory::<N>::new(comptime! {cube_size/min_wave_width});
+    let mut wave_scan = SharedMemory::<N>::new(comptime! {cube_size/min_wave_width});
 
     let mut local = plane_exclusive_sum(input);
 
@@ -128,8 +124,7 @@ pub fn cube_ex_scan<N: Numeric>(
             if plane_broadcast(UNIT_POS, 0) < active {
                 let idx = UNIT_POS * stride;
                 let cond = idx < active; //
-                let prev =
-                    if cond { wave_scan[idx] } else { wave_scan[0] };
+                let prev = if cond { wave_scan[idx] } else { wave_scan[0] };
 
                 let temp = plane_inclusive_sum(prev);
                 let temp = rotate::<N>(temp, -1, cond);
@@ -139,8 +134,7 @@ pub fn cube_ex_scan<N: Numeric>(
             }
             sync_units();
             if plane_broadcast(UNIT_POS, 0) < active {
-                let idx =
-                    UNIT_POS & BitwiseNot::bitwise_not(stride_mask);
+                let idx = UNIT_POS & BitwiseNot::bitwise_not(stride_mask);
                 let cond = UNIT_POS < shared_use;
                 if (idx != 0) && (UNIT_POS != idx) && cond {
                     let temp = wave_scan[idx];
@@ -160,14 +154,7 @@ pub fn cube_ex_scan<N: Numeric>(
 }
 
 #[cube]
-pub fn rotate<N: Numeric>(
-    input: N,
-    shift: i32,
-    active: bool,
-) -> N {
+pub fn rotate<N: Numeric>(input: N, shift: i32, active: bool) -> N {
     let act = line_sum(Line::count_ones(plane_ballot(active)));
-    plane_shuffle(
-        input,
-        (UNIT_POS_PLANE + (act as i32 + shift) as u32) % act,
-    )
+    plane_shuffle(input, (UNIT_POS_PLANE + (act as i32 + shift) as u32) % act)
 }

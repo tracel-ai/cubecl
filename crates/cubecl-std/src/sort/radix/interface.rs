@@ -26,26 +26,16 @@ impl AsRadix for i32 {
 
 #[cube]
 pub trait RadixData:
-    CubeType<ExpandType = ExpandElementTyped<Self>>
-    + Sized
-    + CubePrimitive
+    CubeType<ExpandType = ExpandElementTyped<Self>> + Sized + CubePrimitive
 {
     const BYTECNT: u32;
-    fn shift_mask(
-        this: &Self,
-        shift: u32,
-        mask: u32,
-    ) -> u32;
+    fn shift_mask(this: &Self, shift: u32, mask: u32) -> u32;
 }
 
 #[cube]
 impl RadixData for u32 {
     const BYTECNT: u32 = 4;
-    fn shift_mask(
-        this: &Self,
-        shift: u32,
-        mask: u32,
-    ) -> u32 {
+    fn shift_mask(this: &Self, shift: u32, mask: u32) -> u32 {
         this >> shift & mask
     }
 }
