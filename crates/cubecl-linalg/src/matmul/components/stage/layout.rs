@@ -85,7 +85,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
 #[cube]
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
-    pub fn to_x_y<S: StageConfig>(
+    pub fn to_x_y_from_nth<S: StageConfig>(
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
@@ -95,6 +95,23 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
         let num_y = stage_tiling.tile_count_col();
 
         T::to_row_col(nth, num_x, num_y)
+    }
+
+    /// Converts a tile conceptual row_major (x,y) position to its actual position following tiling order
+    /// For row major tiling order, it remains the same, while for col major it transposes.
+    pub fn to_x_y_from_row_major<S: StageConfig>(
+        x_row_major: u32,
+        y_row_major: u32,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) -> (u32, u32) {
+        let stage_tiling = config.tiling_dimensions(ident);
+        let num_x = stage_tiling.tile_count_row();
+        let num_y = stage_tiling.tile_count_col();
+
+        let row_major_nth = x_row_major * num_y + y_row_major;
+
+        T::to_row_col(row_major_nth, num_x, num_y)
     }
 }
 

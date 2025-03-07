@@ -67,7 +67,7 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
             let slice_index = unit_id + total_units * i;
 
             let nth_tile = slice_index / num_slices_per_tile;
-            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y_from_nth::<G::SmmConfig>(
                 nth_tile,
                 ident,
                 config.to_smm_config(),
