@@ -18,12 +18,6 @@ pub struct MaximizeUnitCountLoading {}
 
 impl LoadingValidation for MaximizeUnitCountLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load is not supported with window loading.",
-            ));
-        }
-
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -111,12 +105,12 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
     }
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
-        buffer_index: u32,
-        mechanism: &CM,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
+        _read_view: &TensorReader<EG>,
+        _stage_slice: &mut SliceMut<Line<ES>>,
+        _buffer_index: u32,
+        _mechanism: &CM,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
     ) {
         // TODO
     }

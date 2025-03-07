@@ -26,11 +26,6 @@ impl LoadingValidation for StridedCoalescedLoading {
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
         }
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load not yet supported in strided coalesced loading setup",
-            ));
-        }
 
         Ok(())
     }
@@ -65,11 +60,11 @@ impl SyncLoadingStrategy for StridedCoalescedLoading {
     }
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
-        buffer_index: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
+        _read_view: &TensorReader<EG>,
+        _stage_slice: &mut SliceMut<Line<ES>>,
+        _buffer_index: u32,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
     ) {
         // TODO
     }

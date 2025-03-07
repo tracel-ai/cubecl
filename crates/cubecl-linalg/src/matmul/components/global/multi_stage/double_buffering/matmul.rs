@@ -25,7 +25,6 @@ use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
-use crate::matmul::kernels::matmul::AdvancedConfig;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 pub struct DoubleBufferingMatmulFamily<SMM: stage::StageMatmulFamily> {
@@ -85,7 +84,6 @@ where
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
         let smm_config = SMM::make_config(
@@ -93,7 +91,6 @@ where
             problem,
             cube_dim,
             cube_count,
-            advanced_config,
             quantized,
         );
         let stage_shape = SMM::stage_shape(&smm_config);

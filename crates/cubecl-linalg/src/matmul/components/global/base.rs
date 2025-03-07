@@ -196,7 +196,4 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
-
-    /// Whether we transpose data when loading to the stage
-    fn transpose_load(&self, ident: Ident) -> bool;
 }

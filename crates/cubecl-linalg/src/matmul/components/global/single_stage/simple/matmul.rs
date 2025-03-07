@@ -26,7 +26,7 @@ use crate::matmul::{
         },
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
-    kernels::{matmul::AdvancedConfig, MatmulAvailabilityError},
+    kernels::MatmulAvailabilityError,
 };
 
 pub struct SimpleMatmulFamily<
@@ -80,17 +80,9 @@ where
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(
-            input,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(

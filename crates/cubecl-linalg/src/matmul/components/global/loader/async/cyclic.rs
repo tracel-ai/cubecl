@@ -26,11 +26,6 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
         if num_slices >= total_units && num_slices % total_units != 0 {
             return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
         }
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load is not supported with window load mode",
-            ));
-        }
 
         Ok(())
     }
@@ -104,12 +99,12 @@ impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     }
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
-        buffer_index: u32,
-        mechanism: &CM,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
+        _read_view: &TensorReader<EG>,
+        _stage_slice: &mut SliceMut<Line<ES>>,
+        _buffer_index: u32,
+        _mechanism: &CM,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
     ) {
         // TODO
     }

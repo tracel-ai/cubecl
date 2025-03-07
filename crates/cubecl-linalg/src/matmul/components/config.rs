@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::matmul::kernels::{matmul::AdvancedConfig, MatmulAvailabilityError};
+use crate::matmul::kernels::MatmulAvailabilityError;
 
 use super::{MatmulPrecision, MatmulProblem, MatmulSize};
 
@@ -50,7 +50,6 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config;
 }

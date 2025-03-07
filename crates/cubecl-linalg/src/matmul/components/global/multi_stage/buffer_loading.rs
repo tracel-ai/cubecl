@@ -26,12 +26,6 @@ impl LoadingValidation for BufferLoading {
             ));
         }
 
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load not yet supported in buffered setup",
-            ));
-        }
-
         Ok(())
     }
 }
