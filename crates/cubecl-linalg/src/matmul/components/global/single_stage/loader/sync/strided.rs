@@ -47,16 +47,11 @@ impl SyncLoadingStrategy for StridedCoalescedLoading {
         #[comptime] config: G,
     ) {
         let tiling = config.tiling_dimensions(ident);
-        // 4
         let line_size = config.global_line_size(ident);
-        // 256 / 4 = 64
         let num_stage_lines = tiling.total_size() / line_size;
-        // 1*32= 32
         let unit_count = config.num_planes() * config.plane_dim();
-        // 64 / 32 = 2
         let num_loads_per_unit = comptime!(num_stage_lines / unit_count);
 
-        // 0 * 32 + 0..32 = 0..32
         let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
         for i in 0..num_loads_per_unit {
