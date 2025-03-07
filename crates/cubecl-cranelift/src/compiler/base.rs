@@ -10,11 +10,15 @@ use cranelift_codegen::{
     settings, Context,
 };
 
-use cubecl_core::{ir::Item, prelude::KernelDefinition, Compiler, ExecutionMode};
+use cubecl_core::{
+    ir::{Item, VariableKind},
+    prelude::KernelDefinition,
+    Compiler, ExecutionMode,
+};
 
 use hashbrown::HashMap;
 
-use super::compile_binding;
+use super::{compile_binding, LookupTables};
 
 pub struct FunctionCompiler {
     //ctx: CompilerState,
@@ -90,8 +94,8 @@ impl Compiler for FunctionCompiler {
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
-        let mut state = CompilerState::new(self, kernel);
-
+        let mut state = CompilerState::new(self, &kernel);
+        state.process_scope(&kernel);
         todo!()
     }
 
@@ -109,15 +113,13 @@ impl Debug for FunctionCompiler {
     }
 }
 impl<'a> CompilerState<'a> {
-    pub fn new(compiler: &'a mut FunctionCompiler, kernel: KernelDefinition) -> Self {
+    pub fn new(compiler: &'a mut FunctionCompiler, kernel: &KernelDefinition) -> Self {
         let mut lookup = LookupTables::default();
 
         compiler.codegen_ctx.func.signature.params =
             kernel.inputs.iter().map(compile_binding).collect();
         compiler.codegen_ctx.func.signature.returns =
             kernel.outputs.iter().map(compile_binding).collect();
-
-        //TODO: need to add a symbol table for mapping names
 
         let mut func_builder =
             FunctionBuilder::new(&mut compiler.codegen_ctx.func, &mut compiler.builder_ctx);
@@ -129,9 +131,10 @@ impl<'a> CompilerState<'a> {
         // for those of you who, like the author, are wondering why we are iterating through
         // the values of the inputs to define the function inputs twice, apparently the inputs to a function
         // apparently the earlier calls don't map the inputs to variables within the block
-        for val in func_builder.block_params(entry_block).to_vec().iter() {
-            let var = CraneliftVariable::new(lookup.next_var() as usize);
-            func_builder.def_var(var, *val)
+        for i in 0..kernel.inputs.len() {
+            let var = lookup.getsert_var(super::KernelVar::In(i as u32));
+            let val = func_builder.block_params(entry_block)[i];
+            func_builder.def_var(var, val)
         }
 
         Self {
@@ -140,6 +143,23 @@ impl<'a> CompilerState<'a> {
             func_builder,
             entry_block,
         }
+    }
+    fn init_entry_block(&mut self, kernel: KernelDefinition) -> Block {
+        let entry_block = self.func_builder.create_block();
+        self.func_builder
+            .append_block_params_for_function_params(entry_block);
+        self.func_builder.switch_to_block(entry_block);
+        self.func_builder.seal_block(entry_block);
+
+        // for those of you who, like the author, are wondering why we are iterating through
+        // the values of the inputs to define the function inputs twice, apparently the inputs to a function
+        // apparently the earlier calls don't map the inputs to variables within the block
+        for i in 0..kernel.inputs.len() {
+            let var = self.lookup.getsert_var(super::KernelVar::In(i as u32));
+            let val = self.func_builder.block_params(entry_block)[i];
+            self.func_builder.def_var(var, val)
+        }
+        entry_block
     }
 }
 
@@ -151,52 +171,5 @@ impl Clone for FunctionCompiler {
             codegen_ctx: new_context(&self.isa),
             builder_ctx: FunctionBuilderContext::new(),
         }
-    }
-}
-#[derive(Clone)]
-pub(crate) struct LookupTables {
-    func_counter: u32,
-    var_counter: u32,
-    ///map from function id to function name, used to create UserFuncName instances
-    functions: HashMap<u32, String>,
-    ///map from indices to Cubecl Items
-    variables: Vec<Value>,
-}
-
-impl Default for LookupTables {
-    fn default() -> Self {
-        Self {
-            func_counter: 0,
-            var_counter: 0,
-            functions: HashMap::new(),
-            variables: Vec::new(),
-        }
-    }
-}
-impl LookupTables {
-    pub(crate) fn insert_func(&mut self, name: String) -> (u32, u32) {
-        let id = self.func_counter;
-        self.functions.insert(id, name);
-        self.func_counter += 1;
-        //the zero is the namespace id
-        (0, id)
-    }
-    pub(crate) fn get_func(&self, id: u32) -> Option<&String> {
-        self.functions.get(&id)
-    }
-
-    // pub(crate) fn getsert_var(&mut self, name: String) -> u32 {
-    //     *self.variables.entry(name).or_insert({
-    //         let id = self.var_counter;
-    //         self.var_counter += 1;
-    //         id
-    //     })
-    // }
-
-    ///placeholder function until I get a better idea of what I need to map
-    pub(crate) fn next_var(&mut self) -> u32 {
-        let id = self.var_counter;
-        self.var_counter += 1;
-        id
     }
 }

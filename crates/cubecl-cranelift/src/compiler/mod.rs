@@ -9,11 +9,11 @@ mod base;
 // mod kernel;
 // mod mma;
 
-mod function;
 mod instruction;
+mod lookup;
 pub use base::*;
-pub use function::*;
 pub use instruction::*;
+pub use lookup::*;
 // pub use body::*;
 // pub use element::*;
 // pub use instruction::*;
