@@ -73,8 +73,13 @@ impl BufferLoading {
 
             let (tile_x, tile_y) = get_tiles_x_y(nth_buffer_tile, ident);
 
-            let line_read =
-                read_view.load_coalesced::<G>(tile_x, tile_y, pos_within_tile, ident, config);
+            let line_read = read_view.load_coalesced_in_tile::<G>(
+                tile_x,
+                tile_y,
+                pos_within_tile,
+                ident,
+                config,
+            );
 
             buffer_slice[unit_position / line_size] = Line::cast_from(line_read);
         }

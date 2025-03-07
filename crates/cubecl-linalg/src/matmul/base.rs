@@ -5,9 +5,12 @@ use crate::tensor::TensorHandle;
 
 use super::{
     components::{
-        global::single_stage::loader::r#async::{
-            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-            WindowCooperativeLoading,
+        global::single_stage::loader::{
+            r#async::{
+                CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
+                WindowCooperativeLoading,
+            },
+            sync::StridedCoalescedLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
@@ -26,8 +29,8 @@ use super::{
 
 #[derive(Debug, Clone, Default)]
 pub enum Strategy {
-    Simple,
-    SimpleBarrier(LoadingStrategy),
+    Simple(SyncLoadingStrategy),
+    SimpleBarrier(AsyncLoadingStrategy),
     SimplePipelined,
     DoubleBuffering,
     Specialized,
@@ -41,7 +44,13 @@ pub enum Strategy {
 }
 
 #[derive(Debug, Clone)]
-pub enum LoadingStrategy {
+pub enum SyncLoadingStrategy {
+    Cyclic,
+    Strided,
+}
+
+#[derive(Debug, Clone)]
+pub enum AsyncLoadingStrategy {
     Cooperative,
     Cyclic,
     MaximizeSliceLength,
@@ -72,26 +81,33 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulLaunchError> {
     match strategy {
-        Strategy::Simple => {
-            matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
-        }
+        Strategy::Simple(loading_strategy) => match loading_strategy {
+            SyncLoadingStrategy::Cyclic => {
+                matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
+            }
+            SyncLoadingStrategy::Strided => matmul::launch_ref::<
+                R,
+                EG,
+                SimpleAlgorithm<Accelerated, StridedCoalescedLoading, StridedCoalescedLoading>,
+            >(client, lhs, rhs, out),
+        },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
-            LoadingStrategy::Cooperative => matmul::launch_ref::<
+            AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<
                 R,
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, WindowCooperativeLoading>,
             >(client, lhs, rhs, out),
-            LoadingStrategy::Cyclic => matmul::launch_ref::<
+            AsyncLoadingStrategy::Cyclic => matmul::launch_ref::<
                 R,
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
             >(client, lhs, rhs, out),
-            LoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
+            AsyncLoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
                 R,
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeSliceLengthLoading>,
             >(client, lhs, rhs, out),
-            LoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
+            AsyncLoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
                 R,
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,

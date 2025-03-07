@@ -293,6 +293,7 @@ macro_rules! matmul_standard_tests {
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
             WindowCooperativeLoading,
         };
+        use $crate::matmul::components::global::single_stage::loader::sync::StridedCoalescedLoading;
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
@@ -303,6 +304,20 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_strided() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleAlgorithm<TMM, StridedCoalescedLoading, StridedCoalescedLoading>,
+                Precision,
+                TestRuntime,
+            >(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,
                 $stage,

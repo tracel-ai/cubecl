@@ -79,7 +79,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
         for i in 0..num_loads_per_unit {
             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
 
-            let line_read = read_view.load_coalesced::<G>(
+            let line_read = read_view.load_coalesced_in_tile::<G>(
                 tile_x,
                 tile_y,
                 pos_within_tile * line_size,
