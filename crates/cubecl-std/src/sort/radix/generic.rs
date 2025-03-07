@@ -1,17 +1,16 @@
-use std::mem;
-
 use cubecl_core as cubecl;
+
+use core::mem;
+
+use cubecl::{frontend::Atomic, prelude::*, server::Handle};
 
 use super::util::*;
 use super::*;
-use cubecl::{frontend::Atomic, prelude::*, server::Handle};
 
 const FLAG_MASK: u32 = 0x_C0_00_00_00u32; // 11
 const VALUE_MASK: u32 = 0x_3F_FF_FF_FFu32; // 00
-
-const FLAG_REDUCTION: u32 = 0x_40_00_00_00u32; //Flag value indicating reduction of a partition tile is ready
-                                               // 10
-const FLAG_INCLUSIVE: u32 = 0x_80_00_00_00u32;
+const FLAG_REDUCTION: u32 = 0x_40_00_00_00u32; //01 Flag value indicating reduction of a partition tile is ready
+const FLAG_INCLUSIVE: u32 = 0x_80_00_00_00u32; // 10
 
 pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
     client: &cubecl::prelude::ComputeClient<R::Server, R::Channel>,
@@ -34,8 +33,7 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
     let key_per_thread = 16;
     let key_per_block = (block_size * key_per_thread) as usize;
 
-    let block_cnt =
-        ((len + key_per_block - 1) / key_per_block) as u32;
+    let block_cnt = len.div_ceil(key_per_block) as u32;
 
     unsafe {
         let global_histogram_handle = {
@@ -46,16 +44,17 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
 
             let handle = client.empty(len);
             let keys = 64;
+            // must 0
             memclean::launch::<R>(
                 client,
                 CubeCount::Static(
-                    (len as u32 + (1024 * keys) - 1) / (1024 * keys),
+                    len.div_ceil(1024 * keys) as u32,
                     1,
                     1,
                 ),
                 CubeDim::new(1024, 1, 1),
                 ArrayArg::from_raw_parts::<u32>(&handle, len, 1),
-                keys,
+                keys as u32,
             );
             handle
         };
@@ -90,7 +89,7 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
 
         let index_handle = client.create(u32::as_bytes(&vec![
                 0u32;
-                bytecnt * (offset_align /size_of::<u32>()).max(1)
+                bytecnt * (offset_align / size_of::<u32>()).max(1)
             ]));
 
         for i in 0..bytecnt {
@@ -184,7 +183,7 @@ fn global_histogram<N: AsRadix>(
 fn ex_scan(
     input: &mut Array<u32>,
     block_cnt: u32,
-    #[comptime] cube_size: u32, // radix
+    #[comptime] cube_size: u32,
     #[comptime] wave_width: u32,
 ) {
     let pos = ((block_cnt + 1) * CUBE_POS << 8) + UNIT_POS;
