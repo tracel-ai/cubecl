@@ -42,9 +42,6 @@ pub struct SpecializedMatmulFamily<
     _rhs_loading: PhantomData<RL>,
 }
 
-type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
-type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
-
 impl<SMM, LL, RL> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
