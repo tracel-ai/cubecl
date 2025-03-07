@@ -33,8 +33,10 @@ impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
 
 #[cube]
 pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
+    /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
@@ -43,6 +45,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
         #[comptime] config: G,
     );
 
+    /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
@@ -52,6 +55,7 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
         #[comptime] config: G,
     );
 
+    /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
 }
 

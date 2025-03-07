@@ -12,8 +12,10 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
 pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
+    /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
@@ -21,6 +23,7 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
         #[comptime] config: G,
     );
 
+    /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage_slice: &mut SliceMut<Line<ES>>,
