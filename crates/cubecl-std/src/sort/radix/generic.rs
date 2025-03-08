@@ -18,7 +18,7 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
     mut data: Handle,
     buffer: Option<Handle>,
 ) {
-    let mut buffer = buffer.unwrap_or_else(|| client.empty(len));
+    let mut buffer = buffer.unwrap_or_else(|| client.empty(len * mem::size_of::<N>()));
 
     let width = client.properties().hardware_properties().plane_size_min;
     let offset_align = client.properties().memory_properties().alignment as usize;
