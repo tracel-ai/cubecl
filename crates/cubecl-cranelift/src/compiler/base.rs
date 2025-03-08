@@ -132,7 +132,7 @@ impl<'a> CompilerState<'a> {
         // the values of the inputs to define the function inputs twice, apparently the inputs to a function
         // apparently the earlier calls don't map the inputs to variables within the block
         for i in 0..kernel.inputs.len() {
-            let var = lookup.getsert_var(super::KernelVar::In(i as u32));
+            let var = lookup.getsert_var(VariableKind::GlobalInputArray(i as u32));
             let val = func_builder.block_params(entry_block)[i];
             func_builder.def_var(var, val)
         }
@@ -143,23 +143,6 @@ impl<'a> CompilerState<'a> {
             func_builder,
             entry_block,
         }
-    }
-    fn init_entry_block(&mut self, kernel: KernelDefinition) -> Block {
-        let entry_block = self.func_builder.create_block();
-        self.func_builder
-            .append_block_params_for_function_params(entry_block);
-        self.func_builder.switch_to_block(entry_block);
-        self.func_builder.seal_block(entry_block);
-
-        // for those of you who, like the author, are wondering why we are iterating through
-        // the values of the inputs to define the function inputs twice, apparently the inputs to a function
-        // apparently the earlier calls don't map the inputs to variables within the block
-        for i in 0..kernel.inputs.len() {
-            let var = self.lookup.getsert_var(super::KernelVar::In(i as u32));
-            let val = self.func_builder.block_params(entry_block)[i];
-            self.func_builder.def_var(var, val)
-        }
-        entry_block
     }
 }
 

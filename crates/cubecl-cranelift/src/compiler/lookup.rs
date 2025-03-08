@@ -16,15 +16,14 @@ pub(crate) struct LookupTables {
     //TODO: need to change this to remove KernelVar enum, replace in/out with global{Input,Output}Array,
     //and change the key type to VariableKind
     ///map from indices in the kernel def to to cranelift Variables
-    variables: HashMap<KernelVar, CraneliftVariable>,
+    variables: HashMap<VariableKind, CraneliftVariable>,
 }
 
 ///CubeIR variables have a id/index per variable kind, Cranelift expects a more global index
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum KernelVar {
-    In(u32),
-    Out(u32),
-    Local(VariableKind),
+    In(CubeItem),
+    Out(CubeItem),
 }
 
 impl Default for LookupTables {
@@ -54,19 +53,12 @@ impl LookupTables {
         //self.variables.get(&var)
     }
 
-    pub(crate) fn getsert_var(&mut self, var: KernelVar) -> CraneliftVariable {
+    pub(crate) fn getsert_var(&mut self, var: VariableKind) -> CraneliftVariable {
         *self.variables.entry(var).or_insert({
             let id = self.var_counter;
             self.var_counter += 1;
             CraneliftVariable::new(id as usize)
         })
-    }
-
-    ///placeholder function until I get a better idea of what I need to map
-    pub(crate) fn next_var(&mut self) -> u32 {
-        let id = self.var_counter;
-        self.var_counter += 1;
-        id
     }
 }
 
@@ -91,7 +83,7 @@ pub fn to_ssa_type(item: &CubeItem) -> CraneType {
 }
 
 pub fn compile_binding(binding: &Binding) -> AbiParam {
-    let mut vtype = to_ssa_type(&binding.item);
+    let vtype = to_ssa_type(&binding.item);
 
     AbiParam {
         value_type: vtype,
