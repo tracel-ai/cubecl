@@ -280,6 +280,8 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        #[cfg(feature = "msl")]
+        wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
 }
