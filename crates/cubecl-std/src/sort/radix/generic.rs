@@ -15,11 +15,9 @@ const FLAG_INCLUSIVE: u32 = 0x_80_00_00_00u32; // 10
 pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
     client: &cubecl::prelude::ComputeClient<R::Server, R::Channel>,
     len: usize,
-    mut data: Handle,
+    data: &mut Handle,
     buffer: Option<Handle>,
 ) {
-    let mut buffer = buffer.unwrap_or_else(|| client.empty(len * mem::size_of::<N>()));
-
     let width = client.properties().hardware_properties().plane_size_min;
     let offset_align = client.properties().memory_properties().alignment as usize;
 
@@ -33,7 +31,10 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
 
     let block_cnt = len.div_ceil(key_per_block) as u32;
 
-    unsafe {
+    *data = unsafe {
+        let mut data = Handle::clone(data);
+        let mut buffer = buffer.unwrap_or_else(|| client.empty(len * mem::size_of::<N>()));
+
         let global_histogram_handle = {
             let len = radix * (block_cnt as usize + 1) * mem::size_of::<u32>() * bytecnt;
 
@@ -104,6 +105,7 @@ pub fn radix_sort<R: Runtime, N: RadixSort + AsRadix>(
             );
             (data, buffer) = (buffer, data);
         }
+        data
     };
 }
 
