@@ -85,7 +85,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
 #[cube]
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
-    pub fn to_x_y_from_nth<S: StageConfig>(
+    pub fn to_x_y<S: StageConfig>(
         nth: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,

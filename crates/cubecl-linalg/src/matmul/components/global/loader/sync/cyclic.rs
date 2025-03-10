@@ -45,6 +45,9 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
+        // for i in 0..2 {
+        //     Self::load_buffer::<EG, ES, G>(read_view, stage, i, ident, config);
+        // }
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
         let num_stage_elements = tiling.total_size();
@@ -61,7 +64,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y_from_nth::<G::SmmConfig>(
+            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
                 ident,
                 config.to_smm_config(),
@@ -103,6 +106,8 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
 
         for i in 0..num_lines_per_unit {
             let nth_line = unit_base + i * total_units;
+
+            // TODO make this if exist only if needed
             if nth_line < total_num_lines {
                 let nth_tile_in_buffer = nth_line / num_lines_per_tile;
                 let pos_within_tile = nth_line % num_lines_per_tile;
@@ -117,7 +122,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                 let line_read = read_view.load_coalesced_in_tile::<G>(
                     tile_x,
                     tile_y,
-                    pos_within_tile,
+                    pos_within_tile, // * or / 4
                     ident,
                     config,
                 );
