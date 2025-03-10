@@ -76,10 +76,6 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
     fn check_k_bounds(&self) -> bool {
         self.check_k_bounds
     }
-
-    fn transpose_load(&self, ident: Ident) -> bool {
-        self.matrix_layout(ident) != self.smm_config.matrix_layout(ident)
-    }
 }
 
 impl<S: stage::StageConfig> MatmulConfig for CommonGlobalConfig<S> {}

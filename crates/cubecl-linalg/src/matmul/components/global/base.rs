@@ -8,7 +8,7 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::single_stage::loader::r#async::CopyMechanism;
+use super::loader::r#async::CopyMechanism;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -196,7 +196,4 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
-
-    /// Whether we transpose data when loading to the stage
-    fn transpose_load(&self, ident: Ident) -> bool;
 }

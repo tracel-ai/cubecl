@@ -12,11 +12,22 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
 pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
+    /// Load the full stage
+    fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
+        #[comptime] ident: Ident,
+        #[comptime] config: G,
+    );
+
+    /// Load the stage only at the buffer identified by buffer_index
+    fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
+        read_view: &TensorReader<EG>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
+        buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -62,9 +73,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load::<EG, ES, single_stage::Config<S>>(
+        L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             Ident::Lhs,
             config,
         );
@@ -118,9 +129,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
     SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load::<EG, ES, single_stage::Config<S>>(
+        L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
+            &mut this.stage,
             Ident::Rhs,
             config,
         );

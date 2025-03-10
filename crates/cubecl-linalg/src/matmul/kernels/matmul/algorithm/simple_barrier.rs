@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self, single_stage::loader::r#async::AsyncLoadingStrategy},
+    global::{self, loader::r#async::AsyncLoadingStrategy},
     stage, tile, MatmulProblem, MatmulSelection,
 };
 
@@ -42,11 +42,5 @@ where
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
-    }
-
-    fn advanced_config() -> crate::matmul::kernels::matmul::AdvancedConfig {
-        crate::matmul::kernels::matmul::AdvancedConfig {
-            enforced_matrix_layout: (None, None),
-        }
     }
 }

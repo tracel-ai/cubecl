@@ -8,17 +8,14 @@ use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
+    global,
+    stage::{StageConfig as _, StageWriter},
+    tile, Ident, MatmulProblem,
+};
+use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
-use crate::matmul::{
-    components::{
-        global,
-        stage::{StageConfig as _, StageWriter},
-        tile, Ident, MatmulProblem,
-    },
-    kernels::matmul::AdvancedConfig,
-};
 
 use super::reader::{LhsReader, RhsReader};
 use super::{LhsReaderFamily, RhsReaderFamily};
@@ -66,20 +63,12 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         problem: &MatmulProblem,
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
-        advanced_config: &AdvancedConfig,
         quantized: bool,
     ) -> Self::Config {
         let tile_shape = input.tile_shape;
         let tile_count = input.tile_count;
 
-        let tmm_config = TMM::make_config(
-            tile_shape,
-            problem,
-            cube_dim,
-            cube_count,
-            advanced_config,
-            quantized,
-        );
+        let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
         let tiling = CompleteStageTiling {
             tile_shape,

@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{ContiguousTilingLayout, TilingOrder};
-use crate::matmul::components::{Ident, InvalidConfigError, MatrixLayout};
+use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
+use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -30,11 +30,6 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
         }
-        if config.transpose_load(ident) && config.global_line_size(ident) != 1 {
-            return Err(Box::new(
-                "Line size for stage is not supported when transposing",
-            ));
-        }
 
         Ok(())
     }
@@ -44,9 +39,9 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -80,38 +75,17 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                 config,
             );
 
-            match config.transpose_load(ident) {
-                false => {
-                    slice[unit_position / line_size] = Line::cast_from(line_read);
-                }
-                true => {
-                    let tile_offset = nth_tile * tile_num_elements;
-
-                    let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
-                    let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
-
-                    let (height, width) = match config.matrix_layout(ident) {
-                        MatrixLayout::RowMajor => (tile_shape_x, tile_shape_y),
-                        MatrixLayout::ColMajor => (tile_shape_y, tile_shape_x),
-                    };
-
-                    let global_strided_idx = pos_within_tile / width;
-                    let global_contiguous_idx = pos_within_tile % width;
-
-                    let slice_strided_root = global_contiguous_idx;
-                    let slice_contiguous_idx = global_strided_idx;
-                    let slice_stride = height;
-
-                    #[unroll]
-                    for iter in 0..config.global_line_size(ident) {
-                        let slice_strided_idx = slice_strided_root + iter;
-                        let elem = line_read[iter];
-                        slice[tile_offset
-                            + slice_strided_idx * slice_stride
-                            + slice_contiguous_idx] = Line::cast_from(elem);
-                    }
-                }
-            }
+            stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+        _read_view: &TensorReader<EG>,
+        _stage: &mut Stage<ES, Self::TilingLayout>,
+        _buffer_index: u32,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
+    ) {
+        // TODO
     }
 }

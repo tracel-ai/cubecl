@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
-    stage::{ContiguousTilingLayout, TilingOrder},
+    stage::{ContiguousTilingLayout, Stage, TilingOrder},
     FormattedConfigError, Ident, InvalidConfigError,
 };
 use cubecl_core as cubecl;
@@ -40,12 +40,6 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
             ));
         }
 
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load not yet supported in tilewise loading setup",
-            ));
-        }
-
         Ok(())
     }
 }
@@ -54,9 +48,9 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
 impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -88,7 +82,17 @@ impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
             );
 
             let offset = offset_base + pos_within_tile;
-            slice[offset] = Line::cast_from(line_read);
+            stage.as_slice_mut()[offset] = Line::cast_from(line_read);
         }
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+        _read_view: &TensorReader<EG>,
+        _stage: &mut Stage<ES, Self::TilingLayout>,
+        _buffer_index: u32,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
+    ) {
+        // TODO
     }
 }

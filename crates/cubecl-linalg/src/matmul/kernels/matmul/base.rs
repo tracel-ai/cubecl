@@ -14,7 +14,6 @@ use cubecl_core::{
 };
 use cubecl_std::MaybeQuantized;
 
-use super::config::AdvancedConfig;
 use super::{select_kernel, Algorithm};
 
 /// Launch a matrix multiplication kernel.
@@ -259,7 +258,6 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
-    let advanced_config = A::advanced_config();
 
     launch_matmul::<MS, R, A>(
         client,
@@ -268,7 +266,6 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
         problem,
         cube_dim,
         cube_count,
-        advanced_config,
         config_input,
         quantized,
     )
@@ -282,18 +279,10 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     problem: MatmulProblem,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    advanced_config: AdvancedConfig,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
     quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(
-        config_input,
-        &problem,
-        &cube_dim,
-        &cube_count,
-        &advanced_config,
-        quantized,
-    )?;
+    let config = D::make_config(config_input, &problem, &cube_dim, &cube_count, quantized)?;
     D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
 
     unsafe {

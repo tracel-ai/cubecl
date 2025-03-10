@@ -3,7 +3,7 @@ use crate::matmul::components::{
         tensor_view::{TensorReader, Window},
         GlobalConfig, LoadingValidation,
     },
-    stage::StridedTilingLayout,
+    stage::{Stage, StridedTilingLayout},
     Ident, InvalidConfigError, MatrixLayout,
 };
 use cubecl_core::prelude::*;
@@ -18,12 +18,6 @@ pub struct MaximizeUnitCountLoading {}
 
 impl LoadingValidation for MaximizeUnitCountLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        if config.transpose_load(ident) {
-            return Err(Box::new(
-                "Transpose load is not supported with window loading.",
-            ));
-        }
-
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -59,9 +53,9 @@ impl LoadingValidation for MaximizeUnitCountLoading {
 impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage_slice: &mut SliceMut<Line<ES>>,
+        stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -88,7 +82,7 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
 
         let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-            stage_slice,
+            stage,
             nth_slice,
             ident,
             config.to_smm_config(),
@@ -108,6 +102,17 @@ impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
             &src_segment.try_cast_unchecked(),
             &mut dest_segment,
         );
+    }
+
+    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        _read_view: &TensorReader<EG>,
+        _stage: &mut Stage<ES, Self::TilingLayout>,
+        _buffer_index: u32,
+        _mechanism: &CM,
+        #[comptime] _ident: Ident,
+        #[comptime] _config: G,
+    ) {
+        // TODO
     }
 
     fn barrier_level() -> BarrierLevel {

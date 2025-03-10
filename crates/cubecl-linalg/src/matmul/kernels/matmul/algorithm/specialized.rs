@@ -42,10 +42,4 @@ where
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
     }
-
-    fn advanced_config() -> crate::matmul::kernels::matmul::AdvancedConfig {
-        crate::matmul::kernels::matmul::AdvancedConfig {
-            enforced_matrix_layout: (None, None),
-        }
-    }
 }
