@@ -102,7 +102,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Miss => {
                 // We don't know the results yet, start autotuning.
                 //
-                // Running benchmarks shound't lock the tuner, since an autotune operation can recursively use the
+                // Running benchmarks should't lock the tuner, since an autotune operation can recursively use the
                 // same tuner.
                 //
                 // # Example

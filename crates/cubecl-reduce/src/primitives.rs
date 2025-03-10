@@ -260,7 +260,7 @@ fn fill_coordinate_line(
 /// Since each individual cube performs a reduction, this function is meant to be called
 /// with a different `accumulator` for each cube based on `CUBE_POS`.
 ///
-/// There is no out-of-bound check, so it is the responsability of the caller to ensure that `size` is at most the length
+/// There is no out-of-bound check, so it is the responsibility of the caller to ensure that `size` is at most the length
 /// of the shared memory and that there are at least `size` units within each cube.
 #[cube]
 pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(

@@ -45,7 +45,7 @@ impl<
                     operation
                         .clone()
                         .execute(self.inputs.clone())
-                        .expect("Should not fail when previsously tried during the warmup.");
+                        .expect("Should not fail when previously tried during the warmup.");
                     // For benchmarks - we need to wait for all tasks to complete before returning.
                     let duration = match client.sync_elapsed().await {
                         Ok(val) => val,
