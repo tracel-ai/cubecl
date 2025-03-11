@@ -15,6 +15,18 @@ use crate::cache_file::CacheFile;
 ///
 /// The goal is simplicity, ease of use and ease of distribution. All data are stored in a single
 /// file, which is automatically loaded in memory when creating the cache.
+///
+/// # Warning
+///
+/// The bigguest constraint for the cache is that values should never change for the given key.
+/// The is no update possible, if a value is reinserted a second time with a different value but
+/// the same key, a panic will arise.
+///
+/// This is important to keep the file format simple, there is no metadata, no headers, just plain
+/// separator between each cache entry. It isn't possible to edit previously saved content.
+///
+/// The cubecl version is taken for versionning, but you can customize this using
+/// [cache option](CacheOption).
 pub struct Cache<K, V> {
     in_memory_cache: HashMap<K, V>,
     file: CacheFile,

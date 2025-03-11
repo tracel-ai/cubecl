@@ -178,19 +178,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
 
                 let sample_fut = tuner.sample_durations();
-                let sample_fut = future::catch_unwind(sample_fut);
                 let result = sample_fut.await;
-
-                let result = match result {
-                    Ok(result) => result,
-                    Err(err) => {
-                        log::warn!(
-                            "Caught unknown error while benchmarking, falling back to next operation."
-                        );
-                        Err(AutotuneError::PanicUnwind(ManuallyDrop::new(err)))
-                    }
-                };
-
                 let result = result.map(|durations| {
                     log::info!("Name: {name} => {}", durations);
                     AutotuneOutcome::new(name, index, BenchmarkComputations::new(&durations))
