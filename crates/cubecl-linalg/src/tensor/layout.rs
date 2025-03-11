@@ -1,4 +1,6 @@
-#[derive(PartialEq, Eq, Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
 /// Layout for matrix tensors, i.e. tensors whose interpretation
 /// is a bunch of batched matrices of 2 dimensions
 pub enum MatrixLayout {

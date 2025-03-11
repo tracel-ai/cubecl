@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of reduce versions
 pub struct ReduceAutotuneKey {
-    elem: Elem,
+    elem_input: Elem,
+    elem_output: Elem,
     #[autotune(anchor)]
     reduce_axis_shape: usize,
     #[autotune(anchor)]
@@ -16,7 +17,12 @@ pub struct ReduceAutotuneKey {
 }
 
 impl ReduceAutotuneKey {
-    pub fn generate_without_strides(elem: Elem, input_shape: &[usize], axis: usize) -> Self {
+    pub fn generate_without_strides(
+        elem_input: Elem,
+        elem_output: Elem,
+        input_shape: &[usize],
+        axis: usize,
+    ) -> Self {
         let rank = input_shape.len();
 
         if axis > rank {
@@ -33,7 +39,8 @@ impl ReduceAutotuneKey {
             .product();
 
         Self::new(
-            elem,
+            elem_input,
+            elem_output,
             reduce_axis_shape,
             reduce_axis_stride,
             outer_axes_product,
@@ -41,7 +48,8 @@ impl ReduceAutotuneKey {
     }
 
     pub fn generate(
-        elem: Elem,
+        elem_input: Elem,
+        elem_output: Elem,
         input_shape: &[usize],
         input_strides: &[usize],
         axis: usize,
@@ -62,7 +70,8 @@ impl ReduceAutotuneKey {
             .product();
 
         Self::new(
-            elem,
+            elem_input,
+            elem_output,
             reduce_axis_shape,
             reduce_axis_stride,
             outer_axes_product,
