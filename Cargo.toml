@@ -69,7 +69,7 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 
 ### For xtask crate ###
 strum = { version = "0.26.3", features = ["derive"] }
-tracel-xtask = { version = "=1.1.8" }
+tracel-xtask = { version = "=1.1.9" }
 
 portable-atomic = { version = "1.10", default-features = false, features = [
     "serde",
