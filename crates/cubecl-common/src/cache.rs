@@ -90,6 +90,21 @@ where
         this
     }
 
+    /// Iterate over all values of the cache.
+    pub fn for_each<F: FnMut(&K, &V)>(&mut self, mut func: F) {
+        if let Some(mut reader) = self.file.lock() {
+            let mut buffer = Vec::new();
+            reader.read_to_end(&mut buffer).unwrap();
+            self.sync_content(&buffer);
+        }
+
+        for (key, value) in self.in_memory_cache.iter() {
+            func(key, value)
+        }
+
+        self.file.unlock();
+    }
+
     /// Fetch an item from the cache.
     pub fn get(&self, key: &K) -> Option<&V> {
         self.in_memory_cache.get(key)

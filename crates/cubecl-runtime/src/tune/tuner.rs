@@ -28,6 +28,16 @@ pub struct Tuner<K: AutotuneKey> {
     channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
 }
 
+#[cfg_attr(
+    autotune_persistent_cache,
+    derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)
+)]
+#[derive(new, Debug)]
+pub(crate) struct AutotuneOutcome {
+    name: String,
+    index: usize,
+    computation: BenchmarkComputations,
+}
 /// Result from running benchmarks.
 enum AutotuneMessage<K> {
     Done {
@@ -35,6 +45,8 @@ enum AutotuneMessage<K> {
         fastest_index: usize,
         #[cfg(autotune_persistent_cache)]
         checksum: String,
+        #[cfg(autotune_persistent_cache)]
+        results: Vec<Result<AutotuneOutcome, String>>,
     },
     Starting {
         key: K,
@@ -88,14 +100,19 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
+                    #[cfg(autotune_persistent_cache)]
+                    results,
                 } => {
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
 
                     #[cfg(autotune_persistent_cache)]
                     {
-                        self.tune_cache
-                            .persistent_cache_insert(key, checksum, fastest_index);
-                        self.tune_cache.save();
+                        self.tune_cache.persistent_cache_insert(
+                            key,
+                            checksum,
+                            fastest_index,
+                            results,
+                        );
                     }
                 }
                 AutotuneMessage::Starting { key } => {
@@ -137,6 +154,8 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index: autotunables[0].0,
                     #[cfg(autotune_persistent_cache)]
                     checksum: tunables.compute_checksum(),
+                    #[cfg(autotune_persistent_cache)]
+                    results: Vec::new(),
                 })
                 .expect("Autotune results channel closed");
             return;
@@ -152,13 +171,6 @@ impl<K: AutotuneKey> Tuner<K> {
         let test_inputs = tunables.generate_inputs(&key, inputs);
 
         spawn_benchmark_task(async move {
-            #[derive(new, Debug)]
-            struct BenchResult {
-                name: String,
-                index: usize,
-                computation: BenchmarkComputations,
-            }
-
             let mut bench_results = Vec::with_capacity(autotunables.len());
 
             for (index, op) in autotunables.into_iter() {
@@ -181,7 +193,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
                 let result = result.map(|durations| {
                     log::info!("Name: {name} => {}", durations);
-                    BenchResult::new(name, index, BenchmarkComputations::new(&durations))
+                    AutotuneOutcome::new(name, index, BenchmarkComputations::new(&durations))
                 });
 
                 bench_results.push(result);
@@ -243,6 +255,11 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
+                    #[cfg(autotune_persistent_cache)]
+                    results: bench_results
+                        .into_iter()
+                        .map(|result| result.map_err(|err| format!("{err:?}")))
+                        .collect(),
                 })
                 .await
                 .expect("Autotune results channel closed");

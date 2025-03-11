@@ -42,6 +42,10 @@ md5 = { workspace = true }
 sanitize-filename = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
+cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false, features = [
+    "cache",
+    "serde",
+] }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
