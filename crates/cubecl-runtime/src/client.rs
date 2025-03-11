@@ -4,7 +4,7 @@ use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
-    storage::BindingResource,
+    storage::{BindingResource, ComputeStorage},
     DeviceProperties,
 };
 use alloc::sync::Arc;
@@ -80,7 +80,10 @@ where
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
+    pub fn get_resource(
+        &self,
+        binding: Binding,
+    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.channel.get_resource(binding)
     }
 

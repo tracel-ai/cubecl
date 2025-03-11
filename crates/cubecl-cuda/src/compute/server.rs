@@ -271,7 +271,7 @@ impl ComputeServer for CudaServer {
         async move { duration }
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),

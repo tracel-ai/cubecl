@@ -1,6 +1,6 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
-use crate::storage::BindingResource;
+use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
@@ -46,7 +46,10 @@ where
         fut.await
     }
 
-    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
+    fn get_resource(
+        &self,
+        binding: Binding,
+    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.server.lock().get_resource(binding)
     }
 

@@ -50,10 +50,15 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+    fn cleanup<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        alloc_nr: u64,
+        explicit: bool,
+    ) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr),
+            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
         }
     }
 }
@@ -91,7 +96,7 @@ fn generate_bucket_sizes(
 }
 
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
-const BASE_DEALLOC_PERIOD: u64 = 2500;
+const BASE_DEALLOC_PERIOD: u64 = 5000;
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
@@ -226,18 +231,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self, forced: bool) {
-        // As a slightly strange heuristic, we "fast forward" time based on how high
-        // priority the cleanup is.
-        self.alloc_reserve_count += if forced {
-            BASE_DEALLOC_PERIOD * 10
-        } else {
-            // If not forced, still move time forward slowly so enough cleanup() calls will also release memory.
-            1
-        };
-
+    pub fn cleanup(&mut self, explicit: bool) {
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage, self.alloc_reserve_count);
+            pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
     }
 

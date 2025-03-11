@@ -286,7 +286,7 @@ impl ComputeServer for HipServer {
         async move { duration }
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),

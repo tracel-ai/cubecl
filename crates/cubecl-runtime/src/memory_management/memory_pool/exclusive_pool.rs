@@ -151,29 +151,31 @@ impl MemoryPool for ExclusiveMemoryPool {
         self.max_alloc_size
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+    fn cleanup<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        alloc_nr: u64,
+        explicit: bool,
+    ) {
         // Check such that an alloc is free after at most dealloc_period.
         let check_period = self.dealloc_period / (ALLOC_AFTER_FREE as u64);
 
-        if alloc_nr - self.last_dealloc_check < check_period {
-            return;
-        }
+        if explicit || alloc_nr - self.last_dealloc_check >= check_period {
+            self.last_dealloc_check = alloc_nr;
 
-        self.last_dealloc_check = alloc_nr;
+            self.pages.retain_mut(|page| {
+                if page.slice.is_free() {
+                    page.free_count += 1;
 
-        self.pages.retain_mut(|page| {
-            if page.slice.is_free() {
-                page.free_count += 1;
-
-                // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
-                // without it being used in the meantime), deallocate it.
-                if page.free_count >= ALLOC_AFTER_FREE {
-                    storage.dealloc(page.slice.storage.id);
-                    return false;
+                    // If free found is sufficiently high (ie. we've seen this alloc as free multiple times,
+                    // without it being used in the meantime), deallocate it.
+                    if page.free_count >= ALLOC_AFTER_FREE || explicit {
+                        storage.dealloc(page.slice.storage.id);
+                        return false;
+                    }
                 }
-            }
-
-            true
-        });
+                true
+            });
+        }
     }
 }
