@@ -345,6 +345,10 @@ impl HipContext {
         self.memory_management.memory_usage()
     }
 
+    fn memory_cleanup(&mut self) {
+        self.memory_management.cleanup(true);
+    }
+
     fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
