@@ -194,7 +194,8 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
     result
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
     pub inputs: Vec<Binding>,

@@ -1,10 +1,12 @@
 use cubecl_cpp::{
     cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions, CudaCompiler,
 };
+use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
+use cubecl_common::cache::Cache;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
@@ -37,9 +39,18 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
+    ptx_cache: Cache<String, PtxCacheEntry>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
     compilation_options: CompilationOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PtxCacheEntry {
+    entrypoint_name: String,
+    cube_dim: (u32, u32, u32),
+    shared_mem_bytes: usize,
+    ptx: Vec<i8>,
 }
 
 #[derive(Debug)]
@@ -308,6 +319,7 @@ impl CudaContext {
             context,
             memory_management,
             module_names: HashMap::new(),
+            ptx_cache: Cache::new("cuda/ptx", None),
             stream,
             arch,
             timestamps: KernelTimestamps::Disabled,
@@ -336,6 +348,23 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
+        let name = kernel_id.stable_format();
+
+        if let Some(entry) = self.ptx_cache.get(&name) {
+            self.load_ptx(
+                entry.ptx.clone(),
+                kernel_id.clone(),
+                entry.entrypoint_name.clone(),
+                CubeDim {
+                    x: entry.cube_dim.0,
+                    y: entry.cube_dim.1,
+                    z: entry.cube_dim.2,
+                },
+                entry.shared_mem_bytes,
+            );
+            return;
+        }
+
         let mut kernel_compiled =
             kernel.compile(&mut Default::default(), &self.compilation_options, mode);
 
@@ -382,7 +411,34 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let func_name = CString::new(kernel_compiled.entrypoint_name).unwrap();
+        self.ptx_cache.insert(
+            name,
+            PtxCacheEntry {
+                entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                shared_mem_bytes,
+                ptx: ptx.clone(),
+            },
+        );
+
+        self.load_ptx(
+            ptx,
+            kernel_id.clone(),
+            kernel_compiled.entrypoint_name,
+            cube_dim,
+            shared_mem_bytes,
+        );
+    }
+
+    fn load_ptx(
+        &mut self,
+        ptx: Vec<i8>,
+        kernel_id: KernelId,
+        entrypoint_name: String,
+        cube_dim: CubeDim,
+        shared_mem_bytes: usize,
+    ) {
+        let func_name = CString::new(entrypoint_name).unwrap();
         let func = unsafe {
             let module =
                 cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _).unwrap();

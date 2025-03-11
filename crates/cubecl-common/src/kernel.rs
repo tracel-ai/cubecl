@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 /// An approximation of the plane dimension.
 pub const PLANE_DIM_APPROX: usize = 16;
 
@@ -49,7 +51,7 @@ impl Default for CubeDim {
 }
 
 /// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]

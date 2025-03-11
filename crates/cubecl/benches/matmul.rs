@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul;
+use cubecl_linalg::matmul::{self, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -143,7 +143,15 @@ fn main() {
     {
         use half::f16;
 
-        run::<cubecl::cuda::CudaRuntime, f16>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        );
+
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(matmul::SimpleBarrierLoadingStrategy::Elected),
