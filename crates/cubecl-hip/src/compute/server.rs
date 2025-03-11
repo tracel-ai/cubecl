@@ -158,6 +158,10 @@ impl ComputeServer for HipServer {
         self.ctx.memory_usage()
     }
 
+    fn memory_cleanup(&mut self) {
+        self.memory_management.cleanup(true);
+    }
+
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
@@ -343,10 +347,6 @@ impl HipContext {
 
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
-    }
-
-    fn memory_cleanup(&mut self) {
-        self.memory_management.cleanup(true);
     }
 
     fn compile_kernel(
