@@ -90,6 +90,9 @@ fn generate_bucket_sizes(
     buckets
 }
 
+const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
+const BASE_DEALLOC_PERIOD: u64 = 2500;
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -174,12 +177,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 sizes
                     .iter()
                     .map(|&size| {
-                        // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
-                        // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
-                        const SCALE_MB: u64 = 1024 * 1024 * 1024;
-
-                        let dealloc_period =
-                            (1000.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
+                        let dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                            * (1.0 + size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                            as u64;
 
                         MemoryPoolOptions {
                             pool_type: PoolType::ExclusivePages {
@@ -230,7 +230,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // As a slightly strange heuristic, we "fast forward" time based on how high
         // priority the cleanup is.
         self.alloc_reserve_count += if forced {
-            1000
+            BASE_DEALLOC_PERIOD * 10
         } else {
             // If not forced, still move time forward slowly so enough cleanup() calls will also release memory.
             1
