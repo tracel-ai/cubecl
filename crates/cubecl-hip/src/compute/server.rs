@@ -159,7 +159,8 @@ impl ComputeServer for HipServer {
     }
 
     fn memory_cleanup(&mut self) {
-        self.memory_management.cleanup(true);
+        let ctx = self.get_context();
+        ctx.memory_management.cleanup(true);
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
