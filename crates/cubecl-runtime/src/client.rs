@@ -142,6 +142,14 @@ where
         self.channel.memory_usage()
     }
 
+    /// Ask the client to release memory that it can release.
+    ///
+    /// Nb: Results will vary on what the memory allocator deems beneficial,
+    /// so it's not guaranteed any memory is freed.
+    pub fn memory_cleanup(&self) {
+        self.channel.memory_cleanup()
+    }
+
     /// When executing operation within the profile scope, you can call
     /// [sync_elapsed](Self::sync_elapsed) safely even in multithreaded workloads.
     /// Creates a profiling scope that enables safe timing measurements in concurrent contexts.

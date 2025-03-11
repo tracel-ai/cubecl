@@ -99,6 +99,10 @@ where
         self.server.borrow_mut().memory_usage()
     }
 
+    fn memory_cleanup(&self) {
+        self.server.borrow_mut().memory_cleanup();
+    }
+
     fn enable_timestamps(&self) {
         self.server.borrow_mut().enable_timestamps();
     }

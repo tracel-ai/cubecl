@@ -42,7 +42,8 @@ where
     Flush,
     SyncElapsed(Callback<TimestampsResult>),
     Sync(Callback<()>),
-    GetMemoryUsage(Callback<MemoryUsage>),
+    MemoryUsage(Callback<MemoryUsage>),
+    MemoryCleanup,
     EnableTimestamps,
     DisableTimestamps,
 }
@@ -91,8 +92,11 @@ where
                         Message::Flush => {
                             server.flush();
                         }
-                        Message::GetMemoryUsage(callback) => {
+                        Message::MemoryUsage(callback) => {
                             callback.send(server.memory_usage()).await.unwrap();
+                        }
+                        Message::MemoryCleanup => {
+                            server.memory_cleanup();
                         }
                         Message::EnableTimestamps => {
                             server.enable_timestamps();
@@ -206,9 +210,16 @@ where
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::GetMemoryUsage(callback))
+            .send_blocking(Message::MemoryUsage(callback))
             .unwrap();
         handle_response(response.recv_blocking())
+    }
+
+    fn memory_cleanup(&self) {
+        self.state
+            .sender
+            .send_blocking(Message::MemoryCleanup)
+            .unwrap()
     }
 
     fn enable_timestamps(&self) {

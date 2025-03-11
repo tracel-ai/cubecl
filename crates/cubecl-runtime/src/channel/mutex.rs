@@ -96,6 +96,10 @@ where
         self.server.lock().memory_usage()
     }
 
+    fn memory_cleanup(&self) {
+        self.server.lock().memory_cleanup();
+    }
+
     fn enable_timestamps(&self) {
         self.server.lock().enable_timestamps();
     }

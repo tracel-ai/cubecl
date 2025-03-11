@@ -69,6 +69,9 @@ where
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
 
+    /// Ask the server to release memory that it can release.
+    fn memory_cleanup(&mut self);
+
     /// Enable collecting timestamps.
     fn enable_timestamps(&mut self);
 

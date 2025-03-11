@@ -226,7 +226,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self) {
+    pub fn cleanup(&mut self, forced: bool) {
+        // As a slightly strange heuristic, we "fast forward" time based on how high
+        // priority the cleanup is.
+        self.alloc_reserve_count += if forced {
+            1000
+        } else {
+            // If not forced, still move time forward slowly so enough cleanup() calls will also release memory.
+            1
+        };
+
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count);
         }

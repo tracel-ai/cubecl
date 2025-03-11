@@ -523,6 +523,11 @@ impl WgpuStream {
             .combine(self.memory_uniforms.memory_usage())
     }
 
+    pub fn memory_cleanup(&mut self) {
+        self.memory_main.cleanup(true);
+        // No need to cleanup uniform memory as that isn't deallocated.
+    }
+
     fn flush_if_needed(&mut self) {
         // Flush when there are too many tasks, or when too many handles are locked.
         // Locked handles should only accumulate in rare circumstances (where uniforms
@@ -570,7 +575,7 @@ impl WgpuStream {
             .regulate(&self.device, self.tasks_count, index);
 
         // Cleanup allocations and deallocations.
-        self.memory_main.cleanup();
+        self.memory_main.cleanup(false);
         self.memory_main.storage().perform_deallocations();
 
         self.tasks_count = 0;

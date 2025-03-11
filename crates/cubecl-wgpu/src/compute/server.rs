@@ -264,6 +264,10 @@ impl ComputeServer for WgpuServer {
         self.stream.memory_usage()
     }
 
+    fn memory_cleanup(&mut self) {
+        self.stream.memory_cleanup();
+    }
+
     fn enable_timestamps(&mut self) {
         self.stream.timestamps.enable(&self.device);
     }
