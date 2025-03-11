@@ -21,10 +21,46 @@ pub struct Cache<K, V> {
     separator: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Entry<K, V> {
-    key: K,
-    value: V,
+/// Define the option to create a cache.
+#[derive(Default)]
+pub struct CacheOption {
+    separator: Option<Vec<u8>>,
+    version: Option<String>,
+    root: Option<String>,
+}
+
+impl CacheOption {
+    /// The separator used between each entry in the cache.
+    ///
+    /// It should not be used in both the keys and the values.
+    pub fn separator<S: Into<Vec<u8>>>(mut self, separator: S) -> Self {
+        self.separator = Some(separator.into());
+        self
+    }
+
+    /// The version used for the cache.
+    pub fn version<V: Into<String>>(mut self, version: V) -> Self {
+        self.version = Some(version.into());
+        self
+    }
+
+    /// The root directory for the cache.
+    ///
+    /// It will appear in the directory "$HOME/.cache/{root}/"
+    pub fn root<R: Into<String>>(mut self, root: R) -> Self {
+        self.root = Some(root.into());
+        self
+    }
+
+    fn resolve(self) -> (Vec<u8>, String, String) {
+        let separator = self.separator.unwrap_or_else(|| b"\n".to_vec());
+        let version = self
+            .version
+            .unwrap_or_else(|| std::env!("CARGO_PKG_VERSION").to_string());
+        let root = self.root.unwrap_or_else(|| "cubecl".to_string());
+
+        (separator, root, version)
+    }
 }
 
 impl<K, V> Cache<K, V>
@@ -33,13 +69,14 @@ where
     V: Serialize + DeserializeOwned + PartialEq,
 {
     /// Create a new cache and load the data from the provided path if it exist.
-    pub fn new<P: AsRef<Path>>(path: P, separator: Option<&[u8]>) -> Self {
-        let path = get_persistent_cache_file_path(path);
+    pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
+        let (separator, root, version) = option.resolve();
+        let path = get_persistent_cache_file_path(path, root, version);
 
         let mut this = Self {
             in_memory_cache: HashMap::new(),
             file: CacheFile::new(path),
-            separator: separator.unwrap_or(b"\x1F").to_vec(),
+            separator: separator,
         };
 
         if let Some(mut reader) = this.file.lock() {
@@ -102,7 +139,7 @@ The cache might be corrupted, cleaning it might resolve the issue.
             .windows(self.separator.len())
             .position(|w| w == &self.separator)
         {
-            let entry: Entry<K, V> = rmp_serde::from_slice(&bytes[start..start + pos]).unwrap();
+            let entry: Entry<K, V> = serde_json::from_slice(&bytes[start..start + pos]).unwrap();
             self.in_memory_cache.insert(entry.key, entry.value);
             start += pos + self.separator.len();
         }
@@ -110,7 +147,7 @@ The cache might be corrupted, cleaning it might resolve the issue.
 
     fn insert_unchecked(&mut self, key: K, value: V) {
         let entry = Entry { key, value };
-        let mut bytes = rmp_serde::to_vec(&entry).unwrap();
+        let mut bytes = serde_json::to_vec(&entry).unwrap();
 
         for b in self.separator.iter() {
             bytes.push(*b);
@@ -139,10 +176,16 @@ where
     }
 }
 
-fn get_persistent_cache_file_path<P: AsRef<Path>>(path_partial: P) -> PathBuf {
+fn get_persistent_cache_file_path<P: AsRef<Path>>(
+    path_partial: P,
+    root: String,
+    version: String,
+) -> PathBuf {
     let path_partial: &Path = path_partial.as_ref();
     let home_dir = dirs::home_dir().expect("An home directory should exist");
-    let mut path = home_dir.join(".cache").join("tracel-ai");
+    let add_extension = !path_partial.ends_with("json");
+
+    let mut path = home_dir.join(".cache").join(root).join(version);
 
     for segment in path_partial {
         // Skip the root directory since it resets the previous path segments.
@@ -154,7 +197,17 @@ fn get_persistent_cache_file_path<P: AsRef<Path>>(path_partial: P) -> PathBuf {
         path = path.join(segment);
     }
 
+    if add_extension {
+        path.set_extension("json");
+    }
+
     path
+}
+
+#[derive(Serialize, Deserialize)]
+struct Entry<K, V> {
+    key: K,
+    value: V,
 }
 
 #[cfg(test)]
@@ -163,8 +216,8 @@ mod tests {
 
     #[test]
     fn test_cache() {
-        let mut cache = Cache::<String, String>::new("/tmp/allo", Some("--".as_bytes()));
-        cache.insert("Allo".to_string(), "Toyo \n Yessir".to_string());
-        cache.insert("Alice".to_string(), "AAhh".to_string());
+        let mut cache = Cache::<String, String>::new("test", CacheOption::default());
+        cache.insert("key".to_string(), "value \n valval".to_string());
+        cache.insert("key2".to_string(), "Value2".to_string());
     }
 }

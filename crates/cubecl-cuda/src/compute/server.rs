@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
-use cubecl_common::cache::Cache;
+use cubecl_common::cache::{Cache, CacheOption};
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
@@ -319,7 +319,7 @@ impl CudaContext {
             context,
             memory_management,
             module_names: HashMap::new(),
-            ptx_cache: Cache::new("cuda/ptx", None),
+            ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
             stream,
             arch,
             timestamps: KernelTimestamps::Disabled,
@@ -351,6 +351,7 @@ impl CudaContext {
         let name = kernel_id.stable_format();
 
         if let Some(entry) = self.ptx_cache.get(&name) {
+            log::trace!("Using PTX cache");
             self.load_ptx(
                 entry.ptx.clone(),
                 kernel_id.clone(),
@@ -364,6 +365,7 @@ impl CudaContext {
             );
             return;
         }
+        log::trace!("Compiling kernel");
 
         let mut kernel_compiled =
             kernel.compile(&mut Default::default(), &self.compilation_options, mode);
