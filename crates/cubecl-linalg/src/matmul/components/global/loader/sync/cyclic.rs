@@ -45,9 +45,6 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
-        // for i in 0..2 {
-        //     Self::load_buffer::<EG, ES, G>(read_view, stage, i, ident, config);
-        // }
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
         let num_stage_elements = tiling.total_size();
@@ -90,31 +87,35 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
         #[comptime] config: G,
     ) {
         let tiling_dimensions = config.tiling_dimensions(ident);
-        let num_lines_per_tile = tiling_dimensions.tile_size() / config.stage_line_size(ident);
+        let line_size = config.stage_line_size(ident);
+        let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
-        let total_units = config.plane_dim() * config.num_planes();
-        let unit_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        let num_tiles_in_buffer = match ident.as_input() {
+        let num_lines_per_tile = tile_size / line_size;
+        let total_units = config.plane_dim() * config.num_planes();
+        let jump_length = total_units * line_size;
+
+        let num_tiles_in_buffer = comptime! {match ident.as_input() {
             InputIdent::Lhs => tile_count_row,
             InputIdent::Rhs => tile_count_col,
-        };
-
+        }};
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
         let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
 
-        for i in 0..num_lines_per_unit {
-            let nth_line = unit_base + i * total_units;
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
 
-            // TODO make this if exist only if needed
-            if nth_line < total_num_lines {
-                let nth_tile_in_buffer = nth_line / num_lines_per_tile;
-                let pos_within_tile = nth_line % num_lines_per_tile;
+        for i in 0..num_lines_per_unit {
+            let unit_position = unit_position_base + i * jump_length;
+
+            if unit_position < total_num_lines * line_size {
+                let unit_pos_in_buffer = unit_position / tile_size;
+                let pos_within_tile = unit_position % tile_size;
 
                 let (tile_x, tile_y) = match ident.as_input() {
-                    InputIdent::Lhs => (nth_tile_in_buffer, buffer_index),
-                    InputIdent::Rhs => (buffer_index, nth_tile_in_buffer),
+                    InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
+                    InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
                 };
 
                 let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
@@ -122,7 +123,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                 let line_read = read_view.load_coalesced_in_tile::<G>(
                     tile_x,
                     tile_y,
-                    pos_within_tile, // * or / 4
+                    pos_within_tile,
                     ident,
                     config,
                 );
@@ -131,7 +132,7 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
                 let tile_end = tile_start + num_lines_per_tile;
                 let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
-                tile_slice[pos_within_tile] = Line::cast_from(line_read);
+                tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
             }
         }
     }
