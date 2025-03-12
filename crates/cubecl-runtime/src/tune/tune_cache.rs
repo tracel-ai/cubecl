@@ -1,13 +1,12 @@
 #[cfg(autotune_persistent_cache)]
+use super::AutotuneOutcome;
+#[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::Cache;
-
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
 
-#[cfg(autotune_persistent_cache)]
+use super::AutotuneKey;
 use alloc::string::String;
-
-use super::{AutotuneKey, AutotuneOutcome};
 use hashbrown::HashMap;
 
 /// In-memory cache entry
