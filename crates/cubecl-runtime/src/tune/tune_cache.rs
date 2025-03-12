@@ -4,6 +4,9 @@ use cubecl_common::cache::Cache;
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
 
+#[cfg(autotune_persistent_cache)]
+use alloc::string::String;
+
 use super::{AutotuneKey, AutotuneOutcome};
 use hashbrown::HashMap;
 
