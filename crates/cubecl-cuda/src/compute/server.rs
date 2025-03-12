@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
-use cubecl_common::cache::{Cache, CacheOption};
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::Feature;
 use cubecl_core::{prelude::*, KernelId};
@@ -27,6 +26,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Instant;
 
+#[cfg(feature = "cache-ptx")]
+use cubecl_common::cache::{Cache, CacheOption};
+
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -39,6 +41,7 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
+    #[cfg(feature = "cache-ptx")]
     ptx_cache: Cache<String, PtxCacheEntry>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
@@ -319,6 +322,7 @@ impl CudaContext {
             context,
             memory_management,
             module_names: HashMap::new(),
+            #[cfg(feature = "cache-ptx")]
             ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
             stream,
             arch,
@@ -348,8 +352,10 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
+        #[cfg(feature = "cache-ptx")]
         let name = kernel_id.stable_format();
 
+        #[cfg(feature = "cache-ptx")]
         if let Some(entry) = self.ptx_cache.get(&name) {
             log::trace!("Using PTX cache");
             self.load_ptx(
@@ -413,6 +419,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
+        #[cfg(feature = "cache-ptx")]
         self.ptx_cache
             .insert(
                 name,

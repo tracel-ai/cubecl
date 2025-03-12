@@ -37,9 +37,7 @@ variadics_please = { workspace = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-dirs = { workspace = true }
 md5 = { workspace = true }
-sanitize-filename = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false, features = [
