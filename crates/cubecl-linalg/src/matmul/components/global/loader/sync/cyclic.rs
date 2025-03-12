@@ -109,31 +109,32 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
         for i in 0..num_lines_per_unit {
             let unit_position = unit_position_base + i * jump_length;
 
-            if unit_position < total_num_lines * line_size {
-                let unit_pos_in_buffer = unit_position / tile_size;
-                let pos_within_tile = unit_position % tile_size;
+            // We assume unit_position < total_num_lines * line_size;
+            // Should be catched by check() if not the case
 
-                let (tile_x, tile_y) = match ident.as_input() {
-                    InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
-                    InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
-                };
+            let unit_pos_in_buffer = unit_position / tile_size;
+            let pos_within_tile = unit_position % tile_size;
 
-                let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
+            let (tile_x, tile_y) = match ident.as_input() {
+                InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
+                InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
+            };
 
-                let line_read = read_view.load_coalesced_in_tile::<G>(
-                    tile_x,
-                    tile_y,
-                    pos_within_tile,
-                    ident,
-                    config,
-                );
+            let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
 
-                let tile_start = nth_tile * num_lines_per_tile;
-                let tile_end = tile_start + num_lines_per_tile;
-                let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
+            let line_read = read_view.load_coalesced_in_tile::<G>(
+                tile_x,
+                tile_y,
+                pos_within_tile,
+                ident,
+                config,
+            );
 
-                tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
-            }
+            let tile_start = nth_tile * num_lines_per_tile;
+            let tile_end = tile_start + num_lines_per_tile;
+            let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
+
+            tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
         }
     }
 }

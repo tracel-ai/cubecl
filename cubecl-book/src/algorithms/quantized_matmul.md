@@ -46,7 +46,7 @@ we have
   q_c =
   z_c + \frac{s_a s_b}{s_c} (q_a - z_a) (q_b - z_b).
 \\]
-Except for the factor \\( (s_a s_b) / s_c \\), the above equation involves only integer artihmetic.
+Except for the factor \\( (s_a s_b) / s_c \\), the above equation involves only integer arithmetic.
 However,
 we can always find two integers \\(u, v\\) such that
 \\[

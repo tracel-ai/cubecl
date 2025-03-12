@@ -5,6 +5,8 @@ use cubecl_core as cubecl;
 use cubecl_core::{ir::Elem, AutotuneKey};
 use serde::{Deserialize, Serialize};
 
+use crate::tensor::{matrix_layout, MatrixLayout};
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
 pub struct MatmulAutotuneKey {
@@ -18,13 +20,25 @@ pub struct MatmulAutotuneKey {
     n: usize,
     #[autotune(anchor(max = 256))]
     batch: usize,
-    elem: Elem,
+    elem_inputs: Elem,
+    elem_stage: Elem,
+    elem_output: Elem,
+    matrix_layout_lhs: MatrixLayout,
+    matrix_layout_rhs: MatrixLayout,
 }
 
 impl MatmulAutotuneKey {
     /// Create the autotune key based on the shape of both lhs and rhs as well as the element type
     /// used for the calculation.
-    pub fn from_shape(lhs_shape: &[usize], rhs_shape: &[usize], elem: Elem) -> Self {
+    pub fn generate(
+        lhs_shape: &[usize],
+        rhs_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+        elem_inputs: Elem,
+        elem_state: Elem,
+        elem_output: Elem,
+    ) -> Self {
         let ndims = lhs_shape.len();
         let m = lhs_shape[ndims - 2];
         let k = lhs_shape[ndims - 1];
@@ -45,7 +59,22 @@ impl MatmulAutotuneKey {
 
         let round = m % 64 == 0 && k % 64 == 0 && n % 64 == 0;
 
-        Self::new(round, broadcast, m, k, n, batch_product, elem)
+        let matrix_layout_lhs = matrix_layout(lhs_strides);
+        let matrix_layout_rhs = matrix_layout(rhs_strides);
+
+        Self::new(
+            round,
+            broadcast,
+            m,
+            k,
+            n,
+            batch_product,
+            elem_inputs,
+            elem_state,
+            elem_output,
+            matrix_layout_lhs,
+            matrix_layout_rhs,
+        )
     }
 }
 
@@ -59,8 +88,19 @@ mod tests {
     fn matmul_autotune_key_all_same_and_round() {
         let lhs_shape = [4, 512, 512];
         let rhs_shape = [4, 512, 512];
-        let key =
-            MatmulAutotuneKey::from_shape(&lhs_shape, &rhs_shape, Elem::Float(FloatKind::F32));
+        // Not useful for the test.
+        let lhs_strides = [1];
+        let rhs_strides = [1];
+        let elem = Elem::Float(FloatKind::F32);
+        let key = MatmulAutotuneKey::generate(
+            &lhs_shape,
+            &rhs_shape,
+            &lhs_strides,
+            &rhs_strides,
+            elem,
+            elem,
+            elem,
+        );
 
         assert!(key.round);
         assert!(!key.broadcast);
@@ -73,8 +113,19 @@ mod tests {
     fn matmul_autotune_key_all_different() {
         let lhs_shape = [2, 3, 511, 512];
         let rhs_shape = [3, 2, 512, 513];
-        let key =
-            MatmulAutotuneKey::from_shape(&lhs_shape, &rhs_shape, Elem::Float(FloatKind::F32));
+        // Not useful for the test.
+        let lhs_strides = [1];
+        let rhs_strides = [1];
+        let elem = Elem::Float(FloatKind::F32);
+        let key = MatmulAutotuneKey::generate(
+            &lhs_shape,
+            &rhs_shape,
+            &lhs_strides,
+            &rhs_strides,
+            elem,
+            elem,
+            elem,
+        );
 
         assert!(!key.round);
         assert!(key.broadcast);
@@ -88,8 +139,19 @@ mod tests {
     fn matmul_autotune_key_large_batch() {
         let lhs_shape = [128, 512, 511, 512];
         let rhs_shape = [200, 400, 512, 513];
-        let key =
-            MatmulAutotuneKey::from_shape(&lhs_shape, &rhs_shape, Elem::Float(FloatKind::F32));
+        // Not useful for the test.
+        let lhs_strides = [1];
+        let rhs_strides = [1];
+        let elem = Elem::Float(FloatKind::F32);
+        let key = MatmulAutotuneKey::generate(
+            &lhs_shape,
+            &rhs_shape,
+            &lhs_strides,
+            &rhs_strides,
+            elem,
+            elem,
+            elem,
+        );
 
         assert_eq!(key.batch, 256);
     }

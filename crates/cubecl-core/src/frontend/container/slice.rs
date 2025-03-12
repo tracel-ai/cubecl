@@ -56,7 +56,7 @@ mod metadata {
         }
         /// Try to cast the slice to the given type and panic if the type isn't the same.
         ///
-        /// This function should only be used to satify the Rust type system, when two generic
+        /// This function should only be used to satisfy the Rust type system, when two generic
         /// types are supposed to be the same.
         pub fn try_cast_unchecked<T>(&self) -> Slice<T>
         where

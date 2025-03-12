@@ -161,8 +161,17 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        for _ in 0..num_loops {
+        for loop_iter in 0..num_loops {
             sync_units();
+
+            #[allow(clippy::collapsible_if)]
+            if comptime!(config.check_k_bounds()) {
+                if loop_iter == num_loops - 1 {
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
+                    sync_units();
+                }
+            }
 
             // Start loading
             pipeline.producer_acquire();
