@@ -1,13 +1,5 @@
 #[cfg(autotune_persistent_cache)]
-mod std_imports {
-    pub use std::io;
-    pub use std::path::Path;
-    pub use std::path::PathBuf;
-}
-
 use cubecl_common::cache::Cache;
-#[cfg(autotune_persistent_cache)]
-use std_imports::*;
 
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
@@ -15,24 +7,21 @@ use serde::{Deserialize, Serialize};
 use super::{AutotuneKey, AutotuneOutcome};
 use hashbrown::HashMap;
 
-#[cfg(autotune_persistent_cache)]
-/// Return the file path for the persistent cache on disk
-/// prefix should be the device id computed at the backend level
-pub fn get_persistent_cache_file_path(prefix: &str) -> PathBuf {
-    let home_dir = dirs::home_dir().expect("An home directory should exist");
-    let path_dir = home_dir.join(".cache").join("cubecl").join("autotune");
-    let path = Path::new(&path_dir);
-    path.join(format!("{}-autotune-cache.json", prefix))
-}
-
 /// In-memory cache entry
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
     Done {
-        checksum_matches: Option<bool>,
+        checksum: ChecksumState,
         fastest_index: usize,
     },
     Pending,
+}
+
+#[derive(Debug)]
+pub(crate) enum ChecksumState {
+    Match,
+    NoMatch,
+    ToBeVerified(String),
 }
 
 /// Persistent cache key
@@ -89,12 +78,8 @@ impl<K: AutotuneKey> TuneCache<K> {
                     Default::default(),
                 ),
             };
-            if let Err(e) = cache.load() {
-                log::warn!(
-                    "Unable to load autotune cache. Cache will be ignored ({}).",
-                    e
-                );
-            }
+            cache.load();
+
             cache
         }
 
@@ -115,19 +100,20 @@ impl<K: AutotuneKey> TuneCache<K> {
 
         match val {
             CacheEntry::Done {
-                checksum_matches,
+                checksum,
                 fastest_index,
             } => {
                 if cfg!(autotune_persistent_cache) {
-                    match checksum_matches {
-                        None => TuneCacheResult::Unchecked,   // Don't know yet.
-                        Some(false) => TuneCacheResult::Miss, // Can't use this.
-                        Some(true) => TuneCacheResult::Hit {
+                    match checksum {
+                        ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
+                        ChecksumState::NoMatch => TuneCacheResult::Miss, // Can't use this.
+                        ChecksumState::Match => TuneCacheResult::Hit {
                             fastest_index: *fastest_index,
                         },
                     }
                 } else {
-                    let _ = checksum_matches;
+                    // Clippy;
+                    let _ = checksum;
                     TuneCacheResult::Hit {
                         fastest_index: *fastest_index,
                     }
@@ -145,16 +131,16 @@ impl<K: AutotuneKey> TuneCache<K> {
         };
 
         if let CacheEntry::Done {
-            checksum_matches, ..
+            checksum: checksum_state,
+            ..
         } = val
         {
-            if checksum_matches.is_none() {
-                let persistent_key = PersistentCacheKey {
-                    checksum: checksum.to_string(),
-                    key: key.clone(),
-                };
-                let persistent_entry = self.persistent_cache.get(&persistent_key);
-                *checksum_matches = Some(persistent_entry.is_some());
+            if let ChecksumState::ToBeVerified(checksum_expected) = checksum_state {
+                if checksum_expected == checksum {
+                    *checksum_state = ChecksumState::Match;
+                } else {
+                    *checksum_state = ChecksumState::NoMatch;
+                }
             }
         }
     }
@@ -167,7 +153,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         self.in_memory_cache.insert(
             key,
             CacheEntry::Done {
-                checksum_matches: Some(true),
+                checksum: ChecksumState::Match,
                 fastest_index,
             },
         );
@@ -193,17 +179,15 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Load the persistent cache data from disk
-    pub(crate) fn load(&mut self) -> Result<(), io::Error> {
+    pub(crate) fn load(&mut self) {
         self.persistent_cache.for_each(|key, value| {
             self.in_memory_cache.insert(
                 key.key.clone(),
                 CacheEntry::Done {
-                    checksum_matches: None,
+                    checksum: ChecksumState::ToBeVerified(key.checksum.clone()),
                     fastest_index: value.fastest_index,
                 },
             );
         });
-
-        Ok(())
     }
 }

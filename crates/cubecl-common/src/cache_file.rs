@@ -54,12 +54,14 @@ impl CacheFile {
             match File::open(&path_lock) {
                 Ok(file) => {
                     let metadata_curr = file.metadata().unwrap();
-                    match &metadata {
+                    match &mut metadata {
                         Some(metadata) => {
                             // We are writing to the cache file from another process, don't need to
                             // initialize it.
-                            if metadata.len() != metadata_curr.len() {
+                            if metadata.len() == metadata_curr.len() {
                                 break;
+                            } else {
+                                *metadata = metadata_curr;
                             }
                         }
                         None => {
@@ -113,7 +115,6 @@ impl CacheFile {
 
         if self.cursor < end {
             let buf = BufReader::new(file);
-            println!("{} -> {}", self.cursor, end);
             self.cursor = end;
             Some(buf)
         } else {

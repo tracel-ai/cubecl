@@ -1,15 +1,13 @@
 use async_channel::{Receiver, Sender};
 use cubecl_common::future;
+use hashbrown::HashSet;
 
-use core::any::Any;
 use core::future::Future;
-use core::mem::ManuallyDrop;
 use cubecl_common::stub::Duration;
 
-#[cfg(all(not(target_family = "wasm"), feature = "std"))]
-use std::panic::resume_unwind;
+#[cfg(not(target_family = "wasm"))]
+use core::sync::atomic::{AtomicU64, Ordering};
 
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use cubecl_common::benchmark::BenchmarkComputations;
@@ -26,6 +24,9 @@ use super::{AutotuneKey, TunableSet, TuneCacheResult};
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
     channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
+    pub(crate) autotuning: HashSet<K>,
+    #[cfg(not(target_family = "wasm"))]
+    current: AtomicU64,
 }
 
 #[cfg_attr(
@@ -58,8 +59,6 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
-    /// An error caught with panic unwind.
-    PanicUnwind(ManuallyDrop<Box<dyn Any + Send>>),
 }
 
 impl From<String> for AutotuneError {
@@ -77,6 +76,9 @@ impl<K: AutotuneKey> Tuner<K> {
         Self {
             tune_cache: TuneCache::new(name, device_id),
             channel,
+            autotuning: HashSet::new(),
+            #[cfg(not(target_family = "wasm"))]
+            current: 0.into(),
         }
     }
 
@@ -93,6 +95,16 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Wait for async results to come in.
     pub fn resolve(&mut self) {
+        #[cfg(not(target_family = "wasm"))]
+        while self.current.load(Ordering::Relaxed) > 0 {
+            self.resolve_loop();
+        }
+
+        #[cfg(target_family = "wasm")]
+        self.resolve_loop();
+    }
+
+    fn resolve_loop(&mut self) {
         while let Ok(msg) = self.channel.1.try_recv() {
             match msg {
                 AutotuneMessage::Done {
@@ -103,6 +115,9 @@ impl<K: AutotuneKey> Tuner<K> {
                     #[cfg(autotune_persistent_cache)]
                     results,
                 } => {
+                    #[cfg(not(target_family = "wasm"))]
+                    AtomicU64::fetch_sub(&self.current, 1, Ordering::Relaxed);
+
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
 
                     #[cfg(autotune_persistent_cache)]
@@ -135,6 +150,9 @@ impl<K: AutotuneKey> Tuner<K> {
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<S, C>,
     ) {
+        #[cfg(not(target_family = "wasm"))]
+        AtomicU64::fetch_add(&self.current, 1, Ordering::Relaxed);
+
         log::info!("Tuning {key}");
 
         let autotunables: Vec<_> = tunables
@@ -194,9 +212,6 @@ impl<K: AutotuneKey> Tuner<K> {
 
                 match first_error {
                     AutotuneError::Unknown(reason) => panic!("{reason}"),
-                    AutotuneError::PanicUnwind(err) => {
-                        resume_unwind(ManuallyDrop::into_inner(err));
-                    }
                 }
             }
 

@@ -71,9 +71,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         // Create the tuner if needed, and update some state like
         // checksums if need be.
-        let fastest = {
+        let (fastest, run_autotune) = {
             let mut state = self.state.write();
-            let map = state.get_or_insert_with(Default::default);
+            let map = state.get_or_insert_with(|| Default::default());
             let tuner = map.entry(id.clone()).or_insert_with(move || {
                 let name = self.name.replace("::", "-");
                 Tuner::new(&name, &id.to_string())
@@ -89,7 +89,15 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 tuner.validate_checksum(&key, &checksum);
                 fastest = tuner.fastest(&key);
             }
-            fastest
+            let mut run_autotune = false;
+
+            if matches!(fastest, TuneCacheResult::Miss) {
+                if !tuner.autotuning.contains(&key) {
+                    tuner.autotuning.insert(key.clone());
+                    run_autotune = true;
+                }
+            }
+            (fastest, run_autotune)
         };
 
         match fastest {
@@ -113,11 +121,17 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 //   - tune_2 save
                 // - tune_1 save
                 // ```
-                let state = self.state.read();
-                let state = state.as_ref().expect("Should be initialized");
-                let tuner = state.get(id).expect("Should be initialized");
+                if run_autotune {
+                    let state = self.state.read();
+                    let state = state.as_ref().expect("Should be initialized");
+                    let tuner = state.get(id).expect("Should be initialized");
 
-                tuner.execute_autotune(key.clone(), &inputs, operations, client);
+                    // We're executing autotune multiple times for the same key because it's faster to
+                    // enqueue the miss cache than to execute the autotune.
+                    tuner.execute_autotune(key.clone(), &inputs, operations, client);
+                } else {
+                    // We're waiting for results to come in.
+                }
             }
             TuneCacheResult::Pending => {
                 // We're waiting for results to come in.
@@ -145,7 +159,13 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                     0
                 }
                 TuneCacheResult::Miss => {
-                    panic!("Should have at least started autotuning");
+                    if run_autotune {
+                        panic!("Should have at least started autotuning");
+                    } else {
+                        // Another worker is responsible for running autotuning.
+                        // Let's execute 0 for now.
+                        0
+                    }
                 }
                 TuneCacheResult::Unchecked => {
                     panic!("Should have checked the cache.")

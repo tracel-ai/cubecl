@@ -139,13 +139,15 @@ where
 
         if let Some(existing) = self.in_memory_cache.get(&key) {
             if existing != &value {
-                // Add cache versionning so that upgrading burn/cubecl doesn't cause this error.
-                // We should know when it's safe to reset the cache, but it should be done at
-                // initialization.
+                let entry = Entry { key, value };
+                let entry = serde_json::to_string_pretty(&entry).unwrap();
+
                 panic!(
                     r#"
 Can't insert a duplicated entry in the cache file.
 The cache might be corrupted, cleaning it might resolve the issue.
+
+{entry}
 "#
                 );
             } else {
