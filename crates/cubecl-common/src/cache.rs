@@ -153,6 +153,11 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         self.in_memory_cache.len()
     }
 
+    /// If the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Insert a new item to the cache.
     ///
     /// Panic if an item with a different value exists in the cache.
@@ -189,7 +194,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
 
         while let Some(pos) = bytes[start..]
             .windows(self.separator.len())
-            .position(|w| w == &self.separator)
+            .position(|w| w == self.separator)
         {
             match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
                 Ok(entry) => {

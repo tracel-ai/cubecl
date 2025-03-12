@@ -2,7 +2,7 @@ use core::{fmt::Display, time::Duration};
 use std::{
     fs::{self, File},
     io::{BufReader, Seek, SeekFrom, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 /// Multi-process safe append-only file .
@@ -91,13 +91,13 @@ struct FileLock {
 
 impl FileLock {
     /// Create a lock for the given file path.
-    pub fn new(path: &PathBuf, lock_max_duration: Duration) -> Self {
+    pub fn new(path: &Path, lock_max_duration: Duration) -> Self {
         let file_name = path
             .file_name()
             .expect("Path to have a file name.")
             .to_str()
             .expect("File name to be valid");
-        let mut path_lock = path.clone();
+        let mut path_lock = path.to_path_buf();
         path_lock.set_file_name(format!("{}.lock", file_name));
 
         Self {
@@ -122,7 +122,7 @@ impl FileLock {
                 Ok(mut file) => {
                     let timestamp = std::time::SystemTime::now();
                     let content = serde_json::to_vec(&timestamp).unwrap();
-                    file.write(&content).unwrap();
+                    file.write_all(&content).unwrap();
                     break;
                 }
                 Err(err) => match err.kind() {
