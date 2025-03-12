@@ -34,7 +34,7 @@ pub(crate) struct PersistentCacheKey<K> {
 
 /// Persistent cache entry
 #[cfg(autotune_persistent_cache)]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
     results: Vec<Result<AutotuneOutcome, String>>,
@@ -169,13 +169,15 @@ impl<K: AutotuneKey> TuneCache<K> {
         fastest_index: usize,
         results: Vec<Result<AutotuneOutcome, String>>,
     ) {
-        self.persistent_cache.insert(
-            PersistentCacheKey { key, checksum },
-            PersistentCacheValue {
-                fastest_index,
-                results,
-            },
-        );
+        self.persistent_cache
+            .insert(
+                PersistentCacheKey { key, checksum },
+                PersistentCacheValue {
+                    fastest_index,
+                    results,
+                },
+            )
+            .expect("Autotune the same function multiple times.");
     }
 
     /// Load the persistent cache data from disk

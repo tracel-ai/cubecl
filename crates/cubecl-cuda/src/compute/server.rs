@@ -45,7 +45,7 @@ pub(crate) struct CudaContext {
     compilation_options: CompilationOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
@@ -413,15 +413,17 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        self.ptx_cache.insert(
-            name,
-            PtxCacheEntry {
-                entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                shared_mem_bytes,
-                ptx: ptx.clone(),
-            },
-        );
+        self.ptx_cache
+            .insert(
+                name,
+                PtxCacheEntry {
+                    entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    shared_mem_bytes,
+                    ptx: ptx.clone(),
+                },
+            )
+            .unwrap();
 
         self.load_ptx(
             ptx,

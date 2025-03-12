@@ -194,7 +194,6 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
     result
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {

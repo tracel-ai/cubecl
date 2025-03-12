@@ -1,17 +1,16 @@
 use core::{fmt::Display, time::Duration};
 use std::{
-    fs::{self, File, Metadata},
+    fs::{self, File},
     io::{BufReader, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 /// A cache file is an append only file that is multi-process safe.
 #[derive(Debug)]
 pub struct CacheFile {
     path: PathBuf,
-    path_lock: PathBuf,
+    lock: FileLock,
     cursor: u64,
-    is_lock: bool,
 }
 
 impl Display for CacheFile {
@@ -22,94 +21,26 @@ impl Display for CacheFile {
 
 impl CacheFile {
     /// Create a new cache file.
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+    pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
         let path: PathBuf = path.into();
-        let file_name = path
-            .file_name()
-            .expect("Path to have a file name.")
-            .to_str()
-            .expect("File name to be valid");
-        let mut path_lock = path.clone();
-        path_lock.set_file_name(format!("{}.lock", file_name));
 
-        let max_try = 10;
-        let waiting_duration = 100; // ms
-        let mut current_try = 0;
-        let mut metadata: Option<Metadata> = None;
-
-        loop {
-            let is_already_init = std::fs::exists(&path).unwrap_or(false);
-            if is_already_init {
-                break;
-            }
-
-            // We hard reset the cache.
-            if current_try >= max_try {
-                std::fs::remove_file(&path_lock).ok();
-                std::fs::remove_file(&path).ok();
-                init_file(&path).unwrap();
-                break;
-            }
-
-            match File::open(&path_lock) {
-                Ok(file) => {
-                    let metadata_curr = file.metadata().unwrap();
-                    match &mut metadata {
-                        Some(metadata) => {
-                            // We are writing to the cache file from another process, don't need to
-                            // initialize it.
-                            if metadata.len() == metadata_curr.len() {
-                                break;
-                            } else {
-                                *metadata = metadata_curr;
-                            }
-                        }
-                        None => {
-                            metadata = Some(metadata_curr);
-                        }
-                    }
-                    std::thread::sleep(Duration::from_millis(waiting_duration));
-                    current_try += 1;
-                }
-                Err(err) => {
-                    if let std::io::ErrorKind::NotFound = err.kind() {
-                        if let Ok(value) = std::fs::exists(&path) {
-                            // If both the lock and normal path are not created we
-                            // initialize the cache file.
-                            if !value {
-                                if init_file(&path).is_ok() {
-                                    break;
-                                }
-                            }
-                        }
-                    };
-                    current_try += 1;
-                    std::thread::sleep(Duration::from_millis(waiting_duration));
-                }
-            };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
         }
+        File::create(&path).unwrap();
 
         Self {
+            lock: FileLock::new(&path, lock_max_duration),
             path,
-            path_lock,
-            is_lock: false,
             cursor: 0,
         }
     }
 
     /// Lock the file and returns the content that wasn't synced since the last lock.
     pub fn lock(&mut self) -> Option<BufReader<File>> {
-        loop {
-            if std::fs::rename(&self.path, &self.path_lock).is_ok() {
-                break;
-            } else {
-                std::thread::sleep(Duration::from_millis(30));
-            }
-        }
+        self.lock.lock();
 
-        self.is_lock = true;
-
-        let mut file = File::open(&self.path_lock).unwrap();
+        let mut file = File::open(&self.path).unwrap();
         file.seek(SeekFrom::Start(self.cursor)).unwrap();
         let end = file.metadata().unwrap().len();
 
@@ -124,37 +55,111 @@ impl CacheFile {
 
     /// Unlock the file.
     pub fn unlock(&mut self) {
-        loop {
-            if std::fs::rename(&self.path_lock, &self.path).is_ok() {
-                break;
-            } else {
-                std::thread::sleep(Duration::from_millis(30));
-            }
-        }
-
-        self.is_lock = false;
+        self.lock.unlock();
     }
 
     /// Write the content to the file.
     ///
     /// Panics if the file isn't locked or there is an internal error.
     pub fn write(&mut self, content: &[u8]) {
-        if !self.is_lock {
+        if !self.lock.is_lock {
             panic!("The cache file should be locked before writing content to it.")
         }
 
-        let mut file = std::fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .append(true)
-            .open(&self.path_lock)
+            .open(&self.path)
             .unwrap();
 
         self.cursor += file.write(content).unwrap() as u64;
     }
 }
 
-fn init_file(file_path: &Path) -> std::io::Result<File> {
-    if let Some(parent) = file_path.parent() {
-        fs::create_dir_all(parent).ok();
+#[derive(Debug)]
+struct FileLock {
+    is_lock: bool,
+    path_lock: PathBuf,
+    lock_max_duration: Duration,
+}
+
+impl FileLock {
+    /// Create a lock for the given file path.
+    pub fn new(path: &PathBuf, lock_max_duration: Duration) -> Self {
+        let file_name = path
+            .file_name()
+            .expect("Path to have a file name.")
+            .to_str()
+            .expect("File name to be valid");
+        let mut path_lock = path.clone();
+        path_lock.set_file_name(format!("{}.lock", file_name));
+
+        Self {
+            path_lock,
+            is_lock: false,
+            lock_max_duration,
+        }
     }
-    File::create(file_path)
+    pub fn lock(&mut self) {
+        if self.is_lock {
+            return;
+        }
+
+        let waiting_total = std::time::SystemTime::now();
+
+        loop {
+            match fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&self.path_lock)
+            {
+                Ok(mut file) => {
+                    let timestamp = std::time::SystemTime::now();
+                    let content = serde_json::to_vec(&timestamp).unwrap();
+                    file.write(&content).unwrap();
+                    break;
+                }
+                Err(err) => match err.kind() {
+                    std::io::ErrorKind::AlreadyExists => {
+                        if let Ok(true) = self.maybe_cleanup_frozen_lock() {
+                            log::debug!("Removed frozen lock file");
+                        } else {
+                            std::thread::sleep(Duration::from_millis(30));
+                        }
+                    }
+                    _ => {
+                        if waiting_total.elapsed().unwrap() > self.lock_max_duration {
+                            fs::remove_file(&self.path_lock).ok();
+                        } else {
+                            std::thread::sleep(Duration::from_millis(30));
+                        }
+                    }
+                },
+            };
+        }
+
+        self.is_lock = true;
+    }
+
+    pub fn unlock(&mut self) {
+        if self.is_lock {
+            fs::remove_file(&self.path_lock).ok();
+        }
+
+        self.is_lock = false;
+    }
+
+    fn maybe_cleanup_frozen_lock(&mut self) -> Result<bool, String> {
+        let content = fs::read_to_string(&self.path_lock).map_err(|err| format!("{err}"))?;
+        let timestamp: std::time::SystemTime =
+            serde_json::from_str(&content).map_err(|err| format!("{err}"))?;
+
+        let elapsed = timestamp.elapsed().map_err(|err| format!("{err}"))?;
+
+        if elapsed > self.lock_max_duration {
+            fs::remove_file(&self.path_lock).map_err(|err| format!("{err}"))?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
 }

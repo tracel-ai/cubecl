@@ -33,7 +33,7 @@ pub struct Tuner<K: AutotuneKey> {
     autotune_persistent_cache,
     derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)
 )]
-#[derive(new, Debug)]
+#[derive(new, Debug, Clone)]
 pub(crate) struct AutotuneOutcome {
     name: String,
     index: usize,

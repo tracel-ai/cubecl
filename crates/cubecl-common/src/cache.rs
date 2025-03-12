@@ -1,3 +1,4 @@
+use core::time::Duration;
 use core::{fmt::Display, hash::Hash};
 use std::{
     io::Read,
@@ -11,22 +12,25 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::cache_file::CacheFile;
 
 #[derive(Debug)]
-/// An in-memory key-value cache that is automatically synced on disk.
+/// An in-memory key-value cache that is automatically synced to disk.
 ///
-/// The goal is simplicity, ease of use and ease of distribution. All data are stored in a single
-/// file, which is automatically loaded in memory when creating the cache.
+/// The goal is simplicity, ease of use, and ease of distribution. All data is stored in a single
+/// file, which is automatically loaded into memory when using the cache.
 ///
 /// # Warning
 ///
-/// The bigguest constraint for the cache is that values should never change for the given key.
-/// The is no update possible, if a value is reinserted a second time with a different value but
-/// the same key, a panic will arise.
+/// ## No Edits
 ///
-/// This is important to keep the file format simple, there is no metadata, no headers, just plain
-/// separator between each cache entry. It isn't possible to edit previously saved content.
+/// The biggest constraint for the cache is that values should never change for a given key.
+/// There is no update possible; if a value is reinserted a second time with a different value but
+/// the same key, an error will arise.
 ///
-/// The cubecl version is taken for versionning, but you can customize this using
-/// [cache option](CacheOption).
+/// This is important to keep the file format simple: there is no metadata, no headers, just a plain
+/// separator between each cache entry. Therefore, it isn’t possible to edit previously saved content.
+///
+/// ## No Big Files
+///
+/// The cache isn’t optimized for space; use it for small caches.
 pub struct Cache<K, V> {
     in_memory_cache: HashMap<K, V>,
     file: CacheFile,
@@ -39,6 +43,19 @@ pub struct CacheOption {
     separator: Option<Vec<u8>>,
     version: Option<String>,
     root: Option<String>,
+    lock_max_duration: Option<Duration>,
+}
+
+/// Error related to caching.
+#[derive(Debug)]
+pub enum CacheError<K: Serialize, V: Serialize> {
+    /// Can't insert an entry with the same key, but different value.
+    #[allow(missing_docs)]
+    DuplicatedKey {
+        key: K,
+        value_previous: V,
+        value_updated: V,
+    },
 }
 
 impl CacheOption {
@@ -64,36 +81,45 @@ impl CacheOption {
         self
     }
 
-    fn resolve(self) -> (Vec<u8>, String, String) {
+    fn resolve(self) -> (Vec<u8>, String, String, Duration) {
         let separator = self.separator.unwrap_or_else(|| b"\n".to_vec());
         let version = self
             .version
             .unwrap_or_else(|| std::env!("CARGO_PKG_VERSION").to_string());
         let root = self.root.unwrap_or_else(|| "cubecl".to_string());
+        let duration = self
+            .lock_max_duration
+            .unwrap_or_else(|| Duration::from_secs(30));
 
-        (separator, root, version)
+        (separator, root, version, duration)
     }
 }
 
-impl<K, V> Cache<K, V>
-where
-    K: Serialize + DeserializeOwned + Hash + PartialEq + Eq,
-    V: Serialize + DeserializeOwned + PartialEq,
-{
+/// Trait to be implemented for cache keys.
+pub trait CacheKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash {}
+/// Trait to be implemented for cache value.
+pub trait CacheValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
+
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Hash> CacheKey for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T {}
+
+impl<K: CacheKey, V: CacheValue> Cache<K, V> {
     /// Create a new cache and load the data from the provided path if it exist.
     pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
-        let (separator, root, version) = option.resolve();
+        let (separator, root, version, lock_max_duration) = option.resolve();
         let path = get_persistent_cache_file_path(path, root, version);
 
         let mut this = Self {
             in_memory_cache: HashMap::new(),
-            file: CacheFile::new(path),
+            file: CacheFile::new(path, lock_max_duration),
             separator: separator,
         };
 
         if let Some(mut reader) = this.file.lock() {
             let mut buffer = Vec::new();
-            reader.read_to_end(&mut buffer).unwrap();
+            reader
+                .read_to_end(&mut buffer)
+                .expect("Can read the cache content");
             this.sync_content(&buffer);
         }
 
@@ -130,7 +156,7 @@ where
     /// Insert a new item to the cache.
     ///
     /// Panic is an item with a different value exist for the cache.
-    pub fn insert(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: V) -> Result<(), CacheError<K, V>> {
         if let Some(mut reader) = self.file.lock() {
             let mut buffer = Vec::new();
             reader.read_to_end(&mut buffer).unwrap();
@@ -139,26 +165,23 @@ where
 
         if let Some(existing) = self.in_memory_cache.get(&key) {
             if existing != &value {
-                let entry = Entry { key, value };
-                let entry = serde_json::to_string_pretty(&entry).unwrap();
+                self.file.unlock();
 
-                panic!(
-                    r#"
-Can't insert a duplicated entry in the cache file.
-The cache might be corrupted, cleaning it might resolve the issue.
-
-{entry}
-"#
-                );
+                return Err(CacheError::DuplicatedKey {
+                    key,
+                    value_previous: existing.clone(),
+                    value_updated: value,
+                });
             } else {
                 self.file.unlock();
-                return;
+                return Ok(());
             }
         }
 
         self.insert_unchecked(key, value);
 
         self.file.unlock();
+        Ok(())
     }
 
     fn sync_content(&mut self, bytes: &[u8]) {
@@ -168,15 +191,26 @@ The cache might be corrupted, cleaning it might resolve the issue.
             .windows(self.separator.len())
             .position(|w| w == &self.separator)
         {
-            let entry: Entry<K, V> = serde_json::from_slice(&bytes[start..start + pos]).unwrap();
-            self.in_memory_cache.insert(entry.key, entry.value);
+            match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
+                Ok(entry) => {
+                    self.in_memory_cache.insert(entry.key, entry.value);
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Corrupted cache file {}, ignoring entry ({}..{}) : {err}",
+                        self.file,
+                        start,
+                        start + pos,
+                    );
+                }
+            };
             start += pos + self.separator.len();
         }
     }
 
     fn insert_unchecked(&mut self, key: K, value: V) {
         let entry = Entry { key, value };
-        let mut bytes = serde_json::to_vec(&entry).unwrap();
+        let mut bytes = serde_json::to_vec(&entry).expect("Can serialize data");
 
         for b in self.separator.iter() {
             bytes.push(*b);
@@ -187,13 +221,10 @@ The cache might be corrupted, cleaning it might resolve the issue.
     }
 }
 
-impl<K, V> Display for Cache<K, V>
-where
-    K: Serialize + DeserializeOwned + Hash + PartialEq + Eq,
-    V: Serialize + DeserializeOwned + PartialEq,
-{
+impl<K: CacheKey, V: CacheValue> Display for Cache<K, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.file)?;
+
         for (key, value) in self.in_memory_cache.iter() {
             let key = serde_json::to_string_pretty(key).unwrap();
             let value = serde_json::to_string_pretty(value).unwrap();
@@ -212,7 +243,7 @@ fn get_persistent_cache_file_path<P: AsRef<Path>>(
 ) -> PathBuf {
     let path_partial: &Path = path_partial.as_ref();
     let home_dir = dirs::home_dir().expect("An home directory should exist");
-    let add_extension = !path_partial.ends_with("json");
+    let add_extension = !path_partial.ends_with("json.log");
 
     let mut path = home_dir.join(".cache").join(root).join(version);
 
@@ -227,7 +258,7 @@ fn get_persistent_cache_file_path<P: AsRef<Path>>(
     }
 
     if add_extension {
-        path.set_extension("json");
+        path.set_extension("json.log");
     }
 
     path
@@ -239,14 +270,41 @@ struct Entry<K, V> {
     value: V,
 }
 
+impl<K: Serialize, V: Serialize> core::fmt::Debug for Entry<K, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let formatted = serde_json::to_string_pretty(self).unwrap();
+        write!(f, "{formatted}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_cache() {
+    fn test_cache_simple() {
+        let key1 = || "key1".to_string();
+        let key2 = || "key2".to_string();
+
+        let value1 = || "value1".to_string();
+        let value2 = || "value2".to_string();
+
         let mut cache = Cache::<String, String>::new("test", CacheOption::default());
-        cache.insert("key".to_string(), "value \n valval".to_string());
-        cache.insert("key2".to_string(), "Value2".to_string());
+        cache.insert(key1(), value1()).unwrap();
+        cache.insert(key2(), value2()).unwrap();
+
+        let result = cache.insert(key1(), value2());
+        assert!(
+            result.is_err(),
+            "Can't reinsert the same key with a different value."
+        );
+
+        assert_eq!(cache.len(), 2);
+
+        let value1_actual = cache.get(&key1()).unwrap();
+        assert_eq!(value1_actual, &value1());
+
+        let value2_actual = cache.get(&key2()).unwrap();
+        assert_eq!(value2_actual, &value2());
     }
 }
