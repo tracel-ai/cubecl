@@ -40,7 +40,7 @@ impl KernelId {
         }
     }
 
-    /// Render the key in a standard format that can be used between run.
+    /// Render the key in a standard format that can be used between runs.
     ///
     /// Can be used as a persistent kernel cache key.
     pub fn stable_format(&self) -> String {

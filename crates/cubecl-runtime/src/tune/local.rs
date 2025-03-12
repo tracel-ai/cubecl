@@ -73,7 +73,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         // checksums if need be.
         let (fastest, run_autotune) = {
             let mut state = self.state.write();
-            let map = state.get_or_insert_with(|| Default::default());
+            let map = state.get_or_insert_with(Default::default);
             let tuner = map.entry(id.clone()).or_insert_with(move || {
                 let name = self.name.replace("::", "-");
                 Tuner::new(&name, &id.to_string())
@@ -91,11 +91,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             }
             let mut run_autotune = false;
 
-            if matches!(fastest, TuneCacheResult::Miss) {
-                if !tuner.autotuning.contains(&key) {
-                    tuner.autotuning.insert(key.clone());
-                    run_autotune = true;
-                }
+            if matches!(fastest, TuneCacheResult::Miss) && !tuner.autotuning.contains(&key) {
+                tuner.autotuning.insert(key.clone());
+                run_autotune = true;
             }
             (fastest, run_autotune)
         };
@@ -108,26 +106,24 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                     .expect("Should run when selected by autotune.");
             }
             TuneCacheResult::Miss => {
-                // We don't know the results yet, start autotuning.
-                //
-                // Running benchmarks should't lock the tuner, since an autotune operation can recursively use the
-                // same tuner.
-                //
-                // # Example
-                //
-                // ```
-                // - tune_1 start
-                //   - tune_2 start
-                //   - tune_2 save
-                // - tune_1 save
-                // ```
                 if run_autotune {
+                    // We don't know the results yet, start autotuning.
+                    //
+                    // Running benchmarks should't lock the tuner, since an autotune operation can recursively use the
+                    // same tuner.
+                    //
+                    // # Example
+                    //
+                    // ```
+                    // - tune_1 start
+                    //   - tune_2 start
+                    //   - tune_2 save
+                    // - tune_1 save
+                    // ```
                     let state = self.state.read();
                     let state = state.as_ref().expect("Should be initialized");
                     let tuner = state.get(id).expect("Should be initialized");
 
-                    // We're executing autotune multiple times for the same key because it's faster to
-                    // enqueue the miss cache than to execute the autotune.
                     tuner.execute_autotune(key.clone(), &inputs, operations, client);
                 } else {
                     // We're waiting for results to come in.
@@ -145,6 +141,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             let mut state = self.state.write();
             let state = state.as_mut().expect("Should be initialized");
             let tuner = state.get_mut(id).expect("Should be initialized");
+
             // Now read all results that have come in since.
             tuner.resolve();
 
@@ -163,7 +160,10 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                         panic!("Should have at least started autotuning");
                     } else {
                         // Another worker is responsible for running autotuning.
-                        // Let's execute 0 for now.
+                        // Let's execute the default index while we wait for the results.
+                        //
+                        // This should only happen on wasm since we can't block or trigger a new
+                        // context switch manually to prioritize finishing the autotune task.
                         0
                     }
                 }

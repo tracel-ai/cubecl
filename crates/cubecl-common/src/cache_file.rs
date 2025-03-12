@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-/// A cache file is an append only file that is multi-process safe.
+/// Multi-process safe append-only file .
 #[derive(Debug)]
 pub struct CacheFile {
     path: PathBuf,
@@ -36,7 +36,7 @@ impl CacheFile {
         }
     }
 
-    /// Lock the file and returns the content that wasn't synced since the last lock.
+    /// Locks the file and returns the content that wasn't synced since the last lock.
     pub fn lock(&mut self) -> Option<BufReader<File>> {
         self.lock.lock();
 
@@ -76,6 +76,13 @@ impl CacheFile {
 }
 
 #[derive(Debug)]
+/// A very simple file lock that only depends on std.
+///
+/// The lock is only valid for a fixed duration; after that, there is no guarantee.
+/// This is to combat corrupted data, since killing a process might leave the lock file on disk.
+///
+/// Since it is used with an append-only cache file, we could simply delete the entire cache file
+/// when the lock is outdated.
 struct FileLock {
     is_lock: bool,
     path_lock: PathBuf,

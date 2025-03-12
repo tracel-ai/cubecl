@@ -96,6 +96,11 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Wait for async results to come in.
     pub fn resolve(&mut self) {
         #[cfg(not(target_family = "wasm"))]
+        // On native platforms, we know exactly how many tasks to wait for.
+        //
+        // Those tasks can be registered from another thread, but since the tuner shares the same
+        // state, we can wait for all results to be saved before deciding which kernel to launch.
+        // This may happen if multiple threads trigger the same autotune task.
         while self.current.load(Ordering::Relaxed) > 0 {
             self.resolve_loop();
         }

@@ -104,7 +104,7 @@ impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Hash> CacheKey for T {}
 impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T {}
 
 impl<K: CacheKey, V: CacheValue> Cache<K, V> {
-    /// Create a new cache and load the data from the provided path if it exist.
+    /// Create a new cache and load the data from the provided path if it exists.
     pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
         let (separator, root, version, lock_max_duration) = option.resolve();
         let path = get_persistent_cache_file_path(path, root, version);
@@ -112,7 +112,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         let mut this = Self {
             in_memory_cache: HashMap::new(),
             file: CacheFile::new(path, lock_max_duration),
-            separator: separator,
+            separator,
         };
 
         if let Some(mut reader) = this.file.lock() {
@@ -155,7 +155,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
 
     /// Insert a new item to the cache.
     ///
-    /// Panic is an item with a different value exist for the cache.
+    /// Panic if an item with a different value exists in the cache.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), CacheError<K, V>> {
         if let Some(mut reader) = self.file.lock() {
             let mut buffer = Vec::new();
