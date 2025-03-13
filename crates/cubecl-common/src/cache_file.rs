@@ -24,10 +24,13 @@ impl CacheFile {
     pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
         let path: PathBuf = path.into();
 
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).ok();
+        if !fs::exists(&path).unwrap_or(false) {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).ok();
+            }
+
+            File::create(&path).unwrap();
         }
-        File::create(&path).unwrap();
 
         Self {
             lock: FileLock::new(&path, lock_max_duration),
@@ -41,8 +44,8 @@ impl CacheFile {
         self.lock.lock();
 
         let mut file = File::open(&self.path).unwrap();
-        file.seek(SeekFrom::Start(self.cursor)).unwrap();
         let end = file.metadata().unwrap().len();
+        file.seek(SeekFrom::Start(self.cursor)).unwrap();
 
         if self.cursor < end {
             let buf = BufReader::new(file);

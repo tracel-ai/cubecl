@@ -184,7 +184,10 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Load the persistent cache data from disk
     pub(crate) fn load(&mut self) {
+        log::info!("Load autotune cache ...");
+        let mut loaded = 0;
         self.persistent_cache.for_each(|key, value| {
+            loaded += 1;
             self.in_memory_cache.insert(
                 key.key.clone(),
                 CacheEntry::Done {
@@ -193,5 +196,6 @@ impl<K: AutotuneKey> TuneCache<K> {
                 },
             );
         });
+        log::info!("Loaded {loaded} autotune cached entries");
     }
 }
