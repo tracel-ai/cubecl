@@ -115,7 +115,10 @@ impl Display for BenchmarkDurations {
 }
 
 /// Computed values from benchmark durations.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)
+)]
 #[derive(Debug, Default, Clone)]
 pub struct BenchmarkComputations {
     /// Mean of all the durations.

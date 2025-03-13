@@ -1,15 +1,13 @@
 use async_channel::{Receiver, Sender};
 use cubecl_common::future;
+use hashbrown::HashSet;
 
-use core::any::Any;
 use core::future::Future;
-use core::mem::ManuallyDrop;
 use cubecl_common::stub::Duration;
 
-#[cfg(all(not(target_family = "wasm"), feature = "std"))]
-use std::panic::resume_unwind;
+#[cfg(not(target_family = "wasm"))]
+use core::sync::atomic::{AtomicU64, Ordering};
 
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use cubecl_common::benchmark::BenchmarkComputations;
@@ -26,8 +24,21 @@ use super::{AutotuneKey, TunableSet, TuneCacheResult};
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
     channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
+    pub(crate) autotuning: HashSet<K>,
+    #[cfg(not(target_family = "wasm"))]
+    current: AtomicU64,
 }
 
+#[cfg_attr(
+    autotune_persistent_cache,
+    derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)
+)]
+#[derive(new, Debug, Clone)]
+pub(crate) struct AutotuneOutcome {
+    name: String,
+    index: usize,
+    computation: BenchmarkComputations,
+}
 /// Result from running benchmarks.
 enum AutotuneMessage<K> {
     Done {
@@ -35,6 +46,8 @@ enum AutotuneMessage<K> {
         fastest_index: usize,
         #[cfg(autotune_persistent_cache)]
         checksum: String,
+        #[cfg(autotune_persistent_cache)]
+        results: Vec<Result<AutotuneOutcome, String>>,
     },
     Starting {
         key: K,
@@ -46,8 +59,6 @@ enum AutotuneMessage<K> {
 pub enum AutotuneError {
     /// An unknown error happened.
     Unknown(String),
-    /// An error caught with panic unwind.
-    PanicUnwind(ManuallyDrop<Box<dyn Any + Send>>),
 }
 
 impl From<String> for AutotuneError {
@@ -65,6 +76,9 @@ impl<K: AutotuneKey> Tuner<K> {
         Self {
             tune_cache: TuneCache::new(name, device_id),
             channel,
+            autotuning: HashSet::new(),
+            #[cfg(not(target_family = "wasm"))]
+            current: 0.into(),
         }
     }
 
@@ -81,6 +95,21 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Wait for async results to come in.
     pub fn resolve(&mut self) {
+        #[cfg(not(target_family = "wasm"))]
+        // On native platforms, we know exactly how many tasks to wait for.
+        //
+        // Those tasks can be registered from another thread, but since the tuner shares the same
+        // state, we can wait for all results to be saved before deciding which kernel to launch.
+        // This may happen if multiple threads trigger the same autotune task.
+        while self.current.load(Ordering::Relaxed) > 0 {
+            self.resolve_loop();
+        }
+
+        #[cfg(target_family = "wasm")]
+        self.resolve_loop();
+    }
+
+    fn resolve_loop(&mut self) {
         while let Ok(msg) = self.channel.1.try_recv() {
             match msg {
                 AutotuneMessage::Done {
@@ -88,14 +117,22 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
+                    #[cfg(autotune_persistent_cache)]
+                    results,
                 } => {
+                    #[cfg(not(target_family = "wasm"))]
+                    AtomicU64::fetch_sub(&self.current, 1, Ordering::Relaxed);
+
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
 
                     #[cfg(autotune_persistent_cache)]
                     {
-                        self.tune_cache
-                            .persistent_cache_insert(key, checksum, fastest_index);
-                        self.tune_cache.save();
+                        self.tune_cache.persistent_cache_insert(
+                            key,
+                            checksum,
+                            fastest_index,
+                            results,
+                        );
                     }
                 }
                 AutotuneMessage::Starting { key } => {
@@ -118,6 +155,9 @@ impl<K: AutotuneKey> Tuner<K> {
         tunables: &TunableSet<K, In, Out>,
         client: &ComputeClient<S, C>,
     ) {
+        #[cfg(not(target_family = "wasm"))]
+        AtomicU64::fetch_add(&self.current, 1, Ordering::Relaxed);
+
         log::info!("Tuning {key}");
 
         let autotunables: Vec<_> = tunables
@@ -137,6 +177,8 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index: autotunables[0].0,
                     #[cfg(autotune_persistent_cache)]
                     checksum: tunables.compute_checksum(),
+                    #[cfg(autotune_persistent_cache)]
+                    results: Vec::new(),
                 })
                 .expect("Autotune results channel closed");
             return;
@@ -152,13 +194,6 @@ impl<K: AutotuneKey> Tuner<K> {
         let test_inputs = tunables.generate_inputs(&key, inputs);
 
         spawn_benchmark_task(async move {
-            #[derive(new, Debug)]
-            struct BenchResult {
-                name: String,
-                index: usize,
-                computation: BenchmarkComputations,
-            }
-
             let mut bench_results = Vec::with_capacity(autotunables.len());
 
             for (index, op) in autotunables.into_iter() {
@@ -166,22 +201,10 @@ impl<K: AutotuneKey> Tuner<K> {
                 let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
 
                 let sample_fut = tuner.sample_durations();
-                let sample_fut = future::catch_unwind(sample_fut);
                 let result = sample_fut.await;
-
-                let result = match result {
-                    Ok(result) => result,
-                    Err(err) => {
-                        log::warn!(
-                            "Caught unknown error while benchmarking, falling back to next operation."
-                        );
-                        Err(AutotuneError::PanicUnwind(ManuallyDrop::new(err)))
-                    }
-                };
-
                 let result = result.map(|durations| {
                     log::info!("Name: {name} => {}", durations);
-                    BenchResult::new(name, index, BenchmarkComputations::new(&durations))
+                    AutotuneOutcome::new(name, index, BenchmarkComputations::new(&durations))
                 });
 
                 bench_results.push(result);
@@ -194,9 +217,6 @@ impl<K: AutotuneKey> Tuner<K> {
 
                 match first_error {
                     AutotuneError::Unknown(reason) => panic!("{reason}"),
-                    AutotuneError::PanicUnwind(err) => {
-                        resume_unwind(ManuallyDrop::into_inner(err));
-                    }
                 }
             }
 
@@ -243,6 +263,11 @@ impl<K: AutotuneKey> Tuner<K> {
                     fastest_index,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
+                    #[cfg(autotune_persistent_cache)]
+                    results: bench_results
+                        .into_iter()
+                        .map(|result| result.map_err(|err| format!("{err:?}")))
+                        .collect(),
                 })
                 .await
                 .expect("Autotune results channel closed");
