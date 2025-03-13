@@ -189,6 +189,7 @@ pub struct KernelFn {
     pub src_file: Option<LitStr>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum KernelBody {
     Block(Block),
