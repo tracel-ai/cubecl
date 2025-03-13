@@ -285,7 +285,7 @@ impl ComputeServer for CudaServer {
         async move { duration }
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
@@ -296,7 +296,11 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_usage(&self) -> MemoryUsage {
-        self.ctx.memory_usage()
+        self.ctx.memory_management.memory_usage()
+    }
+
+    fn memory_cleanup(&mut self) {
+        self.ctx.memory_management.cleanup(true);
     }
 
     fn enable_timestamps(&mut self) {
@@ -490,10 +494,6 @@ impl CudaContext {
             )
             .unwrap();
         };
-    }
-
-    fn memory_usage(&self) -> MemoryUsage {
-        self.memory_management.memory_usage()
     }
 }
 

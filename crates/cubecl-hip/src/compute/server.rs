@@ -158,6 +158,11 @@ impl ComputeServer for HipServer {
         self.ctx.memory_usage()
     }
 
+    fn memory_cleanup(&mut self) {
+        let ctx = self.get_context();
+        ctx.memory_management.cleanup(true);
+    }
+
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
@@ -286,7 +291,7 @@ impl ComputeServer for HipServer {
         async move { duration }
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
