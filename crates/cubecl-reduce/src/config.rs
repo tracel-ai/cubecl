@@ -21,6 +21,8 @@ pub enum BoundChecksInner {
     /// No bound check is necessary.
     None,
     /// Using a mask is enough for bound checks.
+    /// This will still read the memory in an out-of-bound location,
+    /// but will replace the value by the null value.
     Mask,
     /// Branching is necessary for bound checks.
     ///
