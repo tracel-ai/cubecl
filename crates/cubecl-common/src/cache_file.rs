@@ -24,6 +24,8 @@ impl CacheFile {
     pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
         let path: PathBuf = path.into();
 
+        // We check before trying to create the file, since it might erase the content of an
+        // existing file.
         if !fs::exists(&path).unwrap_or(false) {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).ok();
