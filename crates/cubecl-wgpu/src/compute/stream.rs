@@ -119,7 +119,7 @@ impl WgpuStream {
 
         // Allocate a small buffer to use for synchronization.
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(Handle::new(memory_uniforms.reserve(32), None, None, 32));
+        let sync_buffer = Some(Handle::new(memory_main.reserve(32), None, None, 32));
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
