@@ -20,8 +20,14 @@ const SMALL_UNIFORMS_BUFFER_SIZE: u64 = 8192;
 
 #[derive(Debug)]
 pub struct WgpuStream {
+    // Main memory pool to allocate buffers from.
     memory_main: MemoryManagement<WgpuStorage>,
+    // Memory pool for small uniform buffers (under [`SMALL_UNIFORMS_BUFFER_SIZE`]).
+    // Allocations in this pool are specially marked as for `uniform` usage.
     memory_uniforms: MemoryManagement<WgpuStorage>,
+    // Memory pool for timing query buffers.
+    // Nb these are tiny allocations (2 u64) so don't particularly need to be pooled,
+    // but for consistency in the API they are.
     memory_queries: MemoryManagement<WgpuStorage>,
 
     uniforms_staging_pool: StagingBelt,
@@ -53,7 +59,9 @@ impl WgpuStream {
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
-        // Allocate storage & a memory management for buffers.
+        // Allocate storage & memory management for the main memory buffers. Any calls
+        // to empty() or create() with a small enough size will be allocated from this
+        // main memory pool.
         let memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
@@ -66,6 +74,7 @@ impl WgpuStream {
             memory_config,
         );
 
+        // Memory pool for timing queries.
         let memory_queries = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
@@ -75,7 +84,9 @@ impl WgpuStream {
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
                     pool_type: memory_management::PoolType::ExclusivePages {
-                        max_alloc_size: 256,
+                        // Size only needs to be 2 u64, but at leas alignment size.
+                        // Assume alignment is enough.
+                        max_alloc_size: memory_properties.alignment,
                     },
                     dealloc_period: None,
                 }],
@@ -106,8 +117,8 @@ impl WgpuStream {
             },
         );
 
+        // Allocate a small buffer to use for synchronization.
         #[cfg(target_family = "wasm")]
-        // Allocate a small buffer to use for synchronization
         let sync_buffer = Some(Handle::new(memory_uniforms.reserve(32), None, None, 32));
 
         #[cfg(not(target_family = "wasm"))]
@@ -122,10 +133,10 @@ impl WgpuStream {
             memory_main,
             memory_uniforms,
             memory_queries,
+            uniforms_staging_pool,
             locked_copy_handles: Vec::new(),
             compute_pass: None,
             timestamps,
-            uniforms_staging_pool,
             tasks_encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
