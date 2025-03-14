@@ -2,6 +2,7 @@
 use super::AutotuneOutcome;
 #[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::Cache;
+use cubecl_common::cache::CacheError;
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +29,7 @@ pub(crate) enum ChecksumState {
 
 /// Persistent cache key
 #[cfg(autotune_persistent_cache)]
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub(crate) struct PersistentCacheKey<K> {
     key: K,
     checksum: String,
@@ -171,15 +172,27 @@ impl<K: AutotuneKey> TuneCache<K> {
         fastest_index: usize,
         results: Vec<Result<AutotuneOutcome, String>>,
     ) {
-        self.persistent_cache
-            .insert(
-                PersistentCacheKey { key, checksum },
-                PersistentCacheValue {
-                    fastest_index,
-                    results,
-                },
-            )
-            .expect("Autotune the same function multiple times.");
+        if let Err(err) = self.persistent_cache.insert(
+            PersistentCacheKey { key, checksum },
+            PersistentCacheValue {
+                fastest_index,
+                results,
+            },
+        ) {
+            match err {
+                CacheError::DuplicatedKey {
+                    key,
+                    value_previous,
+                    value_updated,
+                } => {
+                    log::warn!("Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}");
+                }
+                CacheError::KeyOutOfSync { .. } => {
+                    // This is OK.
+                }
+            }
+        }
+        // .expect();
     }
 
     /// Load the persistent cache data from disk
