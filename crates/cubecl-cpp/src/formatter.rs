@@ -17,9 +17,6 @@ pub fn format_cpp(code: &str) -> Result<String, std::io::Error> {
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "clang-format failed",
-        ))
+        Err(std::io::Error::other("clang-format failed"))
     }
 }

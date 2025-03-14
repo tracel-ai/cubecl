@@ -12,6 +12,7 @@ use crate::{WgpuServer, WgslCompiler};
 
 use super::wgsl::ComputeShader;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum AutoCompiler {
     Wgsl(WgslCompiler),
