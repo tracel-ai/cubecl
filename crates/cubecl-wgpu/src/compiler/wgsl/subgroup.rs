@@ -24,6 +24,16 @@ pub enum Subgroup {
         rhs: Variable,
         out: Variable,
     },
+    Shuffle {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    ShuffleUp {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     Sum {
         input: Variable,
         out: Variable,
@@ -122,6 +132,14 @@ impl Display for Subgroup {
             Subgroup::Broadcast { lhs, rhs, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupBroadcast({lhs}, {rhs});")
+            }
+            Subgroup::Shuffle { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffle({lhs}, {rhs});")
+            }
+            Subgroup::ShuffleUp { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffleUp({lhs}, {rhs});")
             }
             Subgroup::Ballot { input, out } => {
                 let out = out.fmt_left();

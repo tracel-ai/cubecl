@@ -103,6 +103,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 });
             }
+            Plane::Shuffle(_) => {
+                std::panic!("Not impl yet");
+            }
             Plane::Sum(op) => {
                 self.plane_sum(op, out, GroupOperation::Reduce, uniform);
             }
