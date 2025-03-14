@@ -2,6 +2,7 @@
 use super::AutotuneOutcome;
 #[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::Cache;
+#[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::CacheError;
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
