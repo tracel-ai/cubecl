@@ -185,7 +185,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                     value_previous,
                     value_updated,
                 } => {
-                    panic!("Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}");
+                    log::warn!("Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}");
                 }
                 CacheError::KeyOutOfSync { .. } => {
                     // This is OK.
