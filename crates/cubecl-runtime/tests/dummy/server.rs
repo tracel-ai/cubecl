@@ -7,7 +7,7 @@ use std::time::Instant;
 use super::DummyKernel;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::server::CubeCount;
-use cubecl_runtime::storage::{BindingResource, ComputeStorage};
+use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{Binding, ComputeServer, Handle},
@@ -61,7 +61,7 @@ impl ComputeServer for DummyServer {
         async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
@@ -128,6 +128,10 @@ impl ComputeServer for DummyServer {
 
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
+    }
+
+    fn memory_cleanup(&mut self) {
+        self.memory_management.cleanup(true);
     }
 
     fn enable_timestamps(&mut self) {

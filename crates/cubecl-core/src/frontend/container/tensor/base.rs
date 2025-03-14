@@ -1,13 +1,13 @@
-use cubecl_ir::ExpandElement;
-
-use crate::frontend::{ExpandElementBaseInit, ExpandElementTyped, SizedContainer};
-use crate::prelude::IntoRuntime;
 use crate::{
-    frontend::{indexation::Index, CubePrimitive, CubeType},
+    frontend::{
+        indexation::Index, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped,
+        SizedContainer,
+    },
     ir::{Item, Metadata, Scope},
-    prelude::Line,
+    prelude::{index, index_assign, IntoRuntime, Line, List, ListExpand, ListMut, ListMutExpand},
     unexpanded,
 };
+use cubecl_ir::ExpandElement;
 use std::{marker::PhantomData, num::NonZero};
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
@@ -377,5 +377,47 @@ impl<E: CubePrimitive> IntoRuntime for *const Tensor<E> {
 impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
     fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Tensor can't exist at compile time")
+    }
+}
+
+impl<T: CubePrimitive> List<T> for Tensor<T> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Tensor<T>>,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, self, idx)
+    }
+}
+
+impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
+    fn __expand_write(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Tensor<T>>,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, this, idx, value);
+    }
+}
+
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
+    fn __expand_write_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, self, idx, value);
     }
 }

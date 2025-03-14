@@ -31,7 +31,10 @@ where
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
 
     /// Given a resource handle, returns the storage resource.
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self>;
+    fn get_resource(
+        &mut self,
+        binding: Binding,
+    ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
     /// Given a resource as bytes, stores it and returns the memory handle.
     fn create(&mut self, data: &[u8]) -> Handle;
@@ -68,6 +71,9 @@ where
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
+
+    /// Ask the server to release memory that it can release.
+    fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
     fn enable_timestamps(&mut self);

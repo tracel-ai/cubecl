@@ -4,7 +4,7 @@ use crate::{
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
-    storage::BindingResource,
+    storage::{BindingResource, ComputeStorage},
     DeviceProperties,
 };
 use alloc::sync::Arc;
@@ -80,7 +80,10 @@ where
     }
 
     /// Given a resource handle, returns the storage resource.
-    pub fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
+    pub fn get_resource(
+        &self,
+        binding: Binding,
+    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.channel.get_resource(binding)
     }
 
@@ -140,6 +143,14 @@ where
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
         self.channel.memory_usage()
+    }
+
+    /// Ask the client to release memory that it can release.
+    ///
+    /// Nb: Results will vary on what the memory allocator deems beneficial,
+    /// so it's not guaranteed any memory is freed.
+    pub fn memory_cleanup(&self) {
+        self.channel.memory_cleanup()
     }
 
     /// When executing operation within the profile scope, you can call
