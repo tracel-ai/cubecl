@@ -424,7 +424,7 @@ impl CudaContext {
         };
 
         #[cfg(feature = "cache-ptx")]
-        match self.ptx_cache
+        self.ptx_cache
             .insert(
                 name,
                 PtxCacheEntry {
