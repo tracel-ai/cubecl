@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use cubecl_ir::{ExpandElement, Scope};
 
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
-use crate::prelude::SizedContainer;
+use crate::prelude::{CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, SizedContainer};
 use crate::{
     frontend::indexation::Index,
     prelude::{assign, index, index_assign},
@@ -352,5 +352,47 @@ impl<T: CubeType> Iterator for &Array<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> CubeRead<T> for Array<T> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Array<T>>,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Array<T>> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, self, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeWrite<T> for Array<T> {
+    fn __expand_write(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Array<T>>,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, this, idx, value);
+    }
+}
+
+impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<Array<T>> {
+    fn __expand_write_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, self, idx, value);
     }
 }

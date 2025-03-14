@@ -27,12 +27,28 @@ pub struct VirtualTensorExpand<E: Numeric, IO> {
     _p: PhantomData<IO>,
 }
 
+impl<E: Numeric, IO: Clone> CubeRead<Line<E>> for VirtualTensor<E, IO> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: VirtualTensorExpand<E, IO>,
+        index: <u32 as CubeType>::ExpandType,
+    ) -> <Line<E> as CubeType>::ExpandType {
+        this.__expand_read_method(scope, index)
+    }
+}
+
+impl<E: Numeric, IO: Clone> CubeReadExpand<Line<E>> for VirtualTensorExpand<E, IO> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        index: <u32 as CubeType>::ExpandType,
+    ) -> <Line<E> as CubeType>::ExpandType {
+        self.state.clone().__expand_read_method(scope, index)
+    }
+}
+
 #[allow(unused, clippy::all)]
 impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
-    /// Read the tensor at the given index.
-    pub fn read(&self, index: u32) -> Line<E> {
-        unexpanded!();
-    }
     pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
         unexpanded!();
     }
@@ -57,13 +73,6 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
         unexpanded!();
     }
 
-    pub fn __expand_read(
-        scope: &mut Scope,
-        this: <Self as CubeType>::ExpandType,
-        index: <u32 as CubeType>::ExpandType,
-    ) -> <Line<E> as CubeType>::ExpandType {
-        this.__expand_read_method(scope, index)
-    }
     pub fn __expand_as_slice(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
@@ -108,16 +117,6 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
 
 #[allow(unused, clippy::all)]
 impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
-    pub fn __expand_read_method(
-        self,
-        scope: &mut Scope,
-        index: <u32 as CubeType>::ExpandType,
-    ) -> <Line<E> as CubeType>::ExpandType {
-        let _arg_0 = index;
-        self.state
-            .clone()
-            .__expand_read_method(scope, _arg_0.into())
-    }
     pub fn __expand_as_slice_method(
         self,
         context: &mut Scope,
@@ -200,46 +199,30 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     }
 }
 
-#[allow(unused, clippy::all)]
-impl<E: Numeric> VirtualTensor<E, ReadWrite> {
-    #[doc = " Write the tensor at the given index."]
-    pub fn write(&mut self, index: u32, value: Line<E>) {
-        unexpanded!()
-    }
-
-    pub fn __expand_write(
+impl<E: Numeric> CubeWrite<Line<E>> for VirtualTensor<E, ReadWrite> {
+    fn __expand_write(
         scope: &mut Scope,
-        this: <Self as CubeType>::ExpandType,
+        this: VirtualTensorExpand<E, ReadWrite>,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
         this.__expand_write_method(scope, index, value)
     }
 }
-impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
-    pub fn __expand_write_method(
+
+impl<E: Numeric> CubeWriteExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
+    fn __expand_write_method(
         self,
         scope: &mut Scope,
         index: <u32 as CubeType>::ExpandType,
         value: <Line<E> as CubeType>::ExpandType,
     ) -> <() as CubeType>::ExpandType {
-        let _arg_0 = index;
-        let _arg_1 = value;
-
         self.state
             .clone()
-            .__expand_write_method(scope, _arg_0, _arg_1)
-    }
-
-    pub fn __expand_write(
-        scope: &mut Scope,
-        this: Self,
-        index: <u32 as CubeType>::ExpandType,
-        value: <Line<E> as CubeType>::ExpandType,
-    ) -> <() as CubeType>::ExpandType {
-        VirtualTensor::<E, ReadWrite>::__expand_write(scope, this, index, value)
+            .__expand_write_method(scope, index, value)
     }
 }
+
 impl<E: Numeric> VirtualTensor<E, Read> {
     /// Create a new [read only](Read) [virtual tensor](VirtualTensor).
     pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {

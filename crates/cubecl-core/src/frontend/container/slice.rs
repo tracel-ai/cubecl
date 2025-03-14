@@ -1,21 +1,17 @@
-use std::marker::PhantomData;
-
-use cubecl_ir::{ExpandElement, Operator};
-
-use crate::{
-    frontend::{indexation::Index, Tensor},
-    ir::{self, Scope},
-    prelude::IntoRuntime,
-    unexpanded,
-};
+use super::Line;
 use crate::{
     frontend::{
-        Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory, SizedContainer,
+        indexation::Index, Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory,
+        SizedContainer, Tensor,
     },
-    ir::Instruction,
+    ir::{Instruction, Scope},
+    prelude::{
+        index, index_assign, CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, IntoRuntime,
+    },
+    unexpanded,
 };
-
-use super::Line;
+use cubecl_ir::{ExpandElement, Operator};
+use std::marker::PhantomData;
 
 /// A read-only contiguous list of elements
 ///
@@ -147,13 +143,9 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::Operator;
-    use ir::Instruction;
+    use cubecl_ir::{BinaryOperator, Instruction, Operator};
 
-    use crate::{
-        ir::BinaryOperator,
-        prelude::{CubeIndex, CubeIndexMut},
-    };
+    use crate::prelude::{CubeIndex, CubeIndexMut};
 
     use super::*;
 
@@ -439,7 +431,7 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     let out = scope.create_slice(input.item);
 
     scope.register(Instruction::new(
-        Operator::Slice(ir::SliceOperator {
+        Operator::Slice(cubecl_ir::SliceOperator {
             input: *input,
             start: start.value(),
             end: end.value(),
@@ -459,5 +451,47 @@ impl<E: CubePrimitive> IntoRuntime for Slice<E> {
 impl<E: CubePrimitive> IntoRuntime for SliceMut<E> {
     fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         unimplemented!("Array can't exist at compile time")
+    }
+}
+
+impl<T: CubePrimitive> CubeRead<T> for Slice<T> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Slice<T>>,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Slice<T>> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, self, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeWrite<T> for Slice<T> {
+    fn __expand_write(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Slice<T>>,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, this, idx, value);
+    }
+}
+
+impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<Slice<T>> {
+    fn __expand_write_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, self, idx, value);
     }
 }

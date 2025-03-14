@@ -81,7 +81,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
 
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
-            let mut accumulator = reduce_slice_shared::<In, R::Instruction<In>>(
+            let mut accumulator = reduce_slice_shared::<In, VirtualTensor<In>, R::Instruction<In>>(
                 &input,
                 range,
                 accumulator_size,
@@ -92,13 +92,13 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
             sync_units();
             reduce_tree::<In, R::Instruction<In>>(&mut accumulator, accumulator_size)
         }
-        (None, true) => reduce_slice_plane::<In, R::Instruction<In>>(
+        (None, true) => reduce_slice_plane::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
             params.line_size,
             params.line_mode,
         ),
-        (None, false) => reduce_slice::<In, R::Instruction<In>>(
+        (None, false) => reduce_slice::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
             params.line_size,

@@ -19,8 +19,10 @@ impl<In: Numeric, Out: Numeric> ReduceDType for (In, Out) {
 #[cube]
 #[allow(dead_code)]
 pub trait ReduceArgs: Send + Sync + 'static + Clone {
-    type Input<E: Numeric>: LaunchArg + CubeType;
-    type Output<E: Numeric>: LaunchArg + CubeType;
+    type Input<E: Numeric>: LaunchArg + CubeType + CubeRead<Line<E>>;
+
+    type Output<E: Numeric>: LaunchArg + CubeType + CubeWrite<Line<E>>;
+
     type State<P: ReduceDType>: CubeType;
 
     fn init_state<P: ReduceDType>(
