@@ -102,17 +102,18 @@ pub fn test_option_array_some<R: Runtime>(client: ComputeClient<R::Server, R::Ch
 // MAP
 
 #[cube(launch)]
+#[allow(clippy::manual_map)]
 pub fn kernel_option_map(array: &mut Array<i32>, value: Option<i32>) {
     let memory = match comptime!(value) {
         Some(value) => {
             let mut m = SharedMemory::new(2);
             m[UNIT_POS] = value;
-            some::<SharedMemory<i32>>(m)
+            Some::<SharedMemory<i32>>(m)
         }
         None => None,
     };
     let slice = match comptime!(memory) {
-        Some(memory) => some::<Slice<i32>>(memory.to_slice()),
+        Some(memory) => Some::<Slice<i32>>(memory.to_slice()),
         None => None,
     };
     option_map(array.to_slice_mut(), slice);

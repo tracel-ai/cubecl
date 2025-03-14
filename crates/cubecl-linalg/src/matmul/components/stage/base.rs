@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::tile::TileConfig;
 use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 use crate::matmul::components::{global, MatmulConfigFactory};
@@ -50,7 +51,7 @@ pub trait StageMatmulFamily:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
+pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + Sync {
     type Config: StageConfig;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
@@ -76,9 +77,10 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn read_accumulator<Out: StageWriter<O>, G: global::GlobalConfig>(
+    fn read_accumulator<Out: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
+        quantization: Option<Quantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
@@ -90,7 +92,7 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<EG, EA, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,

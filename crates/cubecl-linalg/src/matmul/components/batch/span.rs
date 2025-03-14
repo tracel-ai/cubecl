@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     batch::shared::swizzle,
-    global::{self},
+    global::{self, args::Quantization},
     MatmulPrecision,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -37,6 +37,7 @@ pub trait SpanMatmul: 'static + Send + Sync {
         span: Span,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     );
 }
@@ -94,6 +95,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -101,7 +103,16 @@ impl SpanMatmul for RowMajorSpanMatmul {
                 for col_iter in range_stepped(span.col.start, span.col.end, span.col.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
-                        lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
+                        lhs,
+                        rhs,
+                        out,
+                        row_iter,
+                        col_iter,
+                        batch_iter,
+                        &mut acc,
+                        k_range,
+                        quantization,
+                        config,
                     );
                 }
             }
@@ -118,6 +129,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -125,7 +137,16 @@ impl SpanMatmul for ColMajorSpanMatmul {
                 for row_iter in range_stepped(span.row.start, span.row.end, span.row.step) {
                     GMM::zero_accumulator(&mut acc, config);
                     gmm_execute::<MP, GMM>(
-                        lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
+                        lhs,
+                        rhs,
+                        out,
+                        row_iter,
+                        col_iter,
+                        batch_iter,
+                        &mut acc,
+                        k_range,
+                        quantization,
+                        config,
                     );
                 }
             }
@@ -142,6 +163,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         let num_swizzle = span.row.num_iterations() * span.col.num_iterations();
@@ -154,7 +176,16 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
                 let row_iter = span.row.start + row * span.row.step;
                 let col_iter = span.col.start + col * span.col.step;
                 gmm_execute::<MP, GMM>(
-                    lhs, rhs, out, row_iter, col_iter, batch_iter, &mut acc, k_range, config,
+                    lhs,
+                    rhs,
+                    out,
+                    row_iter,
+                    col_iter,
+                    batch_iter,
+                    &mut acc,
+                    k_range,
+                    quantization,
+                    config,
                 );
             }
         }

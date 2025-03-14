@@ -1,6 +1,5 @@
 use crate::frontend::CubeType;
-use crate::prelude::CubeDebug;
-use crate::unexpanded;
+use crate::prelude::{CubeDebug, IntoRuntime};
 use cubecl_ir::Scope;
 
 impl<T: CubeType> CubeType for Option<T>
@@ -8,6 +7,12 @@ where
     T::ExpandType: Clone,
 {
     type ExpandType = Option<T::ExpandType>;
+}
+
+impl<T: IntoRuntime> IntoRuntime for Option<T> {
+    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
+        self.map(|t| t.__expand_runtime_method(scope))
+    }
 }
 
 impl<T: CubeDebug> CubeDebug for Option<T> {
@@ -18,13 +23,8 @@ impl<T: CubeDebug> CubeDebug for Option<T> {
     }
 }
 
-/// Allows to construct a `Some(T)` inside a kernel.
-pub fn some<T: CubeType>(_t: T) -> Option<T> {
-    unexpanded!()
-}
-
-/// Expand of [some].
-pub mod some {
+#[allow(non_snake_case)]
+pub mod Some {
     use super::*;
 
     pub fn expand<T: CubeType>(_context: &mut Scope, t: T::ExpandType) -> Option<T::ExpandType> {
@@ -32,13 +32,8 @@ pub mod some {
     }
 }
 
-/// Allows to construct a `None` inside a kernel.
-pub fn none<T: CubeType>(_t: T) -> Option<T> {
-    unexpanded!()
-}
-
-/// Expand of [none].
-pub mod none {
+#[allow(non_snake_case)]
+pub mod None {
     use super::*;
 
     pub fn expand<T: CubeType>(_context: &mut Scope) -> Option<T::ExpandType> {

@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
@@ -59,7 +60,7 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulConfigFactor
             panic!("Dynamic cube count unsupported")
         };
 
-        Config::new(gmm_config, cube_count)
+        Config::new(gmm_config, cube_count, quantized)
     }
 }
 
@@ -107,6 +108,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();
@@ -139,7 +141,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
 
         let gmm_config = config.to_gmm_config();
         let acc = GMM::init_accumulator(gmm_config);
-        S::execute::<MP, GMM>(lhs, rhs, out, span, acc, k_range, gmm_config);
+        S::execute::<MP, GMM>(lhs, rhs, out, span, acc, k_range, quantization, gmm_config);
     }
 }
 
@@ -148,6 +150,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
     cube_count: (u32, u32, u32),
+    quantized: bool,
     _c: PhantomData<C>,
 }
 
@@ -173,15 +176,20 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
     fn max_batches(&self) -> u32 {
         u32::maximum_value()
     }
+
+    fn quantized(&self) -> bool {
+        self.quantized
+    }
 }
 
 impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
 impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
-    pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
+    pub fn new(gmm_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
             gmm_config,
             cube_count,
+            quantized,
             _c: PhantomData,
         }
     }

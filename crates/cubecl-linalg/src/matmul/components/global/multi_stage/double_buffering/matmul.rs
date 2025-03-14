@@ -1,3 +1,4 @@
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig, SyncInputLoader};
@@ -139,8 +140,12 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        // if comptime!(quantization.is_some()) {
+        //     comptime!(todo!());
+        // }
         let num_buffers = 2;
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step; // equal to SMM::K
@@ -219,6 +224,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantization,
             config.to_smm_config(),
             config,
         );

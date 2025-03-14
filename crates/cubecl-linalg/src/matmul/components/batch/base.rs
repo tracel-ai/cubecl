@@ -1,7 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
+use crate::matmul::components::global::args::{
+    self, MatmulArgs, Quantization, TensorInput, TensorOutput,
+};
 use crate::matmul::components::{config::MatmulConfig, global, Ident, MatmulLaunch};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -37,6 +39,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -60,6 +63,9 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
+
+    /// Returns true if the matmul is quantized.
+    fn quantized(&self) -> bool;
 }
 
 type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
@@ -87,5 +93,11 @@ pub(crate) fn matmul<
     let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
     let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, config);
+    let quantization = if config.quantized() {
+        Some::<Quantization<EG>>(Args::quantization(&state))
+    } else {
+        None::<Quantization<EG>>
+    };
+
+    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, quantization, config);
 }

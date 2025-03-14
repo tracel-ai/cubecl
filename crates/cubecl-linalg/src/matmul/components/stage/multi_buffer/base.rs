@@ -1,8 +1,4 @@
-use std::marker::PhantomData;
-
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayout};
@@ -16,6 +12,10 @@ use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use std::any::TypeId;
+use std::marker::PhantomData;
 
 use super::reader::{LhsReader, RhsReader};
 use super::{LhsReaderFamily, RhsReaderFamily};
@@ -102,26 +102,26 @@ pub struct MultiBufferMatmul<
 }
 
 #[cube]
-impl<I, O, EA, TMM, TL, TR> StageMatmul<I, O, EA> for MultiBufferMatmul<I, O, EA, TMM, TL, TR>
+impl<ES, EG, EA, TMM, TL, TR> StageMatmul<ES, EG, EA> for MultiBufferMatmul<ES, EG, EA, TMM, TL, TR>
 where
-    I: Numeric,
-    O: Numeric,
+    ES: Numeric,
+    EG: Numeric,
     EA: Numeric,
-    TMM: tile::TileMatmul<I, EA>,
+    TMM: tile::TileMatmul<ES, EA>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
-    type LhsReader = LhsReader<I, TL>;
-    type RhsReader = RhsReader<I, TR>;
+    type LhsReader = LhsReader<ES, TL>;
+    type RhsReader = RhsReader<ES, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
     fn execute(
-        lhs_reader: &LhsReader<I, TL>,
-        rhs_reader: &RhsReader<I, TR>,
+        lhs_reader: &LhsReader<ES, TL>,
+        rhs_reader: &RhsReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
@@ -156,9 +156,10 @@ where
         )
     }
 
-    fn read_accumulator<SW: StageWriter<O>, G: global::GlobalConfig>(
+    fn read_accumulator<SW: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
+        quantization: Option<Quantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -167,23 +168,62 @@ where
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<O>::new_lined(
-            num_tile_lines * stage_config.num_planes(),
-            out_smem_line_size,
-        );
 
-        #[unroll]
-        for accumulator_iter in 0..acc.len() {
-            let accumulator = acc.index(accumulator_iter);
-            let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
-            TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<O, G>(
-                out,
-                smem_slice.to_slice(),
-                UNIT_POS_Y,
-                accumulator_iter,
-                global_config,
-            );
+        match comptime!(quantization) {
+            Some(mut quantization) => {
+                let mut acc_smem = SharedMemory::<EA>::new_lined(
+                    num_tile_lines * stage_config.num_planes(),
+                    out_smem_line_size,
+                );
+                let mut acc_slice = acc_smem.slice_mut(start, start + num_tile_lines);
+
+                #[unroll]
+                for accumulator_iter in 0..acc.len() {
+                    let accumulator = acc.index(accumulator_iter);
+                    TMM::read_accumulator(
+                        accumulator,
+                        &mut acc_slice,
+                        stage_config.to_tmm_config(),
+                    );
+                }
+
+                requantize(acc_smem, quantization);
+
+                #[unroll]
+                for accumulator_iter in 0..acc.len() {
+                    SW::write::<EA, G>(
+                        out,
+                        acc_slice.to_slice(),
+                        UNIT_POS_Y,
+                        accumulator_iter,
+                        global_config,
+                    );
+                }
+            }
+            None => {
+                let mut out_smem = SharedMemory::<EG>::new_lined(
+                    num_tile_lines * stage_config.num_planes(),
+                    out_smem_line_size,
+                );
+                let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
+
+                #[unroll]
+                for accumulator_iter in 0..acc.len() {
+                    let accumulator = acc.index(accumulator_iter);
+                    TMM::read_accumulator(
+                        accumulator,
+                        &mut smem_slice,
+                        stage_config.to_tmm_config(),
+                    );
+                    SW::write::<EG, G>(
+                        out,
+                        smem_slice.to_slice(),
+                        UNIT_POS_Y,
+                        accumulator_iter,
+                        global_config,
+                    );
+                }
+            }
         }
     }
 
@@ -205,7 +245,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<EG, EA, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -213,7 +253,7 @@ where
         #[unroll]
         for i in 0..config.tile_count().n {
             let acc = acc.index_mut(i);
-            L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<ES, TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 }
@@ -228,4 +268,24 @@ fn check_num_planes(
     }
 
     Ok(())
+}
+
+// This currently assumes that EA is i32 and EG is i8.
+// The types are generics simply to please the rust type system.
+// As such all type casts should be no-ops (I hope).
+#[cube]
+fn requantize<EA: Numeric, EG: Numeric>(
+    acc_smem: SliceMut<Line<EA>>,
+    quantization: Quantization<EG>,
+) {
+    if comptime!(
+        TypeId::of::<EA>() != TypeId::of::<i32>() || TypeId::of::<EG>() != TypeId::of::<i8>()
+    ) {
+        comptime!(panic!(
+            "invalid types for requantization (expected EA = i32 and EG = i8)"
+        ));
+    }
+    let mut max_abs = SharedMemory::
+    // let mut max_abs = 0;
+    
 }

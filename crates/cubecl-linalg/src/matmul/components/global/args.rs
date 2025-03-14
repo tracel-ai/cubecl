@@ -74,6 +74,11 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     fn stride_rhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
+
+    /// It is the responsability of the caller to ensure it is safe to call this function.
+    /// That is, when a matmul is indeed quantized. Else, it will most likely results in
+    /// out-of-bound memory access.
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization<EG>;
 }
 
 #[derive(Clone, Copy)]
@@ -465,6 +470,20 @@ impl MatmulArgs for TensorArgs {
     fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).buffer_len() }
     }
+
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization<EG> {
+        let (lhs, rhs, out) = *state;
+        unsafe {
+            Quantization::<EG> {
+                lhs: (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
+                rhs: (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+                out: (*out).slice_mut(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+            }
+            // TODO Currently I assume that buffer_len = metadata_len + len.
+            //      That is, all the data within the tensors are contiguous and there are no hole
+            //      in the stride pattern.
+        }
+    }
 }
 
 mod __input {
@@ -548,5 +567,172 @@ mod __output {
         fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
             panic!("Can't exist at compile time");
         }
+    }
+}
+
+/// Store the quantization meta-parameters.
+/// For now, we only support symmetric quantization,
+/// thus we only store the scaling.
+#[derive(CubeType, Clone, Copy)]
+pub struct Quantization<EG: Numeric> {
+    lhs: Slice<Line<EG>>,
+    rhs: Slice<Line<EG>>,
+    out: SliceMut<Line<EG>>,
+}
+
+#[cube]
+impl<EG: Numeric> Quantization<EG> {
+    pub fn read_scale_lhs(&self, index: u32, #[comptime] line_size: u32) -> f32 {
+        read_f32(self.lhs, index, line_size)
+    }
+
+    pub fn read_scale_rhs(&self, index: u32, #[comptime] line_size: u32) -> f32 {
+        read_f32(self.rhs, index, line_size)
+    }
+
+    pub fn write_scale_out(self, index: u32, value: f32, #[comptime] line_size: u32) {
+        write_f32(self.out, index, value, line_size)
+    }
+}
+
+/// This functions assume that `slice` that actually store f32 values,
+/// but because of typing issue, it is represented in the type system as Slice<Line<EG>>.
+/// This reads and converts to an f32 the value at position `index` in the slice, that is bytes `4 * index`  to `4 * (index + 1)`
+/// when viewing `slice` as an array of bytes.
+#[cube]
+fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_size: u32) -> f32 {
+    let num_bytes_line_eg = comptime!(core::mem::size_of::<EG>() as u32) * line_size;
+    match num_bytes_line_eg {
+        1 => {
+            // Each item is a 1 byte value, we need for of them.
+            let start = index * 4;
+            let mut bytes = Line::empty(4);
+            #[unroll]
+            for k in 0..4 {
+                bytes[k] = slice[start + k][0];
+            }
+            f32::bitcast_from(bytes)
+        }
+        2 => {
+            // Each item is a 2 bytes value, we need two of them.
+            let start = index * 2;
+            let mut bytes = Line::empty(2); // This is either a line of two lines of u8 / i8 or a line of two f16 / u16 / i16.
+            #[unroll]
+            for k in 0..2 {
+                bytes[k] = slice[start + k][0];
+            }
+            f32::bitcast_from(bytes)
+        }
+        4 => f32::bitcast_from(slice[index]), // Each item is a 4 bytes value, we need one of them.
+        8 => {
+            // Each item is a 8 bytes value, we need half of one.
+            let outer = index / 2;
+            let inner = index % 2;
+            let mut bytes = Line::empty(line_size / 2);
+            #[unroll]
+            for k in 0..line_size / 2 {
+                bytes[k] = slice[outer][inner + k];
+            }
+            f32::bitcast_from(bytes)
+        }
+        16 => {
+            // Each item is a 16 bytes value, we need a quarter of one.
+            let outer = index / 4;
+            let inner = index % 4;
+            let mut bytes = Line::empty(line_size / 4);
+            #[unroll]
+            for k in 0..line_size / 4 {
+                bytes[k] = slice[outer][inner + k];
+            }
+            f32::bitcast_from(bytes)
+        }
+        32 => {
+            // Each item is a 32 bytes value, we need an eight of one.
+            let outer = index / 8;
+            let inner = index % 8;
+            let mut bytes = Line::empty(line_size / 8);
+            #[unroll]
+            for k in 0..line_size / 8 {
+                bytes[k] = slice[outer][inner + k];
+            }
+            f32::bitcast_from(bytes)
+        }
+        _ => comptime!(panic!("invalid number of bytes")), // unreachable
+    }
+}
+
+/// This functions assume that `slice` that actually store f32 values,
+/// but because of typing issue, it is represented in the type system as Slice<Line<EG>>.
+/// This writes the given `value` at position `index` in the slice, that is bytes `4 * index`  to `4 * (index + 1)`
+/// when viewing `slice` as an array of bytes.
+#[cube]
+fn write_f32<EG: Numeric>(
+    mut slice: SliceMut<Line<EG>>,
+    index: u32,
+    value: f32,
+    #[comptime] line_size: u32,
+) {
+    let bytes = Line::<EG>::bitcast_from(value);
+    let num_bytes_line_eg = comptime!(core::mem::size_of::<EG>() as u32) * line_size;
+    match num_bytes_line_eg {
+        1 => {
+            // Each item is a 1 byte value, we need for of them.
+            let start = index * 4;
+            #[unroll]
+            for k in 0..4 {
+                slice[start + k] = Line::new(bytes[k]);
+            }
+        }
+        2 => {
+            // Each item is a 2 bytes value, we need two of them.
+            let start = index * 2;
+            #[unroll]
+            for k in 0..2 {
+                // We build a line from the first / last two bytes.
+                let mut line = Line::<EG>::empty(2);
+                line[0] = bytes[2 * k];
+                line[1] = bytes[2 * k + 1];
+
+                slice[start + k] = Line::<EG>::bitcast_from(line);
+            }
+        }
+        4 => slice[index] = Line::<EG>::bitcast_from(value), // Each item is a 4 bytes value, we need one of them.
+        8 => {
+            // Each item is a 8 bytes value, we need half of one.
+            let outer = index / 2;
+            let inner = index % 2;
+
+            // We convert the item to a pair of f32.
+            // Then we overwrite one of the two f32 by the given value.
+            // Finally, we convert back to a Line<EG> that we write in the slice.
+            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            line[inner] = value;
+            slice[outer] = Line::<EG>::bitcast_from(line);
+        }
+        16 => {
+            // Each item is a 16 bytes value, we need a quarter of one.
+            let outer = index / 4;
+            let inner = index % 4;
+
+            // We convert the item to four f32.
+            // Then we overwrite one of the four f32 by the given value.
+            // Finally, we convert back to a Line<EG> that we write in the slice.
+            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            line[inner] = value;
+            slice[outer] = Line::<EG>::bitcast_from(line);
+        }
+        32 => {
+            // Each item is a 32 bytes value, we need an eight of one.
+            let outer = index / 8;
+            let inner = index % 8;
+
+            // We convert the item to eight f32.
+            // Then we overwrite one of the eight f32 by the given value.
+            // Finally, we convert back to a Line<EG> that we write in the slice.
+            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            line[inner] = value;
+            slice[outer] = Line::<EG>::bitcast_from(line);
+        }
+        _ => comptime!(panic!("invalid number of bytes")), // unreachable
     }
 }

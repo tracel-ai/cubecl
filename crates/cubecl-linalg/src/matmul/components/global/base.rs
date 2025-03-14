@@ -8,6 +8,7 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
+use super::args::Quantization;
 use super::loader::r#async::CopyMechanism;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
@@ -56,6 +57,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     );
 

@@ -1,4 +1,5 @@
 use crate::matmul::components::global;
+use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -135,6 +136,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: Option<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let is_consumer = Self::is_consumer(config);
@@ -179,6 +181,7 @@ where
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
+                quantization,
                 config.to_smm_config(),
                 config,
             );
