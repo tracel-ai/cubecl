@@ -474,10 +474,30 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Slice<T>> {
     }
 }
 
-impl<T: CubePrimitive> CubeWrite<T> for Slice<T> {
+impl<T: CubePrimitive> CubeRead<T> for SliceMut<T> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: ExpandElementTyped<SliceMut<T>>,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<SliceMut<T>> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, self, idx)
+    }
+}
+
+impl<T: CubePrimitive> CubeWrite<T> for SliceMut<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: ExpandElementTyped<Slice<T>>,
+        this: ExpandElementTyped<SliceMut<T>>,
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
@@ -485,7 +505,7 @@ impl<T: CubePrimitive> CubeWrite<T> for Slice<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<Slice<T>> {
+impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<SliceMut<T>> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,
