@@ -168,7 +168,7 @@ pub fn reduce_slice_plane<N: Numeric, I: CubeRead<Line<N>>, R: ReduceInstruction
 /// Since each individual cube performs a reduction, this function is meant to be called
 /// with either a different `items` for each cube, a different `range` or both based on `CUBE_POS`.
 #[cube]
-pub fn reduce_slice_shared<N: Numeric,I: CubeRead<Line<N>>, R: ReduceInstruction<N>>(
+pub fn reduce_slice_shared<N: Numeric, I: CubeRead<Line<N>>, R: ReduceInstruction<N>>(
     items: &I,
     range: ReduceRange,
     #[comptime] accumulator_size: u32,
