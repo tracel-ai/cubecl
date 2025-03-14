@@ -17,7 +17,37 @@ pub struct CyclicCoalescedBufferLoading<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-        return Err(Box::new("TODO check"));
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let line_size = config.stage_line_size(ident);
+        let tile_size = tiling_dimensions.tile_size();
+        let tile_count_row = tiling_dimensions.tile_count_row();
+        let tile_count_col = tiling_dimensions.tile_count_col();
+        let num_lines_per_tile = tile_size / line_size;
+
+        let total_units = config.plane_dim() * config.num_planes();
+        let jump_length = total_units * line_size;
+        let num_tiles_in_buffer = comptime! {match ident.as_input() {
+            InputIdent::Lhs => tile_count_row,
+            InputIdent::Rhs => tile_count_col,
+        }};
+        let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
+        let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
+
+        let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
+        let out_of_bounds_pos = total_num_lines * line_size;
+
+        let max_id = total_units - 1;
+        let max_iter = num_lines_per_unit - 1;
+        let max_position_base = max_id * line_size;
+        let max_position = max_position_base + max_iter * jump_length;
+
+        if max_position > out_of_bounds_pos {
+            return Err(Box::new(
+                "Too many data will be loaded, resulting in out-of-bounds",
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -56,7 +86,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let unit_position = unit_position_base + i * jump_length;
 
             // We assume unit_position < total_num_lines * line_size;
-            // TODO: Should be catched by check() if not the case
+            // This is catched by the loading validation
 
             let unit_pos_in_buffer = unit_position / tile_size;
             let pos_within_tile = unit_position % tile_size;
