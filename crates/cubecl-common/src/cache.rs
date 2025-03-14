@@ -56,6 +56,14 @@ pub enum CacheError<K: Serialize, V: Serialize> {
         value_previous: V,
         value_updated: V,
     },
+    /// Tried to insert an entry with the same key, but a new entry on disk was just synched with
+    /// the same key.
+    #[allow(missing_docs)]
+    KeyOutOfSync {
+        key: K,
+        value_previous: V,
+        value_updated: V,
+    },
 }
 
 impl CacheOption {
@@ -96,11 +104,11 @@ impl CacheOption {
 }
 
 /// Trait to be implemented for cache keys.
-pub trait CacheKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash {}
+pub trait CacheKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone {}
 /// Trait to be implemented for cache value.
 pub trait CacheValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
 
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Hash> CacheKey for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> CacheKey for T {}
 impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T {}
 
 impl<K: CacheKey, V: CacheValue> Cache<K, V> {
@@ -120,7 +128,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
             reader
                 .read_to_end(&mut buffer)
                 .expect("Can read the cache content");
-            this.sync_content(&buffer);
+            this.sync_content(&buffer, None).ok();
         }
 
         this.file.unlock();
@@ -133,7 +141,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         if let Some(mut reader) = self.file.lock() {
             let mut buffer = Vec::new();
             reader.read_to_end(&mut buffer).unwrap();
-            self.sync_content(&buffer);
+            self.sync_content(&buffer, None).ok();
         }
 
         for (key, value) in self.in_memory_cache.iter() {
@@ -165,7 +173,11 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         if let Some(mut reader) = self.file.lock() {
             let mut buffer = Vec::new();
             reader.read_to_end(&mut buffer).unwrap();
-            self.sync_content(&buffer);
+
+            if let Err(err) = self.sync_content(&buffer, Some((&key, &value))) {
+                self.file.unlock();
+                return Err(err);
+            }
         }
 
         if let Some(existing) = self.in_memory_cache.get(&key) {
@@ -189,8 +201,13 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         Ok(())
     }
 
-    fn sync_content(&mut self, bytes: &[u8]) {
+    fn sync_content(
+        &mut self,
+        bytes: &[u8],
+        new_insert: Option<(&K, &V)>,
+    ) -> Result<(), CacheError<K, V>> {
         let mut start = 0;
+        let mut result = Ok(());
 
         while let Some(pos) = bytes[start..]
             .windows(self.separator.len())
@@ -198,6 +215,15 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
         {
             match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
                 Ok(entry) => {
+                    if let Some(insert) = &new_insert {
+                        if result.is_ok() && insert.0 == &entry.key && insert.1 != &entry.value {
+                            result = Err(CacheError::KeyOutOfSync {
+                                key: entry.key.clone(),
+                                value_previous: entry.value.clone(),
+                                value_updated: insert.1.clone(),
+                            })
+                        }
+                    }
                     self.in_memory_cache.insert(entry.key, entry.value);
                 }
                 Err(err) => {
@@ -211,6 +237,8 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
             };
             start += pos + self.separator.len();
         }
+
+        result
     }
 
     fn insert_unchecked(&mut self, key: K, value: V) {
