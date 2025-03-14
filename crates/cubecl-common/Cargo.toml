@@ -17,7 +17,7 @@ version.workspace = true
 default = ["std"]
 serde = []
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
-cache = ["std", "serde_json", "hashbrown", "dirs"]
+cache = ["std", "serde_json", "hashbrown", "dirs", "sanitize-filename"]
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
@@ -46,6 +46,7 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 hashbrown = { workspace = true, optional = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
 dirs = { workspace = true, optional = true }
+sanitize-filename = { workspace = true, optional = true }
 
 # Only activate futures for std env
 embassy-futures = { version = "0.1.1" }
