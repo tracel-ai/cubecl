@@ -130,7 +130,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     };
     let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
     let server = HipServer::new(hip_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props)
+    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for HipRuntime {
@@ -145,7 +145,7 @@ impl Runtime for HipRuntime {
         })
     }
 
-    fn name() -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "hip"
     }
 
@@ -159,10 +159,6 @@ impl Runtime for HipRuntime {
 
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
-
-    fn extension() -> &'static str {
-        "hip"
     }
 
     fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {

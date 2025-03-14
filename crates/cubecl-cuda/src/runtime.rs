@@ -122,7 +122,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let comp_opts = Default::default();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props)
+    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for CudaRuntime {
@@ -142,7 +142,7 @@ impl Runtime for CudaRuntime {
         DeviceId::new(0, device.index as u32)
     }
 
-    fn name() -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "cuda"
     }
 
@@ -156,9 +156,5 @@ impl Runtime for CudaRuntime {
 
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
-
-    fn extension() -> &'static str {
-        "cu"
     }
 }

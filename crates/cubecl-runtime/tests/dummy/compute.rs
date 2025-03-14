@@ -51,6 +51,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     ComputeClient::new(
         channel,
         DeviceProperties::new(&[], mem_properties, topology),
+        (),
     )
 }
 

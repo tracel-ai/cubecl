@@ -102,6 +102,10 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     fn elem_size(&self, elem: gpu::Elem) -> usize {
         elem.size()
     }
+
+    fn extension(&self) -> &'static str {
+        "cpp"
+    }
 }
 
 impl<D: Dialect> CppCompiler<D> {

@@ -23,6 +23,7 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     timestamp_lock: async_lock::Mutex<()>,
+    info: Server::Info,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -43,9 +44,18 @@ where
     Server: ComputeServer,
     Channel: ComputeChannel<Server>,
 {
+    /// Get the info of the current backend.
+    pub fn info(&self) -> &Server::Info {
+        &self.state.info
+    }
+
     /// Create a new client.
-    pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
-        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()));
+    pub fn new(
+        channel: Channel,
+        properties: DeviceProperties<Server::Feature>,
+        info: Server::Info,
+    ) -> Self {
+        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()), info);
         Self {
             channel,
             state: Arc::new(state),
