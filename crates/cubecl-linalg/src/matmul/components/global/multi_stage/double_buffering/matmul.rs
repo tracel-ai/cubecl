@@ -63,9 +63,6 @@ where
     type Config = CommonGlobalConfig<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        let tmm_config = config.smm_config.to_tmm_config();
-        let tile_shape = tmm_config.tile_shape();
-
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
 
