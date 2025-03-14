@@ -66,10 +66,6 @@ where
         let tmm_config = config.smm_config.to_tmm_config();
         let tile_shape = tmm_config.tile_shape();
 
-        if tile_shape.m != tile_shape.n || tile_shape.n != tile_shape.k {
-            return Err(Box::new("Only support square tiling"));
-        }
-
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
 
