@@ -119,7 +119,7 @@ impl<K: CacheKey, V: CacheValue> Cache<K, V> {
 
         let mut this = Self {
             in_memory_cache: HashMap::new(),
-            file: CacheFile::new(path, lock_max_duration),
+            file: CacheFile::new(&path, lock_max_duration),
             separator,
         };
 

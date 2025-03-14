@@ -21,8 +21,15 @@ impl Display for CacheFile {
 
 impl CacheFile {
     /// Create a new cache file.
-    pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
-        let path: PathBuf = path.into();
+    pub fn new(path: &Path, lock_max_duration: Duration) -> Self {
+        let path = sanitize_filename::sanitize_with_options(
+            path.to_str().unwrap(),
+            sanitize_filename::Options {
+                replacement: "_",
+                ..Default::default()
+            },
+        );
+        let path = PathBuf::from(path);
 
         // We check before trying to create the file, since it might erase the content of an
         // existing file.
