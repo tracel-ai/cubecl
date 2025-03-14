@@ -278,16 +278,19 @@ fn get_persistent_cache_file_path<P: AsRef<Path>>(
     let home_dir = dirs::home_dir().expect("An home directory should exist");
     let add_extension = !path_partial.ends_with("json.log");
 
-    let mut path = home_dir.join(".cache").join(root).join(version);
+    let mut path = home_dir
+        .join(".cache")
+        .join(sanitize_path_segment(&root))
+        .join(sanitize_path_segment(&version));
 
-    for segment in path_partial {
+    for segment in path_partial.iter() {
         // Skip the root directory since it resets the previous path segments.
         //
         // "/path/file" == "path/file" => "$HOME/.cache/tracel-ai/path/file"
         if segment == "/" {
             continue;
         }
-        path = path.join(segment);
+        path = path.join(sanitize_path_segment(segment.to_str().unwrap()));
     }
 
     if add_extension {
@@ -308,6 +311,16 @@ impl<K: Serialize, V: Serialize> core::fmt::Debug for Entry<K, V> {
         let formatted = serde_json::to_string_pretty(self).unwrap();
         write!(f, "{formatted}")
     }
+}
+
+pub(crate) fn sanitize_path_segment(segment: &str) -> String {
+    sanitize_filename::sanitize_with_options(
+        segment,
+        sanitize_filename::Options {
+            replacement: "_",
+            ..Default::default()
+        },
+    )
 }
 
 #[cfg(test)]

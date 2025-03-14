@@ -21,8 +21,8 @@ impl Display for CacheFile {
 
 impl CacheFile {
     /// Create a new cache file.
-    pub fn new(path: &Path, lock_max_duration: Duration) -> Self {
-        let path = sanitize_path(path);
+    pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
+        let path: PathBuf = path.into();
 
         // We check before trying to create the file, since it might erase the content of an
         // existing file.
@@ -173,35 +173,5 @@ impl FileLock {
         }
 
         Ok(false)
-    }
-}
-
-pub(crate) fn sanitize_path(path: &Path) -> PathBuf {
-    let mut output = PathBuf::new();
-
-    for segment in path {
-        let segment = sanitize_filename::sanitize_with_options(
-            segment.to_str().unwrap(),
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        output.push(segment);
-    }
-
-    output
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sanitize_path() {
-        let path = "notchanged/la<wgsl>/saturne*it*";
-        let sanitized = sanitize_path(Path::new(path));
-        let expected = "notchanged/la_wgsl_/saturne_it_";
-        assert_eq!(sanitized.to_str().unwrap(), expected);
     }
 }
