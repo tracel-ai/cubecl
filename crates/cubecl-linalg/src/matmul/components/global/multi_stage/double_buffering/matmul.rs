@@ -1,6 +1,6 @@
 use crate::matmul::components::global::base::InputBufferLoader;
 use crate::matmul::components::global::base::SyncInputBufferLoader;
-use crate::matmul::components::global::loader::sync::SyncLoadingStrategy;
+use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
@@ -28,8 +28,8 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -42,8 +42,8 @@ where
         LhsReader = LhsBufferReaderFamily,
         RhsReader = RhsBufferReaderFamily,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
         MP,
@@ -56,8 +56,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = CommonGlobalConfig<SMM::Config>;
@@ -118,8 +118,8 @@ where
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -152,8 +152,8 @@ where
         LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
     type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;

@@ -1,6 +1,6 @@
 use crate::matmul::components::global;
 use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::sync::SyncLoadingStrategy;
+use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
@@ -32,8 +32,8 @@ use crate::matmul::{
 
 pub struct SpecializedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -46,8 +46,8 @@ where
         LhsReader = LhsBufferReaderFamily,
         RhsReader = RhsBufferReaderFamily,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SpecializedMatmul<
         MP,
@@ -60,8 +60,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -120,8 +120,8 @@ where
 pub struct SpecializedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -140,8 +140,8 @@ where
         LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
@@ -268,8 +268,8 @@ impl<
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,
-        LL: SyncLoadingStrategy,
-        RL: SyncLoadingStrategy,
+        LL: SyncBufferLoadingStrategy,
+        RL: SyncBufferLoadingStrategy,
     > SpecializedMatmul<MP, SMM, LL, RL>
 {
     fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {

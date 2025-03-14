@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::loader::sync::SyncLoadingStrategy;
+use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
@@ -19,7 +19,7 @@ pub struct SyncLhsBufferLoader<
     EG: Numeric,
     ES: Numeric,
     S: stage::StageConfig,
-    L: SyncLoadingStrategy,
+    L: SyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
@@ -32,7 +32,7 @@ pub struct SyncRhsBufferLoader<
     EG: Numeric,
     ES: Numeric,
     S: stage::StageConfig,
-    L: SyncLoadingStrategy,
+    L: SyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
@@ -42,7 +42,7 @@ pub struct SyncRhsBufferLoader<
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     InputBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
@@ -61,7 +61,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncInputBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
     fn fill_stage(
@@ -80,7 +80,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncLhsBufferLoader<EG, ES, S, L>
 {
     pub fn new(
@@ -103,7 +103,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     InputBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
@@ -122,7 +122,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncInputBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
     fn fill_stage(
@@ -141,7 +141,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncRhsBufferLoader<EG, ES, S, L>
 {
     pub fn new(
