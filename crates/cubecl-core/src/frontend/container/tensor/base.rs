@@ -4,10 +4,7 @@ use crate::{
         SizedContainer,
     },
     ir::{Item, Metadata, Scope},
-    prelude::{
-        index, index_assign, CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, IntoRuntime,
-        Line,
-    },
+    prelude::{index, index_assign, IntoRuntime, Line, List, ListExpand, ListMut, ListMutExpand},
     unexpanded,
 };
 use cubecl_ir::ExpandElement;
@@ -383,7 +380,7 @@ impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
     }
 }
 
-impl<T: CubePrimitive> CubeRead<T> for Tensor<T> {
+impl<T: CubePrimitive> List<T> for Tensor<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<Tensor<T>>,
@@ -393,7 +390,7 @@ impl<T: CubePrimitive> CubeRead<T> for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Tensor<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -403,7 +400,7 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Tensor<T>> {
     }
 }
 
-impl<T: CubePrimitive> CubeWrite<T> for Tensor<T> {
+impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<Tensor<T>>,
@@ -414,7 +411,7 @@ impl<T: CubePrimitive> CubeWrite<T> for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<Tensor<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,

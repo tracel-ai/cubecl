@@ -5,9 +5,7 @@ use crate::{
         SizedContainer, Tensor,
     },
     ir::{Instruction, Scope},
-    prelude::{
-        index, index_assign, CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, IntoRuntime,
-    },
+    prelude::{index, index_assign, IntoRuntime, List, ListExpand, ListMut, ListMutExpand},
     unexpanded,
 };
 use cubecl_ir::{ExpandElement, Operator};
@@ -454,7 +452,7 @@ impl<E: CubePrimitive> IntoRuntime for SliceMut<E> {
     }
 }
 
-impl<T: CubePrimitive> CubeRead<T> for Slice<T> {
+impl<T: CubePrimitive> List<T> for Slice<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<Slice<T>>,
@@ -464,7 +462,7 @@ impl<T: CubePrimitive> CubeRead<T> for Slice<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Slice<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Slice<T>> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -474,7 +472,7 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Slice<T>> {
     }
 }
 
-impl<T: CubePrimitive> CubeRead<T> for SliceMut<T> {
+impl<T: CubePrimitive> List<T> for SliceMut<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<SliceMut<T>>,
@@ -484,7 +482,7 @@ impl<T: CubePrimitive> CubeRead<T> for SliceMut<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<SliceMut<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SliceMut<T>> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -494,7 +492,7 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<SliceMut<T>> {
     }
 }
 
-impl<T: CubePrimitive> CubeWrite<T> for SliceMut<T> {
+impl<T: CubePrimitive> ListMut<T> for SliceMut<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<SliceMut<T>>,
@@ -505,7 +503,7 @@ impl<T: CubePrimitive> CubeWrite<T> for SliceMut<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<SliceMut<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SliceMut<T>> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,

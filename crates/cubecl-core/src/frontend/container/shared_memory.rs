@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime},
     ir::{Item, Scope},
-    prelude::{index, index_assign, CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, Line},
+    prelude::{index, index_assign, Line, List, ListExpand, ListMut, ListMutExpand},
 };
 
 #[derive(Clone, Copy)]
@@ -156,7 +156,7 @@ mod indexation {
     }
 }
 
-impl<T: CubePrimitive> CubeRead<T> for SharedMemory<T> {
+impl<T: CubePrimitive> List<T> for SharedMemory<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<SharedMemory<T>>,
@@ -166,7 +166,7 @@ impl<T: CubePrimitive> CubeRead<T> for SharedMemory<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -176,7 +176,7 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<SharedMemory<T>>
     }
 }
 
-impl<T: CubePrimitive> CubeWrite<T> for SharedMemory<T> {
+impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<SharedMemory<T>>,
@@ -187,7 +187,7 @@ impl<T: CubePrimitive> CubeWrite<T> for SharedMemory<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,

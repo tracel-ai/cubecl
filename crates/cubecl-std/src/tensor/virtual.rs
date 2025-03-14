@@ -27,7 +27,7 @@ pub struct VirtualTensorExpand<E: Numeric, IO> {
     _p: PhantomData<IO>,
 }
 
-impl<E: Numeric, IO: Clone> CubeRead<Line<E>> for VirtualTensor<E, IO> {
+impl<E: Numeric, IO: Clone> List<Line<E>> for VirtualTensor<E, IO> {
     fn __expand_read(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, IO>,
@@ -37,7 +37,7 @@ impl<E: Numeric, IO: Clone> CubeRead<Line<E>> for VirtualTensor<E, IO> {
     }
 }
 
-impl<E: Numeric, IO: Clone> CubeReadExpand<Line<E>> for VirtualTensorExpand<E, IO> {
+impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -199,7 +199,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     }
 }
 
-impl<E: Numeric> CubeWrite<Line<E>> for VirtualTensor<E, ReadWrite> {
+impl<E: Numeric> ListMut<Line<E>> for VirtualTensor<E, ReadWrite> {
     fn __expand_write(
         scope: &mut Scope,
         this: VirtualTensorExpand<E, ReadWrite>,
@@ -210,7 +210,7 @@ impl<E: Numeric> CubeWrite<Line<E>> for VirtualTensor<E, ReadWrite> {
     }
 }
 
-impl<E: Numeric> CubeWriteExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
+impl<E: Numeric> ListMutExpand<Line<E>> for VirtualTensorExpand<E, ReadWrite> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,

@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use cubecl_ir::{ExpandElement, Scope};
 
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
-use crate::prelude::{CubeRead, CubeReadExpand, CubeWrite, CubeWriteExpand, SizedContainer};
+use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer};
 use crate::{
     frontend::indexation::Index,
     prelude::{assign, index, index_assign},
@@ -355,7 +355,7 @@ impl<T: CubeType> Iterator for &Array<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeRead<T> for Array<T> {
+impl<T: CubePrimitive> List<T> for Array<T> {
     fn __expand_read(
         scope: &mut Scope,
         this: ExpandElementTyped<Array<T>>,
@@ -365,7 +365,7 @@ impl<T: CubePrimitive> CubeRead<T> for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Array<T>> {
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_read_method(
         self,
         scope: &mut Scope,
@@ -375,7 +375,7 @@ impl<T: CubePrimitive> CubeReadExpand<T> for ExpandElementTyped<Array<T>> {
     }
 }
 
-impl<T: CubePrimitive> CubeWrite<T> for Array<T> {
+impl<T: CubePrimitive> ListMut<T> for Array<T> {
     fn __expand_write(
         scope: &mut Scope,
         this: ExpandElementTyped<Array<T>>,
@@ -386,7 +386,7 @@ impl<T: CubePrimitive> CubeWrite<T> for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeWriteExpand<T> for ExpandElementTyped<Array<T>> {
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_write_method(
         self,
         scope: &mut Scope,
