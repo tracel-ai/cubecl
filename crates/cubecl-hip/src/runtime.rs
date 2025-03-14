@@ -8,7 +8,7 @@ use cubecl_cpp::{
 
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, DeviceId, Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
@@ -51,6 +51,12 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
     let mut prop_warp_size = 0;
     #[allow(unused_assignments)]
     let mut prop_arch_name = "";
+    #[allow(unused_assignments)]
+    let mut prop_max_shared_memory_size = 0;
+    let mut max_cube_count = CubeDim::new_single();
+    #[allow(unused_assignments)]
+    let mut prop_max_threads = 0;
+    let mut max_cube_dim = CubeDim::new_single();
     unsafe {
         let mut ll_device_props = MaybeUninit::uninit();
         let status = cubecl_hip_sys::hipGetDevicePropertiesR0600(
@@ -63,6 +69,14 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
         prop_arch_name = CStr::from_ptr(ll_device_props.gcnArchName.as_ptr())
             .to_str()
             .unwrap();
+        prop_max_shared_memory_size = ll_device_props.sharedMemPerBlock;
+        max_cube_count.x = ll_device_props.maxGridSize[0] as u32;
+        max_cube_count.y = ll_device_props.maxGridSize[1] as u32;
+        max_cube_count.z = ll_device_props.maxGridSize[2] as u32;
+        prop_max_threads = ll_device_props.maxThreadsPerBlock as u32;
+        max_cube_dim.x = ll_device_props.maxThreadsDim[0] as u32;
+        max_cube_dim.y = ll_device_props.maxThreadsDim[1] as u32;
+        max_cube_dim.z = ll_device_props.maxThreadsDim[2] as u32;
     };
     let normalized_arch_name = prop_arch_name.split(':').next().unwrap_or(prop_arch_name);
     let arch = M::Architecture::from_str(normalized_arch_name).unwrap();
@@ -107,8 +121,10 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
         // This is a guess - not clear if ROCM has a limit on the number of bindings,
         // but it's dubious it's more than this.
         max_bindings: 1024,
-        // Minimum supported
-        max_shared_memory_size: 49152,
+        max_shared_memory_size: prop_max_shared_memory_size,
+        max_cube_count,
+        max_units_per_cube: prop_max_threads,
+        max_cube_dim,
     };
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);

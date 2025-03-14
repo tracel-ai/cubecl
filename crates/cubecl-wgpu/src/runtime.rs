@@ -6,7 +6,7 @@ use crate::{
 use cubecl_common::future;
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, DeviceId, Feature, Runtime,
+    AtomicFeature, CubeDim, DeviceId, Feature, Runtime,
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
@@ -182,11 +182,19 @@ pub(crate) fn create_client_on_setup(
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
+    let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         plane_size_min: adapter_limits.min_subgroup_size,
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
+        max_cube_count: CubeDim::new_3d(max_count, max_count, max_count),
+        max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
+        max_cube_dim: CubeDim::new_3d(
+            adapter_limits.max_compute_workgroup_size_x,
+            adapter_limits.max_compute_workgroup_size_y,
+            adapter_limits.max_compute_workgroup_size_z,
+        ),
     };
 
     let mut compilation_options = Default::default();
