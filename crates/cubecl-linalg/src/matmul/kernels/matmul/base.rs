@@ -8,13 +8,9 @@ use crate::matmul::components::{
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
 use core::any::TypeId;
+use cubecl_core::prelude::*;
 use cubecl_core::{
     client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
-};
-use cubecl_core::{
-    ir::{Elem, FloatKind},
-    prelude::*,
-    Feature,
 };
 use cubecl_std::MaybeQuantized;
 

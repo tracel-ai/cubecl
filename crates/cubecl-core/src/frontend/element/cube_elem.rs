@@ -2,7 +2,7 @@ use cubecl_ir::ExpandElement;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 use crate::ir::{Elem, Scope};
-use crate::{frontend::CubeType, Feature, Runtime};
+use crate::{frontend::CubeType, Feature};
 
 use super::{ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 
