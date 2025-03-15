@@ -225,9 +225,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             false,
         )
     } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
-        && client
-            .properties()
-            .feature_enabled(Feature::Type(Elem::Float(FloatKind::TF32)))
+        && tf32::is_supported(client)
     {
         select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R, A>(
             client,

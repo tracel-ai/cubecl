@@ -1,7 +1,8 @@
 use cubecl_ir::ExpandElement;
+use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
-use crate::frontend::CubeType;
 use crate::ir::{Elem, Scope};
+use crate::{frontend::CubeType, Feature, Runtime};
 
 use super::{ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 
@@ -40,5 +41,12 @@ pub trait CubePrimitive:
 
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
+    }
+
+    fn is_supported<S: ComputeServer<Feature = Feature>, C: ComputeChannel<S>>(
+        client: &ComputeClient<S, C>,
+    ) -> bool {
+        let elem = Self::as_elem_native_unchecked();
+        client.properties().feature_enabled(Feature::Type(elem))
     }
 }
