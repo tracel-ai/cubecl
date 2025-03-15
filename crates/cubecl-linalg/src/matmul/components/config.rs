@@ -198,12 +198,4 @@ impl TilingDimensions {
     pub fn tile_count_col(&self) -> u32 {
         self.tile_count_col
     }
-
-    /// Number of elements in a buffer.
-    pub fn buffer_size(&self, ident: InputIdent) -> u32 {
-        match ident {
-            InputIdent::Lhs => self.tile_count_row() * self.tile_size(),
-            InputIdent::Rhs => self.tile_count_col() * self.tile_size(),
-        }
-    }
 }

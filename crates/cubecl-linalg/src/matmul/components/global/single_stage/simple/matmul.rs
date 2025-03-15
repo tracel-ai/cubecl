@@ -1,6 +1,6 @@
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::loader::sync::{
-    SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
+    SyncFullLoadingStrategy, SyncLhsLoader, SyncRhsLoader,
 };
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
@@ -31,8 +31,8 @@ use crate::matmul::{
 
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -42,8 +42,8 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimpleMatmul<
         MP,
@@ -56,8 +56,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -106,8 +106,8 @@ where
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -125,8 +125,8 @@ where
         LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;

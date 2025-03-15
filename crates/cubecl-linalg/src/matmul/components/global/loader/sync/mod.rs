@@ -1,9 +1,7 @@
 mod base;
-mod cyclic;
-mod strided;
-mod tilewise;
+mod buffer;
+mod full;
 
 pub use base::*;
-pub use cyclic::*;
-pub use strided::*;
-pub use tilewise::*;
+pub use buffer::*;
+pub use full::*;

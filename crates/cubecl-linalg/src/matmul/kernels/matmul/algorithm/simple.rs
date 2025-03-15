@@ -6,7 +6,7 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        loader::sync::{CyclicCoalescedLoading, SyncLoadingStrategy},
+        loader::sync::{CyclicCoalescedLoading, SyncFullLoadingStrategy},
     },
     stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
     tile, MatmulProblem, MatmulSelection,
@@ -27,8 +27,8 @@ pub struct SimpleAlgorithm<
 impl<TMM, LL, LR, Dispatch> base::Algorithm for SimpleAlgorithm<TMM, LL, LR, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
-    LL: SyncLoadingStrategy,
-    LR: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    LR: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
