@@ -36,7 +36,7 @@ where
         .defined_plane_size()
         .unwrap_or(32);
 
-    let (selection, config_input) = S::select_kernel::<R, SP>(plane_dim);
+    let (selection, config_input) = S::select_kernel::<R, SP>(client, &problem, plane_dim);
     let cube_dim = Alg::cube_dim(&selection);
     let cube_count = Alg::cube_count(&selection, &problem);
 
