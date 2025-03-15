@@ -77,6 +77,14 @@ impl Compiler for AutoCompiler {
             AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
         }
     }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            AutoCompiler::Wgsl(_) => "wgsl",
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(_) => "spv",
+        }
+    }
 }
 
 impl AutoCompiler {

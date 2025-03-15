@@ -3,6 +3,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use cubecl_common::ExecutionMode;
+use cubecl_runtime::client::ComputeClient;
 
 /// Kernel unique identifier.
 #[derive(Clone, Debug)]
@@ -154,10 +155,13 @@ pub struct CubeTuneId {
 
 impl CubeTuneId {
     /// Create a new ID.
-    pub fn new<R: crate::Runtime>(device: &R::Device) -> Self {
+    pub fn new<R: crate::Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        device: &R::Device,
+    ) -> Self {
         Self {
             device: R::device_id(device),
-            name: R::name(),
+            name: R::name(client),
         }
     }
 }

@@ -27,9 +27,11 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
     }
 
     fn name(&self) -> String {
+        let client = R::client(&self.device);
+
         format!(
             "matmul-{}-{}-{:?}",
-            R::name(),
+            R::name(&client),
             E::as_elem_native_unchecked(),
             self.strategy
         )

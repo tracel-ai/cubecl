@@ -146,6 +146,7 @@ impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = HipStorage;
     type Feature = Feature;
+    type Info = ();
 
     fn read(
         &mut self,

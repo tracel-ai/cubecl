@@ -45,8 +45,17 @@ impl Runtime for WgpuRuntime {
         })
     }
 
-    fn name() -> &'static str {
-        "wgpu<wgsl>"
+    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+        match client.info() {
+            wgpu::Backend::Vulkan => {
+                #[cfg(feature = "spirv")]
+                return "wgpu<spirv>";
+
+                #[cfg(not(feature = "spirv"))]
+                return "wgpu<wgsl>";
+            }
+            _ => "wgpu<wgsl>",
+        }
     }
 
     fn supported_line_sizes() -> &'static [u8] {
@@ -56,10 +65,6 @@ impl Runtime for WgpuRuntime {
     fn max_cube_count() -> (u32, u32, u32) {
         let max_dim = u16::MAX as u32;
         (max_dim, max_dim, max_dim)
-    }
-
-    fn extension() -> &'static str {
-        "wgsl"
     }
 
     fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
@@ -216,6 +221,7 @@ pub(crate) fn create_client_on_setup(
     }
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
+    let backend = AutoGraphicsApi::backend();
     let server = WgpuServer::new(
         mem_props,
         options.memory_config,
@@ -223,6 +229,7 @@ pub(crate) fn create_client_on_setup(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
+        backend,
     );
     let channel = MutexComputeChannel::new(server);
 
@@ -233,7 +240,7 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    ComputeClient::new(channel, device_props)
+    ComputeClient::new(channel, device_props, backend)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).
