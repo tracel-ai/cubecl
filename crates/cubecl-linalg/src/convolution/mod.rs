@@ -6,7 +6,6 @@ pub mod error;
 pub mod homogeneous;
 pub mod launch;
 pub mod loader;
-pub mod precision;
 pub mod reader;
 pub mod selection;
 

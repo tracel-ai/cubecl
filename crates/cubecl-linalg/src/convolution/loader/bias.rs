@@ -3,19 +3,20 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use crate::convolution::{
-    homogeneous::base::ConvTilingLayout, precision::ConvPrecision, reader::bias::BiasReader,
-};
 use crate::matmul::components::{
     global::AccumulatorLoader,
     stage::{Stage, StageConfig},
     tile::{Tile, TileConfig, TileMatmul},
     Ident,
 };
+use crate::{
+    convolution::{homogeneous::base::ConvTilingLayout, reader::bias::BiasReader},
+    matmul::components::MatmulPrecision,
+};
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
-pub struct BiasLoader<CS: ConvPrecision, G: StageConfig> {
+pub struct BiasLoader<CS: MatmulPrecision, G: StageConfig> {
     pub tensor_view: BiasReader<CS::EG>,
     pub stage: Stage<CS::EA, ConvTilingLayout>,
     pub has_bias: bool,
@@ -23,7 +24,9 @@ pub struct BiasLoader<CS: ConvPrecision, G: StageConfig> {
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G> for BiasLoader<CS, G> {
+impl<CS: MatmulPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G>
+    for BiasLoader<CS, G>
+{
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         if this.has_bias {
             let stage_tiling = config.tiling_dimensions(Ident::Rhs);
@@ -66,7 +69,7 @@ impl<CS: ConvPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G> for
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: StageConfig> BiasLoader<CS, G> {
+impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
     pub fn new(
         tensor: VirtualTensor<CS::EG>,
         n_offset: u32,
