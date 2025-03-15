@@ -4,15 +4,6 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
-use crate::convolution::{
-    base::{
-        Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
-        ConvolutionProblem,
-    },
-    config::ConvGemmConfig,
-    loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
-    precision::ConvPrecision,
-};
 use crate::matmul::components::{
     global::{
         self,
@@ -27,6 +18,17 @@ use crate::matmul::components::{
     },
     Ident, InvalidConfigError, MatrixLayout,
 };
+use crate::{
+    convolution::{
+        base::{
+            Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
+            ConvolutionProblem,
+        },
+        config::ConvGemmConfig,
+        loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
+    },
+    matmul::components::MatmulPrecision,
+};
 
 pub struct ImplicitGemmConvolutionFamily<SMM: StageMatmulFamily> {
     _smm: PhantomData<SMM>,
@@ -38,7 +40,7 @@ impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
 {
-    type Convolution<CS: ConvPrecision> = ImplicitGemmConvolution<
+    type Convolution<CS: MatmulPrecision> = ImplicitGemmConvolution<
         CS,
         SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
     >;
@@ -48,7 +50,7 @@ where
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
 pub struct ImplicitGemmConvolution<
-    CS: ConvPrecision,
+    CS: MatmulPrecision,
     SMM: stage::StageMatmul<CS::ES, CS::EG, CS::EA>,
 > {
     _cs: PhantomData<CS>,
@@ -56,7 +58,7 @@ pub struct ImplicitGemmConvolution<
 }
 
 #[cube]
-impl<CS: ConvPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
+impl<CS: MatmulPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
 where
     SMM: stage::StageMatmul<
         CS::ES,
@@ -235,7 +237,7 @@ where
 impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
-    unsafe fn launch_unchecked<CS: ConvPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<CS: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,

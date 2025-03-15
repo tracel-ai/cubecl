@@ -7,23 +7,23 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     global::{InputLoader, SyncInputLoader},
     stage::{multi_buffer::LhsReader, ContiguousTilingLayout, RowMajorTilingOrder},
-    Ident,
+    Ident, MatmulPrecision,
 };
 use crate::{
-    convolution::{precision::ConvPrecision, reader::im2col::Im2colReader, ConvGemmConfig},
+    convolution::{reader::im2col::Im2colReader, ConvGemmConfig},
     matmul::components::stage::Stage,
 };
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
-pub struct SimpleIm2colLoader<CS: ConvPrecision, G: ConvGemmConfig> {
+pub struct SimpleIm2colLoader<CS: MatmulPrecision, G: ConvGemmConfig> {
     pub tensor_view: Im2colReader<CS::EG>,
     pub stage: Stage<CS::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     _config: PhantomData<G>,
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     type StageReader = LhsReader<CS::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -42,7 +42,7 @@ impl<CS: ConvPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: ConvGemmConfig> SyncInputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> SyncInputLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
@@ -56,7 +56,7 @@ impl<CS: ConvPrecision, G: ConvGemmConfig> SyncInputLoader<CS::EG, CS::ES, G>
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: ConvGemmConfig> SimpleIm2colLoader<CS, G> {
+impl<CS: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<CS, G> {
     pub fn new(
         tensor: VirtualTensor<CS::EG>,
         shape_out_y: u32,
@@ -98,7 +98,7 @@ pub struct SimpleIm2col;
 
 #[cube]
 impl SimpleIm2col {
-    pub fn load_to_slice<CS: ConvPrecision, G: ConvGemmConfig>(
+    pub fn load_to_slice<CS: MatmulPrecision, G: ConvGemmConfig>(
         read_view: &Im2colReader<CS::EG>,
         slice: &mut SliceMut<Line<CS::ES>>,
         #[comptime] ident: Ident,

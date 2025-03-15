@@ -3,10 +3,11 @@ use cubecl_core::{client::ComputeClient, prelude::CubePrimitive, Runtime};
 use super::{
     algorithm::{Algorithm, ImplicitCmmaConv},
     base::ConvolutionProblem,
-    precision::ConvPrecision,
 };
 use crate::matmul::{
-    components::{tile::TileMatmulFamily, CompleteStageTiling, MatmulSelection, MatmulSize},
+    components::{
+        tile::TileMatmulFamily, CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize,
+    },
     kernels::matmul::find_instruction_shape,
 };
 
@@ -15,7 +16,7 @@ pub struct ConvSelection {
 }
 
 pub trait ConvSelector<A: Algorithm> {
-    fn select_kernel<R: Runtime, CS: ConvPrecision>(
+    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         probem: &ConvolutionProblem,
         plane_dim: u32,
@@ -32,7 +33,7 @@ pub struct Balanced;
 type Tile<A> = <A as Algorithm>::TileMatmul;
 
 impl ConvSelector<ImplicitCmmaConv> for Large {
-    fn select_kernel<R: Runtime, CS: ConvPrecision>(
+    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
@@ -57,7 +58,7 @@ impl ConvSelector<ImplicitCmmaConv> for Large {
 }
 
 impl ConvSelector<ImplicitCmmaConv> for Balanced {
-    fn select_kernel<R: Runtime, CS: ConvPrecision>(
+    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
@@ -81,7 +82,7 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
     }
 }
 
-fn find_instruction<R: Runtime, TMM: TileMatmulFamily, CS: ConvPrecision>(
+fn find_instruction<R: Runtime, TMM: TileMatmulFamily, CS: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &ConvolutionProblem,
 ) -> MatmulSize {
