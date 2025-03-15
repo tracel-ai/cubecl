@@ -17,6 +17,10 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     ) -> Self::Representation;
     /// The size of the given element in bytes.
     fn elem_size(&self, elem: Elem) -> usize;
+
+    /// The default extension for the runtime's kernel/shader code.
+    /// Might change based on which compiler is used.
+    fn extension(&self) -> &'static str;
 }
 
 #[derive(Clone, Debug, Default)]

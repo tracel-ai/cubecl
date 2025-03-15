@@ -47,6 +47,7 @@ impl KernelTimestamps {
 impl ComputeServer for DummyServer {
     type Kernel = Arc<dyn DummyKernel>;
     type Storage = BytesStorage;
+    type Info = ();
     type Feature = ();
 
     fn read(&mut self, bindings: Vec<Binding>) -> impl Future<Output = Vec<Vec<u8>>> + 'static {

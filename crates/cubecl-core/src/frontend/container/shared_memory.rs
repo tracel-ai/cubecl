@@ -3,7 +3,7 @@ use std::{marker::PhantomData, num::NonZero};
 use crate::{
     frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime},
     ir::{Item, Scope},
-    prelude::Line,
+    prelude::{index, index_assign, Line, List, ListExpand, ListMut, ListMutExpand},
 };
 
 #[derive(Clone, Copy)]
@@ -153,5 +153,47 @@ mod indexation {
                 *self.expand,
             ));
         }
+    }
+}
+
+impl<T: CubePrimitive> List<T> for SharedMemory<T> {
+    fn __expand_read(
+        scope: &mut Scope,
+        this: ExpandElementTyped<SharedMemory<T>>,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, this, idx)
+    }
+}
+
+impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+    fn __expand_read_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<T> {
+        index::expand(scope, self, idx)
+    }
+}
+
+impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
+    fn __expand_write(
+        scope: &mut Scope,
+        this: ExpandElementTyped<SharedMemory<T>>,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, this, idx, value);
+    }
+}
+
+impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SharedMemory<T>> {
+    fn __expand_write_method(
+        self,
+        scope: &mut Scope,
+        idx: ExpandElementTyped<u32>,
+        value: ExpandElementTyped<T>,
+    ) {
+        index_assign::expand(scope, self, idx, value);
     }
 }

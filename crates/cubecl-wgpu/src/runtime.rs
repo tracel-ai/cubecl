@@ -6,7 +6,7 @@ use crate::{
 use cubecl_common::future;
 use cubecl_core::{
     ir::{Elem, FloatKind},
-    AtomicFeature, DeviceId, Feature, Runtime,
+    AtomicFeature, CubeDim, DeviceId, Feature, Runtime,
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
@@ -45,8 +45,17 @@ impl Runtime for WgpuRuntime {
         })
     }
 
-    fn name() -> &'static str {
-        "wgpu<wgsl>"
+    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+        match client.info() {
+            wgpu::Backend::Vulkan => {
+                #[cfg(feature = "spirv")]
+                return "wgpu<spirv>";
+
+                #[cfg(not(feature = "spirv"))]
+                return "wgpu<wgsl>";
+            }
+            _ => "wgpu<wgsl>",
+        }
     }
 
     fn supported_line_sizes() -> &'static [u8] {
@@ -56,10 +65,6 @@ impl Runtime for WgpuRuntime {
     fn max_cube_count() -> (u32, u32, u32) {
         let max_dim = u16::MAX as u32;
         (max_dim, max_dim, max_dim)
-    }
-
-    fn extension() -> &'static str {
-        "wgsl"
     }
 
     fn device_id(device: &Self::Device) -> cubecl_core::DeviceId {
@@ -182,11 +187,19 @@ pub(crate) fn create_client_on_setup(
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: WgpuStorage::ALIGNMENT.max(limits.min_storage_buffer_offset_alignment as u64),
     };
+    let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
         plane_size_min: adapter_limits.min_subgroup_size,
         plane_size_max: adapter_limits.max_subgroup_size,
         max_bindings: limits.max_storage_buffers_per_shader_stage,
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
+        max_cube_count: CubeDim::new_3d(max_count, max_count, max_count),
+        max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
+        max_cube_dim: CubeDim::new_3d(
+            adapter_limits.max_compute_workgroup_size_x,
+            adapter_limits.max_compute_workgroup_size_y,
+            adapter_limits.max_compute_workgroup_size_z,
+        ),
     };
 
     let mut compilation_options = Default::default();
@@ -208,6 +221,7 @@ pub(crate) fn create_client_on_setup(
     }
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
+    let backend = AutoGraphicsApi::backend();
     let server = WgpuServer::new(
         mem_props,
         options.memory_config,
@@ -215,6 +229,7 @@ pub(crate) fn create_client_on_setup(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
+        backend,
     );
     let channel = MutexComputeChannel::new(server);
 
@@ -225,7 +240,7 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    ComputeClient::new(channel, device_props)
+    ComputeClient::new(channel, device_props, backend)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice).

@@ -61,6 +61,10 @@ impl cubecl_core::Compiler for WgslCompiler {
     fn elem_size(&self, elem: cube::Elem) -> usize {
         Self::compile_elem(elem).size()
     }
+
+    fn extension(&self) -> &'static str {
+        "wgsl"
+    }
 }
 
 impl WgslCompiler {

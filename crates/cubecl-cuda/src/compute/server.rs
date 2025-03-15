@@ -154,6 +154,7 @@ impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = CudaStorage;
     type Feature = Feature;
+    type Info = ();
 
     fn read(
         &mut self,

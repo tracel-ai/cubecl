@@ -28,10 +28,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}, dtype: {}}}",
+            "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
             self.shape,
             self.strides,
-            R::name(),
             core::any::type_name::<E>(),
         ))
     }

@@ -95,8 +95,8 @@ impl ReduceRange {
 /// Since each individual unit performs a reduction, this function is meant to be called
 /// with either a different `items` for each unit, a different `range` or both based on ABSOLUTE_UNIT_POS.
 #[cube]
-pub fn reduce_slice<N: Numeric, R: ReduceInstruction<N>>(
-    items: &VirtualTensor<N>,
+pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+    items: &I,
     range: ReduceRange,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
@@ -127,8 +127,8 @@ pub fn reduce_slice<N: Numeric, R: ReduceInstruction<N>>(
 /// with either a different `items` for each plane, a different `range` or both based on
 /// the absolute plane position (`CUBE_POS * CUBE_DIM_Y + UNIT_POS_Y`).
 #[cube]
-pub fn reduce_slice_plane<N: Numeric, R: ReduceInstruction<N>>(
-    items: &VirtualTensor<N>,
+pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+    items: &I,
     range: ReduceRange,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
@@ -180,8 +180,8 @@ pub fn reduce_slice_plane<N: Numeric, R: ReduceInstruction<N>>(
 /// Since each individual cube performs a reduction, this function is meant to be called
 /// with either a different `items` for each cube, a different `range` or both based on `CUBE_POS`.
 #[cube]
-pub fn reduce_slice_shared<N: Numeric, R: ReduceInstruction<N>>(
-    items: &VirtualTensor<N>,
+pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
+    items: &I,
     range: ReduceRange,
     #[comptime] accumulator_size: u32,
     #[comptime] line_size: u32,
