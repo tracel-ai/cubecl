@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 /// An approximation of the plane dimension.
@@ -58,4 +59,81 @@ pub enum ExecutionMode {
     Checked,
     /// Unchecked kernels are unsafe.
     Unchecked,
+}
+
+/// Format of [`TensorMap`]
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub enum TensorMapFormat {
+    Tiled {
+        tile_size: Vec<u32>,
+    },
+    Im2col {
+        pixel_box_lower_corner: Vec<i32>,
+        pixel_box_upper_corner: Vec<i32>,
+        channels_per_pixel: u32,
+        pixels_per_column: u32,
+    },
+    Im2colWide {
+        pixel_box_lower_corner_width: i32,
+        pixel_box_upper_corner_width: i32,
+        channels_per_pixel: u32,
+        pixels_per_column: u32,
+    },
+}
+
+/// Interleave setting for [`TensorMap`]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+pub enum TensorMapInterleave {
+    /// No interleaving
+    #[default]
+    None,
+    /// Interleaved with 16 bytes chunks in the last dim.
+    /// i.e. NC/8HWC8 with f16
+    B16,
+    /// Interleaved with 32 bytes chunks in the last dim.
+    /// i.e. NC/16HWC16 with f16
+    B32,
+}
+
+/// Data are organized in a specific order in global memory; however, this may not match the order
+/// in which the application accesses data in shared memory. This difference in data organization
+/// may cause bank conflicts when shared memory is accessed. In order to avoid this problem, data
+/// can be loaded to shared memory with shuffling across shared memory banks. When interleave is
+/// [`TensorMapInterleave::B32`], swizzle must be [`TensorMapSwizzle::B32`].
+/// Other interleave modes can have any swizzling pattern.
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+pub enum TensorMapSwizzle {
+    /// No swizzling
+    #[default]
+    None,
+    /// Swizzle 16B chunks within 32B span
+    B32,
+    /// Swizzle 16B chunks within 64B span
+    B64,
+    /// Swizzle 16B chunks within 128B span
+    B128,
+}
+
+/// Additional prefetching to perform during load
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+pub enum TensorMapPrefetch {
+    /// No extra prefetch
+    #[default]
+    None,
+    /// Prefetch 64 bytes
+    B64,
+    /// Prefetch 128 bytes
+    B128,
+    /// Prefetch 256 bytes
+    B256,
+}
+
+/// What value to use when filling out of bounds values
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+pub enum OobFill {
+    /// Fill zeroes
+    #[default]
+    Zero,
+    /// Fill NaN
+    NaN,
 }

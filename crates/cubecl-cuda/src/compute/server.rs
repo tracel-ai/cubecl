@@ -1,3 +1,6 @@
+use cubecl_common::{
+    OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
+};
 use cubecl_cpp::{
     cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions, CudaCompiler,
 };
@@ -6,8 +9,11 @@ use serde::{Deserialize, Serialize};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{uninit_vec, CudaResource};
-use cubecl_core::compute::DebugInformation;
-use cubecl_core::Feature;
+use cubecl_core::{
+    compute::DebugInformation,
+    ir::{Elem, IntKind, UIntKind},
+};
+use cubecl_core::{ir::FloatKind, Feature};
 use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -17,14 +23,17 @@ use cubecl_runtime::{
     server::{self, ComputeServer},
 };
 use cubecl_runtime::{TimestampsError, TimestampsResult};
-use cudarc::driver::sys::CUctx_st;
-use cudarc::driver::sys::CUfunc_st;
-use std::collections::HashMap;
-use std::ffi::CStr;
+use cudarc::driver::sys::{
+    CUctx_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion,
+    CUtensorMapSwizzle,
+};
+use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Instant;
+use std::{collections::HashMap, mem::MaybeUninit};
+use std::{ffi::CStr, os::raw::c_void};
 
 #[cfg(feature = "cache-ptx")]
 use cubecl_common::cache::{Cache, CacheOption};
@@ -226,11 +235,64 @@ impl ComputeServer for CudaServer {
         }
 
         let resources = bindings
-            .into_iter()
+            .iter()
             .map(|binding| {
-                ctx.memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource")
+                let mut resource = ctx
+                    .memory_management
+                    .get_resource(
+                        binding.memory.clone(),
+                        binding.offset_start,
+                        binding.offset_end,
+                    )
+                    .expect("Failed to find resource");
+                if let Some(map) = &binding.tensor_map {
+                    let lib = cudarc::driver::sys::lib();
+                    let mut map_ptr = Box::new_uninit();
+                    let data_ty = elem_to_tmap_type(map.elem);
+                    match &map.format {
+                        TensorMapFormat::Tiled { tile_size } => lib.cuTensorMapEncodeTiled(
+                            map_ptr.as_mut_ptr(),
+                            data_ty,
+                            map.rank as u32,
+                            resource.as_binding(),
+                            map.shape.as_ptr(),
+                            map.strides.as_ptr(),
+                            tile_size.as_ptr(),
+                            map.elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        ),
+                        TensorMapFormat::Im2col {
+                            pixel_box_lower_corner,
+                            pixel_box_upper_corner,
+                            channels_per_pixel,
+                            pixels_per_column,
+                        } => lib.cuTensorMapEncodeIm2col(
+                            map_ptr.as_mut_ptr(),
+                            data_ty,
+                            map.rank as u32,
+                            resource.as_binding(),
+                            map.shape.as_ptr(),
+                            map.strides.as_ptr(),
+                            pixel_box_lower_corner.as_ptr(),
+                            pixel_box_upper_corner.as_ptr(),
+                            *channels_per_pixel,
+                            *pixels_per_column,
+                            map.elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        ),
+                        TensorMapFormat::Im2colWide { .. } => {
+                            unimplemented!("Not yet implemented in cudarc")
+                        }
+                    };
+                    resource.binding = Box::into_raw(map_ptr.assume_init()) as *mut c_void;
+                }
+                resource
             })
             .collect::<Vec<_>>();
 
@@ -559,4 +621,69 @@ fn cuda_path() -> Option<PathBuf> {
 
     #[allow(unreachable_code)]
     None
+}
+
+fn elem_to_tmap_type(elem: Elem) -> CUtensorMapDataType {
+    use cudarc::driver::sys::CUtensorMapDataType::*;
+    match elem {
+        Elem::Float(kind) => match kind {
+            FloatKind::F16 => CU_TENSOR_MAP_DATA_TYPE_FLOAT16,
+            FloatKind::BF16 => CU_TENSOR_MAP_DATA_TYPE_BFLOAT16,
+            FloatKind::Flex32 | FloatKind::F32 => CU_TENSOR_MAP_DATA_TYPE_FLOAT32,
+            FloatKind::TF32 => CU_TENSOR_MAP_DATA_TYPE_TFLOAT32,
+            FloatKind::F64 => CU_TENSOR_MAP_DATA_TYPE_FLOAT64,
+        },
+        Elem::Int(kind) => match kind {
+            IntKind::I8 | IntKind::I16 => unimplemented!("Not supported for tensor map type"),
+            IntKind::I32 => CU_TENSOR_MAP_DATA_TYPE_INT32,
+            IntKind::I64 => CU_TENSOR_MAP_DATA_TYPE_INT64,
+        },
+        Elem::UInt(kind) => match kind {
+            UIntKind::U8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
+            UIntKind::U16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
+            UIntKind::U32 => CU_TENSOR_MAP_DATA_TYPE_UINT32,
+            UIntKind::U64 => CU_TENSOR_MAP_DATA_TYPE_UINT64,
+        },
+        Elem::AtomicFloat(_) | Elem::AtomicInt(_) | Elem::AtomicUInt(_) => {
+            unimplemented!("Not supported for tensor map type")
+        }
+        _ => unimplemented!(),
+    }
+}
+
+fn interleave_to_cuda(interleave: TensorMapInterleave) -> CUtensorMapInterleave {
+    use cudarc::driver::sys::CUtensorMapInterleave::*;
+    match interleave {
+        TensorMapInterleave::None => CU_TENSOR_MAP_INTERLEAVE_NONE,
+        TensorMapInterleave::B16 => CU_TENSOR_MAP_INTERLEAVE_16B,
+        TensorMapInterleave::B32 => CU_TENSOR_MAP_INTERLEAVE_32B,
+    }
+}
+
+fn swizzle_to_cuda(swizzle: TensorMapSwizzle) -> CUtensorMapSwizzle {
+    use cudarc::driver::sys::CUtensorMapSwizzle::*;
+    match swizzle {
+        TensorMapSwizzle::None => CU_TENSOR_MAP_SWIZZLE_NONE,
+        TensorMapSwizzle::B32 => CU_TENSOR_MAP_SWIZZLE_32B,
+        TensorMapSwizzle::B64 => CU_TENSOR_MAP_SWIZZLE_64B,
+        TensorMapSwizzle::B128 => CU_TENSOR_MAP_SWIZZLE_128B,
+    }
+}
+
+fn prefetch_to_cuda(prefetch: TensorMapPrefetch) -> CUtensorMapL2promotion {
+    use cudarc::driver::sys::CUtensorMapL2promotion::*;
+    match prefetch {
+        TensorMapPrefetch::None => CU_TENSOR_MAP_L2_PROMOTION_NONE,
+        TensorMapPrefetch::B64 => CU_TENSOR_MAP_L2_PROMOTION_L2_64B,
+        TensorMapPrefetch::B128 => CU_TENSOR_MAP_L2_PROMOTION_L2_128B,
+        TensorMapPrefetch::B256 => CU_TENSOR_MAP_L2_PROMOTION_L2_256B,
+    }
+}
+
+fn oob_to_cuda(fill: OobFill) -> CUtensorMapFloatOOBfill {
+    use cudarc::driver::sys::CUtensorMapFloatOOBfill::*;
+    match fill {
+        OobFill::Zero => CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE,
+        OobFill::NaN => CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA,
+    }
 }

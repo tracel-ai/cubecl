@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::prelude::{ArrayArg, TensorArg};
+use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
 use crate::KernelSettings;
 use crate::{compute::KernelTask, ir::UIntKind};
 use crate::{
@@ -9,8 +9,8 @@ use crate::{
 };
 use crate::{Kernel, Runtime};
 use bytemuck::NoUninit;
-use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount};
+use cubecl_runtime::{client::ComputeClient, server::TensorMap};
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -36,6 +36,11 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Register a tensor to be launched.
     pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
         self.tensors.push_tensor(tensor);
+    }
+
+    /// Register a mapped tensor to be launched.
+    pub fn register_tensor_map<const RANK: usize>(&mut self, tensor: &TensorMapArg<'_, R, RANK>) {
+        self.tensors.push_tensor_map(tensor);
     }
 
     /// Register an array to be launched.
@@ -263,6 +268,44 @@ impl<R: Runtime> TensorState<R> {
             tensor.shape.iter().map(|it| *it as u32).collect(),
             tensor.strides.iter().map(|it| *it as u32).collect(),
         );
+    }
+
+    /// Push a new tensor to the state.
+    pub fn push_tensor_map<const RANK: usize>(&mut self, map: &TensorMapArg<'_, R, RANK>) {
+        let tensor = match &map.tensor {
+            TensorArg::Handle { handle, .. } => handle,
+            TensorArg::Alias { .. } => panic!("Can't use aliased tensor for tensor map"),
+        };
+
+        assert_eq!(tensor.shape.len(), RANK);
+
+        if let TensorState::Empty = self {
+            *self = TensorState::Some {
+                bindings: Vec::with_capacity(1),
+                metadata: MetadataBuilder::default(),
+                runtime: PhantomData,
+            };
+        };
+
+        let TensorState::Some { bindings, .. } = self else {
+            panic!("Should be init")
+        };
+
+        let mut binding = tensor.handle.clone().binding();
+        binding.tensor_map = Some(TensorMap {
+            format: map.format.clone(),
+            rank: RANK,
+            shape: tensor.shape.iter().map(|it| *it as u64).collect(),
+            strides: tensor.strides.iter().map(|it| *it as u64).collect(),
+            shared_shape: map.shared_shape.to_vec(),
+            elem_stride: map.elem_stride.to_vec(),
+            interleave: map.interleave,
+            swizzle: map.swizzle,
+            prefetch: map.prefetch,
+            oob_fill: map.oob_fill,
+            elem: map.elem,
+        });
+        bindings.push(binding);
     }
 
     /// Push a new array to the state.

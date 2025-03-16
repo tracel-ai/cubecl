@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::{self};
+use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -101,13 +101,13 @@ fn main() {
         type R = cubecl::wgpu::WgpuRuntime;
         use half::f16;
 
-        run::<R, f16>(Default::default(), matmul::Strategy::Simple);
+        //run::<R, f16>(Default::default(), matmul::Strategy::Simple);
         run::<R, f16>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f16>(Default::default(), matmul::Strategy::DoubleBuffering);
-        run::<R, flex32>(Default::default(), matmul::Strategy::Simple);
+        //run::<R, flex32>(Default::default(), matmul::Strategy::Simple);
         run::<R, flex32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, flex32>(Default::default(), matmul::Strategy::DoubleBuffering);
-        run::<R, f32>(Default::default(), matmul::Strategy::Simple);
+        //run::<R, f32>(Default::default(), matmul::Strategy::Simple);
         run::<R, f32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f32>(Default::default(), matmul::Strategy::DoubleBuffering);
     }

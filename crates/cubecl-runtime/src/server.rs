@@ -7,7 +7,11 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{
+    benchmark::TimestampsResult, ExecutionMode, OobFill, TensorMapFormat, TensorMapInterleave,
+    TensorMapPrefetch, TensorMapSwizzle,
+};
+use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -134,6 +138,22 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    pub tensor_map: Option<TensorMap>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TensorMap {
+    pub format: TensorMapFormat,
+    pub rank: usize,
+    pub shape: Vec<u64>,
+    pub strides: Vec<u64>,
+    pub shared_shape: Vec<u32>,
+    pub elem_stride: Vec<u32>,
+    pub interleave: TensorMapInterleave,
+    pub swizzle: TensorMapSwizzle,
+    pub prefetch: TensorMapPrefetch,
+    pub oob_fill: OobFill,
+    pub elem: Elem,
 }
 
 impl Handle {
@@ -150,6 +170,7 @@ impl Handle {
             memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            tensor_map: None,
         }
     }
 }
@@ -171,6 +192,7 @@ impl Clone for Binding {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
+            tensor_map: self.tensor_map.clone(),
         }
     }
 }

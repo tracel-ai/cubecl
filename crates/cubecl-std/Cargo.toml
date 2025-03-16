@@ -17,3 +17,4 @@ version.workspace = true
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false }
+serde = { workspace = true }
