@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Line, Slice,
-    SliceMut,
+    SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -142,6 +142,10 @@ impl<C: CubePrimitive> Barrier<C> {
         Self { _c: PhantomData }
     }
 
+    pub fn init_proxied(&self) {
+        unexpanded!()
+    }
+
     /// Copy the source slice to destination
     ///
     /// # Safety
@@ -149,6 +153,62 @@ impl<C: CubePrimitive> Barrier<C> {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     pub fn memcpy_async(&self, _source: &Slice<Line<C>>, _destination: &mut SliceMut<Line<C>>) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_1d(
+        &self,
+        _source: &Slice<C>,
+        _destination: &mut SliceMut<Line<C>>,
+        _offset: u32,
+    ) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_2d(
+        &self,
+        _source: &TensorMap<C, 2>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: u32,
+        _b: u32,
+    ) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_3d(
+        &self,
+        _source: &TensorMap<C, 3>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: u32,
+        _b: u32,
+        _c: u32,
+    ) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_4d(
+        &self,
+        _source: &TensorMap<C, 4>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: u32,
+        _b: u32,
+        _c: u32,
+        _d: u32,
+    ) {
+        unexpanded!()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn memcpy_async_bulk_to_shared_5d(
+        &self,
+        _source: &TensorMap<C, 5>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: u32,
+        _b: u32,
+        _c: u32,
+        _d: u32,
+        _e: u32,
+    ) {
         unexpanded!()
     }
 

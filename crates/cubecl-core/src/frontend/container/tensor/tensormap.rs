@@ -5,7 +5,7 @@ use crate::prelude::*;
 use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
-use cubecl_ir::Elem;
+use cubecl_ir::{Elem, Variable, VariableKind};
 use serde::{Deserialize, Serialize};
 
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
@@ -76,6 +76,18 @@ impl<'a, R: Runtime, const RANK: usize> TensorMapArg<'a, R, RANK> {
 
 pub struct TensorMap<E: CubePrimitive, const RANK: usize> {
     _ty: PhantomData<E>,
+}
+
+impl<E: CubePrimitive, const RANK: usize> IntoRuntime for TensorMap<E, RANK> {
+    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
+        ExpandElementTyped {
+            expand: ExpandElement::Plain(Variable::new(
+                VariableKind::GlobalInputArray(0),
+                Item::new(E::as_elem_native_unchecked()),
+            )),
+            _type: PhantomData,
+        }
+    }
 }
 
 impl<E: CubePrimitive, const RANK: usize> ExpandElementBaseInit for TensorMap<E, RANK> {
