@@ -32,12 +32,13 @@ pub fn select_many<C: CubePrimitive>(
     unexpanded!()
 }
 
-pub fn conditional_expr<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
-    if condition {
-        then
-    } else {
-        or_else
-    }
+pub fn conditional_read<C: CubePrimitive, I: Index>(
+    _condition: bool,
+    _container: Slice<C>,
+    _index: I,
+    _fallback: C,
+) -> C {
+    unexpanded!()
 }
 
 pub mod select {
@@ -88,36 +89,39 @@ pub mod select_many {
     }
 }
 
-pub mod conditional_expr {
+pub mod conditional_read {
     use std::num::NonZero;
 
-    use cubecl_ir::ConditionalExpr;
+    use cubecl_ir::ConditionalRead;
 
     use crate::ir::Instruction;
 
     use super::*;
 
-    pub fn expand<C: CubePrimitive>(
+    pub fn expand<C: CubePrimitive, I: Index>(
         scope: &mut Scope,
         condition: ExpandElementTyped<bool>,
-        then: ExpandElementTyped<C>,
-        or_else: ExpandElementTyped<C>,
+        container: ExpandElementTyped<Slice<C>>,
+        index: ExpandElementTyped<u32>,
+        fallback: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
         let cond = condition.expand.consume();
-        let then = then.expand.consume();
-        let or_else = or_else.expand.consume();
+        let container = container.expand.consume();
+        let index = index.expand.consume();
+        let fallback = fallback.expand.consume();
 
         let vf = cond.vectorization_factor();
-        let vf = Ord::max(vf, then.vectorization_factor());
-        let vf = Ord::max(vf, or_else.vectorization_factor());
+        let vf = Ord::max(vf, container.vectorization_factor());
+        let vf = Ord::max(vf, fallback.vectorization_factor());
 
-        let output = scope.create_local(then.item.vectorize(NonZero::new(vf)));
+        let output = scope.create_local(container.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
-        let cond_expr = Operator::ConditionalExpr(ConditionalExpr {
+        let cond_expr = Operator::ConditionalRead(ConditionalRead {
             cond,
-            then,
-            or_else,
+            container,
+            index,
+            fallback,
         });
         scope.register(Instruction::new(cond_expr, out));
 

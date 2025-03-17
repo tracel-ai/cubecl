@@ -453,7 +453,6 @@ pub fn test_cmma_strided<R: Runtime>(
     ];
 
     assert_eq!(expected, actual);
-    // assert!(false);
 }
 
 #[allow(missing_docs)]

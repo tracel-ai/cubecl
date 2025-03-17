@@ -996,11 +996,11 @@ impl WgslCompiler {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::ConditionalExpr(op) => {
-                instructions.push(wgsl::Instruction::ConditionalExpr {
+            cube::Operator::ConditionalRead(op) => {
+                instructions.push(wgsl::Instruction::ConditionalRead {
                     cond: self.compile_variable(op.cond),
-                    then: self.compile_variable(op.then),
-                    or_else: self.compile_variable(op.or_else),
+                    then: self.compile_variable(op.container),
+                    or_else: self.compile_variable(op.fallback),
                     out: self.compile_variable(out),
                 })
             }

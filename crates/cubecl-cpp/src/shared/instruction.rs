@@ -61,10 +61,11 @@ pub enum Instruction<D: Dialect> {
         rhs: Variable<D>,
         out: Variable<D>,
     },
-    ConditionalExpr {
+    ConditionalRead {
         cond: Variable<D>,
-        then: Variable<D>,
-        or_else: Variable<D>,
+        container: Variable<D>,
+        index: Variable<D>,
+        fallback: Variable<D>,
         out: Variable<D>,
     },
     Assign(UnaryInstruction<D>),
@@ -275,13 +276,15 @@ impl<D: Dialect> Display for Instruction<D> {
                     }
                 }
             }
-            Instruction::ConditionalExpr {
+            Instruction::ConditionalRead {
                 cond,
-                then: expr,
-                or_else: fallback,
+                container,
+                index,
+                fallback,
                 out,
             } => {
-                writeln!(f, "{out} = ({cond}) ? {expr} : {fallback};")
+                let out = out.fmt_left();
+                writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
                 // conditional_assign(
                 //     view_x < self.shape_x && view_y < self.shape_y, // cond
                 //     self.tensor.read(read_pos), // expr

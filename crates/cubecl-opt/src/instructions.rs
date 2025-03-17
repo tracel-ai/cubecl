@@ -186,10 +186,11 @@ impl Optimizer {
                 visit_read(self, &mut select.then);
                 visit_read(self, &mut select.or_else);
             }
-            Operator::ConditionalExpr(conditional_expr) => {
-                visit_read(self, &mut conditional_expr.cond);
-                visit_read(self, &mut conditional_expr.then);
-                visit_read(self, &mut conditional_expr.or_else);
+            Operator::ConditionalRead(conditional_read) => {
+                visit_read(self, &mut conditional_read.cond);
+                visit_read(self, &mut conditional_read.container);
+                visit_read(self, &mut conditional_read.index);
+                visit_read(self, &mut conditional_read.fallback);
             }
         }
     }

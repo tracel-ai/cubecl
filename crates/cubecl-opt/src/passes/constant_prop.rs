@@ -495,6 +495,6 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
         | Operator::UncheckedIndexAssign(_)
         | Operator::Bitcast(_)
         | Operator::Select(_)
-        | Operator::ConditionalExpr(_) => None,
+        | Operator::ConditionalRead(_) => None,
     }
 }

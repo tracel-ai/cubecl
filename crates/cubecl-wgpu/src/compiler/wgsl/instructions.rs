@@ -47,7 +47,7 @@ pub enum Instruction {
         or_else: Variable,
         out: Variable,
     },
-    ConditionalExpr {
+    ConditionalRead {
         cond: Variable,
         then: Variable,
         or_else: Variable,
@@ -995,7 +995,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
-            Instruction::ConditionalExpr {
+            Instruction::ConditionalRead {
                 cond,
                 then,
                 or_else,

@@ -978,10 +978,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Bitcast(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
-            gpu::Operator::ConditionalExpr(op) => instructions.push(Instruction::ConditionalExpr {
+            gpu::Operator::ConditionalRead(op) => instructions.push(Instruction::ConditionalRead {
                 cond: self.compile_variable(op.cond),
-                then: self.compile_variable(op.then),
-                or_else: self.compile_variable(op.or_else),
+                container: self.compile_variable(op.container),
+                index: self.compile_variable(op.index),
+                fallback: self.compile_variable(op.fallback),
                 out: self.compile_variable(out),
             }),
         };
