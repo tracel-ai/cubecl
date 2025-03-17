@@ -18,7 +18,7 @@ pub struct ConvSelection {
 pub trait ConvSelector<A: Algorithm> {
     fn select_kernel<R: Runtime, CS: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
-        probem: &ConvolutionProblem,
+        problem: &ConvolutionProblem,
         plane_dim: u32,
     ) -> (A::Selection, A::Input);
 }
