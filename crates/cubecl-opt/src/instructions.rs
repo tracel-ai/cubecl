@@ -158,11 +158,9 @@ impl Optimizer {
             | Operator::IndexAssign(binary_operator)
             | Operator::And(binary_operator)
             | Operator::Or(binary_operator) => self.visit_binop(binary_operator, visit_read),
-
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
             | Operator::Bitcast(unary_operator) => self.visit_unop(unary_operator, visit_read),
-
             Operator::Slice(slice_operator) => {
                 visit_read(self, &mut slice_operator.start);
                 visit_read(self, &mut slice_operator.end);
@@ -187,6 +185,11 @@ impl Optimizer {
                 visit_read(self, &mut select.cond);
                 visit_read(self, &mut select.then);
                 visit_read(self, &mut select.or_else);
+            }
+            Operator::ConditionalExpr(conditional_expr) => {
+                visit_read(self, &mut conditional_expr.cond);
+                visit_read(self, &mut conditional_expr.then);
+                visit_read(self, &mut conditional_expr.or_else);
             }
         }
     }

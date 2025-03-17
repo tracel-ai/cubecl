@@ -61,6 +61,12 @@ pub enum Instruction<D: Dialect> {
         rhs: Variable<D>,
         out: Variable<D>,
     },
+    ConditionalExpr {
+        cond: Variable<D>,
+        then: Variable<D>,
+        or_else: Variable<D>,
+        out: Variable<D>,
+    },
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -268,6 +274,40 @@ impl<D: Dialect> Display for Instruction<D> {
                         writeln!(f, " : {item_out}{{}};")
                     }
                 }
+            }
+            Instruction::ConditionalExpr {
+                cond,
+                then: expr,
+                or_else: fallback,
+                out,
+            } => {
+                writeln!(f, "{out} = ({cond}) ? {expr} : {fallback};")
+                // conditional_assign(
+                //     view_x < self.shape_x && view_y < self.shape_y, // cond
+                //     self.tensor.read(read_pos), // expr
+                //     Line::empty(line_size).fill(EG::from_int(0)), // fallback
+                // );
+
+                // {out} = (cond) ? expr : fallback
+                // cond like in select
+
+                // let item_out = out.item();
+                // if let Elem::Atomic(inner) = item_out.elem {
+                //     write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+                // } else {
+                //     let out = out.fmt_left();
+
+                //     // Replace by (cond)
+                //     write!(f, "{out} = ({rhs} < {len}) ? ")?;
+
+                //     // Replace by default_val instead of itself
+                //     Index::format_scalar(f, *lhs, *rhs, item_out)?;
+                //     if item_out.vectorization == 1 {
+                //         writeln!(f, " : {item_out}(0);")
+                //     } else {
+                //         writeln!(f, " : {item_out}{{}};")
+                //     }
+                // }
             }
             Instruction::Copy {
                 input,

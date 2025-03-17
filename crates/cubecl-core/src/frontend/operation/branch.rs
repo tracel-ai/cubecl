@@ -32,6 +32,14 @@ pub fn select_many<C: CubePrimitive>(
     unexpanded!()
 }
 
+pub fn conditional_expr<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
+    if condition {
+        then
+    } else {
+        or_else
+    }
+}
+
 pub mod select {
     use std::num::NonZero;
 
@@ -77,5 +85,42 @@ pub mod select_many {
         or_else: ExpandElementTyped<Line<C>>,
     ) -> ExpandElementTyped<Line<C>> {
         select::expand(scope, condition.expand.into(), then, or_else)
+    }
+}
+
+pub mod conditional_expr {
+    use std::num::NonZero;
+
+    use cubecl_ir::ConditionalExpr;
+
+    use crate::ir::Instruction;
+
+    use super::*;
+
+    pub fn expand<C: CubePrimitive>(
+        scope: &mut Scope,
+        condition: ExpandElementTyped<bool>,
+        then: ExpandElementTyped<C>,
+        or_else: ExpandElementTyped<C>,
+    ) -> ExpandElementTyped<C> {
+        let cond = condition.expand.consume();
+        let then = then.expand.consume();
+        let or_else = or_else.expand.consume();
+
+        let vf = cond.vectorization_factor();
+        let vf = Ord::max(vf, then.vectorization_factor());
+        let vf = Ord::max(vf, or_else.vectorization_factor());
+
+        let output = scope.create_local(then.item.vectorize(NonZero::new(vf)));
+        let out = *output;
+
+        let cond_expr = Operator::ConditionalExpr(ConditionalExpr {
+            cond,
+            then,
+            or_else,
+        });
+        scope.register(Instruction::new(cond_expr, out));
+
+        output.into()
     }
 }

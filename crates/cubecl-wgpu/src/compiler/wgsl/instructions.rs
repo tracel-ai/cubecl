@@ -47,6 +47,12 @@ pub enum Instruction {
         or_else: Variable,
         out: Variable,
     },
+    ConditionalExpr {
+        cond: Variable,
+        then: Variable,
+        or_else: Variable,
+        out: Variable,
+    },
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
@@ -988,6 +994,14 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 } else {
                     writeln!(f, "// {content}")
                 }
+            }
+            Instruction::ConditionalExpr {
+                cond,
+                then,
+                or_else,
+                out,
+            } => {
+                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
             }
         }
     }

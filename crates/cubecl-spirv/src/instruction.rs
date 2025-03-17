@@ -323,6 +323,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::ConditionalExpr(op) => {
+                self.compile_select(op.cond, op.then, op.or_else, out, uniform)
+            }
         }
     }
 
