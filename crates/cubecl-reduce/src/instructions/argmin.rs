@@ -1,7 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceInstruction};
+use super::{
+    lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceCoordinates, ReduceCoordinatesExpand,
+    ReduceInstruction,
+};
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
 #[derive(Debug)]
@@ -35,6 +38,8 @@ impl ArgMin {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for ArgMin {
+    const REQUIRES_COORDINATE: bool = true;
+
     type AccumulatorItem = (Line<In>, Line<u32>);
     type SharedAccumulator = ArgAccumulator<In>;
 
@@ -57,9 +62,13 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        coordinate: Line<u32>,
+        coordinate: ReduceCoordinates,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
+        let coordinate = match coordinate {
+            ReduceCoordinates::Calculated(val) => val,
+            ReduceCoordinates::NotRequired => comptime![panic!["Should be calculated"]],
+        };
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_min(item);
             let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
