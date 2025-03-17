@@ -11,7 +11,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
@@ -22,6 +22,12 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
+}
+
+#[cube]
+pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
 
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
@@ -34,7 +40,12 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
 }
 
 #[derive(CubeType)]
-pub struct SyncLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy> {
+pub struct SyncLhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: SyncFullLoadingStrategy,
+> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     _config: PhantomData<S>,
@@ -42,7 +53,12 @@ pub struct SyncLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: Syn
 }
 
 #[derive(CubeType)]
-pub struct SyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy> {
+pub struct SyncRhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: SyncFullLoadingStrategy,
+> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     _config: PhantomData<S>,
@@ -50,7 +66,7 @@ pub struct SyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: Syn
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     InputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
@@ -69,7 +85,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncLhsLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -83,7 +99,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncLhsLoader<EG, ES, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
@@ -106,7 +122,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     InputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
@@ -125,7 +141,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncInputLoader<EG, ES, single_stage::Config<S>> for SyncRhsLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -139,7 +155,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncRhsLoader<EG, ES, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
