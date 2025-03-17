@@ -6,4 +6,3 @@ pub struct Binding {
     pub item: Item,
     pub size: Option<usize>,
 }
-

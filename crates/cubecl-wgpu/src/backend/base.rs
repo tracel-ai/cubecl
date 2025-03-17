@@ -10,6 +10,8 @@ use wgpu::{
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
 #[cfg(feature = "msl")]
+use cubecl_cpp::metal;
+#[cfg(feature = "msl2")]
 use super::metal;
 #[cfg(feature = "spirv")]
 use super::vulkan;
@@ -37,14 +39,26 @@ impl WgpuServer {
             Some(AutoRepresentation::Msl(repr)) => {
                 let source = &kernel.source;
                 unsafe {
-                    self.device.create_shader_module_msl(
-                        &wgpu::ShaderModuleDescriptorMsl {
+                    self.device
+                        .create_shader_module_msl(&wgpu::ShaderModuleDescriptorMsl {
                             entry_point: kernel.entrypoint_name.clone(),
                             label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(source),
                             num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
-                        },
-                    )
+                        })
+                }
+            }
+            #[cfg(feature = "msl2")]
+            Some(AutoRepresentation::Msl2(repr)) => {
+                let source = &kernel.source;
+                unsafe {
+                    self.device
+                        .create_shader_module_msl(&wgpu::ShaderModuleDescriptorMsl {
+                            entry_point: kernel.entrypoint_name.clone(),
+                            label: Some(&kernel.entrypoint_name),
+                            source: Cow::Borrowed(source),
+                            num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                        })
                 }
             }
             _ => {
@@ -76,6 +90,8 @@ impl WgpuServer {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(feature = "msl")]
             Some(AutoRepresentation::Msl(repr)) => Some(metal::bindings(repr)),
+            #[cfg(feature = "msl2")]
+            Some(AutoRepresentation::Msl2(repr)) => Some(metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
@@ -116,20 +132,19 @@ impl WgpuServer {
                 })
         });
 
-        let pipeline = Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        );
+        let pipeline = Arc::new(self.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some(&kernel.entrypoint_name),
+                layout: layout.as_ref(),
+                module: &module,
+                entry_point: Some(&kernel.entrypoint_name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
+                cache: None,
+            },
+        ));
         pipeline
     }
 }
@@ -161,7 +176,7 @@ pub fn register_features(
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
-    comp_options: &mut WgpuCompilationOptions,
+    comp_options: &mut CompilationOptions,
 ) {
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);

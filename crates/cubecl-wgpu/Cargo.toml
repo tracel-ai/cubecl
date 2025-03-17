@@ -15,10 +15,10 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "msl",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
-msl = ["cubecl-msl"]
+msl = ["cubecl-cpp"]
+msl2 = ["cubecl-msl"]
 spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
@@ -38,6 +38,7 @@ ash = { version = "0.38", optional = true }
 cubecl-spirv = { path = "../cubecl-spirv", version = "0.5.0", optional = true }
 
 # Metal
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.5.0", features = ["metal"], optional = true }
 cubecl-msl = { path = "../cubecl-msl", version = "0.5.0", optional = true }
 
 bytemuck = { workspace = true }
@@ -52,12 +53,12 @@ cfg-if = { workspace = true }
 
 # wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-wgpu = { path = "../../../../gfx-rs/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
+wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
 # wgpu = { version = "24.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 # On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
-wgpu = { path = "../../../../gfx-rs/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
+wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 # wgpu = { version = "24.0.0", features = [
 #     "vulkan-portability",
 #     "fragile-send-sync-non-atomic-wasm",

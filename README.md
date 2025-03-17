@@ -159,7 +159,7 @@ In this example, the total number of working units would be 27 x 27 = 729._
 
 Since all topology variables are constant within the kernel entry point, we chose to use the Rust constant syntax with capital letters.
 Often when creating kernels, we don't always care about the relative position of a unit within a cube along each axis, but often we only care about its position in general.
-Therefore, each kind of variable also has its own axis-independent variable, which is often not present in other languages, except WebGPU with `local_invocation_index`.
+Therefore, each kind of variable also has its own axis-independent variable, which is often not present in other languages.
 
 <br />
 

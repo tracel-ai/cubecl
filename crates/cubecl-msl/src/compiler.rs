@@ -7,7 +7,8 @@ use cubecl_core::{
 };
 
 use crate::{
-    AddressSpace, Binding, Body, ConstantArray, Elem, Instruction, Item, LocalArray, MetalKernel, SharedMemory, Subgroup, Variable
+    AddressSpace, Binding, Body, ConstantArray, Elem, Instruction, Item, LocalArray, MetalKernel,
+    SharedMemory, Subgroup, Variable,
 };
 
 /// Metal Compiler.
@@ -31,7 +32,6 @@ pub struct MslCompiler {
     // simd-groups
     pub thread_index_in_simdgroup: bool,
     pub threads_per_simdgroup: bool,
-
 
     num_inputs: usize,
     num_outputs: usize,
@@ -69,6 +69,10 @@ impl cubecl_core::Compiler for MslCompiler {
     fn elem_size(&self, elem: cube::Elem) -> usize {
         Self::compile_elem(elem).size()
     }
+
+    fn extension(&self) -> &'static str {
+        "msl"
+    }
 }
 
 impl MslCompiler {
@@ -96,21 +100,22 @@ impl MslCompiler {
         self.metadata = Metadata::new(num_meta as u32, num_ext);
 
         let instructions = self.compile_scope(&mut value.body);
-        let body = Body {
-            instructions,
-        };
+        let body = Body { instructions };
 
         // builtins inclusion rules
         let thread_index_in_grid = self.thread_index_in_grid;
         let thread_position_in_grid = self.thread_position_in_grid || thread_index_in_grid;
         let total_threads_in_threadgroup = self.total_threads_in_threadgroup;
-        let threads_per_threadgroup = self.threads_per_threadgroup || total_threads_in_threadgroup || thread_index_in_grid;
+        let threads_per_threadgroup =
+            self.threads_per_threadgroup || total_threads_in_threadgroup || thread_index_in_grid;
         let thread_index_in_threadgroup = self.thread_index_in_threadgroup;
-        let thread_position_in_threadgroup = self.thread_position_in_threadgroup || thread_index_in_threadgroup;
+        let thread_position_in_threadgroup =
+            self.thread_position_in_threadgroup || thread_index_in_threadgroup;
         let total_threadgroups_in_grid = self.total_threadgroups_in_grid;
         let threadgroups_per_grid = self.threadgroups_per_grid || thread_index_in_grid;
         let threadgroup_index_in_grid = self.threadgroup_index_in_grid;
-        let threadgroup_position_in_grid = self.threadgroup_position_in_grid || threadgroup_index_in_grid;
+        let threadgroup_position_in_grid =
+            self.threadgroup_position_in_grid || threadgroup_index_in_grid;
         let threads_per_simdgroup = self.threads_per_simdgroup;
         let thread_index_in_simdgroup = self.thread_index_in_simdgroup;
 
@@ -143,7 +148,6 @@ impl MslCompiler {
             threadgroup_position_in_grid,
             thread_index_in_simdgroup,
             threads_per_simdgroup,
-
 
             shared_memories: self.shared_memories.clone(),
             constant_arrays: self.const_arrays.clone(),
@@ -238,15 +242,15 @@ impl MslCompiler {
                 cube::Builtin::CubeDimX => {
                     self.threads_per_threadgroup = true;
                     Variable::ThreadsPerThreadgoupX
-                },
+                }
                 cube::Builtin::CubeDimY => {
                     self.threads_per_threadgroup = true;
                     Variable::ThreadsPerThreadgoupY
-                },
+                }
                 cube::Builtin::CubeDimZ => {
                     self.threads_per_threadgroup = true;
                     Variable::ThreadsPerThreadgoupZ
-                },
+                }
                 // thread position in threadgroup
                 cube::Builtin::UnitPos => {
                     self.thread_index_in_threadgroup = true;
@@ -318,9 +322,6 @@ impl MslCompiler {
                 Variable::GlobalScalar(id, Self::compile_elem(item.elem), item.elem)
             }
 
-
-
-
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 Variable::LocalMut {
                     id,
@@ -365,7 +366,7 @@ impl MslCompiler {
             }
             cube::VariableKind::Barrier { .. } => {
                 panic!("Barrier not supported.")
-            },
+            }
         }
     }
 
@@ -446,7 +447,7 @@ impl MslCompiler {
             }
             cube::Operation::Barrier(_) => {
                 panic!("Barrier isn't supported on wgpu.")
-            },
+            }
         }
     }
 
@@ -899,9 +900,6 @@ impl MslCompiler {
                 out: self.compile_variable(out),
             }),
 
-
-
-
             cube::Operator::Cast(op) => instructions.push(Instruction::Assign {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -1097,11 +1095,9 @@ impl MslCompiler {
 
     fn compile_location(value: compute::Location, visibility: compute::Visibility) -> AddressSpace {
         match value {
-            compute::Location::Storage => {
-                match visibility {
-                    Visibility::Read => AddressSpace::Constant,
-                    Visibility::ReadWrite => AddressSpace::Device,
-                }
+            compute::Location::Storage => match visibility {
+                Visibility::Read => AddressSpace::Constant,
+                Visibility::ReadWrite => AddressSpace::Device,
             },
             compute::Location::Cube => AddressSpace::ThreadGroup,
         }
@@ -1115,4 +1111,3 @@ impl MslCompiler {
         }
     }
 }
-

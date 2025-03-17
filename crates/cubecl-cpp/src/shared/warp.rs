@@ -67,21 +67,25 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
             WarpInstruction::ReduceMax { input, out } => reduce_comparison(f, input, out, "max"),
             WarpInstruction::ReduceMin { input, out } => reduce_comparison(f, input, out, "min"),
-            WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::warp_all),
-            WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::warp_any),
+            WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::compile_warp_all),
+            WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::compile_warp_any),
             WarpInstruction::Ballot { input, out } => {
                 assert_eq!(
                     input.item().vectorization,
                     1,
                     "Ballot can't support vectorized input"
                 );
-                let rhs = D::warp_ballot(&format!("{input}"));
                 let out_fmt = out.fmt_left();
                 write!(
                     f,
                     "
-{out_fmt} = {{ {rhs}, 0, 0, 0 }};
-            "
+{out_fmt} = {{ "
+                )?;
+                D::compile_warp_ballot(f, &format!("{input}"))?;
+                write!(
+                    f,
+                    ", 0, 0, 0 }};
+"
                 )
             }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
@@ -114,10 +118,15 @@ fn reduce_operator<D: Dialect>(
     let in_optimized = input.optimized();
     let acc_item = in_optimized.item();
 
-    reduce_with_loop(f, input, out, acc_item, |acc, index| {
+    reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
-        let shfl_xor = D::warp_shuffle_xor(&acc_indexed, "offset");
-        format!("{acc_indexed} {op} {shfl_xor};")
+        write!(f, "{acc_indexed} {op} ")?;
+        D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
+        write!(
+            f,
+            ";
+"
+        )
     })
 }
 
@@ -130,19 +139,24 @@ fn reduce_inclusive<D: Dialect>(
     let in_optimized = input.optimized();
     let acc_item = in_optimized.item();
 
-    reduce_with_loop(f, input, out, acc_item, |acc, index| {
+    reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
-        let shfl_up = D::warp_shuffle_up(&acc_indexed, "offset");
-        let tmp = Variable::tmp(Item::scalar(acc_item.elem));
-        let lane_id = Variable::<D>::ThreadIdxWarp;
-        format!(
+        let tmp = Variable::tmp(Item::scalar(acc_item.elem, false));
+        let tmp_left = tmp.fmt_left();
+        let lane_id = Variable::<D>::UnitPosPlane;
+        write!(
+            f,
             "
-{} = {shfl_up};
+{tmp_left} = "
+        )?;
+        D::compile_warp_shuffle_up(f, &acc_indexed, "offset")?;
+        write!(
+            f,
+            ";
 if({lane_id} >= offset) {{
     {acc_indexed} {op} {tmp};
 }}
-",
-            tmp.fmt_left()
+"
         )
     })
 }
@@ -163,14 +177,10 @@ fn reduce_exclusive<D: Dialect>(
     writeln!(f, "{} = {{", shfl.fmt_left())?;
     for k in 0..acc_item.vectorization {
         let inclusive_indexed = maybe_index(&inclusive, k);
-        writeln!(
-            f,
-            "{},",
-            D::warp_shuffle_up(&inclusive_indexed.to_string(), "1")
-        )?;
+        D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
     }
     writeln!(f, "}};")?;
-    let lane_id = Variable::<D>::ThreadIdxWarp;
+    let lane_id = Variable::<D>::UnitPosPlane;
 
     write!(
         f,
@@ -198,10 +208,15 @@ fn reduce_comparison<D: Dialect>(
         _ => cmp.to_string(),
     };
 
-    reduce_with_loop(f, input, out, acc_item, |acc, index| {
+    reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
-        let shfl_xor = D::warp_shuffle_xor(&acc_indexed, "offset");
-        format!("{acc_indexed} = {instruction}({acc_indexed}, {shfl_xor});")
+        write!(f, "{acc_indexed} = {instruction}({acc_indexed}, ")?;
+        D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
+        write!(
+            f,
+            ");
+"
+        )
     })
 }
 
@@ -211,15 +226,23 @@ fn reduce_broadcast<D: Dialect>(
     out: &Variable<D>,
     id: &Variable<D>,
 ) -> core::fmt::Result {
-    let rhs = (0..input.item().vectorization)
-        .map(|k| D::warp_shuffle(&format!("{}", input.index(k)), &format!("{id}")))
-        .collect::<Vec<_>>()
-        .join(",");
     let out_fmt = out.fmt_left();
-    writeln!(f, "{out_fmt} = {{ {rhs} }};")
+    write!(f, "{out_fmt} = {{ ")?;
+    for i in 0..input.item().vectorization {
+        let comma = if i > 0 { ", " } else { "" };
+        D::compile_warp_shuffle(f, &format!("{comma}{}", input.index(i)), &format!("{id}"))?;
+    }
+    write!(
+        f,
+        " }};
+"
+    )
 }
 
-fn reduce_with_loop<D: Dialect, I: Fn(&Variable<D>, usize) -> String>(
+fn reduce_with_loop<
+    D: Dialect,
+    I: Fn(&mut core::fmt::Formatter<'_>, &Variable<D>, usize) -> std::fmt::Result,
+>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -238,7 +261,7 @@ fn reduce_with_loop<D: Dialect, I: Fn(&Variable<D>, usize) -> String>(
         "    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{"
     )?;
     for k in 0..acc_item.vectorization {
-        writeln!(f, "        {}", instruction(&acc, k))?;
+        instruction(f, &acc, k)?;
     }
     writeln!(f, "    }};")?;
     writeln!(f, "    return {};", cast(&acc, out.item()))?;
@@ -246,18 +269,23 @@ fn reduce_with_loop<D: Dialect, I: Fn(&Variable<D>, usize) -> String>(
     writeln!(f, "{} = plane_{}();", out.fmt_left(), out)
 }
 
-fn reduce_quantifier<D: Dialect, Q: Fn(&str) -> String>(
+fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> std::fmt::Result>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
     quantifier: Q,
 ) -> core::fmt::Result {
-    let rhs = (0..input.item().vectorization)
-        .map(|k| quantifier(&format!("{}", input.index(k))))
-        .collect::<Vec<_>>()
-        .join(",");
     let out_fmt = out.fmt_left();
-    writeln!(f, "{out_fmt} = {{ {rhs} }};")
+    write!(f, "{out_fmt} = {{ ")?;
+    for i in 0..input.item().vectorization {
+        let comma = if i > 0 { ", " } else { "" };
+        quantifier(f, &format!("{comma}{}", input.index(i)))?;
+    }
+    write!(
+        f,
+        "}};
+"
+    )
 }
 
 fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {

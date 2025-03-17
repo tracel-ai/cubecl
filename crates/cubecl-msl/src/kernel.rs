@@ -69,7 +69,6 @@ pub struct MetalKernel {
     pub thread_index_in_simdgroup: bool,
     pub threads_per_simdgroup: bool,
 
-
     pub shared_memories: Vec<SharedMemory>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
@@ -80,28 +79,44 @@ pub struct MetalKernel {
 impl Display for MetalKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // includes and namespaces -------------------------------------------
-        write!(f, "
+        write!(
+            f,
+            "
 #include <metal_stdlib>
 using namespace metal;
 "
         )?;
 
         // Kernel signature --------------------------------------------------
-        write!(f, "
+        write!(
+            f,
+            "
 [[kernel]]
-void {}(", self.kernel_name)?;
+void {}(",
+            self.kernel_name
+        )?;
         self.format_global_bindings_args(f)?;
         self.format_metal_builtin_bindings_args(f)?;
-        write!(f, "
-)")?;
+        write!(
+            f,
+            "
+)"
+        )?;
+
         // Body --------------------------------------------------------------
-        write!(f, "{{
-")?;
+        write!(
+            f,
+            "{{
+"
+        )?;
         self.format_cube_builtin_bindings_decl(f)?;
         write!(f, "{}", self.body)?;
-        write!(f, "
+        write!(
+            f,
+            "
 }}
-")?;
+"
+        )?;
 
         Ok(())
     }
@@ -125,7 +140,13 @@ impl MetalKernel {
         Ok(())
     }
 
-    fn format_global_binding_arg(name: &str, binding: &Binding, suffix: Option<&str>, attr_idx: usize, f: &mut core::fmt::Formatter<'_>)  -> core::fmt::Result {
+    fn format_global_binding_arg(
+        name: &str,
+        binding: &Binding,
+        suffix: Option<&str>,
+        attr_idx: usize,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
         let suffix = suffix.map_or("".into(), |s| format!("_{s}"));
         let (pointer, size) = match binding.size {
             Some(size) => ("".to_string(), format!("[{}]", size)),
@@ -137,43 +158,65 @@ impl MetalKernel {
         let ty = binding.item;
         let attribute = binding.address_space.attribute();
 
-        write!(
-            f,
-            "{comma}\n{address_space} {ty}{pointer} g_{name}{suffix}",
-        )?;
+        write!(f, "{comma}\n{address_space} {ty}{pointer} g_{name}{suffix}",)?;
         // attribute
         attribute.indexed_fmt(attr_idx, f)?;
         write!(f, "{size}")
     }
 
-    fn format_metal_builtin_bindings_args(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn format_metal_builtin_bindings_args(
+        &self,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
         let builtins = vec![
             (self.thread_position_in_grid, Variable::ThreadPositionInGrid),
             (self.threads_per_threadgroup, Variable::ThreadsPerThreadgoup),
             (self.threadgroups_per_grid, Variable::ThreadgroupsPerGrid),
-            (self.thread_index_in_threadgroup, Variable::ThreadIndexInThreadgroup),
-            (self.thread_position_in_threadgroup, Variable::ThreadPositionInThreadgroup),
-            (self.threadgroup_position_in_grid, Variable::ThreadgroupPositionInGrid),
-            (self.thread_index_in_simdgroup, Variable::ThreadIndexInSIMDgroup),
+            (
+                self.thread_index_in_threadgroup,
+                Variable::ThreadIndexInThreadgroup,
+            ),
+            (
+                self.thread_position_in_threadgroup,
+                Variable::ThreadPositionInThreadgroup,
+            ),
+            (
+                self.threadgroup_position_in_grid,
+                Variable::ThreadgroupPositionInGrid,
+            ),
+            (
+                self.thread_index_in_simdgroup,
+                Variable::ThreadIndexInSIMDgroup,
+            ),
             (self.threads_per_simdgroup, Variable::ThreadsPerSIMDgroup),
         ];
-        builtins.iter().filter(|(cond, _)| *cond).try_for_each(|(_, var)| self.format_metal_builtin_binding_arg(var, f))?;
+        builtins
+            .iter()
+            .filter(|(cond, _)| *cond)
+            .try_for_each(|(_, var)| self.format_metal_builtin_binding_arg(var, f))?;
         Ok(())
     }
 
-    fn format_metal_builtin_binding_arg(&self, variable: &Variable, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn format_metal_builtin_binding_arg(
+        &self,
+        variable: &Variable,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
         let ty = variable.item();
         let attribute = variable.attribute();
         let comma = if self.inputs.len() > 0 || self.outputs.len() > 0 || self.named.len() > 0 {
-            "," } else {""};
-        write!(
-            f,
-            "{comma}\n{ty} {variable} {attribute}",
-        )?;
+            ","
+        } else {
+            ""
+        };
+        write!(f, "{comma}\n{ty} {variable} {attribute}",)?;
         Ok(())
     }
 
-    fn format_cube_builtin_bindings_decl(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn format_cube_builtin_bindings_decl(
+        &self,
+        f: &mut core::fmt::Formatter<'_>,
+    ) -> core::fmt::Result {
         if self.thread_index_in_grid {
             let variable = Variable::ThreadIndexInGrid;
             let ty = variable.item();
@@ -222,7 +265,7 @@ impl MetalKernel {
             let ty = variable.item();
             let threadgroup_position_in_grid_x = Variable::ThreadgroupPositionInGridX;
             let threadgroup_position_in_grid_y = Variable::ThreadgroupPositionInGridY;
-            let threadgroup_position_in_grid_z= Variable::ThreadgroupPositionInGridZ;
+            let threadgroup_position_in_grid_z = Variable::ThreadgroupPositionInGridZ;
             let threadgroups_per_grid_x = Variable::ThreadgroupsPerGridX;
             let threadgroups_per_grid_y = Variable::ThreadgroupsPerGridY;
             write!(

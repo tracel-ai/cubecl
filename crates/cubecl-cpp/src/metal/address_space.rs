@@ -1,6 +1,8 @@
-use cubecl_core::compute::Visibility;
+use cubecl_core::compute::{Location, Visibility};
 
-use crate::BufferAttribute;
+use crate::{shared::Binding, Dialect};
+
+use super::BufferAttribute;
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -39,3 +41,16 @@ impl Into<Visibility> for AddressSpace {
     }
 }
 
+impl<D: Dialect> From<&Binding<D>> for AddressSpace {
+    fn from(value: &Binding<D>) -> Self {
+        match value.vis {
+            Visibility::Read => AddressSpace::Constant,
+            Visibility::ReadWrite => {
+                match value.location {
+                    Location::Storage => AddressSpace::Device,
+                    Location::Cube => AddressSpace::ThreadGroup,
+                }
+            },
+        }
+    }
+}

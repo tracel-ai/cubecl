@@ -1,5 +1,5 @@
-use cubecl_core::ir as cube;
 use crate::{BuiltInAttribute, Elem, Item};
+use cubecl_core::ir as cube;
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,13 +16,13 @@ pub enum Variable {
     //
     // Units
     // thread position in grid
-    ThreadIndexInGrid,                  // *
+    ThreadIndexInGrid, // *
     ThreadPositionInGrid,
     ThreadPositionInGridX,
     ThreadPositionInGridY,
     ThreadPositionInGridZ,
     // thread count in threadgroup
-    TotalThreadsInThreadgroup,          // *
+    TotalThreadsInThreadgroup, // *
     ThreadsPerThreadgoup,
     ThreadsPerThreadgoupX,
     ThreadsPerThreadgoupY,
@@ -36,13 +36,13 @@ pub enum Variable {
     // Cubes
     //
     // threadgroup count in grid
-    TotalThreadgroupsInGrid,            // *
+    TotalThreadgroupsInGrid, // *
     ThreadgroupsPerGrid,
     ThreadgroupsPerGridX,
     ThreadgroupsPerGridY,
     ThreadgroupsPerGridZ,
     // threadgroup position in grid
-    ThreadgroupIndexInGrid,             // *
+    ThreadgroupIndexInGrid, // *
     ThreadgroupPositionInGrid,
     ThreadgroupPositionInGridX,
     ThreadgroupPositionInGridY,
@@ -53,17 +53,28 @@ pub enum Variable {
     ThreadsPerSIMDgroup,
     ThreadIndexInSIMDgroup,
 
-
-
     ConstantArray(cube::Id, Item, u32),
     ConstantScalar(cube::ConstantScalarValue, Elem),
     LocalArray(cube::Id, Item, u32),
-    LocalConst {id: cube::Id, item: Item},
-    LocalMut {id: cube::Id, item: Item},
+    LocalConst {
+        id: cube::Id,
+        item: Item,
+    },
+    LocalMut {
+        id: cube::Id,
+        item: Item,
+    },
     // TODO: is is_array necessary
-    Named {name: String, item: Item, is_array: bool},
+    Named {
+        name: String,
+        item: Item,
+        is_array: bool,
+    },
     SharedMemory(cube::Id, Item, u32),
-    Slice {id: cube::Id, item: Item},
+    Slice {
+        id: cube::Id,
+        item: Item,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -161,11 +172,6 @@ impl Variable {
             Self::ThreadsPerSIMDgroup => Item::Scalar(Elem::U32),
             Self::ThreadIndexInSIMDgroup => Item::Scalar(Elem::U32),
 
-
-
-
-
-
             Variable::SharedMemory(_, e, _) => *e,
             Variable::ConstantArray(_, e, _) => *e,
             Variable::LocalArray(_, e, _) => *e,
@@ -218,9 +224,15 @@ impl Display for Variable {
             // thread position in threadgroup
             Self::ThreadIndexInThreadgroup => f.write_str("thread_index_in_threadgroup"),
             Self::ThreadPositionInThreadgroup => f.write_str("thread_position_in_threadgroup"),
-            Self::ThreadPositionInThreadgroupX => write!(f, "{}.x", Self::ThreadPositionInThreadgroup),
-            Self::ThreadPositionInThreadgroupY => write!(f, "{}.y", Self::ThreadPositionInThreadgroup),
-            Self::ThreadPositionInThreadgroupZ => write!(f, "{}.z", Self::ThreadPositionInThreadgroup),
+            Self::ThreadPositionInThreadgroupX => {
+                write!(f, "{}.x", Self::ThreadPositionInThreadgroup)
+            }
+            Self::ThreadPositionInThreadgroupY => {
+                write!(f, "{}.y", Self::ThreadPositionInThreadgroup)
+            }
+            Self::ThreadPositionInThreadgroupZ => {
+                write!(f, "{}.z", Self::ThreadPositionInThreadgroup)
+            }
             // threadgroup count in grid
             Self::TotalThreadgroupsInGrid => f.write_str("total_threadgroups_in_grid"),
             Self::ThreadgroupsPerGrid => f.write_str("threadgroups_per_grid"),
@@ -236,9 +248,6 @@ impl Display for Variable {
             // simd-groups
             Self::ThreadsPerSIMDgroup => f.write_str("threads_per_simdgroup"),
             Self::ThreadIndexInSIMDgroup => f.write_str("thread_index_in_simdgroup"),
-
-
-
 
             // We do the conversion in Rust and then render the number to avoid overflow or other
             // precision related problems.
@@ -258,7 +267,6 @@ impl Display for Variable {
                 cube::ConstantScalarValue::UInt(val, _) => write!(f, "{}u", *val as u32),
                 cube::ConstantScalarValue::Bool(val) => write!(f, "{}", val),
             },
-
         }
     }
 }

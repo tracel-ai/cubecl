@@ -7,6 +7,8 @@ use cubecl_core::{
     server::ComputeServer,
 };
 use derive_more::derive::From;
+#[cfg(feature = "msl")]
+use cubecl_cpp::shared::MslComputeKernel;
 
 use crate::{WgpuServer, WgslCompiler};
 
@@ -19,7 +21,9 @@ pub enum AutoCompiler {
     #[cfg(feature = "spirv")]
     SpirV(cubecl_spirv::SpirvCompiler),
     #[cfg(feature = "msl")]
-    Msl(cubecl_msl::MslCompiler),
+    Msl(cubecl_cpp::MslCompiler),
+    #[cfg(feature = "msl2")]
+    Msl2(cubecl_msl::MslCompiler),
 }
 
 #[derive(From)]
@@ -29,7 +33,9 @@ pub enum AutoRepresentation {
     #[cfg(feature = "spirv")]
     SpirV(cubecl_spirv::SpirvKernel),
     #[cfg(feature = "msl")]
-    Msl(cubecl_msl::MetalKernel),
+    Msl(MslComputeKernel),
+    #[cfg(feature = "msl2")]
+    Msl2(cubecl_msl::MetalKernel),
 }
 
 #[cfg(feature = "spirv")]
@@ -44,9 +50,19 @@ impl AutoRepresentation {
 
 #[cfg(feature = "msl")]
 impl AutoRepresentation {
-    pub fn as_msl(&self) -> Option<&cubecl_msl::MetalKernel> {
+    pub fn as_msl(&self) -> Option<&MslComputeKernel> {
         match self {
             AutoRepresentation::Msl(repr) => Some(repr),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(feature = "msl2")]
+impl AutoRepresentation {
+    pub fn as_msl(&self) -> Option<&cubecl_msl::MetalKernel> {
+        match self {
+            AutoRepresentation::Msl2(repr) => Some(repr),
             _ => None,
         }
     }
@@ -60,6 +76,8 @@ impl Display for AutoRepresentation {
             AutoRepresentation::SpirV(spirv_kernel) => spirv_kernel.fmt(f),
             #[cfg(feature = "msl")]
             AutoRepresentation::Msl(compute_shader) => compute_shader.fmt(f),
+            #[cfg(feature = "msl2")]
+            AutoRepresentation::Msl2(compute_shader) => compute_shader.fmt(f),
         }
     }
 }
@@ -85,6 +103,13 @@ impl Compiler for AutoCompiler {
             }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(msl_compiler) => {
+                // override compilation options with cpp compiler options for metal
+                use cubecl_cpp;
+                let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
+                Compiler::compile(msl_compiler, kernel, &compilation_options, mode).into()
+            }
+            #[cfg(feature = "msl2")]
+            AutoCompiler::Msl2(msl_compiler) => {
                 Compiler::compile(msl_compiler, kernel, compilation_options, mode).into()
             }
         }
@@ -97,6 +122,8 @@ impl Compiler for AutoCompiler {
             AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(msl_compiler) => msl_compiler.elem_size(elem),
+            #[cfg(feature = "msl2")]
+            AutoCompiler::Msl2(msl_compiler) => msl_compiler.elem_size(elem),
         }
     }
 
@@ -105,6 +132,10 @@ impl Compiler for AutoCompiler {
             AutoCompiler::Wgsl(_) => "wgsl",
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(_) => "spv",
+            #[cfg(feature = "msl")]
+            AutoCompiler::Msl(_) => "msl",
+            #[cfg(feature = "msl2")]
+            AutoCompiler::Msl2(_) => "msl",
         }
     }
 }
@@ -122,6 +153,8 @@ impl AutoCompiler {
             AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, mode),
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(_) => kernel.compile(self, &server.compilation_options, mode),
+            #[cfg(feature = "msl2")]
+            AutoCompiler::Msl2(_) => kernel.compile(self, &server.compilation_options, mode),
         }
     }
 
@@ -132,6 +165,8 @@ impl AutoCompiler {
             AutoCompiler::SpirV(_) => "spirv",
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(_) => "msl",
+            #[cfg(feature = "msl2")]
+            AutoCompiler::Msl2(_) => "msl",
         }
     }
 }

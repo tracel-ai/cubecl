@@ -6,6 +6,8 @@ use super::{
 };
 use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 
+const INFO_NAME: &'static str = "g_info";
+
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
     pub lhs: Variable<D>,
@@ -472,7 +474,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[{info_offset}];")
+                writeln!(f, "{out} = {INFO_NAME}[{info_offset}];")
             }
             Instruction::ExtendedMetadata {
                 info_offset,
@@ -480,7 +482,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 out,
             } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[info[{info_offset}] + {dim}];")
+                writeln!(f, "{out} = {INFO_NAME}[info[{info_offset}] + {dim}];")
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),

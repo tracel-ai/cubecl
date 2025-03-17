@@ -439,7 +439,6 @@ impl Display for Instruction {
                 }
             }
 
-
             Instruction::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();

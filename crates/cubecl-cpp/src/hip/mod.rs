@@ -1,6 +1,8 @@
 pub mod arch;
-
 pub mod dialect;
-pub use dialect::*;
+mod extension;
 
+pub use dialect::*;
+use extension::*;
 pub mod mma;
+

@@ -1,63 +1,60 @@
-use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{CubeDim, compute::Visibility, ir::Id};
+use super::{Body, Component, Dialect, Elem, Flags, Item, Variable};
+use cubecl_core::{compute::{Location, Visibility}, ir::Id, CubeDim};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding<D: Dialect> {
-    pub item: Item<D>,
-    pub size: Option<usize>,
-    pub vis: Visibility,
+pub item: Item<D>,
+pub location: Location,
+pub size: Option<usize>,
+pub vis: Visibility,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: u32,
+pub index: Id,
+pub item: Item<D>,
+pub size: u32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ConstArray<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: u32,
-    pub values: Vec<Variable<D>>,
+pub index: Id,
+pub item: Item<D>,
+pub size: u32,
+pub values: Vec<Variable<D>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: u32,
+pub index: Id,
+pub item: Item<D>,
+pub size: u32,
 }
 
 impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-        Self { index, item, size }
-    }
+pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+    Self { index, item, size }
+}
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-        Self { index, item, size }
-    }
+pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+    Self { index, item, size }
+}
 }
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub inputs: Vec<Binding<D>>,
-    pub outputs: Vec<Binding<D>>,
-    pub named: Vec<(String, Binding<D>)>,
-    pub cube_dim: CubeDim,
     pub body: Body<D>,
-    pub wmma_activated: bool,
-    pub pipeline: bool,
-    pub barrier: bool,
-    pub bf16: bool,
-    pub f16: bool,
-    pub fast_math: bool,
+    pub cube_dim: CubeDim,
+    pub extensions: Vec<D::Extension>,
+    pub flags: Flags,
+    pub inputs: Vec<Binding<D>>,
     pub items: HashSet<super::Item<D>>,
     pub kernel_name: String,
+    pub named: Vec<(String, Binding<D>)>,
+    pub outputs: Vec<Binding<D>>,
 }
 
 impl<D: Dialect> ComputeKernel<D> {
@@ -76,120 +73,176 @@ impl<D: Dialect> ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.bf16 {
-            D::include_bf16(f)?;
-        }
+        // Program Scope -----------------------------------------------------
+        D::compile_includes(f, &self.flags)?;
+        D::compile_type_definitions(f, &self.items, &self.flags)?;
+        D::compile_extensions(f, &self.extensions)?;
 
-        if self.f16 {
-            D::include_f16(f)?;
-        }
+        // Kernel signature --------------------------------------------------
+        D::compile_kernel_signature(f, &self.kernel_name, &self.inputs, &self.outputs, &self.named, &self.flags)?;
 
-        if self.wmma_activated {
-            D::wmma_includes(f)?;
-        }
-
-        if self.pipeline {
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
-            f.write_str("#include <cuda/pipeline>\n")?;
-        }
-        if self.barrier {
-            f.write_str("#include <cooperative_groups.h>\n")?;
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
-            f.write_str("#include <cuda/barrier>\n")?;
-        }
-
-        f.write_str("typedef unsigned char uint8;\n")?;
-        f.write_str("typedef unsigned short uint16;\n")?;
-        f.write_str("typedef unsigned int uint;\n")?;
-        f.write_str("typedef unsigned long long int uint64;\n")?;
-        f.write_str("typedef long long int int64;\n")?;
-        D::deftypes(f)?;
-
-        for item in self.items.iter() {
-            let elem = item.elem;
-            let size = item.vectorization;
-            let alignment = elem.size() * size;
-            if size > 1 {
-                write!(
-                    f,
-                    "
-struct __align__({alignment}) {item} {{"
-                )?;
-
-                for i in 0..size {
-                    write!(
-                        f,
-                        "
-    {elem} i_{i};"
-                    )?;
-                }
-
-                f.write_str("\n};\n")?;
-            }
-        }
-
-        write!(
-            f,
-            "
-
-extern \"C\" __global__ void {}(
-",
-            self.kernel_name
-        )?;
-
-        let num_bindings = self.inputs.len() + self.outputs.len() + self.named.len();
-        let mut binding_index = 0;
-        for (index, binding) in self.inputs.iter().enumerate() {
-            binding_index += 1;
-            match binding.vis {
-                Visibility::Read => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
-                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                    // we should have multiple pointer types to enable that optimization.
-                    //
-                    // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
-                }
-                Visibility::ReadWrite => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
-                }
-            }
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-        for (index, binding) in self.outputs.iter().enumerate() {
-            binding_index += 1;
-            write!(f, "{} output_{}[]", binding.item, index)?;
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-        for (name, binding) in self.named.iter() {
-            binding_index += 1;
-
-            match binding.vis {
-                Visibility::Read => {
-                    write!(f, "{} {}[]", binding.item, name)?;
-                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                    // we should have multiple pointer types to enable that optimization.
-                    //
-                    // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
-                }
-                Visibility::ReadWrite => {
-                    write!(f, "{} {}[]", binding.item, name)?;
-                }
-            }
-
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-
-        f.write_str("\n) {\n")?;
-
+        // Body --------------------------------------------------------------
+        f.write_str(" {\n")?;
+        compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
         write!(f, "{}", self.body)?;
         f.write_str("\n}")?;
 
         Ok(())
     }
+}
+
+pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "typedef unsigned char {};\n", Elem::<D>::U8)?;
+    write!(f, "typedef unsigned short {};\n", Elem::<D>::U16)?;
+    write!(f, "typedef unsigned int {};\n", Elem::<D>::U32)?;
+    write!(f, "typedef unsigned long long int {};\n", Elem::<D>::U64)?;
+    write!(f, "typedef long long int {};\n", Elem::<D>::I64)?;
+    Ok(())
+}
+
+pub fn type_vectorized_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>, items: &HashSet<Item<D>>)  -> std::fmt::Result {
+    for item in items.iter() {
+        let elem = item.elem;
+        let size = item.vectorization;
+        let alignment = elem.size() * size;
+        if size > 1 {
+            write!(
+                f,
+                "
+struct __align__({alignment}) {item} {{"
+            )?;
+
+            for i in 0..size {
+                write!(
+                    f,
+                    "
+    {elem} i_{i};"
+                )?;
+            }
+
+            f.write_str("\n};\n")?;
+        }
+    }
+    Ok(())
+}
+
+pub fn compile_bindings<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    inputs: &Vec<Binding<D>>,
+    outputs: &Vec<Binding<D>>,
+    named: &Vec<(String, Binding<D>)>,
+) -> std::fmt::Result {
+    let num_bindings = inputs.len() + outputs.len() + named.len();
+    let mut binding_index = 0;
+    for (index, binding) in inputs.iter().enumerate() {
+        binding_index += 1;
+        match binding.vis {
+            Visibility::Read => {
+                write!(f, "{} input_{}[]", binding.item, index)?;
+                // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                // we should have multiple pointer types to enable that optimization.
+                //
+                // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+            }
+            Visibility::ReadWrite => {
+                write!(f, "{} input_{}[]", binding.item, index)?;
+            }
+        }
+        if binding_index < num_bindings {
+            f.write_str(",")?;
+        }
+    }
+    for (index, binding) in outputs.iter().enumerate() {
+        binding_index += 1;
+        write!(f, "{} output_{}[]", binding.item, index)?;
+        if binding_index < num_bindings {
+            f.write_str(",")?;
+        }
+    }
+    for (name, binding) in named.iter() {
+        binding_index += 1;
+
+        match binding.vis {
+            Visibility::Read => {
+                write!(f, "{} {}[]", binding.item, name)?;
+                // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                // we should have multiple pointer types to enable that optimization.
+                //
+                // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
+            }
+            Visibility::ReadWrite => {
+                write!(f, "{} {}[]", binding.item, name)?;
+            }
+        }
+
+        if binding_index < num_bindings {
+            f.write_str(",")?;
+        }
+    }
+    Ok(())
+}
+
+fn compile_cube_builtin_bindings_decl<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    settings: &Flags,
+) -> core::fmt::Result {
+    if settings.var_absolute_pos_global {
+        let variable = Variable::<D>::AbsolutePosGlobal;
+        let ty = variable.item();
+        let absolute_pos_x = Variable::<D>::AbsolutePosX;
+        let absolute_pos_y = Variable::<D>::AbsolutePosY;
+        let absolute_pos_z = Variable::<D>::AbsolutePosZ;
+        let cube_count_x = Variable::<D>::CubeCountX;
+        let cube_count_y = Variable::<D>::CubeCountY;
+        let cube_dim_x = Variable::<D>::CubeDimX;
+        let cube_dim_y = Variable::<D>::CubeDimY;
+        write!(
+            f,
+            "{ty} {variable} = ({absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y}) + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x}) + {absolute_pos_x};
+ ",
+        )?;
+    }
+
+    if settings.var_cube_dim_global {
+        let variable = Variable::<D>::CubeDimGlobal;
+        let ty = variable.item();
+        let cube_dim_x = Variable::<D>::CubeDimX;
+        let cube_dim_y = Variable::<D>::CubeDimY;
+        let cube_dim_z = Variable::<D>::CubeDimZ;
+        write!(
+            f,
+            "{ty} {variable} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};
+ ",
+        )?;
+    }
+
+    if settings.var_cube_count_global {
+        let variable = Variable::<D>::CubeCountGlobal;
+        let ty = variable.item();
+        let cube_count_x = Variable::<D>::CubeCountX;
+        let cube_count_y = Variable::<D>::CubeCountY;
+        let cube_count_z = Variable::<D>::CubeCountZ;
+        write!(
+            f,
+            "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};
+ ",
+        )?;
+    }
+
+    if settings.var_cube_pos_global {
+        let variable = Variable::<D>::CubePosGlobal;
+        let ty = variable.item();
+        let cube_pos_x = Variable::<D>::CubePosX;
+        let cube_pos_y = Variable::<D>::CubePosY;
+        let cube_pos_z = Variable::<D>::CubePosZ;
+        let cube_count_x = Variable::<D>::CubeCountX;
+        let cube_count_y = Variable::<D>::CubeCountY;
+        write!(
+            f,
+            "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};
+ ",
+        )?;
+    }
+
+    Ok(())
 }

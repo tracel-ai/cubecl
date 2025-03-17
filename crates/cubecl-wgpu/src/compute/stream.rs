@@ -632,7 +632,9 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index)).unwrap();
+                        device
+                            .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index))
+                            .unwrap();
 
                         *tasks_count_submitted = 0;
                     }

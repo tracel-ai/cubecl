@@ -1,7 +1,6 @@
 use crate::Elem;
 use std::fmt::Display;
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Item {
     Vec4(Elem),
@@ -41,9 +40,9 @@ impl Item {
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Vec4(elem) |
-            Self::Vec3(elem) |
-            Self::Vec2(elem) => write!(f, "vec<{elem}, {}>", self.vectorization_factor()),
+            Self::Vec4(elem) | Self::Vec3(elem) | Self::Vec2(elem) => {
+                write!(f, "vec<{elem}, {}>", self.vectorization_factor())
+            }
             Self::Scalar(elem) => write!(f, "{elem}"),
         }
     }

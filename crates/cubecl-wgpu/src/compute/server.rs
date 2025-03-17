@@ -86,7 +86,10 @@ impl WgpuServer {
         let mut compile = compiler.compile(self, kernel, mode);
 
         if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new(&compiler.lang_tag(), kernel_id.clone()));
+            compile.debug_info = Some(DebugInformation::new(
+                &compiler.lang_tag(),
+                kernel_id.clone(),
+            ));
         }
         let compile = self.logger.debug(compile);
         // {
@@ -162,24 +165,7 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources: Vec<_> = bindings
-            .iter()
-            .map(|binding| self.get_resource(binding.clone()).into_resource())
-            .collect();
-
-        // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
-        // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch = match count.clone() {
-            CubeCount::Dynamic(binding) => {
-                PipelineDispatch::Dynamic(self.get_resource(binding).into_resource())
-            }
-            CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
-        };
-
-        // self.stream.register(pipeline, resources, dispatch);
+        self.stream.register(pipeline, bindings, &count);
 
         // // If profiling, write out results.
         if let Some(level) = profile_level {
@@ -274,6 +260,8 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
         #[cfg(feature = "msl")]
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
+        #[cfg(feature = "msl2")]
+        wgpu::Backend::Metal => AutoCompiler::Msl2(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
 }

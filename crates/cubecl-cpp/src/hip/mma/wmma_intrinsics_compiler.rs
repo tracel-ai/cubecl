@@ -1,8 +1,8 @@
 use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Architecture, Component, Elem, Fragment, FragmentIdent, FragmentLayout,
-        SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction,
+        Architecture, Component, DialectWmmaCompiler, Elem, Fragment, FragmentIdent,
+        FragmentLayout, SupportedWmmaCombinations, Variable, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -10,15 +10,15 @@ use cubecl_core::ir::{self as gpu};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
 
-impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
+impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     type Architecture = AMDArchitecture;
 
-    fn wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // nothing to do
         Ok(())
     }
 
-    fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_type_definitions(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
         f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
         f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
@@ -26,7 +26,7 @@ impl WmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
-    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively
         // in other words fragments are duplicated
         // so lanes 0,16 / 1,17 / ... / 15, 31 are the same
