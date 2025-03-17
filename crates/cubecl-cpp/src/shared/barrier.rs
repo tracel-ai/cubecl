@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use cubecl_core::ir::BarrierLevel;
 
+use crate::shared::FmtLeft;
+
 use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,7 @@ pub enum BarrierOps<D: Dialect> {
     Init {
         barrier: Variable<D>,
         level: BarrierLevel,
+        with_proxy_fence: bool,
     },
     MemCopyAsync {
         barrier: Variable<D>,
@@ -16,7 +19,29 @@ pub enum BarrierOps<D: Dialect> {
         destination: Variable<D>,
         level: BarrierLevel,
     },
+    MemCopyAsyncBulkGlobalToShared {
+        barrier: Variable<D>,
+        smem_buffer: Variable<D>,
+        tensor_map: Variable<D>,
+        indices: Vec<Variable<D>>,
+    },
+    Arrive {
+        barrier: Variable<D>,
+        level: BarrierLevel,
+        out: Variable<D>,
+    },
+    ArriveTx {
+        barrier: Variable<D>,
+        arrive_count_update: Variable<D>,
+        transaction_count_update: Variable<D>,
+        out: Variable<D>,
+    },
     Wait {
+        barrier: Variable<D>,
+        token: Variable<D>,
+        level: BarrierLevel,
+    },
+    ArriveAndWait {
         barrier: Variable<D>,
         level: BarrierLevel,
     },
@@ -27,7 +52,11 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::ArriveAndWait { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::Arrive { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::ArriveTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::MemCopyAsyncBulkGlobalToShared { barrier, .. } => barrier.id().unwrap(),
         }
     }
 }
@@ -35,36 +64,46 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::Init { barrier, level } => match level {
-                BarrierLevel::Unit => write!(
-                    f,
-                    "
+            BarrierOps::Init {
+                barrier,
+                level,
+                with_proxy_fence,
+            } => {
+                let proxy_fence = match with_proxy_fence {
+                    true => "\ncuda::device::experimental::fence_proxy_async_shared_cta();",
+                    false => "",
+                };
+                match level {
+                    BarrierLevel::Unit => write!(
+                        f,
+                        "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-init(&{barrier}, 1);
+init(&{barrier}, 1);{proxy_fence}
                 "
-                ),
-                BarrierLevel::CubeCoop(elected_unit) => write!(
-                    f,
-                    "
+                    ),
+                    BarrierLevel::CubeCoop(elected_unit) => write!(
+                        f,
+                        "
 cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);
+   init(&{barrier}, blockDimGlobal);{proxy_fence}
 }}
 __syncthreads();
 "
-                ),
-                BarrierLevel::CubeManual(elected_unit) => write!(
-                    f,
-                    "
+                    ),
+                    BarrierLevel::CubeManual(elected_unit) => write!(
+                        f,
+                        "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);
+   init(&{barrier}, blockDimGlobal);{proxy_fence}
 }}
 __syncthreads();
 "
-                ),
-            },
+                    ),
+                }
+            }
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,
@@ -94,13 +133,38 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     ),
                 }
             }
-
-            BarrierOps::Wait { barrier, level: _ } => write!(
-                f,
-                "
-{barrier}.arrive_and_wait();
-            "
-            ),
+            BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                barrier,
+                smem_buffer,
+                tensor_map,
+                indices,
+            } => {
+                let rank = indices.len();
+                let indices = indices
+                    .iter()
+                    .map(|it| format!("{it}, "))
+                    .collect::<String>();
+                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier})")
+            }
+            BarrierOps::Arrive { barrier, out, .. } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {barrier}.arrive();")
+            }
+            BarrierOps::ArriveTx {
+                barrier,
+                out,
+                arrive_count_update,
+                transaction_count_update,
+            } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});")
+            }
+            BarrierOps::Wait { barrier, token, .. } => {
+                writeln!(f, "{barrier}.wait(std::move({token}));")
+            }
+            BarrierOps::ArriveAndWait { barrier, .. } => {
+                writeln!(f, "{barrier}.arrive_and_wait();")
+            }
         }
     }
 }

@@ -28,11 +28,11 @@ use cudarc::driver::sys::{
     CUtensorMapSwizzle,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::{collections::HashMap, mem::MaybeUninit};
 use std::{ffi::CStr, os::raw::c_void};
 
 #[cfg(feature = "cache-ptx")]

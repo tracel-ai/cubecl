@@ -183,7 +183,7 @@ where
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-            barrier.wait();
+            barrier.arrive_and_wait();
 
             SMM::execute(
                 lhs_stage_reader,

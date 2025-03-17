@@ -8,6 +8,7 @@ use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount, Handle};
 
 /// The position of the input or output to calculate the number of cubes to launch.
+#[allow(clippy::large_enum_variant)]
 pub enum CubeCountSettings {
     Input { pos: usize },
     Output { pos: usize },

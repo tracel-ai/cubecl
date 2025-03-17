@@ -2,7 +2,7 @@
 
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Instruction};
 
 use crate::{
     ir::{BarrierOps, Item, Scope},
@@ -153,7 +153,7 @@ impl<C: CubePrimitive> Barrier<C> {
     }
 
     /// Wait until all data is loaded
-    pub fn wait(&self) {
+    pub fn arrive_and_wait(&self) {
         unexpanded!()
     }
 
@@ -176,8 +176,8 @@ impl<C: CubePrimitive> Barrier<C> {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
 
-    pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
-        expand.__expand_wait_method(scope);
+    pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_arrive_and_wait_method(scope);
     }
 }
 
@@ -192,17 +192,13 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let source = *source.expand;
         let destination = *destination.expand;
 
-        let mem_copy = BarrierOps::MemCopyAsync {
-            barrier,
-            source,
-            destination,
-        };
+        let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
 
-        scope.register(mem_copy);
+        scope.register(Instruction::new(mem_copy, destination));
     }
 
-    pub fn __expand_wait_method(&self, scope: &mut Scope) {
+    pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {
         let barrier = *self.elem;
-        scope.register(BarrierOps::Wait { barrier });
+        scope.register(BarrierOps::ArriveAndWait { barrier });
     }
 }

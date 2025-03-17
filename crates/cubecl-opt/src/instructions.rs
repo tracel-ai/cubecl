@@ -326,16 +326,36 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match barrier_ops {
-            BarrierOps::MemCopyAsync {
-                barrier,
-                source,
-                destination,
-            } => {
+            BarrierOps::MemCopyAsync { barrier, source } => {
                 visit_read(self, barrier);
                 visit_read(self, source);
-                visit_read(self, destination);
             }
-            BarrierOps::Wait { barrier } => visit_read(self, barrier),
+            BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                barrier,
+                tensor_map,
+                indices,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, tensor_map);
+                for index in indices {
+                    visit_read(self, index);
+                }
+            }
+            BarrierOps::ArriveAndWait { barrier } => visit_read(self, barrier),
+            BarrierOps::Arrive { barrier } => visit_read(self, barrier),
+            BarrierOps::ArriveTx {
+                barrier,
+                arrive_count_update,
+                transaction_count_update,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, arrive_count_update);
+                visit_read(self, transaction_count_update);
+            }
+            BarrierOps::Wait { barrier, token } => {
+                visit_read(self, barrier);
+                visit_read(self, token);
+            }
         }
     }
 

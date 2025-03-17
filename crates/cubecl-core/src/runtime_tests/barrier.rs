@@ -12,7 +12,7 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
 
     barrier.memcpy_async(&source, &mut destination);
 
-    barrier.wait();
+    barrier.arrive_and_wait();
     output[0] = smem[0];
 }
 
@@ -53,7 +53,7 @@ fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     // Can't use lhs.to_slice() because then generated input_length will not exist
     barrier.memcpy_async(&lhs.slice(0u32, 4u32), &mut lhs_smem.to_slice_mut());
 
-    barrier.wait();
+    barrier.arrive_and_wait();
 
     let start = UNIT_POS_X * 2u32;
     let end = start + 2u32;
@@ -81,7 +81,7 @@ fn two_loads<F: Float>(
     barrier.memcpy_async(&lhs.slice(start, end), &mut lhs_smem.slice_mut(start, end));
     barrier.memcpy_async(&rhs.slice(start, end), &mut rhs_smem.slice_mut(start, end));
 
-    barrier.wait();
+    barrier.arrive_and_wait();
     let mut dot = Line::cast_from(0u32);
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
@@ -120,8 +120,8 @@ fn two_independent_loads<F: Float>(
 
     let mut dot = Line::cast_from(0u32);
 
-    barrier_0.wait();
-    barrier_1.wait();
+    barrier_0.arrive_and_wait();
+    barrier_1.arrive_and_wait();
     for i in start..end {
         dot += lhs_smem[i] * rhs_smem[i];
     }

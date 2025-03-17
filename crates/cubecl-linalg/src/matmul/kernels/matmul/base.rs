@@ -20,6 +20,7 @@ use super::{select_kernel, Algorithm};
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
+#[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG::Numeric>,
@@ -38,6 +39,7 @@ pub fn launch<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
+#[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -88,6 +90,7 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -173,6 +176,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     )
 }
 
+#[allow(clippy::result_large_err)]
 fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -247,6 +251,7 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
@@ -271,7 +276,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
 fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,

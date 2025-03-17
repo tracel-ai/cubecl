@@ -22,24 +22,63 @@ pub enum BarrierOps {
     MemCopyAsync {
         barrier: Variable,
         source: Variable,
-        destination: Variable,
+    },
+    MemCopyAsyncBulkGlobalToShared {
+        barrier: Variable,
+        tensor_map: Variable,
+        indices: Vec<Variable>,
+    },
+    /// Arrives at the barrier (decrements barrier count)
+    Arrive {
+        barrier: Variable,
+    },
+    ArriveTx {
+        barrier: Variable,
+        arrive_count_update: Variable,
+        transaction_count_update: Variable,
+    },
+    Wait {
+        barrier: Variable,
+        token: Variable,
     },
     /// Waits until data is loaded
-    Wait { barrier: Variable },
+    ArriveAndWait {
+        barrier: Variable,
+    },
 }
 
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BarrierOps::MemCopyAsync {
+            BarrierOps::MemCopyAsync { barrier, source } => {
+                write!(f, "mem_copy_async({barrier}, source: {source})",)
+            }
+            BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
+            BarrierOps::MemCopyAsyncBulkGlobalToShared {
                 barrier,
-                source,
-                destination,
+                tensor_map,
+                indices,
+            } => {
+                let rank = indices.len();
+                let indices = indices
+                    .iter()
+                    .map(|it| format!("{it}, "))
+                    .collect::<String>();
+                write!(
+                    f,
+                    "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
+                )
+            }
+            BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
+            BarrierOps::ArriveTx {
+                barrier,
+                arrive_count_update,
+                transaction_count_update,
             } => write!(
                 f,
-                "mem_copy_async({barrier}, source: {source}, destination: {destination})",
+                "arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update})"
             ),
-            BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
+            BarrierOps::Wait { barrier, token } => write!(f, "wait({barrier}, {token})"),
         }
     }
 }

@@ -142,3 +142,9 @@ impl<E: CubePrimitive, const RANK: usize> LaunchArg for TensorMap<E, RANK> {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum CopyDirection {
+    GlobalToShared,
+    SharedToGlobal,
+}

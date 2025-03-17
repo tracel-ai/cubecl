@@ -57,6 +57,7 @@ pub enum AsyncLoadingStrategy {
     MaximizeUnitCount,
 }
 
+#[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
@@ -73,6 +74,7 @@ pub fn launch<R: Runtime, EG: MaybeQuantized>(
     )
 }
 
+#[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,

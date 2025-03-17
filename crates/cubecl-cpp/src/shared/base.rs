@@ -396,43 +396,78 @@ impl<D: Dialect> CppCompiler<D> {
                 ),
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
-                gpu::BarrierOps::MemCopyAsync {
-                    barrier,
-                    source,
-                    destination,
-                } => {
-                    if let VariableKind::Barrier {
-                        id: _,
-                        item: _,
-                        level,
-                    } = barrier.kind
-                    {
-                        instructions.push(Instruction::Barrier(
-                            super::barrier::BarrierOps::MemCopyAsync {
-                                barrier: self.compile_variable(barrier),
-                                source: self.compile_variable(source),
-                                destination: self.compile_variable(destination),
-                                level,
-                            },
-                        ));
-                    } else {
+                gpu::BarrierOps::MemCopyAsync { barrier, source } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
-                    }
+                    };
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            level,
+                        },
+                    ));
                 }
-                gpu::BarrierOps::Wait { barrier } => {
-                    if let VariableKind::Barrier {
-                        id: _,
-                        item: _,
+                gpu::BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                    barrier,
+                    tensor_map,
+                    indices,
+                } => {
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                            barrier: self.compile_variable(barrier),
+                            smem_buffer: self.compile_variable(out.unwrap()),
+                            tensor_map: self.compile_variable(tensor_map),
+                            indices: indices
+                                .into_iter()
+                                .map(|it| self.compile_variable(it))
+                                .collect(),
+                        },
+                    ));
+                }
+                gpu::BarrierOps::Arrive { barrier } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Arrive {
+                        barrier: self.compile_variable(barrier),
                         level,
-                    } = barrier.kind
-                    {
-                        instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
+                        out: self.compile_variable(out.unwrap()),
+                    }))
+                }
+                gpu::BarrierOps::ArriveTx {
+                    barrier,
+                    arrive_count_update,
+                    transaction_count_update,
+                } => {
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::ArriveTx {
+                        barrier: self.compile_variable(barrier),
+                        arrive_count_update: self.compile_variable(arrive_count_update),
+                        transaction_count_update: self.compile_variable(transaction_count_update),
+                        out: self.compile_variable(out.unwrap()),
+                    }))
+                }
+                gpu::BarrierOps::Wait { barrier, token } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
+                        barrier: self.compile_variable(barrier),
+                        token: self.compile_variable(token),
+                        level,
+                    }))
+                }
+                gpu::BarrierOps::ArriveAndWait { barrier } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::ArriveAndWait {
                             barrier: self.compile_variable(barrier),
                             level,
-                        }))
-                    } else {
-                        unreachable!()
-                    }
+                        },
+                    ))
                 }
             },
         }
@@ -1145,7 +1180,11 @@ impl<D: Dialect> CppCompiler<D> {
                     level,
                 };
                 if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                    self.barriers.push(BarrierOps::Init { barrier, level });
+                    self.barriers.push(BarrierOps::Init {
+                        barrier,
+                        level,
+                        with_proxy_fence: false,
+                    });
                 }
                 barrier
             }
