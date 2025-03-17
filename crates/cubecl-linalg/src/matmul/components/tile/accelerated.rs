@@ -158,7 +158,7 @@ impl MatmulConfigFactory for Accelerated {
             });
         }
 
-        if !(MP::EG::is_supported(client) && MP::EG::is_supported(client)) {
+        if !(MP::ES::is_supported(client) && MP::EG::is_supported(client)) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
                 input: i_elem,
                 output: o_elem,
