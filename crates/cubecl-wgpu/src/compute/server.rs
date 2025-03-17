@@ -1,18 +1,14 @@
 use std::{future::Future, time::Duration};
 
-use super::{
-    stream::{PipelineDispatch, WgpuStream},
-    WgpuStorage,
-};
-use crate::{timestamps::KernelTimestamps, AutoGraphicsApi};
-use crate::{AutoCompiler, GraphicsApi};
+use super::WgpuResource;
+use super::{stream::WgpuStream, WgpuStorage};
+use crate::timestamps::KernelTimestamps;
+use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
-    compute::DebugInformation,
-    prelude::*,
-    server::{Binding, Handle},
-    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
+    compute::DebugInformation, prelude::*, server::Binding, Feature, KernelId, MemoryConfiguration,
+    WgpuCompilationOptions,
 };
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
@@ -45,6 +41,7 @@ impl WgpuServer {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        backend: wgpu::Backend,
     ) -> Self {
         let logger = DebugLogger::default();
         let mut timestamps = KernelTimestamps::Disabled;
@@ -69,7 +66,7 @@ impl WgpuServer {
             logger,
             duration_profiled: None,
             stream,
-            backend: AutoGraphicsApi::backend(),
+            backend,
         }
     }
 
@@ -105,31 +102,17 @@ impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
+    type Info = wgpu::Backend;
 
     fn read(
         &mut self,
         bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
-        let resources = bindings
-            .into_iter()
-            .map(|binding| {
-                let rb = self.get_resource(binding);
-                let resource = rb.resource();
-
-                (resource.buffer.clone(), resource.offset(), resource.size())
-            })
-            .collect();
-
-        // Clear compute pass.
-        self.stream.read_buffers(resources)
+        self.stream.read_buffers(bindings)
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<Self> {
-        let resource = self.stream.get_resource(
-            binding.clone().memory,
-            binding.offset_start,
-            binding.offset_end,
-        );
+    fn get_resource(&mut self, binding: Binding) -> BindingResource<WgpuResource> {
+        let resource = self.stream.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
 
@@ -139,11 +122,11 @@ impl ComputeServer for WgpuServer {
     /// This is important, otherwise the compute passes are going to be too small and we won't be able to
     /// fully utilize the GPU.
     fn create(&mut self, data: &[u8]) -> server::Handle {
-        Handle::new(self.stream.create(data), None, None, data.len() as u64)
+        self.stream.create(data)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
-        Handle::new(self.stream.empty(size as u64), None, None, size as u64)
+        self.stream.empty(size as u64)
     }
 
     unsafe fn execute(
@@ -174,24 +157,7 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources: Vec<_> = bindings
-            .iter()
-            .map(|binding| self.get_resource(binding.clone()).into_resource())
-            .collect();
-
-        // First resolve the dispatch buffer if needed. The weird ordering is because the lifetime of this
-        // needs to be longer than the compute pass, so we can't do this just before dispatching.
-        let dispatch = match count.clone() {
-            CubeCount::Dynamic(binding) => {
-                PipelineDispatch::Dynamic(self.get_resource(binding).into_resource())
-            }
-            CubeCount::Static(x, y, z) => PipelineDispatch::Static(x, y, z),
-        };
-
-        self.stream.register(pipeline, resources, dispatch);
+        self.stream.register(pipeline, bindings, &count);
 
         // If profiling, write out results.
         if let Some(level) = profile_level {
@@ -262,6 +228,10 @@ impl ComputeServer for WgpuServer {
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
         self.stream.memory_usage()
+    }
+
+    fn memory_cleanup(&mut self) {
+        self.stream.memory_cleanup();
     }
 
     fn enable_timestamps(&mut self) {

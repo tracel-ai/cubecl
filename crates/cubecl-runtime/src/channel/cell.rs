@@ -1,6 +1,6 @@
 use super::ComputeChannel;
 use crate::server::{Binding, ComputeServer, CubeCount, Handle};
-use crate::storage::BindingResource;
+use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
@@ -51,7 +51,10 @@ where
         future.await
     }
 
-    fn get_resource(&self, binding: Binding) -> BindingResource<Server> {
+    fn get_resource(
+        &self,
+        binding: Binding,
+    ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.server.borrow_mut().get_resource(binding)
     }
 
@@ -97,6 +100,10 @@ where
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         self.server.borrow_mut().memory_usage()
+    }
+
+    fn memory_cleanup(&self) {
+        self.server.borrow_mut().memory_cleanup();
     }
 
     fn enable_timestamps(&self) {

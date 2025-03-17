@@ -52,9 +52,11 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn name(&self) -> String {
+        let client = R::client(&self.device);
+
         format!(
             "unary-{}-{}-{:?}",
-            R::name(),
+            R::name(&client),
             E::as_elem_native_unchecked(),
             self.vectorization
         )

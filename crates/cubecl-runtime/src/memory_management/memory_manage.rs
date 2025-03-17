@@ -50,10 +50,15 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn cleanup<Storage: ComputeStorage>(&mut self, storage: &mut Storage, alloc_nr: u64) {
+    fn cleanup<Storage: ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+        alloc_nr: u64,
+        explicit: bool,
+    ) {
         match self {
-            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr),
-            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr),
+            DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
         }
     }
 }
@@ -89,6 +94,9 @@ fn generate_bucket_sizes(
     buckets.dedup();
     buckets
 }
+
+const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
+const BASE_DEALLOC_PERIOD: u64 = 5000;
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
@@ -174,12 +182,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 sizes
                     .iter()
                     .map(|&size| {
-                        // We are trying to estimate know whether a page is unused. Since smaller allocations happen more frequently,
-                        // we need less time to know they really are unused. Bigger allocations might still be re-used later on.
-                        const SCALE_MB: u64 = 1024 * 1024 * 1024;
-
-                        let dealloc_period =
-                            (1000.0 * (1.0 + size as f64 / (SCALE_MB as f64)).round()) as u64;
+                        let dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                            * (1.0 + size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                            as u64;
 
                         MemoryPoolOptions {
                             pool_type: PoolType::ExclusivePages {
@@ -226,9 +231,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
-    pub fn cleanup(&mut self) {
+    pub fn cleanup(&mut self, explicit: bool) {
         for pool in self.pools.iter_mut() {
-            pool.cleanup(&mut self.storage, self.alloc_reserve_count);
+            pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
     }
 

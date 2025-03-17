@@ -6,6 +6,7 @@ pub use base::*;
 
 /// Dynamic memory management strategy.
 mod memory_manage;
+use cubecl_common::CubeDim;
 pub use memory_manage::*;
 
 #[cfg(not(feature = "std"))]
@@ -105,6 +106,12 @@ pub struct HardwareProperties {
     pub max_bindings: u32,
     /// Maximum amount of shared memory, in bytes
     pub max_shared_memory_size: usize,
+    /// Maximum `CubeCount` in x, y and z dimensions
+    pub max_cube_count: CubeDim,
+    /// Maximum number of total units in a cube
+    pub max_units_per_cube: u32,
+    /// Maximum `CubeDim` in x, y, and z dimensions
+    pub max_cube_dim: CubeDim,
 }
 
 impl HardwareProperties {

@@ -1,4 +1,7 @@
-use cubecl_core::MemoryConfiguration;
+use cubecl_core::{
+    server::{Binding, Handle},
+    CubeCount, MemoryConfiguration,
+};
 use std::{future::Future, num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
@@ -6,7 +9,6 @@ use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource, WgpuStor
 use cubecl_runtime::{
     memory_management::{
         self, MemoryDeviceProperties, MemoryHandle, MemoryManagement, MemoryPoolOptions,
-        SliceBinding, SliceHandle,
     },
     TimestampsError, TimestampsResult,
 };
@@ -18,12 +20,19 @@ const SMALL_UNIFORMS_BUFFER_SIZE: u64 = 8192;
 
 #[derive(Debug)]
 pub struct WgpuStream {
+    // Main memory pool to allocate buffers from.
     memory_main: MemoryManagement<WgpuStorage>,
+    // Memory pool for small uniform buffers (under [`SMALL_UNIFORMS_BUFFER_SIZE`]).
+    // Allocations in this pool are specially marked as for `uniform` usage.
+    memory_uniforms: MemoryManagement<WgpuStorage>,
+    // Memory pool for timing query buffers.
+    // Nb these are tiny allocations (2 u64) so don't particularly need to be pooled,
+    // but for consistency in the API they are.
+    memory_queries: MemoryManagement<WgpuStorage>,
 
     uniforms_staging_pool: StagingBelt,
-    memory_uniforms: MemoryManagement<WgpuStorage>,
-
-    locked_copy_handles: Vec<SliceBinding>,
+    locked_copy_handles: Vec<Binding>,
+    sync_buffer: Option<Handle>,
 
     tasks_encoder: wgpu::CommandEncoder,
     copy_uniforms_encoder: wgpu::CommandEncoder,
@@ -36,13 +45,7 @@ pub struct WgpuStream {
     device: wgpu::Device,
     queue: wgpu::Queue,
     poll: WgpuPoll,
-    sync_buffer: Option<wgpu::Buffer>,
     submission_load: SubmissionLoad,
-}
-
-pub enum PipelineDispatch {
-    Static(u32, u32, u32),
-    Dynamic(WgpuResource),
 }
 
 impl WgpuStream {
@@ -56,21 +59,11 @@ impl WgpuStream {
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
-        #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: 32,
-            usage: wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::INDIRECT,
-            mapped_at_creation: false,
-        }));
-        #[cfg(not(target_family = "wasm"))]
-        let sync_buffer = None;
-
-        // Allocate storage & a memory management for buffers.
-        let main_memory_management = MemoryManagement::from_configuration(
+        // Allocate storage & memory management for the main memory buffers. Any calls
+        // to empty() or create() with a small enough size will be allocated from this
+        // main memory pool.
+        #[allow(unused_mut)]
+        let mut memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
                 BufferUsages::STORAGE
@@ -82,10 +75,29 @@ impl WgpuStream {
             memory_config,
         );
 
+        // Memory pool for timing queries.
+        let memory_queries = MemoryManagement::from_configuration(
+            WgpuStorage::new(
+                device.clone(),
+                BufferUsages::COPY_SRC | BufferUsages::QUERY_RESOLVE,
+            ),
+            &memory_properties,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: memory_management::PoolType::ExclusivePages {
+                        // Size only needs to be 2 u64, but at leas alignment size.
+                        // Assume alignment is enough.
+                        max_alloc_size: memory_properties.alignment,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+        );
+
         // Allocate a separate storage & memory management for 'uniforms' (small bits of data
         // that need to be uploaded quickly). We allocate these with the BufferUsages::UNIFORM flag
         // to allow binding them as uniforms.
-        let uniforms_memory_management = MemoryManagement::from_configuration(
+        let memory_uniforms = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
                 BufferUsages::STORAGE
@@ -100,10 +112,17 @@ impl WgpuStream {
                     pool_type: memory_management::PoolType::ExclusivePages {
                         max_alloc_size: SMALL_UNIFORMS_BUFFER_SIZE,
                     },
-                    dealloc_period: Some(5000),
+                    dealloc_period: None,
                 }],
             },
         );
+
+        // Allocate a small buffer to use for synchronization.
+        #[cfg(target_family = "wasm")]
+        let sync_buffer = Some(Handle::new(memory_main.reserve(32), None, None, 32));
+
+        #[cfg(not(target_family = "wasm"))]
+        let sync_buffer = None;
 
         // Create a staging belt that can re-use staging buffers we use to upload
         // small uniform buffers. These are then uploaded to the buffers
@@ -111,12 +130,13 @@ impl WgpuStream {
         let uniforms_staging_pool = StagingBelt::new(SMALL_UNIFORMS_BUFFER_SIZE);
 
         Self {
-            memory_main: main_memory_management,
-            memory_uniforms: uniforms_memory_management,
+            memory_main,
+            memory_uniforms,
+            memory_queries,
+            uniforms_staging_pool,
             locked_copy_handles: Vec::new(),
             compute_pass: None,
             timestamps,
-            uniforms_staging_pool,
             tasks_encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -140,9 +160,21 @@ impl WgpuStream {
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        resources: Vec<WgpuResource>,
-        dispatch: PipelineDispatch,
+        bindings: Vec<Binding>,
+        dispatch: &CubeCount,
     ) {
+        let dispatch_resource = match dispatch.clone() {
+            CubeCount::Static(_, _, _) => None,
+            CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
+        };
+
+        // Store all the resources we'll be using. This could be eliminated if
+        // there was a way to tie the lifetime of the resource to the memory handle.
+        let resources: Vec<_> = bindings
+            .iter()
+            .map(|b| self.get_resource(b.clone()))
+            .collect();
+
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
@@ -192,34 +224,31 @@ impl WgpuStream {
         pass.set_bind_group(0, &bind_group, &[]);
 
         match dispatch {
-            PipelineDispatch::Static(x, y, z) => {
-                pass.dispatch_workgroups(x, y, z);
+            CubeCount::Static(x, y, z) => {
+                pass.dispatch_workgroups(*x, *y, *z);
             }
-            PipelineDispatch::Dynamic(binding_resource) => {
-                pass.dispatch_workgroups_indirect(
-                    &binding_resource.buffer,
-                    binding_resource.offset(),
-                );
+            CubeCount::Dynamic(_) => {
+                let res = dispatch_resource.unwrap();
+                pass.dispatch_workgroups_indirect(res.buffer(), res.offset());
             }
         }
-
         self.flush_if_needed();
     }
 
     pub fn read_buffers(
         &mut self,
-        buffers: Vec<(wgpu::Buffer, u64, u64)>,
+        bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
         self.compute_pass = None;
-        let mut staging_buffers = Vec::with_capacity(buffers.len());
-        let mut callbacks = Vec::with_capacity(buffers.len());
+        let mut staging_buffers = Vec::with_capacity(bindings.len());
+        let mut callbacks = Vec::with_capacity(bindings.len());
 
-        for (buffer, offset, size) in buffers {
+        for binding in bindings.iter() {
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
-            let aligned_len = size.div_ceil(align) * align;
-
+            let resource = self.get_resource(binding.clone());
+            let aligned_len = resource.size().div_ceil(align) * align;
             let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: aligned_len,
@@ -227,13 +256,13 @@ impl WgpuStream {
                 mapped_at_creation: false,
             });
             self.tasks_encoder.copy_buffer_to_buffer(
-                &buffer,
-                offset,
+                resource.buffer(),
+                resource.offset(),
                 &staging_buffer,
                 0,
                 aligned_len,
             );
-            staging_buffers.push((staging_buffer, size));
+            staging_buffers.push((staging_buffer, resource.size()));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
@@ -283,23 +312,13 @@ impl WgpuStream {
         }
     }
 
-    pub fn read_buffer(
-        &mut self,
-        buffer: wgpu::Buffer,
-        offset: u64,
-        size: u64,
-    ) -> impl Future<Output = Vec<u8>> + 'static {
-        let fut = self.read_buffers(vec![(buffer, offset, size)]);
-        async move { fut.await.remove(0) }
-    }
-
     pub fn sync_elapsed(
         &mut self,
     ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
         self.compute_pass = None;
 
         enum TimestampMethod {
-            Buffer(wgpu::Buffer, u64),
+            Buffer(Handle),
             StartTime(Instant),
         }
 
@@ -314,17 +333,15 @@ impl WgpuStream {
                     });
                 } else {
                     let size = 2 * size_of::<u64>() as u64;
-                    let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: None,
-                        size,
-                        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-                        mapped_at_creation: false,
-                    });
-
+                    let handle = Handle::new(self.memory_queries.reserve(size), None, None, size);
+                    let resource = self
+                        .memory_queries
+                        .get_resource(handle.clone().binding().memory, None, None)
+                        .expect("Failed to get query resource.");
                     self.tasks_encoder
-                        .resolve_query_set(query_set, 0..2, &resolved, 0);
+                        .resolve_query_set(query_set, 0..2, resource.buffer(), 0);
                     *init = false;
-                    TimestampMethod::Buffer(resolved, size)
+                    TimestampMethod::Buffer(handle)
                 }
             }
             KernelTimestamps::Inferred { start_time } => {
@@ -343,19 +360,18 @@ impl WgpuStream {
         };
 
         match method {
-            TimestampMethod::Buffer(resolved, size) => {
+            TimestampMethod::Buffer(handle) => {
                 let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffer(resolved, 0, size);
-
+                let fut = self.read_buffers(vec![handle.binding()]);
                 Box::pin(async move {
                     let data = fut
                         .await
+                        .remove(0)
                         .chunks_exact(8)
                         .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
                         .collect::<Vec<_>>();
                     let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
                     let duration = Duration::from_secs_f64(delta as f64 * period);
-
                     Ok(duration)
                 })
             }
@@ -383,9 +399,8 @@ impl WgpuStream {
                 //
                 // For now, instead do a dummy readback. This *seems* to wait for the entire
                 // queue to be done.
-                let fut = self.read_buffer(buf.clone(), 0, 32);
+                let fut = self.read_buffers(vec![buf.clone().binding()]);
                 core::mem::swap(&mut buffer, &mut self.sync_buffer);
-
                 Box::pin(async move {
                     fut.await;
                 })
@@ -404,38 +419,40 @@ impl WgpuStream {
         }
     }
 
-    pub fn get_resource(
-        &mut self,
-        binding: SliceBinding,
-        offset_start: Option<u64>,
-        offset_end: Option<u64>,
-    ) -> WgpuResource {
+    pub fn get_resource(&mut self, binding: Binding) -> WgpuResource {
+        let off_start = binding.offset_start;
+        let off_end = binding.offset_end;
+
         if let Some(res) = self
             .memory_main
-            .get_resource(binding.clone(), offset_start, offset_end)
+            .get_resource(binding.memory.clone(), off_start, off_end)
         {
             res
         } else if let Some(res) =
             self.memory_uniforms
-                .get_resource(binding.clone(), offset_start, offset_end)
+                .get_resource(binding.memory.clone(), off_start, off_end)
         {
             // This resource now might be used for computations, so we _cannot_ use it anymore for create() calls.
             // This keeps the binding alive which means create() won't try to use it.
             self.locked_copy_handles.push(binding);
-
+            res
+        } else if let Some(res) =
+            self.memory_queries
+                .get_resource(binding.memory.clone(), off_start, off_end)
+        {
             res
         } else {
             panic!("Failed to find resource");
         }
     }
 
-    pub fn empty(&mut self, size: u64) -> SliceHandle {
+    pub fn empty(&mut self, size: u64) -> Handle {
         // For empty buffers we always use the main memory even if they are small, as
         // we don't need to upload any data to them.
-        self.memory_main.reserve(size)
+        Handle::new(self.memory_main.reserve(size), None, None, size)
     }
 
-    pub fn create(&mut self, data: &[u8]) -> SliceHandle {
+    pub fn create(&mut self, data: &[u8]) -> Handle {
         // We'd like to keep operations as one long ComputePass. To do so, this tries to submit
         // all copy operations & all execute operations in one batch. To do so, we do all copy operations
         // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
@@ -444,7 +461,6 @@ impl WgpuStream {
         //   in self.locked_copy_handles which means the allocation won't try to use them.
         // - For bigger buffers, we do restart the compute stream. These bigger allocations
         //   don't happen frequently so this cost isn't big.
-
         let num_bytes = data.len() as u64;
 
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
@@ -475,7 +491,7 @@ impl WgpuStream {
                 // This efficiently re-uses the staging buffers.
                 let mut staging = self.uniforms_staging_pool.write_buffer(
                     &mut self.copy_uniforms_encoder,
-                    &resource.buffer,
+                    resource.buffer(),
                     resource.offset(),
                     size,
                     &self.device,
@@ -506,7 +522,7 @@ impl WgpuStream {
                 self.tasks_encoder.copy_buffer_to_buffer(
                     &staging,
                     0,
-                    &resource.buffer,
+                    resource.buffer(),
                     resource.offset(),
                     aligned_len,
                 );
@@ -514,13 +530,17 @@ impl WgpuStream {
         }
 
         self.flush_if_needed();
-        slice
+        Handle::new(slice, None, None, data.len() as u64)
     }
 
     pub fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
         self.memory_main
             .memory_usage()
             .combine(self.memory_uniforms.memory_usage())
+    }
+
+    pub fn memory_cleanup(&mut self) {
+        self.memory_main.cleanup(true);
     }
 
     fn flush_if_needed(&mut self) {
@@ -570,9 +590,7 @@ impl WgpuStream {
             .regulate(&self.device, self.tasks_count, index);
 
         // Cleanup allocations and deallocations.
-        self.memory_main.cleanup();
-        self.memory_main.storage().perform_deallocations();
-
+        self.memory_main.cleanup(false);
         self.tasks_count = 0;
     }
 }

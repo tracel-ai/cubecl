@@ -3,23 +3,49 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use cubecl_common::ExecutionMode;
+use cubecl_runtime::client::ComputeClient;
 
 /// Kernel unique identifier.
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct KernelId {
     pub(crate) type_id: core::any::TypeId,
     pub(crate) info: Option<Info>,
     pub(crate) mode: Option<ExecutionMode>,
+    type_name: &'static str,
 }
+
+impl Hash for KernelId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.type_id.hash(state);
+        self.info.hash(state);
+        self.mode.hash(state);
+    }
+}
+
+impl PartialEq for KernelId {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_id == other.type_id && self.mode == other.mode && self.info == other.info
+    }
+}
+
+impl Eq for KernelId {}
 
 impl KernelId {
     /// Create a new [kernel id](KernelId) for a type.
     pub fn new<T: 'static>() -> Self {
         Self {
             type_id: core::any::TypeId::of::<T>(),
+            type_name: core::any::type_name::<T>(),
             info: None,
             mode: None,
         }
+    }
+
+    /// Render the key in a standard format that can be used between runs.
+    ///
+    /// Can be used as a persistent kernel cache key.
+    pub fn stable_format(&self) -> String {
+        format!("{}-{:?}-{:?}", self.type_name, self.info, self.mode)
     }
 
     /// Add information to the [kernel id](KernelId).
@@ -129,10 +155,13 @@ pub struct CubeTuneId {
 
 impl CubeTuneId {
     /// Create a new ID.
-    pub fn new<R: crate::Runtime>(device: &R::Device) -> Self {
+    pub fn new<R: crate::Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        device: &R::Device,
+    ) -> Self {
         Self {
             device: R::device_id(device),
-            name: R::name(),
+            name: R::name(client),
         }
     }
 }

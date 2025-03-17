@@ -393,9 +393,7 @@ impl MatmulConfigFactory for PlaneMma {
             return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
         }
 
-        if !(client.properties().feature_enabled(Feature::Type(i_elem))
-            && client.properties().feature_enabled(Feature::Type(o_elem)))
-        {
+        if !MP::EG::is_supported(client) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
                 input: i_elem,
                 output: o_elem,

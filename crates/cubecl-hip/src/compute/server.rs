@@ -146,6 +146,7 @@ impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = HipStorage;
     type Feature = Feature;
+    type Info = ();
 
     fn read(
         &mut self,
@@ -156,6 +157,11 @@ impl ComputeServer for HipServer {
 
     fn memory_usage(&self) -> MemoryUsage {
         self.ctx.memory_usage()
+    }
+
+    fn memory_cleanup(&mut self) {
+        let ctx = self.get_context();
+        ctx.memory_management.cleanup(true);
     }
 
     fn create(&mut self, data: &[u8]) -> server::Handle {
@@ -286,7 +292,7 @@ impl ComputeServer for HipServer {
         async move { duration }
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<Self> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),

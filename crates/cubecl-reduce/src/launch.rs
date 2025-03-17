@@ -8,6 +8,7 @@ use crate::args::ReduceArgs;
 use crate::args::TensorArgs;
 use crate::instructions::*;
 use crate::primitives::*;
+use crate::BoundChecksInner;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
 
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
@@ -33,6 +34,7 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
         line_size: config.line_size,
         line_mode: config.line_mode,
         bound_checks: config.bound_checks,
+        bound_checks_inner: config.bound_checks_inner,
     };
     unsafe {
         reduce_kernel::launch_unchecked::<In, Out, Rd, TensorArgs, Run>(
@@ -54,6 +56,7 @@ pub struct ReduceParams {
     pub line_size: u32,
     pub line_mode: LineMode,
     pub bound_checks: bool,
+    pub bound_checks_inner: BoundChecksInner,
 }
 
 #[cube(launch_unchecked)]
@@ -81,24 +84,26 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
 
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
-            let mut accumulator = reduce_slice_shared::<In, R::Instruction<In>>(
+            let mut accumulator = reduce_slice_shared::<In, VirtualTensor<In>, R::Instruction<In>>(
                 &input,
                 range,
                 accumulator_size,
                 params.line_size,
                 params.line_mode,
                 use_planes,
+                params.bound_checks_inner,
             );
             sync_units();
             reduce_tree::<In, R::Instruction<In>>(&mut accumulator, accumulator_size)
         }
-        (None, true) => reduce_slice_plane::<In, R::Instruction<In>>(
+        (None, true) => reduce_slice_plane::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
             params.line_size,
             params.line_mode,
+            params.bound_checks_inner,
         ),
-        (None, false) => reduce_slice::<In, R::Instruction<In>>(
+        (None, false) => reduce_slice::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
             params.line_size,

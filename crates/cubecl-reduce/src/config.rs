@@ -15,6 +15,21 @@ pub enum LineMode {
     Perpendicular,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+/// How bound checks is handled for inner reductions.
+pub enum BoundChecksInner {
+    /// No bound check is necessary.
+    None,
+    /// Using a mask is enough for bound checks.
+    /// This will still read the memory in an out-of-bound location,
+    /// but will replace the value by the null value.
+    Mask,
+    /// Branching is necessary for bound checks.
+    ///
+    /// Probably the right setting when performing fuse on read.
+    Branch,
+}
+
 #[derive(Debug, Clone)]
 pub struct ReduceConfig {
     pub cube_count: CubeCount,
@@ -22,6 +37,7 @@ pub struct ReduceConfig {
     pub line_mode: LineMode,
     pub line_size: u32,
     pub bound_checks: bool,
+    pub bound_checks_inner: BoundChecksInner,
 }
 
 impl ReduceConfig {
@@ -48,6 +64,7 @@ impl ReduceConfig {
             line_mode: LineMode::Parallel,
             line_size: 1,
             bound_checks: true,
+            bound_checks_inner: BoundChecksInner::Mask,
         }
     }
 

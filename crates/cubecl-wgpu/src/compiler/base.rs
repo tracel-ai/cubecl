@@ -12,6 +12,7 @@ use crate::{WgpuServer, WgslCompiler};
 
 use super::wgsl::ComputeShader;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum AutoCompiler {
     Wgsl(WgslCompiler),
@@ -74,6 +75,14 @@ impl Compiler for AutoCompiler {
             AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
+        }
+    }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            AutoCompiler::Wgsl(_) => "wgsl",
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(_) => "spv",
         }
     }
 }
