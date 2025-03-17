@@ -285,32 +285,6 @@ impl<D: Dialect> Display for Instruction<D> {
             } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
-                // conditional_assign(
-                //     view_x < self.shape_x && view_y < self.shape_y, // cond
-                //     self.tensor.read(read_pos), // expr
-                //     Line::empty(line_size).fill(EG::from_int(0)), // fallback
-                // );
-
-                // {out} = (cond) ? expr : fallback
-                // cond like in select
-
-                // let item_out = out.item();
-                // if let Elem::Atomic(inner) = item_out.elem {
-                //     write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
-                // } else {
-                //     let out = out.fmt_left();
-
-                //     // Replace by (cond)
-                //     write!(f, "{out} = ({rhs} < {len}) ? ")?;
-
-                //     // Replace by default_val instead of itself
-                //     Index::format_scalar(f, *lhs, *rhs, item_out)?;
-                //     if item_out.vectorization == 1 {
-                //         writeln!(f, " : {item_out}(0);")
-                //     } else {
-                //         writeln!(f, " : {item_out}{{}};")
-                //     }
-                // }
             }
             Instruction::Copy {
                 input,
