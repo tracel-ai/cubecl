@@ -1003,6 +1003,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 fallback,
                 out,
             } => {
+                // TODO
                 writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
             }
         }
