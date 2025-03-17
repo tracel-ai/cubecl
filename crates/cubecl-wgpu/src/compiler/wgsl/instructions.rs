@@ -49,8 +49,9 @@ pub enum Instruction {
     },
     ConditionalRead {
         cond: Variable,
-        then: Variable,
-        or_else: Variable,
+        container: Variable,
+        index: Variable,
+        fallback: Variable,
         out: Variable,
     },
     Switch {
@@ -997,11 +998,12 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::ConditionalRead {
                 cond,
-                then,
-                or_else,
+                container,
+                index,
+                fallback,
                 out,
             } => {
-                writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
+                writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
             }
         }
     }
