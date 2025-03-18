@@ -37,6 +37,11 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
         end: u32,
     ) -> Slice<Line<EG>>;
 
+    /// Reinterpret lhs as tensor map
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3>;
+    /// Reinterpret rhs as tensor map
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3>;
+
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>);
 
@@ -148,6 +153,13 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorOutputExpand::__expand_buffer_len_method(self.clone(), scope)
     }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        _scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<EG, 3>> {
+        todo!()
+    }
 }
 
 impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorInputExpand<EG, MA> {
@@ -202,6 +214,13 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
 
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorInputExpand::__expand_buffer_len_method(self.clone(), scope)
+    }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<EG, 3>> {
+        TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
 
@@ -304,6 +323,16 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
             }
         }
     }
+
+    /// Get the buffer length of the tensor.
+    pub fn as_tensor_map(&self) -> TensorMap<EG, 3> {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Lhs => MA::as_tensor_map_lhs(&(*self.state)),
+                TensorInputIdent::Rhs => MA::as_tensor_map_rhs(&(*self.state)),
+            }
+        }
+    }
 }
 
 #[cube]
@@ -402,6 +431,14 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.1).slice(start, end) }
     }
 
+    fn as_tensor_map_lhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG, 3> {
+        TensorMap::dummy()
+    }
+
+    fn as_tensor_map_rhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG, 3> {
+        TensorMap::dummy()
+    }
+
     fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
@@ -460,6 +497,136 @@ impl MatmulArgs for TensorArgs {
 
     fn buffer_len_rhs<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.1).buffer_len() }
+    }
+
+    fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).buffer_len() }
+    }
+}
+
+#[derive(Clone)]
+/// Type implementing [MatmulArgs] where all inputs and the output are materialized tensor maps.
+///
+/// Other types might implement [MatmulArgs] for fused matrix multiplication kernels.
+pub struct TensorMapArgs;
+
+#[derive(CubeLaunch)]
+/// Input representation for [TensorArgs] implementing [MatmulArgs].
+pub struct TensorMapInputs<EG: Numeric, const RANK: usize> {
+    /// The lhs tensor.
+    pub lhs: TensorMap<EG, RANK>,
+    /// The rhs tensor.
+    pub rhs: TensorMap<EG, RANK>,
+}
+
+#[cube]
+impl MatmulArgs for TensorMapArgs {
+    type Output<EG: Numeric> = Tensor<Line<EG>>;
+    type Input<EG: Numeric> = TensorMapInputs<EG, 3>;
+    type State<EG: Numeric> = (
+        *const TensorMap<EG, 3>,
+        *const TensorMap<EG, 3>,
+        *mut Tensor<Line<EG>>,
+    );
+
+    fn init_state<EG: Numeric>(
+        input: &Self::Input<EG>,
+        output: &mut Self::Output<EG>,
+    ) -> Self::State<EG> {
+        (&input.lhs, &input.rhs, output)
+    }
+
+    fn read_lhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        Line::empty(1)
+    }
+
+    fn read_rhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        Line::empty(1)
+    }
+
+    fn read_window_lhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        unsafe { &*state.2 }.slice(start, end)
+    }
+
+    /// Read the line of the rhs tensor using the state at the given coordinate.
+    fn read_window_rhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        unsafe { &*state.2 }.slice(start, end)
+    }
+
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3> {
+        unsafe { *state.0 }
+    }
+
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3> {
+        unsafe { *state.1 }
+    }
+
+    fn shape_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        1u32
+    }
+
+    fn shape_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        1u32
+    }
+
+    fn shape_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
+        unsafe { &*state.2 }.shape(dim)
+    }
+
+    fn stride_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        1u32
+    }
+
+    fn stride_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        1u32
+    }
+
+    fn stride_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
+        unsafe { &*state.2 }.stride(dim)
+    }
+
+    fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>) {
+        unsafe { (*state.2)[coordinate] = value }
+    }
+
+    fn rank_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        3u32
+    }
+
+    fn rank_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        3u32
+    }
+
+    fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).rank() }
+    }
+
+    fn len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        1u32
+    }
+
+    fn len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        1u32
+    }
+
+    fn len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).len() }
+    }
+
+    fn buffer_len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        1u32
+    }
+
+    fn buffer_len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        1u32
     }
 
     fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {

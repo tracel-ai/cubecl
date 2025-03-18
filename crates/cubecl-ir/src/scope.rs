@@ -26,7 +26,7 @@ pub struct Scope {
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
     barriers: Vec<Variable>,
-    arrival_tokens: Vec<Variable>,
+    pub arrival_tokens: Vec<Variable>,
     slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
@@ -340,6 +340,9 @@ impl Scope {
             variables.push(var);
         }
         for var in self.slices.drain(..) {
+            variables.push(var);
+        }
+        for var in self.arrival_tokens.drain(..) {
             variables.push(var);
         }
 

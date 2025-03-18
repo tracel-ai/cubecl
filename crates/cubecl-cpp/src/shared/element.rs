@@ -168,6 +168,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Pipeline { item, .. } => *item,
             Variable::Barrier { item, .. } => *item,
             Variable::ArrivalToken { .. } => unreachable!(),
+            Variable::TensorMap(_) => unreachable!(),
         }
     }
 
@@ -183,6 +184,7 @@ pub enum Variable<D: Dialect> {
     GlobalInputArray(Id, Item<D>),
     GlobalOutputArray(Id, Item<D>),
     GlobalScalar(Id, Elem<D>, gpu::Elem),
+    TensorMap(Id),
     ConstantArray(Id, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
     LocalMut {
@@ -249,6 +251,7 @@ impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
+            Variable::TensorMap(id) => write!(f, "constant_{id}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
             Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
@@ -459,6 +462,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Pipeline { .. } => false,
             Variable::Barrier { .. } => false,
             Variable::ArrivalToken { .. } => false,
+            Variable::TensorMap(_) => false,
         }
     }
 

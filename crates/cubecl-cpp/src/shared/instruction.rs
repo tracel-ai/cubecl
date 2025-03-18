@@ -222,6 +222,10 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Break => f.write_str("break;"),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
+                Variable::ArrivalToken { id } => writeln!(
+                    f,
+                    "cuda::barrier<cuda::thread_scope_block>::arrival_token token_{id};"
+                ),
                 _ => {
                     let item = var.item();
                     writeln!(f, "{item} {var};")
@@ -662,7 +666,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     .iter()
                     .map(|it| format!("{it}, "))
                     .collect::<String>();
-                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} &{smem_buffer})")
+                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} &{smem_buffer});")
             }
         }
     }

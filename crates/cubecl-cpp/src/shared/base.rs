@@ -68,6 +68,7 @@ pub struct CppCompiler<D: Dialect> {
     wmma: bool,
     pipeline: bool,
     barrier: bool,
+    tma: bool,
     bf16: bool,
     f16: bool,
     printf: bool,
@@ -113,6 +114,7 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
+        let constants = value.constants;
         let inputs = value
             .inputs
             .into_iter()
@@ -145,6 +147,7 @@ impl<D: Dialect> CppCompiler<D> {
             .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
+            constants,
             inputs,
             outputs,
             named,
@@ -153,6 +156,7 @@ impl<D: Dialect> CppCompiler<D> {
             wmma_activated: self.wmma,
             pipeline: self.pipeline,
             barrier: self.barrier,
+            tma: self.tma,
             bf16: self.bf16,
             f16: self.f16,
             fast_math,
@@ -1059,6 +1063,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
+            gpu::VariableKind::TensorMap(id) => {
+                self.tma = true;
+                Variable::TensorMap(id)
+            }
             gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
                 id,
                 item: self.compile_item(item),
@@ -1190,13 +1198,13 @@ impl<D: Dialect> CppCompiler<D> {
                     item: self.compile_item(item),
                     level,
                 };
-                if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                    self.barriers.push(BarrierOps::Init {
-                        barrier,
-                        level,
-                        with_proxy_fence: false,
-                    });
-                }
+                // if !self.barriers.iter().any(|s| s.barrier_id() == id) {
+                //     self.barriers.push(BarrierOps::Init {
+                //         barrier,
+                //         level,
+                //         with_proxy_fence: false,
+                //     });
+                // }
                 barrier
             }
             gpu::VariableKind::ArrivalToken { id } => Variable::ArrivalToken { id },

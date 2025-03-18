@@ -88,6 +88,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
         VariableKind::Barrier { .. } => panic!("Barrier is not supported"),
         VariableKind::ArrivalToken { .. } => panic!("Arrival token is not supported"),
+        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
 }

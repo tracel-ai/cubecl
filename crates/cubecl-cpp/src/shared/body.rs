@@ -93,7 +93,7 @@ impl<D: Dialect> Display for Body<D> {
         for shared in self.shared_memories.iter() {
             writeln!(
                 f,
-                "__shared__ {} shared_memory_{}[{}];",
+                "__shared__ alignas(128) {} shared_memory_{}[{}];",
                 shared.item, shared.index, shared.size
             )?;
         }

@@ -1,5 +1,9 @@
 use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{compute::Visibility, ir::Id, CubeDim};
+use cubecl_core::{
+    compute::{ConstBinding, Visibility},
+    ir::Id,
+    ConstantInfo, CubeDim,
+};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -45,6 +49,7 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
+    pub constants: Vec<ConstBinding>,
     pub inputs: Vec<Binding<D>>,
     pub outputs: Vec<Binding<D>>,
     pub named: Vec<(String, Binding<D>)>,
@@ -53,6 +58,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub wmma_activated: bool,
     pub pipeline: bool,
     pub barrier: bool,
+    pub tma: bool,
     pub bf16: bool,
     pub f16: bool,
     pub fast_math: bool,
@@ -97,6 +103,14 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
+        if self.tma {
+            f.write_str(
+                "typedef struct CUtensorMap_st {
+alignas(64)
+unsigned long long int opaque[16];
+} CUtensorMap;\n",
+            )?;
+        }
 
         f.write_str("typedef unsigned char uint8;\n")?;
         f.write_str("typedef unsigned short uint16;\n")?;
@@ -137,8 +151,20 @@ extern \"C\" __global__ void {}(
             self.kernel_name
         )?;
 
-        let num_bindings = self.inputs.len() + self.outputs.len() + self.named.len();
+        let num_bindings =
+            self.constants.len() + self.inputs.len() + self.outputs.len() + self.named.len();
         let mut binding_index = 0;
+        for (index, binding) in self.constants.iter().enumerate() {
+            binding_index += 1;
+            match binding {
+                ConstBinding::TensorMap => {
+                    write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
+                }
+            }
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
         for (index, binding) in self.inputs.iter().enumerate() {
             binding_index += 1;
             match binding.vis {

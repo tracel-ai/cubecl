@@ -64,10 +64,10 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        (1, 6144, 6144, 6144),
-        (1, 5000, 5000, 5000),
+        //(1, 6144, 6144, 6144),
+        //(1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
-        (16, 6144, 2048, 513),
+        //(16, 6144, 2048, 513),
         (32, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, E> {
@@ -145,29 +145,33 @@ fn main() {
     {
         use half::f16;
 
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::DoubleBuffering,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+        // );
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
-            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::DoubleBuffering,
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
         );
     }
 }

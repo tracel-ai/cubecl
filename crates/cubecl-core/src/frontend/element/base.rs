@@ -347,7 +347,8 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::Matrix { .. }
         | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. }
-        | VariableKind::ArrivalToken { .. } => elem,
+        | VariableKind::ArrivalToken { .. }
+        | VariableKind::TensorMap(_) => elem,
     }
 }
 

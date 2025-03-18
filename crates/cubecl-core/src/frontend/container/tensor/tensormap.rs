@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::ir::{ExpandElement, Item};
 use crate::prelude::*;
+use crate::{
+    ir::{ExpandElement, Item},
+    ConstantInfo,
+};
 use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
@@ -15,9 +18,6 @@ use serde::{Deserialize, Serialize};
 pub struct TensorMapArg<'a, R: Runtime, const RANK: usize> {
     pub format: TensorMapFormat,
     pub tensor: TensorArg<'a, R>,
-    // The `shared_shape` is the size of the shared memory buffer that is used as the
-    // destination of a TMA transfer.
-    pub shared_shape: [u32; RANK],
     // The distance between elements in units of sizeof(element). A stride of 2
     // can be used to load only the real component of a complex-valued tensor, for instance.
     pub elem_stride: [u32; RANK],
@@ -29,16 +29,10 @@ pub struct TensorMapArg<'a, R: Runtime, const RANK: usize> {
 }
 
 impl<'a, R: Runtime, const RANK: usize> TensorMapArg<'a, R, RANK> {
-    pub fn new(
-        format: TensorMapFormat,
-        tensor: TensorArg<'a, R>,
-        shared_shape: [u32; RANK],
-        elem: Elem,
-    ) -> Self {
+    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, elem: Elem) -> Self {
         Self {
             format,
             tensor,
-            shared_shape,
             elem_stride: [1; RANK],
             interleave: TensorMapInterleave::None,
             swizzle: TensorMapSwizzle::None,
@@ -74,15 +68,29 @@ impl<'a, R: Runtime, const RANK: usize> TensorMapArg<'a, R, RANK> {
     }
 }
 
+#[derive(Clone)]
 pub struct TensorMap<E: CubePrimitive, const RANK: usize> {
     _ty: PhantomData<E>,
+}
+
+impl<E: CubePrimitive, const RANK: usize> Copy for TensorMap<E, RANK> {}
+
+impl<E: CubePrimitive, const RANK: usize> TensorMap<E, RANK> {
+    pub fn dummy() -> Self {
+        TensorMap { _ty: PhantomData }
+    }
+
+    pub fn __expand_dummy(_scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let x: ExpandElement = 0.into();
+        x.into()
+    }
 }
 
 impl<E: CubePrimitive, const RANK: usize> IntoRuntime for TensorMap<E, RANK> {
     fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
         ExpandElementTyped {
             expand: ExpandElement::Plain(Variable::new(
-                VariableKind::GlobalInputArray(0),
+                VariableKind::TensorMap(0),
                 Item::new(E::as_elem_native_unchecked()),
             )),
             _type: PhantomData,
@@ -97,6 +105,14 @@ impl<E: CubePrimitive, const RANK: usize> ExpandElementBaseInit for TensorMap<E,
 }
 
 impl<E: CubePrimitive, const RANK: usize> CubeType for TensorMap<E, RANK> {
+    type ExpandType = ExpandElementTyped<TensorMap<E, RANK>>;
+}
+
+impl<E: CubePrimitive, const RANK: usize> CubeType for *const TensorMap<E, RANK> {
+    type ExpandType = ExpandElementTyped<TensorMap<E, RANK>>;
+}
+
+impl<E: CubePrimitive, const RANK: usize> CubeType for *mut TensorMap<E, RANK> {
     type ExpandType = ExpandElementTyped<TensorMap<E, RANK>>;
 }
 
@@ -119,28 +135,18 @@ impl<E: CubePrimitive, const RANK: usize> LaunchArgExpand for TensorMap<E, RANK>
     type CompilationArg = TensorMapCompilationArg;
 
     fn expand(
-        arg: &Self::CompilationArg,
+        _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E, RANK>> {
-        let tensor = builder.input_tensor(Item::vectorized(
-            E::as_elem(&builder.context),
-            arg.tensor.vectorisation,
-        ));
+        let tensor = builder.constant(ConstantInfo::TensorMap);
         tensor.into()
     }
     fn expand_output(
-        arg: &Self::CompilationArg,
+        _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E, RANK>> {
-        match arg.tensor.inplace {
-            Some(id) => builder.inplace_output(id).into(),
-            None => builder
-                .output_tensor(Item::vectorized(
-                    E::as_elem(&builder.context),
-                    arg.tensor.vectorisation,
-                ))
-                .into(),
-        }
+        let tensor = builder.constant(ConstantInfo::TensorMap);
+        tensor.into()
     }
 }
 

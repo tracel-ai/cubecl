@@ -118,7 +118,7 @@ fn find_stage_size_m_n(
     }
 }
 
-fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
+pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,

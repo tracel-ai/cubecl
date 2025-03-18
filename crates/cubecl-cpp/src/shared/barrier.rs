@@ -144,7 +144,7 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     .iter()
                     .map(|it| format!("{it}, "))
                     .collect::<String>();
-                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier})")
+                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});")
             }
             BarrierOps::Arrive { barrier, out, .. } => {
                 let out = out.fmt_left();

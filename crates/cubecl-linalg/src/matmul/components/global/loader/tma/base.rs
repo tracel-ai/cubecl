@@ -18,33 +18,33 @@ use crate::matmul::components::{
 };
 
 #[derive(CubeType)]
-pub struct TmaLhsLoader<EG: Numeric, S: stage::StageConfig> {
+pub struct TmaLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
-    pub stage: Stage<EG, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
-pub struct TmaRhsLoader<EG: Numeric, S: stage::StageConfig> {
+pub struct TmaRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
-    pub stage: Stage<EG, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     _config: PhantomData<S>,
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::Config<S>>
-    for TmaLhsLoader<EG, S>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
+    AsyncInputLoader<EG, ES, single_stage::Config<S>> for TmaLhsLoader<EG, ES, S>
 {
-    fn fill_stage<CM: CopyMechanism<EG>>(
+    fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
         _mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         let mut token = ArrivalToken::new();
         if UNIT_POS == 0 {
-            let mut stage = this.stage.as_slice_mut();
+            let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
@@ -65,10 +65,10 @@ impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> InputLoader<EG, EG, single_stage::Config<S>>
-    for TmaLhsLoader<EG, S>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single_stage::Config<S>>
+    for TmaLhsLoader<EG, ES, S>
 {
-    type StageReader = LhsReader<EG, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = LhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -84,7 +84,7 @@ impl<EG: Numeric, S: stage::StageConfig> InputLoader<EG, EG, single_stage::Confi
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
     pub fn new<G: global::GlobalConfig>(
         tensor: TensorMap<EG, 3>,
         x: u32,
@@ -97,7 +97,7 @@ impl<EG: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, S> {
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
         let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
 
-        TmaLhsLoader::<EG, S> {
+        TmaLhsLoader::<EG, ES, S> {
             tensor_view,
             barrier,
             stage,
@@ -107,10 +107,10 @@ impl<EG: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, S> {
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> InputLoader<EG, EG, single_stage::Config<S>>
-    for TmaRhsLoader<EG, S>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single_stage::Config<S>>
+    for TmaRhsLoader<EG, ES, S>
 {
-    type StageReader = RhsReader<EG, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = RhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -126,17 +126,17 @@ impl<EG: Numeric, S: stage::StageConfig> InputLoader<EG, EG, single_stage::Confi
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::Config<S>>
-    for TmaRhsLoader<EG, S>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
+    AsyncInputLoader<EG, ES, single_stage::Config<S>> for TmaRhsLoader<EG, ES, S>
 {
-    fn fill_stage<CM: CopyMechanism<EG>>(
+    fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
         _mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         let mut token = ArrivalToken::new();
         if UNIT_POS == 0 {
-            let mut stage = this.stage.as_slice_mut();
+            let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
@@ -157,7 +157,7 @@ impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::
 }
 
 #[cube]
-impl<EG: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, S> {
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, ES, S> {
     pub fn new<G: global::GlobalConfig>(
         tensor: TensorMap<EG, 3>,
         x_offset: u32,
@@ -170,7 +170,7 @@ impl<EG: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, S> {
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);
         let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
 
-        TmaRhsLoader::<EG, S> {
+        TmaRhsLoader::<EG, ES, S> {
             tensor_view,
             barrier,
             stage,

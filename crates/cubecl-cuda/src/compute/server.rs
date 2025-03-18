@@ -553,6 +553,7 @@ impl CudaContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
+            println!("Launching {kernel_id}");
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,
