@@ -84,4 +84,8 @@ impl WgpuMemManager {
     pub(crate) fn clear_pending(&mut self) {
         self.pending_operations.clear();
     }
+
+    pub(crate) fn needs_flush(&self, max_pending: usize) -> bool {
+        self.pending_operations.count() > max_pending
+    }
 }

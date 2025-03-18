@@ -92,6 +92,11 @@ impl StorageExclude {
     pub fn clear(&mut self) {
         self.ids.clear();
     }
+
+    /// Number of currently excluded storage buffers.
+    pub fn count(&self) -> usize {
+        self.ids.len()
+    }
 }
 
 fn generate_bucket_sizes(

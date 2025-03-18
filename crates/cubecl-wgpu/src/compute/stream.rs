@@ -350,6 +350,8 @@ impl WgpuStream {
         // - On devices with unified memory, this could skip the staging buffer entirely.
         self.queue
             .write_buffer(resource.buffer(), resource.offset(), data);
+        self.flush_if_needed();
+
         alloc
     }
 
@@ -357,7 +359,7 @@ impl WgpuStream {
         // Flush when there are too many tasks, or when too many handles are locked.
         // Locked handles should only accumulate in rare circumstances (where uniforms
         // are being created but no work is submitted).
-        if self.tasks_count >= self.tasks_max {
+        if self.tasks_count >= self.tasks_max || self.mem_manage.needs_flush(self.tasks_max * 8) {
             self.flush();
         }
     }
