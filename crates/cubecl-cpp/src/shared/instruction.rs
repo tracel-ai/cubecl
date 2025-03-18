@@ -283,8 +283,47 @@ impl<D: Dialect> Display for Instruction<D> {
                 fallback,
                 out,
             } => {
+                let item_fallback = fallback.item();
+                let item_container = container.item();
+                let item_out = out.item();
+                let item_cond = cond.item();
+                let elem_cond = item_cond.elem;
+
+                let vf_container = item_container.vectorization;
+                let vf_fallback = item_fallback.vectorization;
+                let vf_out = item_out.vectorization;
+                let vf_cond = item_cond.vectorization;
+
                 let out = out.fmt_left();
-                writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
+
+                let should_broadcast =
+                    vf_cond > 1 || item_out != item_fallback || item_out != item_container;
+
+                if should_broadcast {
+                    let vf = usize::max(vf_cond, vf_out);
+                    let vf = usize::max(vf, vf_container);
+                    let vf = usize::max(vf, vf_fallback);
+
+                    writeln!(f, "{out} = {item_out} {{")?;
+                    for i in 0..vf {
+                        let fallbacki = fallback.index(i);
+                        let condi = cond.index(i);
+                        let condi = EnsureBoolArg {
+                            var: &condi,
+                            elem: &elem_cond,
+                        };
+
+                        writeln!(f, "({condi}) ? {container}[{index} + i] : {fallbacki},")?;
+                    }
+
+                    writeln!(f, "}};")
+                } else {
+                    let cond = EnsureBoolArg {
+                        var: &cond,
+                        elem: &elem_cond,
+                    };
+                    writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
+                }
             }
             Instruction::Copy {
                 input,

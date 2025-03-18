@@ -1003,8 +1003,34 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 fallback,
                 out,
             } => {
-                // TODO
-                writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
+                let vf_container = container.item().vectorization_factor();
+                let vf_fallback = fallback.item().vectorization_factor();
+                let vf_out = out.item().vectorization_factor();
+                let vf_cond = cond.item().vectorization_factor();
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_container);
+                let vf = usize::max(vf, vf_fallback);
+
+                let out = out.fmt_left();
+                if vf != vf_container || vf != vf_fallback || vf != vf_cond || vf != vf_out {
+                    writeln!(f, "{out} = vec{vf}(")?;
+                    for i in 0..vf {
+                        let fallbacki = fallback.index(i);
+                        let condi = cond.index(i);
+
+                        writeln!(
+                            f,
+                            "select({fallbacki}, (*{container}_ptr)[{index} + {container}_offset + i], {condi}),"
+                        )?;
+                    }
+
+                    writeln!(f, ");")
+                } else {
+                    writeln!(
+                        f,
+                        "{out} = select({fallback}, (*{container}_ptr)[{index} + {container}_offset], {cond});"
+                    )
+                }
             }
         }
     }

@@ -117,13 +117,13 @@ pub mod conditional_read {
         let output = scope.create_local(container.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
-        let cond_expr = Operator::ConditionalRead(ConditionalRead {
+        let conditional_read = Operator::ConditionalRead(ConditionalRead {
             cond,
             container,
             index,
             fallback,
         });
-        scope.register(Instruction::new(cond_expr, out));
+        scope.register(Instruction::new(conditional_read, out));
 
         output.into()
     }
