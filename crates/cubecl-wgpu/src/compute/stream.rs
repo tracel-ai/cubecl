@@ -38,15 +38,18 @@ impl WgpuStream {
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
+        #[allow(unused_mut)]
+        let mut mem_manage = WgpuMemManager::new(device.clone(), memory_properties, memory_config);
+
         // Allocate a small buffer to use for synchronization.
         #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(Handle::new(memory_main.reserve(32), None, None, 32));
+        let sync_buffer = Some(mem_manage.reserve(32, false));
 
         #[cfg(not(target_family = "wasm"))]
         let sync_buffer = None;
 
         Self {
-            mem_manage: WgpuMemManager::new(device.clone(), memory_properties, memory_config),
+            mem_manage,
             compute_pass: None,
             timestamps,
             encoder: {
