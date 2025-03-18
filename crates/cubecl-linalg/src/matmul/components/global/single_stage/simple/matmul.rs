@@ -1,6 +1,6 @@
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::loader::sync::{
-    SyncFullLoadingStrategy, SyncLhsLoader, SyncRhsLoader,
+    SyncFullLhsLoader, SyncFullLoadingStrategy, SyncFullRhsLoader,
 };
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
@@ -129,8 +129,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncFullLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncFullRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

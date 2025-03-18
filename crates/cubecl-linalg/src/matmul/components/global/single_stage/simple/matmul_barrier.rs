@@ -1,8 +1,7 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::r#async::{
-    AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader,
-};
+use crate::matmul::components::global::loader::r#async::AsyncFullLoadingStrategy;
+use crate::matmul::components::global::loader::r#async::{AsyncLhsLoader, AsyncRhsLoader};
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::GlobalMatmul;
@@ -35,8 +34,8 @@ use crate::matmul::{
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -46,8 +45,8 @@ pub struct SimpleBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
         MP,
@@ -60,8 +59,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -116,8 +115,8 @@ where
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -135,8 +134,8 @@ where
         LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;

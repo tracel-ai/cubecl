@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     global::{
         self,
-        loader::sync::{CyclicCoalescedLoading, SyncRhsLoader},
+        loader::sync::{CyclicCoalescedLoading, SyncFullRhsLoader},
         output_loader::Unloader,
         single_stage, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
     },
@@ -71,7 +71,7 @@ where
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+        SyncFullRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<CS, SMM::Config>;
 
     type Out = Unloader<CS::EG>;

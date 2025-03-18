@@ -13,8 +13,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
-
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
@@ -23,6 +21,9 @@ use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::MatmulAvailabilityError;
+
+use super::SyncLhsBufferLoader;
+use super::SyncRhsBufferLoader;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,

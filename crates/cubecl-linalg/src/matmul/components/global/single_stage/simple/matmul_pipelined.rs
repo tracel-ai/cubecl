@@ -1,7 +1,7 @@
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::loader::r#async::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::loader::r#async::AsyncLhsLoader;
-use crate::matmul::components::global::loader::r#async::AsyncLoadingStrategy;
 use crate::matmul::components::global::loader::r#async::AsyncRhsLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
@@ -33,8 +33,8 @@ use crate::matmul::{
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -44,8 +44,8 @@ pub struct SimplePipelinedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
         MP,
@@ -58,8 +58,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -114,8 +114,8 @@ where
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -133,8 +133,8 @@ where
         LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
         RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
     >,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;

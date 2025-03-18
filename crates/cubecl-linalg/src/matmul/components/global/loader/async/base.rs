@@ -32,7 +32,7 @@ impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
 }
 
 #[cube]
-pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
@@ -44,6 +44,15 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
+
+    /// The barrier level at which the copy mechanism works
+    fn barrier_level() -> BarrierLevel;
+}
+
+#[cube]
+pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
 
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
@@ -60,8 +69,12 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
 }
 
 #[derive(CubeType)]
-pub struct AsyncLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
-{
+pub struct AsyncLhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: AsyncFullLoadingStrategy,
+> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     _config: PhantomData<S>,
@@ -69,8 +82,12 @@ pub struct AsyncLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: As
 }
 
 #[derive(CubeType)]
-pub struct AsyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
-{
+pub struct AsyncRhsLoader<
+    EG: Numeric,
+    ES: Numeric,
+    S: stage::StageConfig,
+    L: AsyncFullLoadingStrategy,
+> {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     _config: PhantomData<S>,
@@ -78,7 +95,7 @@ pub struct AsyncRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: As
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
@@ -97,7 +114,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     InputLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
@@ -116,7 +133,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncLhsLoader<EG, ES, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
@@ -149,7 +166,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     InputLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
@@ -168,7 +185,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
@@ -187,7 +204,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncRhsLoader<EG, ES, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
