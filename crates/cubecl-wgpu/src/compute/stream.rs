@@ -5,23 +5,19 @@ use cubecl_core::{
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use super::{WgpuResource, WgpuStorage, poll::WgpuPoll, timestamps::KernelTimestamps};
+use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
 use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryHandle, MemoryManagement, StorageExclude},
-    storage::ComputeStorage,
-    TimestampsError, TimestampsResult,
+    memory_management::MemoryDeviceProperties, TimestampsError, TimestampsResult,
 };
-use wgpu::{BufferUsages, ComputePipeline};
+use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuStream {
-    memory_pool: MemoryManagement<WgpuStorage>,
-    compute_pending_storage: StorageExclude,
+    pub mem_manage: WgpuMemManager,
+    pub timestamps: KernelTimestamps,
 
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
-
-    pub timestamps: KernelTimestamps,
     tasks_count: usize,
     tasks_max: usize,
     device: wgpu::Device,
@@ -42,23 +38,6 @@ impl WgpuStream {
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
 
-        // Allocate storage & memory management for the main memory buffers. Any calls
-        // to empty() or create() with a small enough size will be allocated from this
-        // main memory pool.
-        #[allow(unused_mut)]
-        let mut memory_main = MemoryManagement::from_configuration(
-            WgpuStorage::new(
-                device.clone(),
-                BufferUsages::STORAGE
-                    | BufferUsages::COPY_SRC
-                    | BufferUsages::COPY_DST
-                    | BufferUsages::INDIRECT
-                    | BufferUsages::QUERY_RESOLVE,
-            ),
-            &memory_properties,
-            memory_config.clone(),
-        );
-
         // Allocate a small buffer to use for synchronization.
         #[cfg(target_family = "wasm")]
         let sync_buffer = Some(Handle::new(memory_main.reserve(32), None, None, 32));
@@ -67,7 +46,7 @@ impl WgpuStream {
         let sync_buffer = None;
 
         Self {
-            memory_pool: memory_main,
+            mem_manage: WgpuMemManager::new(device.clone(), memory_properties, memory_config),
             compute_pass: None,
             timestamps,
             encoder: {
@@ -82,7 +61,6 @@ impl WgpuStream {
             poll,
             sync_buffer,
             submission_load: SubmissionLoad::default(),
-            compute_pending_storage: StorageExclude::default(),
         }
     }
 
@@ -94,14 +72,14 @@ impl WgpuStream {
     ) {
         let dispatch_resource = match dispatch.clone() {
             CubeCount::Static(_, _, _) => None,
-            CubeCount::Dynamic(binding) => Some(self.get_resource(binding)),
+            CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources: Vec<_> = bindings
-            .iter()
-            .map(|b| self.get_resource(b.clone()))
+            .into_iter()
+            .map(|b| self.mem_manage.get_resource(b))
             .collect();
 
         // Start a new compute pass if needed. The forget_lifetime allows
@@ -172,11 +150,11 @@ impl WgpuStream {
         let mut staging_buffers = Vec::with_capacity(bindings.len());
         let mut callbacks = Vec::with_capacity(bindings.len());
 
-        for binding in bindings.iter() {
+        for binding in bindings.into_iter() {
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
-            let resource = self.get_resource(binding.clone());
+            let resource = self.mem_manage.get_resource(binding);
             let aligned_len = resource.size().div_ceil(align) * align;
             let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
@@ -262,12 +240,8 @@ impl WgpuStream {
                     });
                 } else {
                     let size = 2 * size_of::<u64>() as u64;
-                    let handle =
-                        Handle::new(self.memory_pool.reserve(size, None), None, None, size);
-                    let resource = self
-                        .memory_pool
-                        .get_resource(handle.clone().binding().memory, None, None)
-                        .expect("Failed to get query resource.");
+                    let handle = self.mem_manage.reserve(size, false);
+                    let resource = self.mem_manage.get_resource(handle.clone().binding());
                     self.encoder
                         .resolve_query_set(query_set, 0..2, resource.buffer(), 0);
                     *init = false;
@@ -350,29 +324,8 @@ impl WgpuStream {
         }
     }
 
-    pub fn get_resource(&mut self, binding: Binding) -> WgpuResource {
-        let handle = self
-            .memory_pool
-            .get(binding.memory.clone())
-            .expect("Failed to find storage!");
-        let handle = match binding.offset_start {
-            Some(offset) => handle.offset_start(offset),
-            None => handle,
-        };
-        let handle = match binding.offset_end {
-            Some(offset) => handle.offset_end(offset),
-            None => handle,
-        };
-        // Assume this resource is now used for something. That means we can't copy to it anymore,
-        // as any copy will get ordered first, before any other operation.
-        self.compute_pending_storage.exclude_storage(handle.id);
-        self.memory_pool.storage().get(&handle)
-    }
-
     pub fn empty(&mut self, size: u64) -> Handle {
-        // For empty buffers we always use the main memory even if they are small, as
-        // we don't need to upload any data to them.
-        Handle::new(self.memory_pool.reserve(size, None), None, None, size)
+        self.mem_manage.reserve(size, false)
     }
 
     pub fn create(&mut self, data: &[u8]) -> Handle {
@@ -384,15 +337,10 @@ impl WgpuStream {
         // We'd like to keep operations as one long ComputePass. To do so, all copy operations happen
         // at the start of the encoder, and all execute operations afterwards. For this re-ordering to be valid,
         // a buffer we copy to MUST not have any outstanding compute work associated with it.
-        // Any handles with compute work are kept in self.locked_copy_handles,
+        // Any handles with compute work are kept in pending operations,
         // and the allocation here won't try to use that buffer.
-        let result_slice = self
-            .memory_pool
-            .reserve(aligned_len, Some(&self.compute_pending_storage));
-        let result_res = self
-            .memory_pool
-            .get_resource(result_slice.clone().binding(), None, None)
-            .unwrap();
+        let alloc = self.mem_manage.reserve(aligned_len, true);
+        let resource = self.mem_manage.get_resource(alloc.clone().binding());
 
         // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
         // it's API as a slice to write into.
@@ -401,17 +349,8 @@ impl WgpuStream {
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
         self.queue
-            .write_buffer(result_res.buffer(), result_res.offset(), data);
-
-        Handle::new(result_slice, None, None, data.len() as u64)
-    }
-
-    pub fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.memory_pool.memory_usage()
-    }
-
-    pub fn memory_cleanup(&mut self) {
-        self.memory_pool.cleanup(true);
+            .write_buffer(resource.buffer(), resource.offset(), data);
+        alloc
     }
 
     fn flush_if_needed(&mut self) {
@@ -438,14 +377,15 @@ impl WgpuStream {
 
         // This will _first_ fire off all pending write_buffer work.
         let index = self.queue.submit([tasks_encoder.finish()]);
-
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);
 
-        // Cleanup allocations and deallocations.
-        self.memory_pool.cleanup(false);
         // All buffers are submitted, so don't need to exclude them anymore.
-        self.compute_pending_storage.clear();
+        self.mem_manage.clear_pending();
+
+        // Cleanup allocations and deallocations.
+        self.mem_manage.memory_cleanup(false);
+
         self.tasks_count = 0;
     }
 }
