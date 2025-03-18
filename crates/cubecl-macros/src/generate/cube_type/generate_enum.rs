@@ -71,7 +71,6 @@ impl CubeTypeEnum {
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let context = prelude_type("Scope");
-        let into_runtime = prelude_type("IntoRuntime");
         let init = prelude_type("Init");
         let debug = prelude_type("CubeDebug");
 
@@ -84,14 +83,6 @@ impl CubeTypeEnum {
             self.variants
                 .iter()
                 .map(|v| v.init_body(name_expand))
-                .collect(),
-        );
-
-        let body_into_runtime = self.match_impl(
-            quote! {self},
-            self.variants
-                .iter()
-                .map(|v| v.runtime_body(name, name_expand))
                 .collect(),
         );
 
@@ -110,13 +101,6 @@ impl CubeTypeEnum {
             impl #generics #debug for #name #generic_names #where_clause {}
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
-
-            impl #generics #into_runtime for #name #generic_names #where_clause {
-                fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {
-                    let expand = #body_into_runtime;
-                    #init::init(expand, context)
-                }
-            }
 
             #[allow(non_snake_case)]
             #[allow(unused)]
@@ -534,30 +518,6 @@ impl CubeTypeVariant {
             VariantKind::Unnamed => quote![#name ( #(#fields),* ) ],
             VariantKind::Empty => quote!( #name ),
         }
-    }
-
-    fn runtime_body(&self, ident_ty: &Ident, ident_ty_expand: &Ident) -> TokenStream {
-        let name = &self.ident;
-        let into_runtime = prelude_type("IntoRuntime");
-        let body = self.field_names.iter().map(|name| {
-            if let VariantKind::Named = self.kind {
-                quote! {
-                    #name: #into_runtime::__expand_runtime_method(#name, context)
-                }
-            } else {
-                quote! {
-                    #into_runtime::__expand_runtime_method(#name, context)
-                }
-            }
-        });
-
-        let body = match self.kind {
-            VariantKind::Named => quote![#ident_ty_expand::#name { #(#body),*} ],
-            VariantKind::Unnamed => quote![#ident_ty_expand::#name ( #(#body),* ) ],
-            VariantKind::Empty => quote![#ident_ty_expand::#name],
-        };
-
-        self.run_on_variants(ident_ty, body)
     }
 
     fn init_body(&self, ident_ty_expand: &Ident) -> TokenStream {

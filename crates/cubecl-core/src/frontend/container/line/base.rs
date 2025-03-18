@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 use crate::frontend::{
-    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime,
+    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped,
 };
 use crate::{
     ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
@@ -313,11 +313,11 @@ impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
     }
 }
 
-impl<P: CubePrimitive> IntoRuntime for Line<P> {
-    fn __expand_runtime_method(self, scope: &mut crate::ir::Scope) -> Self::ExpandType {
-        self.val.__expand_runtime_method(scope).expand.into()
-    }
-}
+// impl<P: CubePrimitive> IntoRuntime for Line<P> {
+//     fn __expand_runtime_method(self, scope: &mut crate::ir::Scope) -> Self::ExpandType {
+//         self.val.__expand_runtime_method(scope).expand.into()
+//     }
+// }
 
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
     fn as_elem(scope: &Scope) -> Elem {

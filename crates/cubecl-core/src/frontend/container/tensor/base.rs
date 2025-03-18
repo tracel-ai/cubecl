@@ -4,7 +4,7 @@ use crate::{
         SizedContainer,
     },
     ir::{Item, Metadata, Scope},
-    prelude::{index, index_assign, IntoRuntime, Line, List, ListExpand, ListMut, ListMutExpand},
+    prelude::{index, index_assign, Line, List, ListExpand, ListMut, ListMutExpand},
     unexpanded,
 };
 use cubecl_ir::ExpandElement;
@@ -359,24 +359,6 @@ impl<C: CubeType> ExpandElementBaseInit for Tensor<C> {
     fn init_elem(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         // The type can't be deeply cloned/copied.
         elem
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for Tensor<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Tensor can't exist at compile time")
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for *const Tensor<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Tensor can't exist at compile time")
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for *mut Tensor<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Tensor can't exist at compile time")
     }
 }
 

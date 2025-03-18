@@ -23,7 +23,6 @@ pub struct SyncLhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    num_buffers: u32,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -37,8 +36,6 @@ pub struct SyncRhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    buffer_iter: u32,
-    num_buffers: u32,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -98,7 +95,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncLhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            num_buffers: config.tiling_dimensions(Ident::Lhs).tile_count_col(),
             _config: PhantomData::<S>,
         }
     }
@@ -159,8 +155,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncRhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            buffer_iter: 0u32.runtime(),
-            num_buffers: config.tiling_dimensions(Ident::Rhs).tile_count_row(),
             _config: PhantomData::<S>,
         }
     }

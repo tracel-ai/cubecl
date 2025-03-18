@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
-    frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime},
+    frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init},
     ir::{Item, Scope},
     prelude::{index, index_assign, Line, List, ListExpand, ListMut, ListMutExpand},
 };
@@ -14,12 +14,6 @@ pub struct SharedMemory<T: CubeType> {
 impl<T: CubePrimitive> Init for ExpandElementTyped<SharedMemory<T>> {
     fn init(self, _scope: &mut Scope) -> Self {
         self
-    }
-}
-
-impl<T: CubePrimitive> IntoRuntime for SharedMemory<T> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> ExpandElementTyped<Self> {
-        unimplemented!("Shared memory can't exist at comptime");
     }
 }
 

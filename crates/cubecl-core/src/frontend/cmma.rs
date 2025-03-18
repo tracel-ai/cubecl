@@ -53,9 +53,7 @@ use crate::{
     unexpanded,
 };
 
-use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, IntoRuntime, Slice, SliceMut,
-};
+use super::{CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Slice, SliceMut};
 
 use cubecl_ir::{ExpandElement, Scope};
 pub use ir::{MatrixIdent, MatrixLayout};
@@ -88,12 +86,6 @@ impl<C: CubeType> Clone for MatrixExpand<C> {
 
 impl<C: CubeType> CubeType for Matrix<C> {
     type ExpandType = MatrixExpand<C>;
-}
-
-impl<C: CubeType> IntoRuntime for Matrix<C> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> MatrixExpand<C> {
-        unimplemented!("Matrices can't exist at compile time")
-    }
 }
 
 impl<C: CubeType> Init for MatrixExpand<C> {
