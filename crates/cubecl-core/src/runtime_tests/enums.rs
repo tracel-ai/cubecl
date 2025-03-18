@@ -1,4 +1,4 @@
-use crate as cubecl;
+use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[derive(CubeLaunch, Clone, Debug, Hash, PartialEq, Eq, Copy)]
@@ -125,6 +125,45 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
     assert_eq!(actual[0], expected);
 }
 
+#[derive(CubeLaunch)]
+pub enum SimpleEnum {
+    Hello(Array<u32>),
+    Goodbye,
+}
+
+#[cube(launch)]
+fn kernel_tuple_enum(first: SimpleEnum, second: SimpleEnum) {
+    if UNIT_POS == 0 {
+        match (first, second) {
+            (SimpleEnum::Hello(mut x), SimpleEnum::Hello(y)) => {
+                x[0] = y[0];
+            }
+            (SimpleEnum::Hello(mut x), SimpleEnum::Goodbye) => {
+                x[0] = 10;
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) {
+    let first = client.create(as_bytes![u32: 20]);
+    let second = client.create(as_bytes![u32: 5]);
+
+    kernel_tuple_enum::launch(
+        client,
+        CubeCount::new_single(),
+        CubeDim::new_single(),
+        SimpleEnumArgs::<R>::Hello(unsafe { ArrayArg::from_raw_parts::<u32>(&first, 1, 1) }),
+        SimpleEnumArgs::<R>::Hello(unsafe { ArrayArg::from_raw_parts::<u32>(&second, 1, 1) }),
+    );
+
+    let bytes = client.read_one(first.binding());
+    let actual = u32::from_bytes(&bytes);
+
+    assert_eq!(actual[0], 5);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_enums {
@@ -147,6 +186,12 @@ macro_rules! testgen_enums {
                 cubecl_core::runtime_tests::enums::test_array_float_int::<TestRuntime, i32>(
                     &client, 20,
                 );
+            }
+
+            #[test]
+            fn tuple_enum() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::enums::test_tuple_enum::<TestRuntime>(&client);
             }
         }
     };
