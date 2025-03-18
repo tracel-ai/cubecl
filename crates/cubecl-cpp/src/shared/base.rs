@@ -396,6 +396,17 @@ impl<D: Dialect> CppCompiler<D> {
                 ),
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
+                gpu::BarrierOps::InitProxied { barrier } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    let barrier = self.compile_variable(barrier);
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
+                        barrier,
+                        level,
+                        with_proxy_fence: true,
+                    }));
+                }
                 gpu::BarrierOps::MemCopyAsync { barrier, source } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
@@ -1188,6 +1199,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 barrier
             }
+            gpu::VariableKind::ArrivalToken { id } => Variable::ArrivalToken { id },
         }
     }
 

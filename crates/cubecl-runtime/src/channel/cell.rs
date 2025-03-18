@@ -1,5 +1,5 @@
 use super::ComputeChannel;
-use crate::server::{Binding, ComputeServer, CubeCount, Handle};
+use crate::server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle};
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -70,12 +70,13 @@ where
         &self,
         kernel_description: Server::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {
         self.server
             .borrow_mut()
-            .execute(kernel_description, count, bindings, kind)
+            .execute(kernel_description, count, constants, bindings, kind)
     }
 
     fn flush(&self) {

@@ -217,7 +217,7 @@ fn execute_dynamic<R, K, E1, E2, E3>(
     }
 
     let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
-    client.execute(kernel, settings.cube_count, handles);
+    client.execute(kernel, settings.cube_count, Vec::new(), handles);
 }
 
 struct ExecuteSettings {

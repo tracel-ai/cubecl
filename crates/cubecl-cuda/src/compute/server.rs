@@ -199,6 +199,7 @@ impl ComputeServer for CudaServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<server::ConstBinding>,
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
@@ -234,18 +235,18 @@ impl ComputeServer for CudaServer {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let resources = bindings
+        let mut resources = constants
             .iter()
-            .map(|binding| {
-                let mut resource = ctx
-                    .memory_management
-                    .get_resource(
-                        binding.memory.clone(),
-                        binding.offset_start,
-                        binding.offset_end,
-                    )
-                    .expect("Failed to find resource");
-                if let Some(map) = &binding.tensor_map {
+            .map(|binding| match binding {
+                server::ConstBinding::TensorMap { binding, map } => {
+                    let mut resource = ctx
+                        .memory_management
+                        .get_resource(
+                            binding.memory.clone(),
+                            binding.offset_start,
+                            binding.offset_end,
+                        )
+                        .expect("Failed to find resource");
                     let lib = cudarc::driver::sys::lib();
                     let mut map_ptr = Box::new_uninit();
                     let data_ty = elem_to_tmap_type(map.elem);
@@ -291,10 +292,15 @@ impl ComputeServer for CudaServer {
                         }
                     };
                     resource.binding = Box::into_raw(map_ptr.assume_init()) as *mut c_void;
+                    resource
                 }
-                resource
             })
             .collect::<Vec<_>>();
+        resources.extend(bindings.into_iter().map(|binding| {
+            ctx.memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource")
+        }));
 
         if let Some(level) = profile_level {
             ctx.sync();

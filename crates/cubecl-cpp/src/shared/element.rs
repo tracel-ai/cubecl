@@ -165,8 +165,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { id: _, item } => *item,
-            Variable::Barrier { id: _, item, .. } => *item,
+            Variable::Pipeline { item, .. } => *item,
+            Variable::Barrier { item, .. } => *item,
+            Variable::ArrivalToken { .. } => unreachable!(),
         }
     }
 
@@ -235,6 +236,9 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
         level: BarrierLevel,
     },
+    ArrivalToken {
+        id: Id,
+    },
     Tmp {
         id: Id,
         item: Item<D>,
@@ -255,8 +259,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
-            // We do the conversion in Rust and then render the number to avoid overflow or other
-            // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
@@ -325,6 +327,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
             Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
             Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
+            Variable::ArrivalToken { id } => write!(f, "token_{id}"),
         }
     }
 }
@@ -455,6 +458,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Tmp { .. } => false,
             Variable::Pipeline { .. } => false,
             Variable::Barrier { .. } => false,
+            Variable::ArrivalToken { .. } => false,
         }
     }
 

@@ -337,10 +337,7 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         VariableKind::LocalMut { .. } => init(elem),
         VariableKind::Versioned { .. } => init(elem),
         VariableKind::LocalConst { .. } => init(elem),
-        // Constant should be initialized since the new variable can be mutated afterward.
-        // And it is assumed those values are cloned.
         VariableKind::Builtin(_) => init(elem),
-        // Array types can't be copied, so we should simply return the same variable.
         VariableKind::SharedMemory { .. }
         | VariableKind::GlobalInputArray { .. }
         | VariableKind::GlobalOutputArray { .. }
@@ -349,7 +346,8 @@ pub(crate) fn init_expand_element<E: Into<ExpandElement>>(
         | VariableKind::Slice { .. }
         | VariableKind::Matrix { .. }
         | VariableKind::Barrier { .. }
-        | VariableKind::Pipeline { .. } => elem,
+        | VariableKind::Pipeline { .. }
+        | VariableKind::ArrivalToken { .. } => elem,
     }
 }
 

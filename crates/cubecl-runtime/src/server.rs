@@ -60,6 +60,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     );
@@ -138,22 +139,42 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
-    /// Constant tensor map for this binding
-    pub tensor_map: Option<TensorMap>,
 }
 
+/// Binding of a grid constant to execute a kernel.
+#[derive(new, Debug, Clone)]
+pub enum ConstBinding {
+    /// A tensor map used for TMA loading ops
+    TensorMap {
+        /// The binding for the backing tensor
+        binding: Binding,
+        /// The tensormap metadata
+        map: TensorMap,
+    },
+}
+
+/// TensorMap metadata for the opaque proxy used in TMA copies
 #[derive(Debug, Clone)]
 pub struct TensorMap {
+    /// Tensormap format (tiled or im2col)
     pub format: TensorMapFormat,
+    /// Rank of the backing tensor
     pub rank: usize,
+    /// Shape of the backing tensor
     pub shape: Vec<u64>,
+    /// Strides of the backing tensor
     pub strides: Vec<u64>,
-    pub shared_shape: Vec<u32>,
+    /// Element stride, usually 1 but may be 2 for complex tensors
     pub elem_stride: Vec<u32>,
+    /// Interleave mode
     pub interleave: TensorMapInterleave,
+    /// Swizzle mode
     pub swizzle: TensorMapSwizzle,
+    /// Prefetch settings
     pub prefetch: TensorMapPrefetch,
+    /// OOB fill value
     pub oob_fill: OobFill,
+    /// Element type
     pub elem: Elem,
 }
 
@@ -171,7 +192,6 @@ impl Handle {
             memory: MemoryHandle::binding(self.memory),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
-            tensor_map: None,
         }
     }
 }
@@ -193,7 +213,6 @@ impl Clone for Binding {
             memory: self.memory.clone(),
             offset_start: self.offset_start,
             offset_end: self.offset_end,
-            tensor_map: self.tensor_map.clone(),
         }
     }
 }

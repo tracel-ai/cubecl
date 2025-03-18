@@ -64,19 +64,31 @@ pub enum ExecutionMode {
 /// Format of [`TensorMap`]
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub enum TensorMapFormat {
+    /// Simple tiling
     Tiled {
+        /// Tile size
         tile_size: Vec<u32>,
     },
+    /// Im2col indexing
     Im2col {
+        /// Pixel box lower corner. TODO: How does this work?
         pixel_box_lower_corner: Vec<i32>,
+        /// Pixel box upper corner. TODO: How does this work?
         pixel_box_upper_corner: Vec<i32>,
+        /// Channels per pixel
         channels_per_pixel: u32,
+        /// Pixels per column, aka kernel size
         pixels_per_column: u32,
     },
+    /// Wide im2col
     Im2colWide {
+        /// Pixel box lower corner width. TODO: How does this work?
         pixel_box_lower_corner_width: i32,
+        /// Pixel box upper corner width. TODO: How does this work?
         pixel_box_upper_corner_width: i32,
+        /// Channels per pixel
         channels_per_pixel: u32,
+        /// Pixels per column
         pixels_per_column: u32,
     },
 }

@@ -7,8 +7,10 @@ use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Binding, Feature, KernelId, MemoryConfiguration,
-    WgpuCompilationOptions,
+    compute::DebugInformation,
+    prelude::*,
+    server::{Binding, ConstBinding},
+    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
 };
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
@@ -133,6 +135,7 @@ impl ComputeServer for WgpuServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         mode: ExecutionMode,
     ) {
@@ -157,7 +160,7 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-        self.stream.register(pipeline, bindings, &count);
+        self.stream.register(pipeline, constants, bindings, &count);
 
         // If profiling, write out results.
         if let Some(level) = profile_level {

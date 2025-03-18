@@ -1,5 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
+use cubecl_runtime::{server::ConstBinding, TimestampsError, TimestampsResult};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
@@ -91,15 +91,23 @@ impl ComputeServer for DummyServer {
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         _mode: ExecutionMode,
     ) {
-        let bind_resources = bindings
+        let mut resources = constants
             .into_iter()
-            .map(|binding| self.get_resource(binding))
+            .map(|it| match it {
+                ConstBinding::TensorMap { binding, .. } => self.get_resource(binding),
+            })
             .collect::<Vec<_>>();
+        resources.extend(
+            bindings
+                .into_iter()
+                .map(|binding| self.get_resource(binding)),
+        );
 
-        let mut resources: Vec<_> = bind_resources.iter().map(|x| x.resource()).collect();
+        let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
 
         kernel.compute(&mut resources);
     }

@@ -326,6 +326,9 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match barrier_ops {
+            BarrierOps::InitProxied { barrier } => {
+                visit_read(self, barrier);
+            }
             BarrierOps::MemCopyAsync { barrier, source } => {
                 visit_read(self, barrier);
                 visit_read(self, source);

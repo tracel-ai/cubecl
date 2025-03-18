@@ -1,27 +1,20 @@
 use std::marker::PhantomData;
 
-use cubecl_core::prelude::barrier::Barrier;
+use cubecl_core::prelude::barrier::{ArrivalToken, Barrier};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::matmul::{
-    components::{
-        global::{
-            self,
-            loader::r#async::CopyMechanism,
-            single_stage,
-            tensor_view::{MappedTensorReader, TensorReader},
-            AsyncInputLoader, GlobalConfig, InputLoader,
-        },
-        stage::{
-            self,
-            multi_buffer::{LhsReader, RhsReader},
-            ContiguousTilingLayout, RowMajorTilingOrder, Stage, TilingOrder,
-        },
-        Ident,
+use crate::matmul::components::{
+    global::{
+        self, loader::r#async::CopyMechanism, single_stage, tensor_view::MappedTensorReader,
+        AsyncInputLoader, GlobalConfig, InputLoader,
     },
-    AsyncLoadingStrategy,
+    stage::{
+        self,
+        multi_buffer::{LhsReader, RhsReader},
+        ContiguousTilingLayout, RowMajorTilingOrder, Stage,
+    },
+    Ident,
 };
 
 #[derive(CubeType)]
@@ -47,16 +40,27 @@ impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::
     fn fill_stage<CM: CopyMechanism<EG>>(
         this: &mut Self,
         _mechanism: &CM,
-        #[comptime] _config: single_stage::Config<S>,
+        #[comptime] config: single_stage::Config<S>,
     ) {
-        let mut stage = this.stage.as_slice_mut();
-        this.barrier.memcpy_async_bulk_to_shared_3d(
-            &this.tensor_view.tensor,
-            &mut stage,
-            this.tensor_view.batch,
-            this.tensor_view.tile_y,
-            this.tensor_view.tile_x,
-        );
+        let mut token = ArrivalToken::new();
+        if UNIT_POS == 0 {
+            let mut stage = this.stage.as_slice_mut();
+            this.barrier.memcpy_async_bulk_to_shared_3d(
+                &this.tensor_view.tensor,
+                &mut stage,
+                this.tensor_view.batch as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.tile_x as i32,
+            );
+            this.barrier.arrive_tx(
+                1,
+                config.tiling_dimensions(Ident::Lhs).total_size() * EG::elem_size(),
+                &mut token,
+            );
+        } else {
+            this.barrier.arrive(&mut token);
+        }
+        this.barrier.wait(token);
     }
 }
 
@@ -91,8 +95,7 @@ impl<EG: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, S> {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
-        let barrier = Barrier::new(BarrierLevel::cube_coop(0));
-        barrier.init_proxied();
+        let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
 
         TmaLhsLoader::<EG, S> {
             tensor_view,
@@ -129,15 +132,27 @@ impl<EG: Numeric, S: stage::StageConfig> AsyncInputLoader<EG, EG, single_stage::
     fn fill_stage<CM: CopyMechanism<EG>>(
         this: &mut Self,
         _mechanism: &CM,
-        #[comptime] _config: single_stage::Config<S>,
+        #[comptime] config: single_stage::Config<S>,
     ) {
-        this.barrier.memcpy_async_bulk_to_shared_3d(
-            &this.tensor_view.tensor,
-            &mut this.stage.as_slice_mut(),
-            this.tensor_view.batch,
-            this.tensor_view.tile_y,
-            this.tensor_view.tile_x,
-        );
+        let mut token = ArrivalToken::new();
+        if UNIT_POS == 0 {
+            let mut stage = this.stage.as_slice_mut();
+            this.barrier.memcpy_async_bulk_to_shared_3d(
+                &this.tensor_view.tensor,
+                &mut stage,
+                this.tensor_view.batch as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.tile_x as i32,
+            );
+            this.barrier.arrive_tx(
+                1,
+                config.tiling_dimensions(Ident::Rhs).total_size() * EG::elem_size(),
+                &mut token,
+            );
+        } else {
+            this.barrier.arrive(&mut token);
+        }
+        this.barrier.wait(token);
     }
 }
 
@@ -150,11 +165,10 @@ impl<EG: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, S> {
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);
-        let barrier = Barrier::new(BarrierLevel::cube_coop(0));
-        barrier.init_proxied();
+        let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
 
         TmaRhsLoader::<EG, S> {
             tensor_view,

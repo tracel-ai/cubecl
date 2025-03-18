@@ -26,6 +26,7 @@ pub struct Scope {
     matrices: Vec<Variable>,
     pipelines: Vec<Variable>,
     barriers: Vec<Variable>,
+    arrival_tokens: Vec<Variable>,
     slices: Vec<Variable>,
     shared_memories: Vec<Variable>,
     pub const_arrays: Vec<(Variable, Vec<Variable>)>,
@@ -61,6 +62,7 @@ impl core::hash::Hash for Scope {
         self.matrices.hash(ra_expand_state);
         self.pipelines.hash(ra_expand_state);
         self.barriers.hash(ra_expand_state);
+        self.arrival_tokens.hash(ra_expand_state);
         self.slices.hash(ra_expand_state);
         self.shared_memories.hash(ra_expand_state);
         self.const_arrays.hash(ra_expand_state);
@@ -97,6 +99,7 @@ impl Scope {
             matrices: Vec::new(),
             pipelines: Vec::new(),
             barriers: Vec::new(),
+            arrival_tokens: Vec::new(),
             slices: Vec::new(),
             local_arrays: Vec::new(),
             shared_memories: Vec::new(),
@@ -143,12 +146,23 @@ impl Scope {
         barrier
     }
 
+    /// Create a new arrival token element.
+    pub fn create_arrival_token(&mut self) -> ExpandElement {
+        let token = self.allocator.create_arrival_token();
+        self.add_arrival_token(*token);
+        token
+    }
+
     pub fn add_pipeline(&mut self, variable: Variable) {
         self.pipelines.push(variable);
     }
 
     pub fn add_barrier(&mut self, variable: Variable) {
         self.barriers.push(variable);
+    }
+
+    pub fn add_arrival_token(&mut self, variable: Variable) {
+        self.arrival_tokens.push(variable);
     }
 
     /// Create a new slice element.
@@ -297,6 +311,7 @@ impl Scope {
             matrices: Vec::new(),
             pipelines: Vec::new(),
             barriers: Vec::new(),
+            arrival_tokens: Vec::new(),
             slices: Vec::new(),
             shared_memories: Vec::new(),
             const_arrays: Vec::new(),

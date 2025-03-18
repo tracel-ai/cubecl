@@ -1,4 +1,5 @@
 use crate::{Instruction, TypeHash};
+use alloc::{format, string::String, vec::Vec};
 use core::fmt::Display;
 
 use crate::OperationReflect;
@@ -18,6 +19,9 @@ pub enum BarrierLevel {
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
 pub enum BarrierOps {
+    InitProxied {
+        barrier: Variable,
+    },
     /// Copy source to destination
     MemCopyAsync {
         barrier: Variable,
@@ -50,6 +54,9 @@ pub enum BarrierOps {
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BarrierOps::InitProxied { barrier } => {
+                write!(f, "init_barrier({barrier})")
+            }
             BarrierOps::MemCopyAsync { barrier, source } => {
                 write!(f, "mem_copy_async({barrier}, source: {source})",)
             }
@@ -65,9 +72,9 @@ impl Display for BarrierOps {
                     .map(|it| format!("{it}, "))
                     .collect::<String>();
                 write!(
-                    f,
-                    "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
-                )
+                            f,
+                            "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
+                        )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
             BarrierOps::ArriveTx {

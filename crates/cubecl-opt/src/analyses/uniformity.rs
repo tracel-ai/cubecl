@@ -199,7 +199,6 @@ impl Uniformity {
             | VariableKind::GlobalOutputArray(_)
             | VariableKind::GlobalScalar(_)
             | VariableKind::ConstantScalar(_) => true,
-
             VariableKind::Builtin(builtin) => match builtin {
                 Builtin::UnitPosPlane
                 | Builtin::AbsolutePos
@@ -224,9 +223,7 @@ impl Uniformity {
                 | Builtin::CubeCountZ
                 | Builtin::PlaneDim => true,
             },
-
             VariableKind::LocalMut { .. } => false,
-
             VariableKind::LocalArray { .. }
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
@@ -236,6 +233,7 @@ impl Uniformity {
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
+            VariableKind::ArrivalToken { .. } => false,
         }
     }
 
