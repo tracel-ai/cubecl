@@ -1,9 +1,11 @@
 use crate::matmul::components::global;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
+use crate::matmul::components::global::multi_stage::{
+    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
+};
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::Ident;
@@ -162,7 +164,7 @@ where
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step; // equal to SMM::K
+        let k_step = num_buffers * buffer_step;
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
@@ -172,19 +174,21 @@ where
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        for _ in 0..num_loops {
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+        for _ in 0..num_loops {
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
             sync_units();
 
             if is_consumer {
                 SMM::execute(
-                    lhs_stage_reader,
-                    rhs_stage_reader,
+                    &lhs_buffer_reader_a,
+                    &rhs_buffer_reader_a,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
@@ -192,8 +196,24 @@ where
                 );
             }
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+
+            sync_units();
+
+            if is_consumer {
+                SMM::execute(
+                    &lhs_buffer_reader_b,
+                    &rhs_buffer_reader_b,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
+                    acc,
+                    config.to_smm_config(),
+                );
+            }
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
         if is_consumer {

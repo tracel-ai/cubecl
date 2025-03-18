@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::single_stage::{self, AsyncFullLoader, FullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{single_stage, AsyncInputLoader, InputLoader};
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
@@ -96,7 +96,7 @@ pub struct AsyncRhsLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
+    AsyncFullLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
@@ -115,7 +115,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    InputLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
 
@@ -167,7 +167,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    InputLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
 
@@ -186,7 +186,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncInputLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
+    AsyncFullLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,

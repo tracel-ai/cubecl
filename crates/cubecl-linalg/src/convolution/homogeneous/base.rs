@@ -4,10 +4,13 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
     global::{
-        self, output_loader::Unloader, single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader}, AccumulatorLoader, GlobalConfig, InputLoader,
-        SyncInputLoader,
+        self,
+        output_loader::Unloader,
+        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        AccumulatorLoader, GlobalConfig,
     },
     stage::{
         self,

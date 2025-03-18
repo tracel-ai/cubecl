@@ -5,7 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{InputLoader, SyncInputLoader},
+    global::single_stage::{FullLoader, SyncFullLoader},
     stage::{multi_buffer::LhsReader, ContiguousTilingLayout, RowMajorTilingOrder},
     Ident, MatmulPrecision,
 };
@@ -23,7 +23,7 @@ pub struct SimpleIm2colLoader<CS: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> FullLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     type StageReader = LhsReader<CS::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -42,7 +42,7 @@ impl<CS: MatmulPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: ConvGemmConfig> SyncInputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
