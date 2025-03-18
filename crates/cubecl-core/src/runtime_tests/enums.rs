@@ -1,10 +1,9 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
-#[derive(CubeLaunch, Clone, Debug, Hash, PartialEq, Eq, Copy)]
-pub enum TestEnum<
-    T: std::fmt::Debug + CubeType + Clone + IntoRuntime + LaunchArg + std::cmp::Eq + std::hash::Hash,
-> {
+#[derive_cube_comptime]
+#[derive(CubeLaunch, CubeType)]
+pub enum TestEnum<T: CubeLaunch> {
     A(i32, u32),
     B(BStruct),
     C(T),
@@ -13,7 +12,8 @@ pub enum TestEnum<
     F { x: i32, y: u32 },
 }
 
-#[derive(CubeLaunch, Clone, Debug, Hash, PartialEq, Eq, Copy)]
+#[derive_cube_comptime]
+#[derive(CubeLaunch, CubeType)]
 pub struct BStruct {
     x: i32,
     y: u32,
@@ -86,7 +86,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
     assert_eq!(actual[0], 10.0);
 }
 
-#[derive(CubeLaunch)]
+#[derive(CubeLaunch, CubeType)]
 pub enum ArrayFloatInt {
     Float(Array<f32>),
     Int(Array<i32>),
@@ -125,23 +125,18 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
     assert_eq!(actual[0], expected);
 }
 
-#[derive(CubeLaunch)]
-pub enum SimpleEnum {
-    Hello(Array<u32>),
-    Goodbye,
+#[derive(CubeLaunch, CubeType)]
+pub enum SimpleEnum<T: CubeLaunch> {
+    Variant(T),
 }
 
 #[cube(launch)]
-fn kernel_tuple_enum(first: SimpleEnum, second: SimpleEnum) {
+fn kernel_tuple_enum(first: SimpleEnum<Array<u32>>, second: SimpleEnum<Array<u32>>) {
     if UNIT_POS == 0 {
         match (first, second) {
-            (SimpleEnum::Hello(mut x), SimpleEnum::Hello(y)) => {
+            (SimpleEnum::Variant(mut x), SimpleEnum::Variant(y)) => {
                 x[0] = y[0];
             }
-            (SimpleEnum::Hello(mut x), SimpleEnum::Goodbye) => {
-                x[0] = 10;
-            }
-            _ => {}
         }
     }
 }
@@ -154,8 +149,12 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        SimpleEnumArgs::<R>::Hello(unsafe { ArrayArg::from_raw_parts::<u32>(&first, 1, 1) }),
-        SimpleEnumArgs::<R>::Hello(unsafe { ArrayArg::from_raw_parts::<u32>(&second, 1, 1) }),
+        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
+            ArrayArg::from_raw_parts::<u32>(&first, 1, 1)
+        }),
+        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
+            ArrayArg::from_raw_parts::<u32>(&second, 1, 1)
+        }),
     );
 
     let bytes = client.read_one(first.binding());

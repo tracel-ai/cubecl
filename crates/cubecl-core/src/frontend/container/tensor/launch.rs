@@ -6,7 +6,8 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, Item, Vectorization},
     prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
+        LaunchArgExpand,
     },
     Runtime,
 };

@@ -22,6 +22,6 @@ pub use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::server::CubeCount;
 
 pub use crate::frontend::*;
-pub use crate::{comment, comptime, terminate};
+pub use crate::{comment, comptime, terminate, derive_cube_comptime};
 pub use cubecl_common::{flex32, tf32, CubeDim, ExecutionMode};
 pub use cubecl_ir::Scope;

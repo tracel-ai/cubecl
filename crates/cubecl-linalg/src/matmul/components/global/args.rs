@@ -351,7 +351,7 @@ impl<EG: Numeric, GA: MatmulArgs> TensorOutput<EG, GA> {
 /// Other types might implement [MatmulArgs] for fused matrix multiplication kernels.
 pub struct TensorArgs;
 
-#[derive(CubeLaunch)]
+#[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
 pub struct TensorInputs<EG: Numeric> {
     /// The lhs tensor.

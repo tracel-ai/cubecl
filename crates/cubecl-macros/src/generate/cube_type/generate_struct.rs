@@ -9,29 +9,24 @@ use crate::{
 
 impl CubeTypeStruct {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
-        let expand_ty = self.expand_ty();
-        let clone_expand = self.clone_expand();
-        let launch_ty = self.launch_ty();
-        let launch_new = self.launch_new();
-
-        let cube_type_impl = self.cube_type_impl();
-        let arg_settings_impl = self.arg_settings_impl();
-        let launch_arg_impl = self.launch_arg_impl();
-        let expand_type_impl = self.expand_type_impl();
-
         if with_launch {
+            let launch_ty = self.launch_ty();
+            let launch_new = self.launch_new();
+            let arg_settings_impl = self.arg_settings_impl();
+            let launch_arg_impl = self.launch_arg_impl();
+
             quote! {
-                #expand_ty
-                #clone_expand
                 #launch_ty
                 #launch_new
-
-                #cube_type_impl
                 #arg_settings_impl
                 #launch_arg_impl
-                #expand_type_impl
             }
         } else {
+            let expand_ty = self.expand_ty();
+            let clone_expand = self.clone_expand();
+            let cube_type_impl = self.cube_type_impl();
+            let expand_type_impl = self.expand_type_impl();
+
             quote! {
                 #expand_ty
                 #clone_expand
