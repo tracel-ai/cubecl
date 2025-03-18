@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
 
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.

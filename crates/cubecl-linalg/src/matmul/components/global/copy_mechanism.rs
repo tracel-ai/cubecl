@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::Barrier;
+use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
 
 #[cube]

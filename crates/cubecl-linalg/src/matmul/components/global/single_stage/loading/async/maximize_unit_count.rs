@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     global::{
         tensor_view::{TensorReader, Window},
-        GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation,
     },
     stage::{Stage, StridedTilingLayout},
     Ident, InvalidConfigError, MatrixLayout,

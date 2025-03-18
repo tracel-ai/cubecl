@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
+    global::{tensor_view::TensorReader, CopyMechanism, GlobalConfig, LoadingValidation},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
     Ident, InvalidConfigError, MatrixLayout,
 };
