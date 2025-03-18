@@ -568,6 +568,10 @@ impl MatchArm {
             Pat::Or(ref mut pat) => {
                 pat.cases.iter_mut().for_each(Self::expand_pat);
             }
+            // Match (Pat1, Pat2, ...)
+            Pat::Tuple(ref mut pat) => {
+                pat.elems.iter_mut().for_each(Self::expand_pat);
+            }
             // Match the underscore pattern _
             Pat::Wild(_) => {}
             _ => {
