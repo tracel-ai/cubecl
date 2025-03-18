@@ -2,34 +2,14 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global::single_stage::{self, AsyncFullLoader, FullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{global, Ident};
 use cubecl_core as cubecl;
-use cubecl_core::prelude::barrier::{Barrier, BarrierLevel};
-use cubecl_core::prelude::pipeline::Pipeline;
+use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-#[cube]
-pub trait CopyMechanism<ES: Numeric>: CubeType + Sync + Send + 'static {
-    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>);
-}
-
-#[cube]
-impl<ES: Numeric> CopyMechanism<ES> for Pipeline<ES> {
-    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
-        this.memcpy_async(source, destination)
-    }
-}
-
-#[cube]
-impl<ES: Numeric> CopyMechanism<ES> for Barrier<ES> {
-    fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>) {
-        this.memcpy_async(source, destination)
-    }
-}
 
 #[cube]
 pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {

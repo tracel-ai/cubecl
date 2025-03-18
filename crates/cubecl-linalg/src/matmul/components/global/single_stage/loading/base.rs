@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::CopyMechanism;
 use crate::matmul::components::global::GlobalConfig;
 
 #[cube]

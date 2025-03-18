@@ -1,9 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::{
-    multi_stage::double_buffering::BufferId, single_stage::CopyMechanism, GlobalConfig,
-};
+use crate::matmul::components::global::{multi_stage::double_buffering::BufferId, GlobalConfig};
 
 #[cube]
 pub trait BufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
