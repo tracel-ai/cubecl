@@ -10,6 +10,7 @@ use crate::{
 impl CubeTypeStruct {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
         let expand_ty = self.expand_ty();
+        let clone_expand = self.clone_expand();
         let launch_ty = self.launch_ty();
         let launch_new = self.launch_new();
 
@@ -21,6 +22,7 @@ impl CubeTypeStruct {
         if with_launch {
             quote! {
                 #expand_ty
+                #clone_expand
                 #launch_ty
                 #launch_new
 
@@ -32,11 +34,13 @@ impl CubeTypeStruct {
         } else {
             quote! {
                 #expand_ty
+                #clone_expand
                 #cube_type_impl
                 #expand_type_impl
             }
         }
     }
+
     fn expand_ty(&self) -> proc_macro2::TokenStream {
         let fields = self.fields.iter().map(TypeField::expand_field);
         let name = &self.name_expand;
@@ -44,9 +48,26 @@ impl CubeTypeStruct {
         let vis = &self.vis;
 
         quote! {
-            #[derive(Clone)]
             #vis struct #name #generics {
                 #(#fields),*
+            }
+        }
+    }
+
+    fn clone_expand(&self) -> proc_macro2::TokenStream {
+        let fields = self.fields.iter().map(TypeField::clone_field);
+        let name = &self.name_expand;
+        let generics = &self.generics;
+
+        let (generics_impl, generics_use, where_clause) = generics.split_for_impl();
+
+        quote! {
+            impl #generics_impl Clone for #name #generics_use #where_clause {
+                fn clone(&self) -> Self {
+                    Self {
+                        #(#fields),*
+                    }
+                }
             }
         }
     }
@@ -365,6 +386,11 @@ impl TypeField {
         } else {
             quote![#vis #name: <#ty as #cube_type>::ExpandType]
         }
+    }
+
+    pub fn clone_field(&self) -> TokenStream {
+        let name = self.ident.as_ref().unwrap();
+        quote![#name: self.#name.clone()]
     }
 
     pub fn launch_field(&self) -> TokenStream {
