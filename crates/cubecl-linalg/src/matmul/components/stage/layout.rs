@@ -65,6 +65,7 @@ impl TilingOrder for ColMajorTilingOrder {
 
 #[derive(Clone, Copy)]
 pub struct ContiguousTilingLayout<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 

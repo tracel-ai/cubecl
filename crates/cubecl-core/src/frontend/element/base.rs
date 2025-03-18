@@ -154,14 +154,6 @@ impl LaunchArgExpand for () {
     }
 }
 
-impl<T: Clone> CubeType for PhantomData<T> {
-    type ExpandType = ();
-}
-
-impl<T: Clone> IntoRuntime for PhantomData<T> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {}
-}
-
 /// Defines the argument settings used to launch a kernel.
 pub trait ArgSettings<R: Runtime>: Send + Sync {
     /// Register the information to the [KernelLauncher].

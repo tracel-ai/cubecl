@@ -48,7 +48,9 @@ pub struct SyncLhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -61,7 +63,9 @@ pub struct SyncRhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -115,8 +119,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         SyncLhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }
@@ -171,8 +175,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         SyncRhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }

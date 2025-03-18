@@ -15,6 +15,7 @@ use cubecl_core::prelude::*;
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
 pub struct TilewiseCoalescedLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
