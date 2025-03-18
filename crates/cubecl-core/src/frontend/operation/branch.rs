@@ -32,9 +32,17 @@ pub fn select_many<C: CubePrimitive>(
     unexpanded!()
 }
 
+/// Returns the value at `index` in `slice` if `condition` is `true`, otherwise returns `fallback`.
+///
+/// This function is designed to be branchless while avoiding the read operation when `condition` is `false`.
+/// Actual behavior may depend on compiler optimizations.
+///
+/// # Safety
+///
+/// Unlike [`select`], no read is performed unless `condition` is `true`.
 pub fn conditional_read<C: CubePrimitive, I: Index>(
     _condition: bool,
-    _container: Slice<C>,
+    _slice: Slice<C>,
     _index: I,
     _fallback: C,
 ) -> C {
@@ -101,25 +109,25 @@ pub mod conditional_read {
     pub fn expand<C: CubePrimitive, I: Index>(
         scope: &mut Scope,
         condition: ExpandElementTyped<bool>,
-        container: ExpandElementTyped<Slice<C>>,
+        slice: ExpandElementTyped<Slice<C>>,
         index: ExpandElementTyped<u32>,
         fallback: ExpandElementTyped<C>,
     ) -> ExpandElementTyped<C> {
         let cond = condition.expand.consume();
-        let container = container.expand.consume();
+        let slice = slice.expand.consume();
         let index = index.expand.consume();
         let fallback = fallback.expand.consume();
 
         let vf = cond.vectorization_factor();
-        let vf = Ord::max(vf, container.vectorization_factor());
+        let vf = Ord::max(vf, slice.vectorization_factor());
         let vf = Ord::max(vf, fallback.vectorization_factor());
 
-        let output = scope.create_local(container.item.vectorize(NonZero::new(vf)));
+        let output = scope.create_local(slice.item.vectorize(NonZero::new(vf)));
         let out = *output;
 
         let conditional_read = Operator::ConditionalRead(ConditionalRead {
             cond,
-            container,
+            slice,
             index,
             fallback,
         });

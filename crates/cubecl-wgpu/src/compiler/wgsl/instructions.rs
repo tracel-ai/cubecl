@@ -49,7 +49,7 @@ pub enum Instruction {
     },
     ConditionalRead {
         cond: Variable,
-        container: Variable,
+        slice: Variable,
         index: Variable,
         fallback: Variable,
         out: Variable,
@@ -998,21 +998,21 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::ConditionalRead {
                 cond,
-                container,
+                slice,
                 index,
                 fallback,
                 out,
             } => {
-                let vf_container = container.item().vectorization_factor();
+                let vf_slice = slice.item().vectorization_factor();
                 let vf_fallback = fallback.item().vectorization_factor();
                 let vf_out = out.item().vectorization_factor();
                 let vf_cond = cond.item().vectorization_factor();
                 let vf = usize::max(vf_cond, vf_out);
-                let vf = usize::max(vf, vf_container);
+                let vf = usize::max(vf, vf_slice);
                 let vf = usize::max(vf, vf_fallback);
 
                 let out = out.fmt_left();
-                if vf != vf_container || vf != vf_fallback || vf != vf_cond || vf != vf_out {
+                if vf != vf_slice || vf != vf_fallback || vf != vf_cond || vf != vf_out {
                     writeln!(f, "{out} = vec{vf}(")?;
                     for i in 0..vf {
                         let fallbacki = fallback.index(i);
@@ -1020,7 +1020,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(
                             f,
-                            "select({fallbacki}, (*{container}_ptr)[{index} + {container}_offset + i], {condi}),"
+                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + i], {condi}),"
                         )?;
                     }
 
@@ -1028,7 +1028,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 } else {
                     writeln!(
                         f,
-                        "{out} = select({fallback}, (*{container}_ptr)[{index} + {container}_offset], {cond});"
+                        "{out} = select({fallback}, (*{slice}_ptr)[{index} + {slice}_offset], {cond});"
                     )
                 }
             }

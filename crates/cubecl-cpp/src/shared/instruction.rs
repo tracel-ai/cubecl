@@ -63,7 +63,7 @@ pub enum Instruction<D: Dialect> {
     },
     ConditionalRead {
         cond: Variable<D>,
-        container: Variable<D>,
+        slice: Variable<D>,
         index: Variable<D>,
         fallback: Variable<D>,
         out: Variable<D>,
@@ -278,18 +278,18 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::ConditionalRead {
                 cond,
-                container,
+                slice,
                 index,
                 fallback,
                 out,
             } => {
                 let item_fallback = fallback.item();
-                let item_container = container.item();
+                let item_slice = slice.item();
                 let item_out = out.item();
                 let item_cond = cond.item();
                 let elem_cond = item_cond.elem;
 
-                let vf_container = item_container.vectorization;
+                let vf_slice = item_slice.vectorization;
                 let vf_fallback = item_fallback.vectorization;
                 let vf_out = item_out.vectorization;
                 let vf_cond = item_cond.vectorization;
@@ -297,11 +297,11 @@ impl<D: Dialect> Display for Instruction<D> {
                 let out = out.fmt_left();
 
                 let should_broadcast =
-                    vf_cond > 1 || item_out != item_fallback || item_out != item_container;
+                    vf_cond > 1 || item_out != item_fallback || item_out != item_slice;
 
                 if should_broadcast {
                     let vf = usize::max(vf_cond, vf_out);
-                    let vf = usize::max(vf, vf_container);
+                    let vf = usize::max(vf, vf_slice);
                     let vf = usize::max(vf, vf_fallback);
 
                     writeln!(f, "{out} = {item_out} {{")?;
@@ -313,7 +313,7 @@ impl<D: Dialect> Display for Instruction<D> {
                             elem: &elem_cond,
                         };
 
-                        writeln!(f, "({condi}) ? {container}[{index} + i] : {fallbacki},")?;
+                        writeln!(f, "({condi}) ? {slice}[{index} + i] : {fallbacki},")?;
                     }
 
                     writeln!(f, "}};")
@@ -322,7 +322,7 @@ impl<D: Dialect> Display for Instruction<D> {
                         var: &cond,
                         elem: &elem_cond,
                     };
-                    writeln!(f, "{out} = ({cond}) ? {container}[{index}] : {fallback};")
+                    writeln!(f, "{out} = ({cond}) ? {slice}[{index}] : {fallback};")
                 }
             }
             Instruction::Copy {

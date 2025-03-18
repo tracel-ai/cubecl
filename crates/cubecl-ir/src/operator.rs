@@ -76,7 +76,7 @@ impl Display for Operator {
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
             Operator::ConditionalRead(op) => {
-                write!(f, "{} ? {} : {}", op.cond, op.container, op.fallback)
+                write!(f, "{} ? {} : {}", op.cond, op.slice, op.fallback)
             }
         }
     }
@@ -131,7 +131,7 @@ pub struct Select {
 #[allow(missing_docs)]
 pub struct ConditionalRead {
     pub cond: Variable,
-    pub container: Variable,
+    pub slice: Variable,
     pub index: Variable,
     pub fallback: Variable,
 }

@@ -980,7 +980,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::ConditionalRead(op) => instructions.push(Instruction::ConditionalRead {
                 cond: self.compile_variable(op.cond),
-                container: self.compile_variable(op.container),
+                slice: self.compile_variable(op.slice),
                 index: self.compile_variable(op.index),
                 fallback: self.compile_variable(op.fallback),
                 out: self.compile_variable(out),

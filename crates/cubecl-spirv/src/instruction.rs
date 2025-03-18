@@ -324,7 +324,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
             Operator::ConditionalRead(op) => {
-                self.compile_select(op.cond, op.container, op.fallback, out, uniform)
+                self.compile_select(op.cond, op.slice, op.fallback, out, uniform)
             }
         }
     }
