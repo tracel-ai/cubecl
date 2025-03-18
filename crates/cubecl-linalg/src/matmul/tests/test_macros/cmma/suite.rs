@@ -48,6 +48,8 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
 
     if P::should_run::<A>(layouts) {
         test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
+    } else {
+        panic!("Algorithm should not run.")
     }
 }
 
