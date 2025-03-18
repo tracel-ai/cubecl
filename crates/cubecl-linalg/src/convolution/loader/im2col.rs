@@ -35,10 +35,6 @@ impl<CS: MatmulPrecision, G: ConvGemmConfig> FullLoader<CS::EG, CS::ES, G>
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
-
-    fn clear_stage(_this: &mut Self, #[comptime] _config: G) {
-        // Unreachable
-    }
 }
 
 #[cube]

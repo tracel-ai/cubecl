@@ -111,6 +111,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
             config,
         );
     }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    }
 }
 
 #[cube]
@@ -125,10 +129,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -178,10 +178,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
-    }
 }
 
 #[cube]
@@ -200,6 +196,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
             Ident::Rhs,
             config,
         );
+    }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 

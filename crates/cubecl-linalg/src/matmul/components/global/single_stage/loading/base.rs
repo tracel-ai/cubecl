@@ -18,9 +18,6 @@ pub trait FullLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
-
-    /// Fills the stage with zeros
-    fn clear_stage(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
@@ -35,4 +32,7 @@ pub trait AsyncFullLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 {
     /// Fills the stage at the current k offset.
     fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
+
+    /// Fills the stage with zeros
+    fn clear_stage(this: &mut Self, #[comptime] config: G);
 }
