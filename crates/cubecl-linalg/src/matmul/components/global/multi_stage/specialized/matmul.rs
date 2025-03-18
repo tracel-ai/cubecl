@@ -1,6 +1,6 @@
 use crate::matmul::components::global;
 use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};

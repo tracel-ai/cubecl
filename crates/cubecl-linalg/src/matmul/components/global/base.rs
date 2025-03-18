@@ -8,8 +8,8 @@ use crate::matmul::components::{InvalidConfigError, MatmulConfigFactory};
 use crate::matmul::components::{MatmulPrecision, TilingDimensions};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::loader::r#async::CopyMechanism;
 use super::multi_stage::double_buffering::BufferId;
+use super::single_stage::CopyMechanism;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:

@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::loader::sync::CyclicCoalescedBufferLoading;
+use crate::matmul::components::global::multi_stage::CyclicCoalescedBufferLoading;
 use crate::matmul::components::stage::{self, ColMajorTilingOrder, RowMajorTilingOrder};
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};

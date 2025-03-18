@@ -7,7 +7,6 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     global::{
         self,
-        loader::sync::{CyclicCoalescedLoading, SyncFullRhsLoader},
         output_loader::Unloader,
         single_stage, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
     },

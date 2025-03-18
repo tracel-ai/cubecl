@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
+use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, InputBufferLoader, SyncInputBufferLoader,
