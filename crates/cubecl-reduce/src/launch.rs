@@ -31,7 +31,8 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
             }
         }),
         use_planes: strategy.use_planes,
-        line_size: config.line_size,
+        line_size_input: config.line_size_input,
+        line_size_output: config.line_size_output,
         line_mode: config.line_mode,
         bound_checks: config.bound_checks,
         bound_checks_inner: config.bound_checks_inner,
@@ -41,8 +42,8 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
             client,
             config.cube_count,
             config.cube_dim,
-            input.as_tensor_arg(config.line_size as u8),
-            output.as_tensor_arg(1),
+            input.as_tensor_arg(config.line_size_input as u8),
+            output.as_tensor_arg(config.line_size_output as u8),
             ScalarArg::new(axis),
             settings,
         );
@@ -53,7 +54,8 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
 pub struct ReduceParams {
     pub shared: Option<u32>, // shared if Some(x) where x is the accumulator size.
     pub use_planes: bool,
-    pub line_size: u32,
+    pub line_size_input: u32,
+    pub line_size_output: u32,
     pub line_mode: LineMode,
     pub bound_checks: bool,
     pub bound_checks_inner: BoundChecksInner,
@@ -69,7 +71,9 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     let reduce_index = get_reduce_index(params);
 
-    if params.bound_checks && reduce_index >= get_reduce_count(output.len(), params) {
+    if params.bound_checks
+        && reduce_index >= get_reduce_count(output.len() * params.line_size_output, params)
+    {
         terminate!();
     }
 
@@ -78,7 +82,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
         &input,
         &mut output,
         axis_reduce,
-        params.line_size,
+        params.line_size_input,
         params.line_mode,
     );
 
@@ -88,7 +92,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
                 &input,
                 range,
                 accumulator_size,
-                params.line_size,
+                params.line_size_input,
                 params.line_mode,
                 use_planes,
                 params.bound_checks_inner,
@@ -99,14 +103,14 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
         (None, true) => reduce_slice_plane::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
-            params.line_size,
+            params.line_size_input,
             params.line_mode,
             params.bound_checks_inner,
         ),
         (None, false) => reduce_slice::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
-            params.line_size,
+            params.line_size_input,
             params.line_mode,
         ),
     };
@@ -137,7 +141,7 @@ fn get_reduce_index(#[comptime] params: ReduceParams) -> u32 {
 fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
     match comptime!(params.line_mode) {
         LineMode::Parallel => output_size,
-        LineMode::Perpendicular => output_size / params.line_size,
+        LineMode::Perpendicular => output_size / params.line_size_input,
     }
 }
 
@@ -168,11 +172,23 @@ fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
         LineMode::Perpendicular => {
             let out = R::to_output_perpendicular(accumulator, shape_axis_reduce);
 
-            #[unroll]
-            for k in 0..settings.line_size {
-                let result: Out = out[k];
-                let index = settings.line_size * reduce_index + k;
-                output.write(index, Line::cast_from(result));
+            if comptime![settings.line_size_output == settings.line_size_input] {
+                output.write(reduce_index, out);
+            } else {
+                let num_iter = comptime![settings.line_size_input / settings.line_size_output];
+
+                #[unroll]
+                for i in 0..num_iter {
+                    let mut tmp = Line::empty(settings.line_size_output);
+
+                    #[unroll]
+                    for j in 0..settings.line_size_output {
+                        tmp[j] = out[i * settings.line_size_output + j];
+                    }
+
+                    let index = num_iter * reduce_index + i;
+                    output.write(index, tmp);
+                }
             }
         }
     }
