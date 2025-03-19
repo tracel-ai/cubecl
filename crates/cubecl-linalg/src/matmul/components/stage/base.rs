@@ -2,10 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::tile::TileConfig;
-use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
-use crate::matmul::components::{global, MatmulConfigFactory};
 use crate::matmul::components::{Ident, MatrixLayout};
+use crate::matmul::components::{MatmulConfigFactory, global};
 use crate::matmul::components::{MatmulSize, TilingDimensions};
+use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
 
 use super::TilingLayout;
 

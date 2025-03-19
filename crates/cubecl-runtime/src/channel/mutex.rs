@@ -69,9 +69,11 @@ where
         handles: Vec<Binding>,
         kind: ExecutionMode,
     ) {
-        self.server
-            .lock()
-            .execute(kernel, count, constants, handles, kind)
+        unsafe {
+            self.server
+                .lock()
+                .execute(kernel, count, constants, handles, kind)
+        }
     }
 
     fn flush(&self) {

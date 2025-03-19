@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout,
+    Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout, config::MatmulConfig,
 };
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {

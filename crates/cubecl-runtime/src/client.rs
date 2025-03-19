@@ -133,8 +133,10 @@ where
         constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
     ) {
-        self.channel
-            .execute(kernel, count, constants, bindings, ExecutionMode::Unchecked)
+        unsafe {
+            self.channel
+                .execute(kernel, count, constants, bindings, ExecutionMode::Unchecked)
+        }
     }
 
     /// Flush all outstanding commands.

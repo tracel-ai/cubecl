@@ -1,8 +1,8 @@
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::tile::{TileConfig, TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    as_cmma_layout, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
-    MatmulSize, MatrixLayout,
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSize,
+    MatrixLayout, as_cmma_layout,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::ir::{Elem, FloatKind};
@@ -118,7 +118,9 @@ impl MatmulConfigFactory for Accelerated {
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         if config.plane_dim != 32 {
-            return Err(Box::new("Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly."));
+            return Err(Box::new(
+                "Error: Expected plane dimension to be 32, but found {}. Please ensure that cube dimension x is set correctly.",
+            ));
         }
         Ok(())
     }
@@ -158,9 +160,7 @@ impl MatmulConfigFactory for Accelerated {
             });
         }
 
-        if !(client.properties().feature_enabled(Feature::Type(i_elem))
-            && client.properties().feature_enabled(Feature::Type(o_elem)))
-        {
+        if !(MP::ES::is_supported(client) && MP::EG::is_supported(client)) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
                 input: i_elem,
                 output: o_elem,

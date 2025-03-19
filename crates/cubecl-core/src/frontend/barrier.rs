@@ -10,8 +10,8 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Init,
-    IntoRuntime, Line, Slice, SliceMut, TensorMap,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Init, Line,
+    Slice, SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -33,12 +33,6 @@ impl ArrivalToken {
     pub fn __expand_new(scope: &mut Scope) -> ExpandElementTyped<Self> {
         let token = scope.create_arrival_token();
         token.into()
-    }
-}
-
-impl<C: CubePrimitive> IntoRuntime for Barrier<C> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        panic!("Doesn't exist at runtime")
     }
 }
 

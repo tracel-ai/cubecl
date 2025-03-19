@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use cubecl_core::{prelude::CompiledKernel, ExecutionMode, Feature, WgpuCompilationOptions};
+use cubecl_core::{ExecutionMode, Feature, WgpuCompilationOptions, prelude::CompiledKernel};
 use cubecl_runtime::DeviceProperties;
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,

@@ -2,10 +2,10 @@ mod dummy;
 
 use std::sync::Arc;
 
-use crate::dummy::{client, DummyDevice, DummyElementwiseAddition};
+use crate::dummy::{DummyDevice, DummyElementwiseAddition, client};
 
-use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::ComputeRuntime;
+use cubecl_runtime::server::CubeCount;
 use dummy::*;
 
 #[allow(unused)]

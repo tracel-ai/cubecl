@@ -6,10 +6,9 @@ use rspirv::spirv::{
 use std::fmt::Debug;
 
 use crate::{
-    debug,
-    extensions::{glcompute, TargetExtensions},
+    SpirvCompiler, debug,
+    extensions::{TargetExtensions, glcompute},
     item::Item,
-    SpirvCompiler,
 };
 
 pub trait SpirvTarget:

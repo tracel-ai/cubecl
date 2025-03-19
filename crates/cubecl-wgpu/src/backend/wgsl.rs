@@ -1,4 +1,4 @@
-use cubecl_core::{compute::Visibility, ir::UIntKind, Compiler, Feature};
+use cubecl_core::{Compiler, Feature, compute::Visibility, ir::UIntKind};
 use cubecl_runtime::DeviceProperties;
 use wgpu::DeviceDescriptor;
 

@@ -1,12 +1,10 @@
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
 use cubecl_runtime::debug::DebugLogger;
 
-use crate::prelude::KernelDefinition;
+use crate::ConstantInfo;
 use crate::KernelSettings;
-use crate::{
-    ir::{Elem, Id, Item},
-    ConstantInfo,
-};
+use crate::ir::{Elem, Id, Item};
+use crate::prelude::KernelDefinition;
 use crate::{InputInfo, KernelExpansion, KernelIntegrator, OutputInfo};
 use std::collections::HashMap;
 

@@ -1,6 +1,6 @@
 use crate::matmul::kernels::MatmulInvalidProblem;
 
-use super::{batch, MatrixLayout};
+use super::{MatrixLayout, batch};
 
 #[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data

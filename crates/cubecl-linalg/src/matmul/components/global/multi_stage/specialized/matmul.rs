@@ -1,70 +1,83 @@
-use crate::matmul::components::global;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::{
-    ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul,
-};
 use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::base::InputLoader;
+use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
+use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::{LhsBufferLoader, RhsBufferLoader};
+use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
+        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
         },
-        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
 
-pub struct SpecializedMatmulFamily<SMM: stage::StageMatmulFamily> {
+pub struct SpecializedMatmulFamily<
+    SMM: stage::StageMatmulFamily,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+> {
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
-type LhsTilingLayout = ContiguousTilingLayout<ColMajorTilingOrder>;
-type RhsTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
-
-impl<SMM> GlobalMatmulFamily for SpecializedMatmulFamily<SMM>
+impl<SMM, LL, RL> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-        LhsReader = LhsBufferReaderFamily,
-        RhsReader = RhsBufferReaderFamily,
-    >,
+            LhsReader = LhsBufferReaderFamily,
+            RhsReader = RhsBufferReaderFamily,
+        >,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SpecializedMatmul<
         MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LhsTilingLayout, RhsTilingLayout>,
+        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
+        LL,
+        RL,
     >;
 }
 
-impl<SMM> MatmulConfigFactory for SpecializedMatmulFamily<SMM>
+impl<SMM, LL, RL> MatmulConfigFactory for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         if config.num_producers() == 0 {
-            return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
+            return Err(Box::new(
+                "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.",
+            ));
         }
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() <= 1 {
             return Err(Box::new("Producer-consumer needs at least 2 buffers."));
         }
+
+        LL::check::<Self::Config>(config, Ident::Lhs)?;
+        RL::check::<Self::Config>(config, Ident::Rhs)?;
 
         SMM::check_config(&config.to_smm_config())
     }
@@ -106,25 +119,35 @@ where
 /// - Remaining planes load data to the stage
 ///
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
-pub struct SpecializedMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
+pub struct SpecializedMatmul<
+    MP: MatmulPrecision,
+    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
+    _lhs_loading: PhantomData<LL>,
+    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM> global::GlobalMatmul<MP> for SpecializedMatmul<MP, SMM>
+impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
+    for SpecializedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
-        RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+        >,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = LhsBufferLoader<MP::EG, MP::ES, SMM::Config, LhsTilingLayout>;
-    type RhsLoader = RhsBufferLoader<MP::EG, MP::ES, SMM::Config, RhsTilingLayout>;
+    type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
@@ -242,15 +265,17 @@ where
 
 #[cube]
 impl<
-        MP: MatmulPrecision,
-        SMM: StageMatmul<
+    MP: MatmulPrecision,
+    SMM: StageMatmul<
             MP::ES,
             MP::EG,
             MP::EA,
-            LhsReader = LhsBufferReader<MP::ES, LhsTilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RhsTilingLayout>,
+            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,
-    > SpecializedMatmul<MP, SMM>
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+> SpecializedMatmul<MP, SMM, LL, RL>
 {
     fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {
         UNIT_POS_Y < config.num_consumers()

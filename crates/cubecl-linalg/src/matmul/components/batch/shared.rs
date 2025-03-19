@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{global, MatmulPrecision};
+use crate::matmul::components::{MatmulPrecision, global};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[cube]

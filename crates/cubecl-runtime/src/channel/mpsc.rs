@@ -1,6 +1,6 @@
 use std::{sync::Arc, thread};
 
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 
 use super::ComputeChannel;
 use crate::{

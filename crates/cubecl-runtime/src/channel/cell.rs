@@ -74,9 +74,11 @@ where
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     ) {
-        self.server
-            .borrow_mut()
-            .execute(kernel_description, count, constants, bindings, kind)
+        unsafe {
+            self.server
+                .borrow_mut()
+                .execute(kernel_description, count, constants, bindings, kind)
+        }
     }
 
     fn flush(&self) {

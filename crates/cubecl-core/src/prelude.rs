@@ -1,4 +1,4 @@
-pub use crate::{cube, CubeLaunch, CubeType, Kernel, RuntimeArg};
+pub use crate::{CubeLaunch, CubeType, Kernel, RuntimeArg, cube};
 
 pub use crate::codegen::{KernelExpansion, KernelIntegrator, KernelSettings};
 pub use crate::compute::{
@@ -22,6 +22,6 @@ pub use cubecl_runtime::client::ComputeClient;
 pub use cubecl_runtime::server::CubeCount;
 
 pub use crate::frontend::*;
-pub use crate::{comment, comptime, terminate};
-pub use cubecl_common::{flex32, tf32, CubeDim, ExecutionMode};
+pub use crate::{comment, comptime, derive_cube_comptime, terminate};
+pub use cubecl_common::{CubeDim, ExecutionMode, flex32, tf32};
 pub use cubecl_ir::Scope;

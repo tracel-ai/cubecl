@@ -5,8 +5,8 @@ use hashbrown::{HashMap, HashSet};
 use crate::{BarrierLevel, CubeFnSource, ExpandElement, Matrix, SourceLoc, TypeHash};
 
 use super::{
-    processing::ScopeProcessing, Allocator, Elem, Id, Instruction, Item, Operation, UIntKind,
-    Variable, VariableKind,
+    Allocator, Elem, Id, Instruction, Item, Operation, UIntKind, Variable, VariableKind,
+    processing::ScopeProcessing,
 };
 
 /// The scope is the main [operation](Operation) and [variable](Variable) container that simplify

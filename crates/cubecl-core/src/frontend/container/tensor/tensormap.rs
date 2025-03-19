@@ -1,14 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::prelude::*;
-use crate::{
-    ir::{ExpandElement, Item},
-    ConstantInfo,
-};
+use crate::{ConstantInfo, ir::ExpandElement};
 use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
-use cubecl_ir::{Elem, Variable, VariableKind};
+use cubecl_ir::Elem;
 use serde::{Deserialize, Serialize};
 
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
@@ -91,18 +88,6 @@ impl<E: CubePrimitive> TensorMap<E> {
     pub fn __expand_dummy(_scope: &mut Scope) -> ExpandElementTyped<Self> {
         let x: ExpandElement = 0.into();
         x.into()
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for TensorMap<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        ExpandElementTyped {
-            expand: ExpandElement::Plain(Variable::new(
-                VariableKind::TensorMap(0),
-                Item::new(E::as_elem_native_unchecked()),
-            )),
-            _type: PhantomData,
-        }
     }
 }
 

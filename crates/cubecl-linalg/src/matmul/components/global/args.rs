@@ -380,7 +380,7 @@ impl<EG: Numeric, GA: MatmulArgs> TensorOutput<EG, GA> {
 /// Other types might implement [MatmulArgs] for fused matrix multiplication kernels.
 pub struct TensorArgs;
 
-#[derive(CubeLaunch)]
+#[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
 pub struct TensorInputs<EG: Numeric> {
     /// The lhs tensor.
@@ -510,7 +510,7 @@ impl MatmulArgs for TensorArgs {
 /// Other types might implement [MatmulArgs] for fused matrix multiplication kernels.
 pub struct TensorMapArgs;
 
-#[derive(CubeLaunch)]
+#[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
 pub struct TensorMapInputs<EG: Numeric> {
     /// The lhs tensor.
@@ -667,12 +667,6 @@ mod __input {
         }
     }
     impl<EG: Numeric, GA: MatmulArgs> Copy for TensorInput<EG, GA> {}
-
-    impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorInput<EG, GA> {
-        fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-            panic!("Can't exist at compile time");
-        }
-    }
 }
 
 mod __output {
@@ -710,10 +704,4 @@ mod __output {
     }
 
     impl<EG: Numeric, GA: MatmulArgs> Copy for TensorOutput<EG, GA> {}
-
-    impl<EG: Numeric, GA: MatmulArgs> IntoRuntime for TensorOutput<EG, GA> {
-        fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-            panic!("Can't exist at compile time");
-        }
-    }
 }

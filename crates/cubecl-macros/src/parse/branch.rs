@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{spanned::Spanned, Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat};
+use syn::{Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat, spanned::Spanned};
 
 use crate::{
     expression::{Block, Expression},

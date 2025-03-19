@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use cubecl_ir::Id;
 use petgraph::graph::NodeIndex;
 
-use crate::{analyses::post_order::PostOrder, Optimizer};
+use crate::{Optimizer, analyses::post_order::PostOrder};
 
 use super::Analysis;
 
@@ -13,7 +13,7 @@ pub struct Liveness {
 
 #[derive(Clone)]
 struct BlockSets {
-    gen: HashSet<Id>,
+    generated: HashSet<Id>,
     kill: HashSet<Id>,
 }
 
@@ -60,9 +60,9 @@ impl Liveness {
     }
 
     fn analyze_block(&mut self, opt: &mut Optimizer, block: NodeIndex, state: &mut State) {
-        let BlockSets { gen, kill } = block_sets(opt, block, state);
+        let BlockSets { generated, kill } = block_sets(opt, block, state);
 
-        let mut live_vars = gen.clone();
+        let mut live_vars = generated.clone();
 
         for successor in opt.successors(block) {
             let successor = &self.live_vars[&successor];
@@ -82,7 +82,7 @@ fn block_sets<'a>(opt: &mut Optimizer, block: NodeIndex, state: &'a mut State) -
 }
 
 fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
-    let mut gen = HashSet::new();
+    let mut generated = HashSet::new();
     let mut kill = HashSet::new();
 
     let ops = opt.program[block].ops.clone();
@@ -92,15 +92,15 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
         opt.visit_out(&mut op.out, |opt, var| {
             if let Some(id) = opt.local_variable_id(var) {
                 kill.insert(id);
-                gen.remove(&id);
+                generated.remove(&id);
             }
         });
         opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
             if let Some(id) = opt.local_variable_id(var) {
-                gen.insert(id);
+                generated.insert(id);
             }
         });
     }
 
-    BlockSets { gen, kill }
+    BlockSets { generated, kill }
 }

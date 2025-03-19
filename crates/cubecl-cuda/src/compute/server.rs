@@ -2,27 +2,27 @@ use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
 use cubecl_cpp::{
-    cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions, CudaCompiler,
+    CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
 use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
-use super::{uninit_vec, CudaResource};
+use super::{CudaResource, uninit_vec};
+use cubecl_core::{Feature, ir::FloatKind};
+use cubecl_core::{KernelId, prelude::*};
 use cubecl_core::{
     compute::DebugInformation,
     ir::{Elem, IntKind, UIntKind},
 };
-use cubecl_core::{ir::FloatKind, Feature};
-use cubecl_core::{prelude::*, KernelId};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cudarc::driver::sys::{
     CUctx_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion,
     CUtensorMapSwizzle,
@@ -247,58 +247,63 @@ impl ComputeServer for CudaServer {
                             binding.offset_end,
                         )
                         .expect("Failed to find resource");
-                    let device_ptr = *(resource.binding as *const cudarc::driver::sys::CUdeviceptr)
-                        as *mut c_void;
+                    let device_ptr =
+                        unsafe { *(resource.binding as *const cudarc::driver::sys::CUdeviceptr) }
+                            as *mut c_void;
                     assert!(
                         device_ptr as usize % 16 == 0,
                         "Tensor pointer must be 16 byte aligned"
                     );
-                    let lib = cudarc::driver::sys::lib();
+                    let lib = unsafe { cudarc::driver::sys::lib() };
                     let mut map_ptr = MaybeUninit::zeroed();
                     let data_ty = elem_to_tmap_type(map.elem);
 
                     match &map.format {
-                        TensorMapFormat::Tiled { tile_size } => lib.cuTensorMapEncodeTiled(
-                            map_ptr.as_mut_ptr(),
-                            data_ty,
-                            map.rank as u32,
-                            device_ptr,
-                            map.shape.as_ptr(),
-                            map.strides.as_ptr(),
-                            tile_size.as_ptr(),
-                            map.elem_stride.as_ptr(),
-                            interleave_to_cuda(map.interleave),
-                            swizzle_to_cuda(map.swizzle),
-                            prefetch_to_cuda(map.prefetch),
-                            oob_to_cuda(map.oob_fill),
-                        ),
+                        TensorMapFormat::Tiled { tile_size } => unsafe {
+                            lib.cuTensorMapEncodeTiled(
+                                map_ptr.as_mut_ptr(),
+                                data_ty,
+                                map.rank as u32,
+                                device_ptr,
+                                map.shape.as_ptr(),
+                                map.strides.as_ptr(),
+                                tile_size.as_ptr(),
+                                map.elem_stride.as_ptr(),
+                                interleave_to_cuda(map.interleave),
+                                swizzle_to_cuda(map.swizzle),
+                                prefetch_to_cuda(map.prefetch),
+                                oob_to_cuda(map.oob_fill),
+                            )
+                        },
                         TensorMapFormat::Im2col {
                             pixel_box_lower_corner,
                             pixel_box_upper_corner,
                             channels_per_pixel,
                             pixels_per_column,
-                        } => lib.cuTensorMapEncodeIm2col(
-                            map_ptr.as_mut_ptr(),
-                            data_ty,
-                            map.rank as u32,
-                            resource.as_binding(),
-                            map.shape.as_ptr(),
-                            map.strides.as_ptr(),
-                            pixel_box_lower_corner.as_ptr(),
-                            pixel_box_upper_corner.as_ptr(),
-                            *channels_per_pixel,
-                            *pixels_per_column,
-                            map.elem_stride.as_ptr(),
-                            interleave_to_cuda(map.interleave),
-                            swizzle_to_cuda(map.swizzle),
-                            prefetch_to_cuda(map.prefetch),
-                            oob_to_cuda(map.oob_fill),
-                        ),
+                        } => unsafe {
+                            lib.cuTensorMapEncodeIm2col(
+                                map_ptr.as_mut_ptr(),
+                                data_ty,
+                                map.rank as u32,
+                                resource.as_binding(),
+                                map.shape.as_ptr(),
+                                map.strides.as_ptr(),
+                                pixel_box_lower_corner.as_ptr(),
+                                pixel_box_upper_corner.as_ptr(),
+                                *channels_per_pixel,
+                                *pixels_per_column,
+                                map.elem_stride.as_ptr(),
+                                interleave_to_cuda(map.interleave),
+                                swizzle_to_cuda(map.swizzle),
+                                prefetch_to_cuda(map.prefetch),
+                                oob_to_cuda(map.oob_fill),
+                            )
+                        },
                         TensorMapFormat::Im2colWide { .. } => {
                             unimplemented!("Not yet implemented in cudarc")
                         }
                     };
-                    map_ptr.assume_init()
+                    unsafe { map_ptr.assume_init() }
                 }
             })
             .collect::<_>();

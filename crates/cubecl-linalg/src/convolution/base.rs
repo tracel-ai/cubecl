@@ -1,26 +1,26 @@
 use crate::matmul::components::{
+    InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
     global::{AccumulatorLoader, OutputLoader},
     stage::{StageMatmul, StageMatmulFamily},
-    InvalidConfigError, MatmulProblem, MatrixLayout,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::{homogeneous::base::ConvTilingLayout, precision::ConvPrecision, ConvGemmConfig};
+use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
 
 pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
-    type Convolution<CS: ConvPrecision>: Convolution<
-        CS,
-        SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
-        Config = Self::Config,
-    >;
+    type Convolution<CS: MatmulPrecision>: Convolution<
+            CS,
+            SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
+            Config = Self::Config,
+        >;
 }
 
 #[cube]
-pub trait Convolution<CS: ConvPrecision, SMM: StageMatmul<CS::ES, CS::EG, CS::EA>>:
+pub trait Convolution<CS: MatmulPrecision, SMM: StageMatmul<CS::ES, CS::EG, CS::EA>>:
     'static + Send + Sync
 {
     type LhsLoader: CubeType;
@@ -102,7 +102,7 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
     ///
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
-    unsafe fn launch_unchecked<CS: ConvPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<CS: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,

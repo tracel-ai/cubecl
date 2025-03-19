@@ -4,7 +4,7 @@ use num_traits::NumCast;
 use crate::ir::Switch;
 use crate::ir::{Branch, If, IfElse, Item, Loop, RangeLoop, Scope};
 
-use super::{assign, CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric};
+use super::{CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric, assign};
 
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.

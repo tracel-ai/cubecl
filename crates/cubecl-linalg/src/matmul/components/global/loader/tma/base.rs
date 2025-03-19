@@ -5,16 +5,15 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
 use crate::matmul::components::{
+    Ident,
     global::{
-        self, loader::r#async::CopyMechanism, single_stage, tensor_view::MappedTensorReader,
-        AsyncInputLoader, GlobalConfig, InputLoader,
+        self, AsyncInputLoader, GlobalConfig, InputLoader, loader::r#async::CopyMechanism,
+        single_stage, tensor_view::MappedTensorReader,
     },
     stage::{
-        self,
+        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
         multi_buffer::{LhsReader, RhsReader},
-        ContiguousTilingLayout, RowMajorTilingOrder, Stage,
     },
-    Ident,
 };
 
 #[derive(CubeType)]
@@ -22,6 +21,7 @@ pub struct TmaLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
     pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
@@ -30,6 +30,7 @@ pub struct TmaRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
     pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
@@ -101,7 +102,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
             tensor_view,
             barrier,
             stage,
-            _config: PhantomData::<S>.runtime(),
+            _config: PhantomData::<S>,
         }
     }
 }
@@ -174,7 +175,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, ES, S> {
             tensor_view,
             barrier,
             stage,
-            _config: PhantomData::<S>.runtime(),
+            _config: PhantomData::<S>,
         }
     }
 }

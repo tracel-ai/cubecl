@@ -1,3 +1,6 @@
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::base::AsyncInputLoader;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::loader::r#async::AsyncLhsLoader;
@@ -5,11 +8,8 @@ use crate::matmul::components::global::loader::r#async::AsyncLoadingStrategy;
 use crate::matmul::components::global::loader::r#async::AsyncRhsLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core::prelude::*;
@@ -17,16 +17,16 @@ use cubecl_core::{self as cubecl, Feature};
 use pipeline::Pipeline;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -127,12 +127,12 @@ pub struct SimplePipelinedMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {

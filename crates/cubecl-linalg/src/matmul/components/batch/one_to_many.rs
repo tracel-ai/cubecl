@@ -75,9 +75,11 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-            client, cube_count, cube_dim, input, output, size_k, config,
-        );
+        unsafe {
+            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+                client, cube_count, cube_dim, input, output, size_k, config,
+            );
+        }
     }
 }
 

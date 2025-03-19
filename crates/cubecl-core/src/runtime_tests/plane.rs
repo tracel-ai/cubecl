@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{self as cubecl};
-use crate::{runtime_tests::binary::assert_equals_approx, Feature};
+use crate::{Feature, runtime_tests::binary::assert_equals_approx};
 use cubecl::prelude::*;
 
 #[cube(launch)]

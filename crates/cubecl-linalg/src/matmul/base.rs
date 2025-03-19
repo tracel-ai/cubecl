@@ -1,4 +1,4 @@
-use cubecl_core::{client::ComputeClient, prelude::TensorHandleRef, Runtime};
+use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 use cubecl_std::MaybeQuantized;
 
 use crate::tensor::TensorHandle;
@@ -16,6 +16,7 @@ use super::{
         tile::accelerated::Accelerated,
     },
     kernels::{
+        MatmulLaunchError,
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
@@ -23,7 +24,6 @@ use super::{
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
-        MatmulLaunchError,
     },
 };
 

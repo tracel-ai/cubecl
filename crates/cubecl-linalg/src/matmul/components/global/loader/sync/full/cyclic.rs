@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::loader::sync::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
@@ -7,12 +8,11 @@ use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::SyncLoadingStrategy;
-
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicCoalescedLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
@@ -36,7 +36,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
@@ -77,15 +77,5 @@ impl<T: TilingOrder> SyncLoadingStrategy for CyclicCoalescedLoading<T> {
 
             stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
         }
-    }
-
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        _read_view: &TensorReader<EG>,
-        _stage: &mut Stage<ES, Self::TilingLayout>,
-        _buffer_index: u32,
-        #[comptime] _ident: Ident,
-        #[comptime] _config: G,
-    ) {
-        // TODO
     }
 }

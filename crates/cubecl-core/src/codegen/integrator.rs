@@ -507,7 +507,12 @@ impl KernelIntegrator {
         };
 
         let (item, local, position) = match output {
-            OutputInfo::ArrayWrite { item, local, position, .. } => (item, local, position),
+            OutputInfo::ArrayWrite {
+                item,
+                local,
+                position,
+                ..
+            } => (item, local, position),
             OutputInfo::InputArrayWrite {
                 item: _,
                 input,
@@ -520,7 +525,9 @@ impl KernelIntegrator {
                 );
                 return;
             }
-            OutputInfo::Array { .. } => panic!("Can't register an inplace operation for an array that isn't using a defined writing strategy."),
+            OutputInfo::Array { .. } => panic!(
+                "Can't register an inplace operation for an array that isn't using a defined writing strategy."
+            ),
         };
 
         let item = match self.input_bindings.get_mut(mapping.pos_input) {

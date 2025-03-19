@@ -13,7 +13,6 @@ pub mod index;
 pub mod launch;
 pub mod line;
 pub mod metadata;
-pub mod option;
 pub mod pipeline;
 pub mod plane;
 pub mod sequence;
@@ -126,7 +125,6 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
 
-        cubecl_core::testgen_option!();
         cubecl_core::testgen_enums!();
     };
 }
@@ -135,7 +133,7 @@ macro_rules! testgen_untyped {
 #[macro_export]
 macro_rules! as_bytes {
     ($ty:ident: $($elem:expr),*) => {
-        F::as_bytes(&[$($ty::new($elem),)*])
+        $ty::as_bytes(&[$($ty::new($elem),)*])
     };
 }
 

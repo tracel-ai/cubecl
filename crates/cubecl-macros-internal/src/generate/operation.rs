@@ -1,4 +1,4 @@
-use darling::{util::Flag, FromDeriveInput};
+use darling::{FromDeriveInput, util::Flag};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::DeriveInput;
