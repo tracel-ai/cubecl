@@ -66,7 +66,7 @@ pub trait CubeDebug: Sized {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// #[derive(CubeType)]
 /// pub struct Example<A: CubeType, B: CubeComptime> {
 ///     a: A,
