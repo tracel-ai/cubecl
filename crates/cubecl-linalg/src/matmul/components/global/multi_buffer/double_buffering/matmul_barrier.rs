@@ -172,6 +172,15 @@ where
         comptime!(assert!(barrier_level == RL::barrier_level()));
         let barrier = Barrier::<MP::ES>::new(barrier_level);
 
+        #[allow(clippy::collapsible_if)]
+        if comptime!(config.check_k_bounds()) {
+            if num_loops == 0 {
+                Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
+                Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
+                sync_units();
+            }
+        }
+
         Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
             &mut lhs_loader,
             &barrier,

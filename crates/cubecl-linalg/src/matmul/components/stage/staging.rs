@@ -88,25 +88,14 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) {
-        // TODO: this assumes the stage was created with new
-        // Also assumes two buffers
+        // // TODO: this assumes the stage was created with new
+        // // Also assumes two buffers
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.line_size(ident);
         let smem_length = comptime!(tiling_dimensions.total_size() / line_size);
         let buffer_length = smem_length / 2;
 
         let matrix_layout = config.matrix_layout(ident);
-
-        let (smem_width, smem_height) = comptime! {
-            match matrix_layout {
-                MatrixLayout::RowMajor => tiling_dimensions.total_col() / line_size,
-                MatrixLayout::ColMajor => (tiling_dimensions.total_row(), tiling_dimensions.t),
-            }
-        };
-        let (buffer_width, smem_width, buffer_height, smem_height) = comptime! {match ident.as_input() {
-            InputIdent::Lhs => (tiling_dimensions.tile_shape_col() , tiling_dimensions.total_col(), ),
-            InputIdent::Rhs => (tiling_dimensions.tile_shape_col() , tiling_dimensions.total_col(), ),
-        };
 
         let unit_count = config.num_planes() * config.plane_dim();
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
@@ -116,10 +105,24 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;
 
-            let buffer_row = unit_position / buffer_width;
-            let buffer_col = unit_position % buffer_width;
-            let smem_position =
-                buffer_row * smem_width + buffer_col + buffer_id.to_u32() * buffer_width;
+            let smem_position = match (ident.as_input(), matrix_layout) {
+                (InputIdent::Lhs, MatrixLayout::ColMajor)
+                | (InputIdent::Rhs, MatrixLayout::RowMajor) => {
+                    buffer_id.to_u32() * buffer_length + unit_position
+                }
+                (InputIdent::Lhs, MatrixLayout::RowMajor) => {
+                    let buffer_width = tiling_dimensions.tile_shape_col() / line_size;
+                    buffer_id.to_u32() * buffer_width
+                        + unit_position
+                        + (unit_position / buffer_width) * buffer_width
+                }
+                (InputIdent::Rhs, MatrixLayout::ColMajor) => {
+                    let buffer_height = tiling_dimensions.tile_shape_row() / line_size;
+                    buffer_id.to_u32() * buffer_height
+                        + unit_position
+                        + (unit_position / buffer_height) * buffer_height
+                }
+            };
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(buffer_length % unit_count == 0) {
