@@ -360,7 +360,6 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
                 tile_size: stage_size_lhs,
             },
             lhs.as_tensor_arg(1),
-            3,
             half::f16::as_elem_native_unchecked(),
         );
         let rhs = TensorMapArg::new(
@@ -368,7 +367,6 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
                 tile_size: stage_size_rhs,
             },
             rhs.as_tensor_arg(1),
-            3,
             half::f16::as_elem_native_unchecked(),
         );
         let config_input = CompleteStageTiling {
@@ -431,7 +429,13 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(
-            client, cube_dim, cube_count, input, output, config,
+            client,
+            cube_dim,
+            cube_count,
+            input,
+            output,
+            ScalarArg::new(problem.k as u32),
+            config,
         );
     };
 

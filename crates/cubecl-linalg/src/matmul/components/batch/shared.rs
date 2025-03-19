@@ -39,6 +39,33 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
 }
 
 #[cube]
+/// Execute global matmul on lhs, rhs, writing in out.
+/// x and y offsets are absolute rows and columns
+pub(crate) fn gmm_execute_tma<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+    lhs: VirtualTensor<MP::EG>,
+    rhs: VirtualTensor<MP::EG>,
+    out: VirtualTensor<MP::EG, ReadWrite>,
+    x_offset: u32,
+    y_offset: u32,
+    nth_batch: u32,
+    acc: &mut GMM::Accumulator,
+    k_range: (u32, u32),
+    #[comptime] config: GMM::Config,
+) {
+    let rank = out.rank();
+    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
+
+    GMM::execute(
+        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, config),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, config),
+        GMM::init_unloader(out, x_offset, y_offset, batch_out),
+        acc,
+        k_range,
+        config,
+    );
+}
+
+#[cube]
 pub fn swizzle(nth: u32, height: u32, #[comptime] swizzle_width: u32) -> (u32, u32) {
     let num_elem_per_swizzle_col = height * swizzle_width;
 

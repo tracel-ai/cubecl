@@ -68,7 +68,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
         //(1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
         //(16, 6144, 2048, 513),
-        (32, 256, 256, 256),
+        //(32, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, E> {
             b,
@@ -175,9 +175,9 @@ fn main() {
             Default::default(),
             matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
         );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-        // );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+        );
     }
 }

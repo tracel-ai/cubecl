@@ -37,6 +37,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        size_k: u32,
         #[comptime] config: Self::Config,
     );
 }
@@ -75,6 +76,7 @@ pub(crate) fn matmul<
 >(
     inputs: &Input<Args, EG>,
     output: &mut Output<Args, EG>,
+    size_k: u32,
     #[comptime] config: BMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
@@ -87,5 +89,5 @@ pub(crate) fn matmul<
     let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
     let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, config);
+    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, config);
 }

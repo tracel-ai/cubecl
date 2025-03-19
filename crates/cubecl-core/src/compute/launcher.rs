@@ -261,10 +261,12 @@ impl<R: Runtime> ConstantState<R> {
         let map = TensorMap {
             format: map.format.clone(),
             rank: tensor.shape.len(),
-            shape: tensor.shape.iter().map(|it| *it as u64).collect(),
+            shape: tensor.shape.iter().rev().map(|it| *it as u64).collect(),
             strides: tensor
                 .strides
                 .iter()
+                .rev()
+                .skip(1)
                 .map(|it| *it as u64 * map.elem.size() as u64)
                 .collect(),
             elem_stride: map.elem_stride.to_vec(),

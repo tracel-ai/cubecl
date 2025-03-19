@@ -256,6 +256,7 @@ impl ComputeServer for CudaServer {
                     let lib = cudarc::driver::sys::lib();
                     let mut map_ptr = MaybeUninit::zeroed();
                     let data_ty = elem_to_tmap_type(map.elem);
+
                     match &map.format {
                         TensorMapFormat::Tiled { tile_size } => lib.cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),

@@ -1,10 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::shared::gmm_execute;
 use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
-use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
-};
+use crate::matmul::components::{batch, Ident, MatmulConfigFactory, MatmulLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
     OutputRuntimeArg,
@@ -15,19 +12,21 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::{BatchConfig as _, CubeDispatch};
+use super::{gmm_execute_tma, one_to_one::Config, BatchConfig as _, CubeDispatch};
 
-pub struct OneToOneMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
+pub struct OneToOneTmaMatmulFamily<GMM: GlobalMatmulFamily, C: CubeDispatch> {
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
 }
 
-impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily for OneToOneMatmulFamily<GMM, C> {
-    type Matmul<MP: MatmulPrecision> = OneToOneMatmul<MP, GMM::Matmul<MP>, C>;
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> BatchMatmulFamily
+    for OneToOneTmaMatmulFamily<GMM, C>
+{
+    type Matmul<MP: MatmulPrecision> = OneToOneTmaMatmul<MP, GMM::Matmul<MP>, C>;
 }
 
 impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
-    for OneToOneMatmulFamily<GMM, C>
+    for OneToOneTmaMatmulFamily<GMM, C>
 {
     type Input = GMM::Input;
     type Config = Config<GMM::Config, C>;
@@ -40,7 +39,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        GMM::check_availability::<R, MP>(client, &config.gmm_config)
+        GMM::check_availability::<R, MP>(client, &config.to_gmm_config())
     }
 
     fn make_config(
@@ -61,7 +60,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
     }
 }
 
-impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFamily<GMM, C> {
+impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneTmaMatmulFamily<GMM, C> {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
@@ -82,7 +81,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
 ///
 /// Note: This algorithm requires one cube per global matmul;
 /// insufficient cubes will result in incomplete computations.
-pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> {
+pub struct OneToOneTmaMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> {
     _mp: PhantomData<MP>,
     _gmm: PhantomData<GMM>,
     _c: PhantomData<C>,
@@ -90,7 +89,7 @@ pub struct OneToOneMatmul<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDis
 
 #[cube]
 impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP>
-    for OneToOneMatmul<MP, GMM, C>
+    for OneToOneTmaMatmul<MP, GMM, C>
 {
     type Config = Config<GMM::Config, C>;
 
@@ -105,11 +104,11 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         let x_offset = x_index * config.tiling_dimensions(Ident::Lhs).total_row();
         let y_offset = y_index * config.tiling_dimensions(Ident::Rhs).total_col();
         let nth_batch = C::batch_index();
-        let k_range = (0, size_k);
+        let k_range = (0u32, size_k);
 
         let gmm_config = config.to_gmm_config();
 
-        gmm_execute::<MP, GMM>(
+        gmm_execute_tma::<MP, GMM>(
             lhs,
             rhs,
             out,
@@ -120,49 +119,5 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
             k_range,
             gmm_config,
         );
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the OneToOneBatchMatmul
-pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
-    gmm_config: G,
-    cube_count: (u32, u32, u32),
-    _c: PhantomData<C>,
-}
-
-impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, C> {
-    type GmmConfig = G;
-
-    fn to_gmm_config(&self) -> Self::GmmConfig {
-        self.gmm_config
-    }
-
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        self.gmm_config.tiling_dimensions(ident)
-    }
-
-    fn max_m(&self) -> u32 {
-        C::max_x(self.cube_count) * self.tiling_dimensions(Ident::Out).total_row()
-    }
-
-    fn max_n(&self) -> u32 {
-        C::max_y(self.cube_count) * self.tiling_dimensions(Ident::Out).total_col()
-    }
-
-    fn max_batches(&self) -> u32 {
-        C::max_batches(self.cube_count)
-    }
-}
-
-impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
-
-impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
-    pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
-        Self {
-            gmm_config,
-            cube_count,
-            _c: PhantomData,
-        }
     }
 }

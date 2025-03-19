@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 /// but last dimension must be contiguous (since strides don't include the last dimension).
 ///
 /// The tensormap is treated as an opaque type at runtime.
+///
+/// # WARNING:
+/// Shapes, strides and indices are **innermost dimension first**. This is inverted from cubecl, but
+/// is kept this way for now for the sake of API consistency.
 pub struct TensorMapArg<'a, R: Runtime> {
     pub format: TensorMapFormat,
     pub tensor: TensorArg<'a, R>,
@@ -29,7 +33,11 @@ pub struct TensorMapArg<'a, R: Runtime> {
 }
 
 impl<'a, R: Runtime> TensorMapArg<'a, R> {
-    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, rank: usize, elem: Elem) -> Self {
+    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, elem: Elem) -> Self {
+        let TensorArg::Handle { handle, .. } = &tensor else {
+            panic!("Can't use alias for TensorMap")
+        };
+        let rank = handle.shape.len();
         Self {
             format,
             tensor,

@@ -22,7 +22,7 @@ where
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul = global::single_stage::simple::SimpleTmaMatmulFamily<Self::StageMatmul>;
 
-    type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
+    type BatchMatmul = batch::one_to_one_tma::OneToOneTmaMatmulFamily<Self::GlobalMatmul, Dispatch>;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)

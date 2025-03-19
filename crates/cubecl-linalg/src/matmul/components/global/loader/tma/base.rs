@@ -48,9 +48,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
-                this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
                 this.tensor_view.tile_x as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.batch as i32,
             );
             this.barrier.arrive_tx(
                 1,
@@ -140,9 +140,9 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
-                this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
                 this.tensor_view.tile_x as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.batch as i32,
             );
             this.barrier.arrive_tx(
                 1,

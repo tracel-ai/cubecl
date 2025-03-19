@@ -118,6 +118,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &out.shape,
                 problem.out_line_size,
             ),
+            ScalarArg::new(problem.k as u32),
             config,
         );
     }

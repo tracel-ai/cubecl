@@ -14,18 +14,20 @@ use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
 pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::<F>::new_proxied(BarrierLevel::cube_coop(0u32));
     let mut token = ArrivalToken::new();
-    let mut stage = SharedMemory::<F>::new_lined(32u32 * 32, 1u32);
+    let mut stage = SharedMemory::<F>::new_lined(32u32 * 16, 1u32);
 
     if UNIT_POS == 0 {
-        barrier.memcpy_async_bulk_to_shared_2d(input, &mut stage.to_slice_mut(), 8, 8);
-        barrier.arrive_tx(1, 32 * 32 * F::elem_size(), &mut token);
+        barrier.memcpy_async_bulk_to_shared_2d(input, &mut stage.to_slice_mut(), 8, 0);
+        barrier.arrive_tx(1, 32 * 16 * F::elem_size(), &mut token);
     } else {
         barrier.arrive(&mut token);
     }
     barrier.wait(token);
 
-    let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
-    output[out_pos] = stage[out_pos];
+    if UNIT_POS_Y < 16 {
+        let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
+        output[out_pos] = stage[out_pos];
+    }
 }
 
 pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
@@ -44,7 +46,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let handle = client.create(F::as_bytes(&values));
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &[64, 1], &[64, 64], 1) };
-    let out = client.empty(32 * 32 * size_of::<F>());
+    let out = client.empty(32 * 16 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
         &client,
@@ -52,18 +54,17 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
         CubeDim::new_2d(32, 32),
         TensorMapArg::new(
             TensorMapFormat::Tiled {
-                tile_size: vec![32, 32],
+                tile_size: vec![32, 16],
             },
             input,
-            2,
             F::as_elem_native_unchecked(),
         ),
-        unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 32, 1) },
+        unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
     );
 
     let actual = client.read_one(out.binding());
     let actual = F::from_bytes(&actual);
-    let expected: Vec<F> = (8..40)
+    let expected: Vec<F> = (0..16)
         .flat_map(|i| i * 64..i * 64 + 32)
         .map(|it| F::from_int(it + 8))
         .collect();
