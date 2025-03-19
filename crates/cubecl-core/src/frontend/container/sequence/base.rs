@@ -2,9 +2,7 @@ use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{
-        branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init,
-    },
+    frontend::{branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init},
     prelude::CubeDebug,
 };
 use std::{cell::RefCell, rc::Rc};

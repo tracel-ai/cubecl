@@ -117,4 +117,3 @@ impl<T: CubeLaunch> LaunchArgExpand for CubeOption<T> {
         }
     }
 }
-
