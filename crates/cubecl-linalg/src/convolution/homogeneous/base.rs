@@ -118,6 +118,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                None,
                 config.to_smm_config(),
             );
 
@@ -130,6 +131,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            None,
             config.to_smm_config(),
             config,
         );

@@ -1,15 +1,15 @@
-use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::base::InputLoader;
 use crate::matmul::components::global::loader::sync::{
     SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
 };
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::{MatmulPrecision, MatmulSize};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
@@ -136,13 +136,14 @@ where
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
+    #[allow(clippy::clone_on_copy, clippy::manual_map, clippy::single_match)]
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: Option<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -157,10 +158,19 @@ where
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
             sync_units();
+
+            let scaling = match comptime!(quantization.clone()) {
+                Some(quantization) => Some::<f32>(
+                    quantization.read_current_scale_lhs(config.global_line_size(Ident::Lhs))
+                        * quantization.read_current_scale_rhs(config.global_line_size(Ident::Rhs)),
+                ),
+                None => None,
+            };
 
             SMM::execute(
                 lhs_stage_reader,
@@ -168,11 +178,17 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                scaling,
                 config.to_smm_config(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+
+            match comptime!(quantization.clone()) {
+                Some(mut quantization) => quantization.advance_indices(),
+                None => {}
+            }
         }
 
         SMM::read_accumulator::<Self::Out, Self::Config>(

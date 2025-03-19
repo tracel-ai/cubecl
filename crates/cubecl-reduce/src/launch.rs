@@ -177,3 +177,4 @@ fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
         }
     }
 }
+

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
     batch::shared::swizzle,
-    global::{self, args::Quantization},
+    global::{self, Quantization},
     MatmulPrecision,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};

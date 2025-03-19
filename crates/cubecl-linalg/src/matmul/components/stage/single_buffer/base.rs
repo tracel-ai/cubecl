@@ -1,9 +1,9 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::global::args::Quantization;
+use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -125,8 +125,15 @@ where
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
+        scaling: Option<f32>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if scaling.is_some() {
+                todo!();
+            }
+        }
+
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
 
@@ -181,10 +188,16 @@ where
     fn read_accumulator<SW: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: Option<Quantization<EG>>,
+        quantization: Option<IndexedQuantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;

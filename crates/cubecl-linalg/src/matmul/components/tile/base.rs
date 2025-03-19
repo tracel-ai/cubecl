@@ -12,7 +12,6 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
     type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;
 }
 
-#[cube]
 /// Provides matrix multiplication operations at the tile level.
 ///
 /// At the tile level,
@@ -25,14 +24,15 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
+#[cube]
+pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync + Clone {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
     type Lhs: CubeType;
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Accumulator: CubeType;
+    type Accumulator: CubeType + Clone + IntoRuntime;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(

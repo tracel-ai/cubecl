@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
-use crate::matmul::components::global::args::Quantization;
 use crate::matmul::components::global::GlobalMatmulFamily;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
     batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
 };

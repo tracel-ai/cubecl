@@ -161,6 +161,18 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         }
     };
 
+    if EG::QUANTIZED {
+        let mut batch_count_lhs = 1;
+        let mut batch_count_rhs = 1;
+        for axis in 0..rank - 2 {
+            batch_count_lhs *= lhs.shape[axis];
+            batch_count_rhs *= rhs.shape[axis];
+        }
+        if batch_count_lhs != batch_count_rhs {
+            panic!("broadcast is not supported yet with quantization");
+        }
+    }
+
     matmul_launch_kernel::<R, EG, A>(
         client,
         lhs,

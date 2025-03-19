@@ -10,8 +10,8 @@ use cubecl_core::prelude::*;
 use super::SyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes,
-/// iterating with steps determined by the plane's dimension.
+/// Loads the content of all tiles in the tensor view using all planes.
+/// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
 pub struct CyclicCoalescedLoading<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }

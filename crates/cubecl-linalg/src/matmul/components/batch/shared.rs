@@ -1,7 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{global::{self, args::Quantization}, MatmulPrecision};
+use crate::matmul::components::{
+    global::{self, GlobalConfig, IndexRange, IndexedQuantization, Quantization},
+    Ident, MatmulPrecision,
+};
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[cube]
@@ -20,14 +24,91 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
+
     let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
     let mut batch_lhs = 0u32.runtime();
     let mut batch_rhs = 0u32.runtime();
-    for b in 0..rank - 2 {
-        let tmp = batch_out / out.stride(b);
-        batch_lhs += tmp % lhs.shape(b) * lhs.stride(b);
-        batch_rhs += tmp % rhs.shape(b) * rhs.stride(b);
+    for axis in 0..rank - 2 {
+        let tmp = batch_out / out.stride(axis);
+        batch_lhs += tmp % lhs.shape(axis) * lhs.stride(axis);
+        batch_rhs += tmp % rhs.shape(axis) * rhs.stride(axis);
     }
+
+    let indexed_quantization = match comptime!(quantization) {
+        Some(quantization) => {
+            // TODO Support broadcast
+            //      The launcher should panic before executing the kernel
+            //      if it is quantized and broadcasted.
+
+            // Assuming that quantization params are stored in row major order per batch,
+            // we compute the range of indices we need to retrieve the proper scaling for
+            // the current global matmul.
+
+            // LHS
+
+            let num_stages_lhs_row_axis = div_ceil(
+                lhs.shape(rank - 2),
+                config.tiling_dimensions(Ident::Lhs).total_row(),
+            );
+            let num_stages_lhs_col_axis = div_ceil(
+                lhs.shape(rank - 1),
+                config.tiling_dimensions(Ident::Lhs).total_col(),
+            );
+            let num_stages_lhs_per_batch = num_stages_lhs_col_axis * num_stages_lhs_row_axis;
+
+            let start_lhs =
+                nth_batch * num_stages_lhs_per_batch + x_offset * num_stages_lhs_col_axis;
+
+            let range_lhs = IndexRange {
+                current: start_lhs,
+                end: start_lhs + num_stages_lhs_col_axis,
+                step: 1,
+            };
+
+            // RHS
+
+            let num_stages_rhs_row_axis = div_ceil(
+                rhs.shape(rank - 2),
+                config.tiling_dimensions(Ident::Rhs).total_row(),
+            );
+            let num_stages_rhs_col_axis = div_ceil(
+                rhs.shape(rank - 1),
+                config.tiling_dimensions(Ident::Rhs).total_col(),
+            );
+            let num_stages_rhs_per_batch = num_stages_rhs_col_axis * num_stages_rhs_row_axis;
+
+            let start_rhs = nth_batch * num_stages_rhs_per_batch + y_offset;
+
+            let range_rhs = IndexRange {
+                current: start_rhs,
+                end: start_rhs + num_stages_rhs_per_batch,
+                step: num_stages_rhs_col_axis,
+            };
+
+            // OUT
+            let num_stages_out_row_axis = div_ceil(
+                out.shape(rank - 2),
+                config.tiling_dimensions(Ident::Out).total_row(),
+            );
+            let num_stages_out_col_axis = div_ceil(
+                out.shape(rank - 1),
+                config.tiling_dimensions(Ident::Out).total_col(),
+            );
+            let num_stages_out_per_batch = num_stages_out_col_axis * num_stages_out_row_axis;
+
+            let index_out = num_stages_out_per_batch * nth_batch
+                + x_offset * num_stages_out_col_axis
+                + y_offset;
+
+            Some::<IndexedQuantization<MP::EG>>(IndexedQuantization::new(
+                quantization,
+                range_lhs,
+                range_rhs,
+                index_out,
+            ))
+        }
+        None => None,
+    };
 
     GMM::execute(
         GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
@@ -35,7 +116,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         GMM::init_unloader(out, x_offset, y_offset, batch_out),
         acc,
         k_range,
-        quantization,
+        indexed_quantization,
         config,
     );
 }
