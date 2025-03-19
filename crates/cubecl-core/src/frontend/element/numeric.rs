@@ -3,12 +3,12 @@ use std::num::NonZero;
 use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
+use crate::Runtime;
 use crate::compute::KernelLauncher;
 use crate::ir::{Item, Scope, Variable};
 use crate::prelude::Clamp;
-use crate::Runtime;
 use crate::{
-    frontend::{index_assign, Abs, Max, Min, Remainder},
+    frontend::{Abs, Max, Min, Remainder, index_assign},
     unexpanded,
 };
 use crate::{

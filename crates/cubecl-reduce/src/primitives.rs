@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::instructions::*;
 use crate::BoundChecksInner;
 use crate::LineMode;
+use crate::instructions::*;
 
 /// A simple range to specify how to iterate a slice when performing a reduction.
 #[derive(CubeType)]

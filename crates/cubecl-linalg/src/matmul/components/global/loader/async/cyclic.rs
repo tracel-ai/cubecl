@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
     Ident, InvalidConfigError, MatrixLayout,
+    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -25,7 +25,9 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 
         let num_slices = tiling.tile_shape_row() * tiling.tile_count();
         if num_slices >= total_units && num_slices % total_units != 0 {
-            return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+            return Err(Box::new(format!(
+                "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
+            )));
         }
 
         Ok(())

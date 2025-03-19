@@ -2,7 +2,7 @@ use std::iter;
 
 use darling::FromDeriveInput;
 use proc_macro2::Span;
-use syn::{parse_quote, punctuated::Punctuated, spanned::Spanned, Generics, Ident};
+use syn::{Generics, Ident, parse_quote, punctuated::Punctuated, spanned::Spanned};
 
 use crate::paths::prelude_type;
 

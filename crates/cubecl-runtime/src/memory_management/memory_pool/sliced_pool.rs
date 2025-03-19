@@ -1,7 +1,7 @@
 use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
-use crate::memory_management::memory_pool::calculate_padding;
 use crate::memory_management::MemoryUsage;
+use crate::memory_management::memory_pool::calculate_padding;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::vec::Vec;
 use hashbrown::HashMap;

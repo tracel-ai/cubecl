@@ -3,7 +3,7 @@ use std::num::NonZero;
 use crate::frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped};
 use crate::{
     ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
-    prelude::{binary_expand_fixed_output, Dot, Numeric},
+    prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
 use cubecl_ir::{Comparison, ExpandElement};

@@ -10,6 +10,6 @@ mod spec;
 
 pub use base::*;
 pub use config::*;
-pub use config::{as_cmma_layout, Ident, MatmulConfig, MatrixLayout, TilingDimensions};
+pub use config::{Ident, MatmulConfig, MatrixLayout, TilingDimensions, as_cmma_layout};
 pub use problem::MatmulProblem;
 pub use spec::*;

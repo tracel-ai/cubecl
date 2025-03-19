@@ -5,7 +5,7 @@ use crate::{
 
 use alloc::vec::Vec;
 
-use super::{calculate_padding, MemoryPool, Slice, SliceBinding, SliceHandle};
+use super::{MemoryPool, Slice, SliceBinding, SliceHandle, calculate_padding};
 
 /// A memory pool that allocates buffers in a range of sizes and reuses them to minimize allocations.
 ///

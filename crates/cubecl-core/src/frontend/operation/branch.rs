@@ -15,11 +15,7 @@ use crate::{
 /// Since both branches are *evaluated* regardless of the condition, both branches must be *valid*
 /// regardless of the condition. Illegal memory accesses should not be done in either branch.
 pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
-    if condition {
-        then
-    } else {
-        or_else
-    }
+    if condition { then } else { or_else }
 }
 
 /// Same as [select()] but with lines instead.

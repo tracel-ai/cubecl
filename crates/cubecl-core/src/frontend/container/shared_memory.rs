@@ -1,9 +1,9 @@
 use std::{marker::PhantomData, num::NonZero};
 
 use crate::{
-    frontend::{indexation::Index, CubePrimitive, CubeType, ExpandElementTyped, Init},
+    frontend::{CubePrimitive, CubeType, ExpandElementTyped, Init, indexation::Index},
     ir::{Item, Scope},
-    prelude::{index, index_assign, Line, List, ListExpand, ListMut, ListMutExpand},
+    prelude::{Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
 };
 
 #[derive(Clone, Copy)]

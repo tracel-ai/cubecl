@@ -7,9 +7,9 @@ use float_ord::FloatOrd;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
-use crate::{passes::OptimizerPass, AtomicCounter, Optimizer, PhiInstruction};
+use crate::{AtomicCounter, Optimizer, PhiInstruction, passes::OptimizerPass};
 
-use super::{convert::value_of_var, GlobalValues};
+use super::{GlobalValues, convert::value_of_var};
 
 #[derive(Debug, Clone, Default)]
 pub struct GvnPass;

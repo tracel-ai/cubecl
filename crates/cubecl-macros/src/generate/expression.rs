@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Ident, Member, Pat, Path, PathArguments};
+use syn::{Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
 
 use crate::{
     expression::{Block, Expression, MatchArm},
@@ -457,7 +457,7 @@ impl Expression {
                         return error!(
                             args.span(),
                             "Fn generics not supported when constructing runtime structs"
-                        )
+                        );
                     }
                 };
 
@@ -547,29 +547,29 @@ impl MatchArm {
             // Useful for recursive call.
             Pat::Ident(_) => {}
             // Match path::Enum::Ident
-            Pat::Path(ref mut pat) => {
+            Pat::Path(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match path::Enum::Variant {a, b, c}
-            Pat::Struct(ref mut pat) => {
+            Pat::Struct(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match path::Enum::Variant(a, b, c)
-            Pat::TupleStruct(ref mut pat) => {
+            Pat::TupleStruct(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match Pat1 | Pat2 | ...
-            Pat::Or(ref mut pat) => {
+            Pat::Or(pat) => {
                 pat.cases.iter_mut().for_each(Self::expand_pat);
             }
             // Match (Pat1, Pat2, ...)
-            Pat::Tuple(ref mut pat) => {
+            Pat::Tuple(pat) => {
                 pat.elems.iter_mut().for_each(Self::expand_pat);
             }
             // Match the underscore pattern _

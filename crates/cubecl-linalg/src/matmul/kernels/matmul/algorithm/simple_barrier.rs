@@ -3,9 +3,10 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
+    MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self, loader::r#async::AsyncLoadingStrategy},
-    stage, tile, MatmulProblem, MatmulSelection,
+    stage, tile,
 };
 
 pub struct SimpleBarrierAlgorithm<

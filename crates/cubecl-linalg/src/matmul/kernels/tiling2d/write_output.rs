@@ -1,5 +1,5 @@
 use cubecl_core::{self as cubecl};
-use cubecl_core::{prelude::*, CubeType};
+use cubecl_core::{CubeType, prelude::*};
 
 use super::{
     base::{Coordinates, Dimensions},

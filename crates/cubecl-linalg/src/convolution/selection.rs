@@ -1,4 +1,4 @@
-use cubecl_core::{client::ComputeClient, prelude::CubePrimitive, Runtime};
+use cubecl_core::{Runtime, client::ComputeClient, prelude::CubePrimitive};
 
 use super::{
     algorithm::{Algorithm, ImplicitCmmaConv},
@@ -6,7 +6,7 @@ use super::{
 };
 use crate::matmul::{
     components::{
-        tile::TileMatmulFamily, CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize,
+        CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize, tile::TileMatmulFamily,
     },
     kernels::matmul::find_instruction_shape,
 };

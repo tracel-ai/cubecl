@@ -1,5 +1,5 @@
 use core::future::Future;
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 
 use crate::{
     server::{Binding, ComputeServer, CubeCount, Handle},

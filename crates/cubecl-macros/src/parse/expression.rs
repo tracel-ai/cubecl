@@ -1,12 +1,12 @@
 use proc_macro2::Span;
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    parse_quote, spanned::Spanned, Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment,
-    RangeLimits, Type, UnOp,
+    Expr, ExprUnary, Lit, LitInt, Pat, Path, PathSegment, RangeLimits, Type, UnOp, parse_quote,
+    spanned::Spanned,
 };
 
 use crate::{
-    expression::{is_intrinsic, Block, Expression, MatchArm},
+    expression::{Block, Expression, MatchArm, is_intrinsic},
     operator::Operator,
     scope::Context,
 };

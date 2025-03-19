@@ -2,12 +2,12 @@
 
 use cubecl_core::prelude::*;
 use rand::{
+    SeedableRng,
     distr::{Distribution, Uniform},
     rngs::StdRng,
-    SeedableRng,
 };
 
-use crate::{instructions::*, reduce, shared_sum, ReduceError, ReduceStrategy};
+use crate::{ReduceError, ReduceStrategy, instructions::*, reduce, shared_sum};
 
 // All random values generated for tests will be in the set
 // {-2, -2 + E, -2 + 2E, ..., 2 - E, 2} with E = 1 / PRECISION.

@@ -1,5 +1,5 @@
 use crate::{
-    hip::{arch::AMDArchitecture, HipDialect},
+    hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, Elem, Fragment, FragmentIdent, FragmentLayout,
         SupportedWmmaCombinations, Variable, WmmaCompiler, WmmaInstruction,
@@ -158,9 +158,15 @@ for (uint i = 0; i < uint(8); ++i) {{
                                 let length = 8;
                                 let step = get_output_accumulator_index_step(value, inner);
                                 let index = match layout {
-                                    Some(FragmentLayout::ColMajor) => "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * uint(16)",
-                                    Some(FragmentLayout::RowMajor) => "(i * uint(2) + threadIdx.x / uint(16)) * uint(16) + wmmaLane",
-                                    _ => panic!("cannot load data to an accumulator without knowing the layout of the data"),
+                                    Some(FragmentLayout::ColMajor) => {
+                                        "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * uint(16)"
+                                    }
+                                    Some(FragmentLayout::RowMajor) => {
+                                        "(i * uint(2) + threadIdx.x / uint(16)) * uint(16) + wmmaLane"
+                                    }
+                                    _ => panic!(
+                                        "cannot load data to an accumulator without knowing the layout of the data"
+                                    ),
                                 };
                                 (index, length, step)
                             }
@@ -199,7 +205,10 @@ for (uint i = 0; i < uint({length}); ++i) {{
                                 }
                             }
                         } else {
-                            panic!("{frag_a} and {frag_b} have different types (respectively {} and {})", inner_a.elem, inner_b.elem)
+                            panic!(
+                                "{frag_a} and {frag_b} have different types (respectively {} and {})",
+                                inner_a.elem, inner_b.elem
+                            )
                         }
                     } else {
                         panic!("{frag_b} is not a WMMA fragment!")
@@ -221,7 +230,10 @@ for (uint i = 0; i < uint({length}); ++i) {{
                                 }
                             }
                         } else {
-                            panic!("{frag_c} and {frag_d} have different types (respectively {} and {})", inner_c.elem, inner_d.elem)
+                            panic!(
+                                "{frag_c} and {frag_d} have different types (respectively {} and {})",
+                                inner_c.elem, inner_d.elem
+                            )
                         }
                     } else {
                         panic!("{frag_d} is not a WMMA fragment!")
@@ -253,14 +265,14 @@ for (uint i = 0; i < uint({length}); ++i) {{
                 // moreover, since we use OPSEL to false in the Execute instruction in f16 output format, the output elements are
                 // stored in even indexes (0, 2, 4, ...) (low 16-bits of the VGPR) in frag
                 let frag_idx = match frag {
-                    Variable::WmmaFragment { frag: inner, .. } => {
-                        match inner.elem {
-                            Elem::F16 | Elem::BF16 => "elemIdx * 2",
-                            Elem::F32 => "elemIdx",
-                            other => panic!("C fragment format cannot be {other}. Only f16, bf16 and f32 are supported."),
-                        }
+                    Variable::WmmaFragment { frag: inner, .. } => match inner.elem {
+                        Elem::F16 | Elem::BF16 => "elemIdx * 2",
+                        Elem::F32 => "elemIdx",
+                        other => panic!(
+                            "C fragment format cannot be {other}. Only f16, bf16 and f32 are supported."
+                        ),
                     },
-                    other => panic!("{frag} is not a WMMA fragment (it is a {other})!")
+                    other => panic!("{frag} is not a WMMA fragment (it is a {other})!"),
                 };
                 // FragmentLayout here represents the desired layout of the matrix C
                 let output_idx = match layout {
