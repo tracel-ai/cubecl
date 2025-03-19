@@ -1,11 +1,11 @@
-use crate::matmul::components::global::single_stage::SyncFullLhsLoader;
-use crate::matmul::components::global::single_stage::SyncFullLoader;
-use crate::matmul::components::global::single_stage::{SyncFullLoadingStrategy, SyncFullRhsLoader};
+use crate::matmul::components::global::single_buffer::SyncFullLhsLoader;
+use crate::matmul::components::global::single_buffer::SyncFullLoader;
+use crate::matmul::components::global::single_buffer::{SyncFullLoadingStrategy, SyncFullRhsLoader};
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{
     output_loader::Unloader,
-    single_stage::{Config, FullLoader},
+    single_buffer::{Config, FullLoader},
 };
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;

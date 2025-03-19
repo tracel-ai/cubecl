@@ -2,7 +2,7 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::multi_stage::CyclicCoalescedBufferLoading;
+use crate::matmul::components::global::multi_buffer::CyclicCoalescedBufferLoading;
 use crate::matmul::components::stage::{self, ColMajorTilingOrder, RowMajorTilingOrder};
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::{batch, global};
@@ -22,7 +22,7 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
+    type GlobalMatmul = global::multi_buffer::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         CyclicCoalescedBufferLoading<ColMajorTilingOrder>,
         CyclicCoalescedBufferLoading<RowMajorTilingOrder>,

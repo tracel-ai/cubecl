@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     global::{
-        single_stage::AsyncBufferLoadingStrategy,
+        single_buffer::AsyncBufferLoadingStrategy,
         tensor_view::{TensorReader, Window},
         CopyMechanism, GlobalConfig, LoadingValidation,
     },

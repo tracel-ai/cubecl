@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::multi_stage::{AsyncBufferLoader, BufferLoader};
-use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
+use crate::matmul::components::global::multi_buffer::{AsyncBufferLoader, BufferLoader};
+use crate::matmul::components::global::single_buffer::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};

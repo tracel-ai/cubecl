@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{self, AsyncFullLoader, FullLoader};
+use crate::matmul::components::global::single_buffer::{self, AsyncFullLoader, FullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
@@ -76,14 +76,14 @@ pub struct AsyncRhsLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncFullLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
+    AsyncFullLoader<EG, ES, single_buffer::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: single_buffer::Config<S>,
     ) {
-        L::load_full::<EG, ES, single_stage::Config<S>, CM>(
+        L::load_full::<EG, ES, single_buffer::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -92,14 +92,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+    fn clear_stage(this: &mut Self, #[comptime] config: single_buffer::Config<S>) {
         this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_stage::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_buffer::Config<S>> for AsyncLhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
 
@@ -147,7 +147,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_buffer::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
 
@@ -162,14 +162,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncFullLoader<EG, ES, single_stage::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
+    AsyncFullLoader<EG, ES, single_buffer::Config<S>> for AsyncRhsLoader<EG, ES, S, L>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: single_buffer::Config<S>,
     ) {
-        L::load_full::<EG, ES, single_stage::Config<S>, CM>(
+        L::load_full::<EG, ES, single_buffer::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -178,7 +178,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+    fn clear_stage(this: &mut Self, #[comptime] config: single_buffer::Config<S>) {
         this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
