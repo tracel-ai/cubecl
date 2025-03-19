@@ -64,6 +64,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         m_offset: u32,
         k_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
@@ -73,6 +74,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs: VirtualTensor<MP::EG>,
         k_offset: u32,
         n_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
@@ -82,6 +84,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         out: VirtualTensor<MP::EG, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out;
 

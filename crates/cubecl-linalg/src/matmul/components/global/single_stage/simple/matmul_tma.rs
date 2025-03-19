@@ -187,14 +187,15 @@ where
         lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
             lhs.as_tensor_map(),
             x_offset,
             y_offset,
-            batch_offset,
+            nth_batch,
             config,
         )
     }
@@ -203,14 +204,15 @@ where
         rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
             rhs.as_tensor_map(),
             x_offset,
             y_offset,
-            batch_offset,
+            nth_batch,
             config,
         )
     }
@@ -219,6 +221,7 @@ where
         out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)

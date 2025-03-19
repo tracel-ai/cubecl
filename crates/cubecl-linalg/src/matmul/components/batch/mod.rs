@@ -1,6 +1,5 @@
 pub mod one_to_many;
 pub mod one_to_one;
-pub mod one_to_one_tma;
 
 mod base;
 mod cube_dispatch;

@@ -29,36 +29,9 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     }
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, batch_rhs, config),
-        GMM::init_unloader(out, x_offset, y_offset, batch_out),
-        acc,
-        k_range,
-        config,
-    );
-}
-
-#[cube]
-/// Execute global matmul on lhs, rhs, writing in out.
-/// x and y offsets are absolute rows and columns
-pub(crate) fn gmm_execute_tma<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<MP::EG>,
-    rhs: VirtualTensor<MP::EG>,
-    out: VirtualTensor<MP::EG, ReadWrite>,
-    x_offset: u32,
-    y_offset: u32,
-    nth_batch: u32,
-    acc: &mut GMM::Accumulator,
-    k_range: (u32, u32),
-    #[comptime] config: GMM::Config,
-) {
-    let rank = out.rank();
-    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
-
-    GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, config),
-        GMM::init_unloader(out, x_offset, y_offset, batch_out),
+        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, batch_lhs, config),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, config),
+        GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,
         config,
