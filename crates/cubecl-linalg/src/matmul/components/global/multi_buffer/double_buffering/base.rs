@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub enum BufferId {
     A,
     B,

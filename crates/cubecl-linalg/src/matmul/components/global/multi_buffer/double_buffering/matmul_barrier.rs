@@ -191,8 +191,8 @@ where
             #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::B, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::B, config);
                     sync_units();
                 }
             }
@@ -220,9 +220,19 @@ where
             );
 
             sync_units();
+            // barrier.wait();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+
+            #[allow(clippy::collapsible_if)]
+            if comptime!(config.check_k_bounds()) {
+                if loop_iter == num_loops - 1 {
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
+                    sync_units();
+                }
+            }
 
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
                 &mut lhs_loader,

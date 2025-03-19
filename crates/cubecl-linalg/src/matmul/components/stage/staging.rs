@@ -1,8 +1,9 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::multi_buffer::double_buffering::BufferId;
 use crate::matmul::components::stage::{StageConfig, TilingLayout};
 use crate::matmul::components::tile::Tile;
-use crate::matmul::components::Ident;
+use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -76,6 +77,56 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
             } else {
                 if offset < smem_length {
                     self.smem[offset] = Line::cast_from(0);
+                }
+            }
+        }
+    }
+
+    pub fn clear_buffer<S: StageConfig>(
+        &mut self,
+        #[comptime] buffer_id: BufferId,
+        #[comptime] ident: Ident,
+        #[comptime] config: S,
+    ) {
+        // TODO: this assumes the stage was created with new
+        // Also assumes two buffers
+        let tiling_dimensions = config.tiling_dimensions(ident);
+        let line_size = config.line_size(ident);
+        let smem_length = comptime!(tiling_dimensions.total_size() / line_size);
+        let buffer_length = smem_length / 2;
+
+        let matrix_layout = config.matrix_layout(ident);
+
+        let (smem_width, smem_height) = comptime! {
+            match matrix_layout {
+                MatrixLayout::RowMajor => tiling_dimensions.total_col() / line_size,
+                MatrixLayout::ColMajor => (tiling_dimensions.total_row(), tiling_dimensions.t),
+            }
+        };
+        let (buffer_width, smem_width, buffer_height, smem_height) = comptime! {match ident.as_input() {
+            InputIdent::Lhs => (tiling_dimensions.tile_shape_col() , tiling_dimensions.total_col(), ),
+            InputIdent::Rhs => (tiling_dimensions.tile_shape_col() , tiling_dimensions.total_col(), ),
+        };
+
+        let unit_count = config.num_planes() * config.plane_dim();
+        let num_writes_per_unit = buffer_length.div_ceil(unit_count);
+
+        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+
+        for i in 0..num_writes_per_unit {
+            let unit_position = unit_base_position + i * unit_count;
+
+            let buffer_row = unit_position / buffer_width;
+            let buffer_col = unit_position % buffer_width;
+            let smem_position =
+                buffer_row * smem_width + buffer_col + buffer_id.to_u32() * buffer_width;
+
+            #[allow(clippy::collapsible_else_if)]
+            if comptime!(buffer_length % unit_count == 0) {
+                self.smem[smem_position] = Line::cast_from(0);
+            } else {
+                if smem_position < smem_length {
+                    self.smem[smem_position] = Line::cast_from(0);
                 }
             }
         }

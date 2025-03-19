@@ -75,8 +75,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    fn clear_stage(
+        this: &mut Self,
+        #[comptime] buffer_id: BufferId,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
+        this.stage
+            .clear_buffer::<S>(buffer_id, Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -138,8 +143,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
+    fn clear_stage(
+        this: &mut Self,
+        #[comptime] buffer_id: BufferId,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
+        this.stage
+            .clear_buffer::<S>(buffer_id, Ident::Rhs, config.to_smm_config())
     }
 }
 

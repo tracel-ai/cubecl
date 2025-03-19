@@ -36,5 +36,6 @@ pub trait AsyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
         #[comptime] config: G,
     );
 
-    fn clear_stage(this: &mut Self, #[comptime] config: G);
+    /// Fills the specified buffer with zeros
+    fn clear_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G);
 }
