@@ -311,12 +311,6 @@ impl<P: CubePrimitive> ExpandElementBaseInit for Line<P> {
     }
 }
 
-// impl<P: CubePrimitive> IntoRuntime for Line<P> {
-//     fn __expand_runtime_method(self, scope: &mut crate::ir::Scope) -> Self::ExpandType {
-//         self.val.__expand_runtime_method(scope).expand.into()
-//     }
-// }
-
 impl<P: CubePrimitive> CubePrimitive for Line<P> {
     fn as_elem(scope: &Scope) -> Elem {
         P::as_elem(scope)
