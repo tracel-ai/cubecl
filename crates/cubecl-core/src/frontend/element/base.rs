@@ -60,6 +60,23 @@ pub trait CubeDebug: Sized {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
 }
 
+/// A type that can be used as a kernel comptime argument.
+/// Note that a type doesn't need to implement `CubeComptime` to be used as
+/// a comptime argument. However, this facilitate the declaration of generic cube types.
+///
+/// # Example
+///
+/// ```
+/// #[derive(CubeType)]
+/// pub struct Example<A: CubeType, B: CubeComptime> {
+///     a: A,
+///     #[cube(comptime)]
+///     b: B
+/// }
+/// ```
+pub trait CubeComptime: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
+impl<T> CubeComptime for T where T: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
+
 /// A [CubeType] that can be used as a kernel argument such as [Array] or [Tensor].
 pub trait CubeLaunch: CubeType + LaunchArg + LaunchArgExpand {}
 impl<T: CubeType + LaunchArg + LaunchArgExpand> CubeLaunch for T {}
