@@ -131,10 +131,10 @@ pub enum SimpleEnum<T: CubeLaunch> {
 }
 
 #[cube(launch)]
-fn kernel_tuple_enum(first: SimpleEnum<Array<u32>>, second: SimpleEnum<Array<u32>>) {
+fn kernel_tuple_enum(first: &mut SimpleEnum<Array<u32>>, second: SimpleEnum<Array<u32>>) {
     if UNIT_POS == 0 {
         match (first, second) {
-            (SimpleEnum::Variant(mut x), SimpleEnum::Variant(y)) => {
+            (SimpleEnum::Variant(x), SimpleEnum::Variant(y)) => {
                 x[0] = y[0];
             }
         }
