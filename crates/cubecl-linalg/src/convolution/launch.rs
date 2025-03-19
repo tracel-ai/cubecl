@@ -8,7 +8,10 @@ use crate::matmul::kernels::MatmulLaunchError;
 use crate::{convolution::base::ConvolutionLaunch, matmul::components::MatmulPrecision};
 
 use super::{
-    algorithm::Algorithm, base::ConvolutionProblem, selection::ConvSelector, ConvLaunchError,
+    algorithm::Algorithm,
+    base::{ConvolutionConfigFactory, ConvolutionProblem},
+    selection::ConvSelector,
+    ConvLaunchError,
 };
 
 /// Perform a 2D convolution using the implicit GEMM (im2col) algorithm, using cubecl tiling matmul
@@ -41,6 +44,10 @@ where
 
     let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
+
+    <Alg::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, SP>(
+        client, &config,
+    )?;
 
     unsafe {
         Alg::GlobalConvolution::launch_unchecked::<SP, R>(

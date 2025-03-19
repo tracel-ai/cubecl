@@ -1,7 +1,10 @@
-use crate::matmul::components::{
-    global::{AccumulatorLoader, OutputLoader},
-    stage::{StageMatmul, StageMatmulFamily},
-    InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+use crate::matmul::{
+    components::{
+        global::{AccumulatorLoader, OutputLoader},
+        stage::{StageMatmul, StageMatmulFamily},
+        InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+    },
+    kernels::MatmulAvailabilityError,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -92,6 +95,11 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config;
+
+    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), MatmulAvailabilityError>;
 }
 
 /// Provides launch entry point to solve a matmul
