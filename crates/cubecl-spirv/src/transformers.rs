@@ -3,7 +3,7 @@ use cubecl_core::{
         Arithmetic, Bitwise, Elem, ExpandElement, Instruction, IntKind, Operation, Scope, UIntKind,
         Variable,
     },
-    prelude::{expand_erf, IntExpand},
+    prelude::{IntExpand, expand_erf},
 };
 use cubecl_opt::{IrTransformer, TransformAction};
 

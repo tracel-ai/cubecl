@@ -17,11 +17,11 @@ pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: S
 }
 
 impl<
-        S: ComputeServer + 'static,
-        C: ComputeChannel<S> + 'static,
-        In: Clone + Send + 'static,
-        Out: Send + 'static,
-    > TuneBenchmark<S, C, In, Out>
+    S: ComputeServer + 'static,
+    C: ComputeChannel<S> + 'static,
+    In: Clone + Send + 'static,
+    Out: Send + 'static,
+> TuneBenchmark<S, C, In, Out>
 {
     /// Benchmark how long this operation takes for a number of samples.
     pub async fn sample_durations(self) -> Result<BenchmarkDurations, AutotuneError> {

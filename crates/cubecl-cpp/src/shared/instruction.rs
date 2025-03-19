@@ -1,8 +1,8 @@
 use crate::shared::FmtLeft;
 
 use super::{
-    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*, Component, Dialect, Elem,
-    Item, Variable, WarpInstruction, WmmaInstruction,
+    Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
+    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
 };
 use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 

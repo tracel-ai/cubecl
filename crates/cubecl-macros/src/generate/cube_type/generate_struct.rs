@@ -164,7 +164,7 @@ impl CubeTypeStruct {
         let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
         let vis = &self.vis;
 
-        fn gen<'a, F: Fn(&Ident) -> TokenStream>(
+        fn generate<'a, F: Fn(&Ident) -> TokenStream>(
             fields: impl Iterator<Item = &'a TypeField>,
             func: F,
         ) -> Vec<TokenStream> {
@@ -173,13 +173,13 @@ impl CubeTypeStruct {
                 .collect::<Vec<_>>()
         }
 
-        let clone = gen(self.fields.iter(), |name| quote!(#name: self.#name.clone()));
-        let hash = gen(self.fields.iter(), |name| quote!(self.#name.hash(state)));
-        let partial_eq = gen(
+        let clone = generate(self.fields.iter(), |name| quote!(#name: self.#name.clone()));
+        let hash = generate(self.fields.iter(), |name| quote!(self.#name.hash(state)));
+        let partial_eq = generate(
             self.fields.iter(),
             |name| quote!(self.#name.eq(&other.#name)),
         );
-        let debug = gen(self.fields.iter(), |name| {
+        let debug = generate(self.fields.iter(), |name| {
             quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?)
         });
 

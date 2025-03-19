@@ -26,8 +26,8 @@ use rspirv::{
 };
 
 use crate::{
-    extensions::NonSemanticShaderDebugInfo100::{DebugInfoFlags, Instructions},
     SpirvCompiler, SpirvTarget,
+    extensions::NonSemanticShaderDebugInfo100::{DebugInfoFlags, Instructions},
 };
 
 pub const DEBUG_EXT_NAME: &str = "NonSemantic.Shader.DebugInfo.100";
@@ -166,7 +166,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn declare_main(&mut self, kernel_name: &str) -> (Word, impl Fn(&mut Self)) {
+    pub fn declare_main(&mut self, kernel_name: &str) -> (Word, impl Fn(&mut Self) + 'static) {
         let void = self.type_void();
         let voidf = self.type_function(void, vec![]);
 

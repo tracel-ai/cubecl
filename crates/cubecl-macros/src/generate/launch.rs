@@ -1,7 +1,7 @@
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse_quote, Ident};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Ident, parse_quote};
 
 use crate::{
     parse::kernel::{KernelParam, Launch},

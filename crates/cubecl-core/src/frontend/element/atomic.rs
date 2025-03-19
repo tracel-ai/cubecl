@@ -1,8 +1,8 @@
 use cubecl_ir::{AtomicOp, ExpandElement};
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Int, IntoRuntime,
-    LaunchArgExpand, Numeric,
+    ExpandElementBaseInit, ExpandElementTyped, Int, IntoRuntime, LaunchArgExpand, Numeric,
+    init_expand_element,
 };
 use crate::{
     frontend::{CubePrimitive, CubeType},

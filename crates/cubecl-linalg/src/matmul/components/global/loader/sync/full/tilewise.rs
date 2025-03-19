@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
+    FormattedConfigError, Ident, InvalidConfigError,
     global::{
-        loader::sync::SyncFullLoadingStrategy, tensor_view::TensorReader, GlobalConfig,
-        LoadingValidation,
+        GlobalConfig, LoadingValidation, loader::sync::SyncFullLoadingStrategy,
+        tensor_view::TensorReader,
     },
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
-    FormattedConfigError, Ident, InvalidConfigError,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

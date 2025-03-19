@@ -1,4 +1,4 @@
-use cubecl_core::{ir::Elem, CubeCount};
+use cubecl_core::{CubeCount, ir::Elem};
 use std::fmt::Debug;
 
 use crate::matmul::components::InvalidConfigError;
@@ -131,10 +131,13 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::PlaneDimUnknown => {
                 writeln!(f, "Plane dimension unknown.")
-            },
-            MatmulAvailabilityError::PlaneDimUnsupported{plane_dim} => {
-                writeln!(f, "Plane dimension unsupported: {plane_dim}. Only 32 & 64 are supported.")
-            },
+            }
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim } => {
+                writeln!(
+                    f,
+                    "Plane dimension unsupported: {plane_dim}. Only 32 & 64 are supported."
+                )
+            }
             MatmulAvailabilityError::TypesUnavailable { input, output } => {
                 writeln!(
                     f,
@@ -151,15 +154,14 @@ impl Debug for MatmulAvailabilityError {
             } => writeln!(
                 f,
                 "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input,
-                output, m, n, k
+                input, output, m, n, k
             ),
             MatmulAvailabilityError::PipelineUnavailable => {
                 writeln!(f, "Pipeline is not available.")
-            },
+            }
             MatmulAvailabilityError::BarrierUnavailable => {
                 writeln!(f, "Barrier is not available.")
-            },
+            }
         }
     }
 }

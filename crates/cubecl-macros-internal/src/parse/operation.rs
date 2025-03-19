@@ -1,7 +1,7 @@
 use darling::{
+    FromDeriveInput, FromField, FromVariant,
     ast::{Data, Fields},
     util::Flag,
-    FromDeriveInput, FromField, FromVariant,
 };
 use syn::{Generics, Ident, Type, Visibility};
 

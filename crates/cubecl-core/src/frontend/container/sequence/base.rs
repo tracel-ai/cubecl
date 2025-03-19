@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     frontend::{
-        branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
+        CubeType, ExpandElementTyped, Init, IntoRuntime, branch::Iterable, indexation::Index,
     },
     prelude::CubeDebug,
 };

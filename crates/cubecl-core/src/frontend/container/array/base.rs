@@ -5,13 +5,13 @@ use cubecl_ir::{ExpandElement, Scope};
 use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
 use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer};
 use crate::{
-    frontend::indexation::Index,
-    prelude::{assign, index, index_assign},
-};
-use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
     unexpanded,
+};
+use crate::{
+    frontend::indexation::Index,
+    prelude::{assign, index, index_assign},
 };
 
 /// A contiguous array of elements.

@@ -1,10 +1,10 @@
 use crate::{
     frontend::{
-        indexation::Index, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped,
-        SizedContainer,
+        CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, SizedContainer,
+        indexation::Index,
     },
     ir::{Item, Metadata, Scope},
-    prelude::{index, index_assign, IntoRuntime, Line, List, ListExpand, ListMut, ListMutExpand},
+    prelude::{IntoRuntime, Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
     unexpanded,
 };
 use cubecl_ir::ExpandElement;

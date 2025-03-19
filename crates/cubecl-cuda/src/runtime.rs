@@ -1,15 +1,15 @@
 use std::mem::MaybeUninit;
 
 use cubecl_core::{
-    ir::{Elem, FloatKind},
     AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime,
+    ir::{Elem, FloatKind},
 };
 use cubecl_runtime::{
+    ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
-    ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
@@ -17,10 +17,10 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_cpp::{
+    CudaCompiler, WmmaCompiler,
     cuda::{arch::CudaArchitecture, mma::CudaWmmaCompiler},
     register_supported_types,
     shared::register_wmma_features,
-    CudaCompiler, WmmaCompiler,
 };
 
 /// Options configuring the CUDA runtime.

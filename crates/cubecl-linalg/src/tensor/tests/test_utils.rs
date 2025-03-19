@@ -1,4 +1,4 @@
-use cubecl_core::{prelude::Numeric, CubeElement};
+use cubecl_core::{CubeElement, prelude::Numeric};
 
 pub(crate) fn identity_cpu<E: Numeric + CubeElement>(dim: usize) -> Vec<E> {
     let num_elements = dim * dim;

@@ -8,7 +8,6 @@ license.workspace = true
 name = "cubecl"
 readme.workspace = true
 repository = "https://github.com/tracel-ai/cubecl"
-rust-version = "1.80"
 version.workspace = true
 
 [features]

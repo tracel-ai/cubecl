@@ -1,7 +1,7 @@
 use crate::parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem};
 use proc_macro2::TokenStream;
-use quote::quote;
 use quote::ToTokens;
+use quote::quote;
 
 impl ToTokens for CubeTrait {
     fn to_tokens(&self, tokens: &mut TokenStream) {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cubecl_ir::{Id, Instruction, Item, Operation, Operator, Variable, VariableKind};
 
-use crate::{analyses::writes::Writes, AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Optimizer, analyses::writes::Writes};
 
 use super::OptimizerPass;
 

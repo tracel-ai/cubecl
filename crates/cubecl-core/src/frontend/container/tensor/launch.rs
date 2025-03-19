@@ -3,12 +3,12 @@ use std::{marker::PhantomData, num::NonZero};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
     },
-    Runtime,
 };
 
 use super::Tensor;

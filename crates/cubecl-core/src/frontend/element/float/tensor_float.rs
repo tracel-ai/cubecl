@@ -5,8 +5,9 @@ use half::f16;
 use crate::prelude::Numeric;
 
 use super::{
-    init_expand_element, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Float,
-    Init, IntoRuntime, KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
+    CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Float, Init, IntoRuntime,
+    KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
+    init_expand_element,
 };
 
 impl CubeType for tf32 {

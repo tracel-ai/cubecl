@@ -2,9 +2,9 @@ use cubecl_core::ir::{self, Builtin};
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{Globals, Variable},
-    SpirvCompiler, SpirvTarget,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {

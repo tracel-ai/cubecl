@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{spanned::Spanned, Token};
+use syn::{Token, spanned::Spanned};
 
 use crate::{expression::Expression, paths::frontend_type, scope::Context, statement::Statement};
 

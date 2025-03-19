@@ -4,10 +4,10 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
+    Ident,
     global::AccumulatorLoader,
     stage::{Stage, StageConfig},
     tile::{Tile, TileConfig, TileMatmul},
-    Ident,
 };
 use crate::{
     convolution::{homogeneous::base::ConvTilingLayout, reader::bias::BiasReader},

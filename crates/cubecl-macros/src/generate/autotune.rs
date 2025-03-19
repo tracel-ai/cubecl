@@ -1,7 +1,7 @@
 use darling::FromDeriveInput;
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{DeriveInput, Index, Member};
 
 use crate::{

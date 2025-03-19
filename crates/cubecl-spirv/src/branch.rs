@@ -5,7 +5,7 @@ use rspirv::{
     spirv::{LoopControl, SelectionControl, Word},
 };
 
-use crate::{item::Item, variable::Variable, SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_read_bound(
