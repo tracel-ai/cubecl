@@ -4,7 +4,11 @@ use super::{
     Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
     barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
 };
-use std::{borrow::Cow, fmt::Display, marker::PhantomData};
+use std::{
+    borrow::Cow,
+    fmt::{Display, Write},
+    marker::PhantomData,
+};
 
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -662,10 +666,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 indices,
             } => {
                 let rank = indices.len();
-                let indices = indices
-                    .iter()
-                    .map(|it| format!("{it}, "))
-                    .collect::<String>();
+                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
                 writeln!(
                     f,
                     "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} &{smem_buffer});"

@@ -1,6 +1,6 @@
 use crate::{Instruction, TypeHash};
-use alloc::{format, string::String, vec::Vec};
-use core::fmt::Display;
+use alloc::{string::String, vec::Vec};
+use core::fmt::{Display, Write};
 
 use crate::OperationReflect;
 
@@ -73,10 +73,10 @@ impl Display for BarrierOps {
                 indices,
             } => {
                 let rank = indices.len();
-                let indices = indices
-                    .iter()
-                    .map(|it| format!("{it}, "))
-                    .collect::<String>();
+                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
                 write!(
                     f,
                     "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"

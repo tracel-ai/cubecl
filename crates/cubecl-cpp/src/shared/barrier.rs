@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 use cubecl_core::ir::BarrierLevel;
 
@@ -140,10 +140,10 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                 indices,
             } => {
                 let rank = indices.len();
-                let indices = indices
-                    .iter()
-                    .map(|it| format!("{it}, "))
-                    .collect::<String>();
+                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
                 writeln!(
                     f,
                     "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});"
