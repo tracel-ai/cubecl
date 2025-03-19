@@ -30,7 +30,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes, AnalysisCache};
+use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_ir::{
     self as core, Allocator, Branch, Id, Item, Operation, Operator, Scope, Variable, VariableKind,
@@ -42,7 +42,7 @@ use passes::{
     EmptyBranchToSelect, InBoundsToUnchecked, InlineAssignments, MergeBlocks, MergeSameExpressions,
     OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
-use petgraph::{prelude::StableDiGraph, visit::EdgeRef, Direction};
+use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
 mod analyses;
 mod block;

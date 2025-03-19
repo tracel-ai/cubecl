@@ -3,7 +3,7 @@ use crate::{
     paths::prelude_type,
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{Ident, PathArguments, Type};
 
 impl CubeTypeEnum {

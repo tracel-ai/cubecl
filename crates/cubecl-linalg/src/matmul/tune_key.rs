@@ -2,10 +2,10 @@ use std::cmp::max;
 
 use cubecl_core as cubecl;
 
-use cubecl_core::{ir::Elem, AutotuneKey};
+use cubecl_core::{AutotuneKey, ir::Elem};
 use serde::{Deserialize, Serialize};
 
-use crate::tensor::{matrix_layout, MatrixLayout};
+use crate::tensor::{MatrixLayout, matrix_layout};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions

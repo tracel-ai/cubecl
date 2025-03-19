@@ -4,7 +4,7 @@ use alloc::{borrow::Cow, string::String, vec::Vec};
 
 use crate::TypeHash;
 
-use crate::{fmt_vararg, OperationCode, OperationReflect};
+use crate::{OperationCode, OperationReflect, fmt_vararg};
 
 use super::Variable;
 

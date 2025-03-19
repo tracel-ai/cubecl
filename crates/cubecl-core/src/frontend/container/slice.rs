@@ -1,11 +1,11 @@
 use super::Line;
 use crate::{
     frontend::{
-        indexation::Index, Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory,
-        SizedContainer, Tensor,
+        Array, CubePrimitive, CubeType, ExpandElementTyped, Init, SharedMemory, SizedContainer,
+        Tensor, indexation::Index,
     },
     ir::{Instruction, Scope},
-    prelude::{index, index_assign, IntoRuntime, List, ListExpand, ListMut, ListMutExpand},
+    prelude::{IntoRuntime, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
     unexpanded,
 };
 use cubecl_ir::{ExpandElement, Operator};

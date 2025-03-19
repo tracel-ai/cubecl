@@ -5,7 +5,7 @@ use std::{
 };
 
 use quote::format_ident;
-use syn::{parse_quote, Ident, Type};
+use syn::{Ident, Type, parse_quote};
 
 use crate::parse::kernel::KernelParam;
 

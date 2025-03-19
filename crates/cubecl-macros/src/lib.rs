@@ -11,11 +11,11 @@ use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{from_tokens, Launch},
+    kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Item};
+use syn::{Item, visit_mut::VisitMut};
 
 mod error;
 mod expression;

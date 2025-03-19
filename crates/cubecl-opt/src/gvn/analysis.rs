@@ -4,15 +4,15 @@ use std::{
     ops::Deref,
 };
 
-use crate::{analyses::Analysis, NodeIndex};
+use crate::{NodeIndex, analyses::Analysis};
 use smallvec::SmallVec;
 
 use crate::{
-    analyses::dominance::{Dominators, PostDominators},
     Optimizer,
+    analyses::dominance::{Dominators, PostDominators},
 };
 
-use super::{convert::value_of_var, Expression, Value, ValueTable};
+use super::{Expression, Value, ValueTable, convert::value_of_var};
 
 const MAX_SET_PASSES: usize = 10;
 

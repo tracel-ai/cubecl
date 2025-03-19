@@ -1,26 +1,26 @@
 use ash::{
     khr::cooperative_matrix,
     vk::{
-        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, EXT_ROBUSTNESS2_NAME,
+        ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, EXT_ROBUSTNESS2_NAME, ScopeKHR,
         TRUE,
     },
 };
 use cubecl_core::{
+    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
     compute::Visibility,
     ir::{Elem, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
-    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
 };
 use cubecl_runtime::DeviceProperties;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use wgpu::{
+    DeviceDescriptor, Features, Limits,
     hal::{
         self,
         vulkan::{self, InstanceShared},
     },
-    DeviceDescriptor, Features, Limits,
 };
 
 use crate::{AutoCompiler, WgpuServer};

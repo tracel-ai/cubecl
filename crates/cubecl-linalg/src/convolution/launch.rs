@@ -1,17 +1,17 @@
 use cubecl_core::{
+    Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorArg},
-    Runtime,
 };
 
 use crate::matmul::kernels::MatmulLaunchError;
 use crate::{convolution::base::ConvolutionLaunch, matmul::components::MatmulPrecision};
 
 use super::{
+    ConvLaunchError,
     algorithm::Algorithm,
     base::{ConvolutionConfigFactory, ConvolutionProblem},
     selection::ConvSelector,
-    ConvLaunchError,
 };
 
 /// Perform a 2D convolution using the implicit GEMM (im2col) algorithm, using cubecl tiling matmul

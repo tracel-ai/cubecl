@@ -1,8 +1,8 @@
 use crate::matmul::{
     components::{
+        InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
         global::{AccumulatorLoader, OutputLoader},
         stage::{StageMatmul, StageMatmulFamily},
-        InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -10,16 +10,16 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::{homogeneous::base::ConvTilingLayout, ConvGemmConfig};
+use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
 
 pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
     type Convolution<CS: MatmulPrecision>: Convolution<
-        CS,
-        SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
-        Config = Self::Config,
-    >;
+            CS,
+            SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
+            Config = Self::Config,
+        >;
 }
 
 #[cube]

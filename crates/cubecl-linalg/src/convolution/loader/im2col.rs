@@ -5,12 +5,12 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{InputLoader, SyncInputLoader},
-    stage::{multi_buffer::LhsReader, ContiguousTilingLayout, RowMajorTilingOrder},
     Ident, MatmulPrecision,
+    global::{InputLoader, SyncInputLoader},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
 };
 use crate::{
-    convolution::{reader::im2col::Im2colReader, ConvGemmConfig},
+    convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
     matmul::components::stage::Stage,
 };
 

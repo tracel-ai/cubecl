@@ -1,5 +1,5 @@
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use alloc::alloc::{alloc, dealloc, Layout};
+use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
 
 /// The bytes storage maps ids to pointers of bytes in a contiguous layout.

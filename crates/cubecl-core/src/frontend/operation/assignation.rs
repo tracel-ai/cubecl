@@ -103,7 +103,9 @@ pub mod index_assign {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(i64, i32, i16, i8, f16, bf16, flex32, tf32, f32, f64, u64, u32, u16, u8);
+    impl_index_vec!(
+        i64, i32, i16, i8, f16, bf16, flex32, tf32, f32, f64, u64, u32, u16, u8
+    );
 
     impl<E: CubeType, I: Index> CubeIndexMut<I> for SliceMut<E> {}
 }
@@ -114,8 +116,8 @@ pub mod index {
     use crate::{
         flex32,
         frontend::{
-            operation::base::{binary_expand, binary_expand_no_vec},
             CubeType,
+            operation::base::{binary_expand, binary_expand_no_vec},
         },
         prelude::{ExpandElementTyped, Slice, SliceMut},
         tf32,
@@ -173,7 +175,9 @@ pub mod index {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
-    impl_index_vec!(i64, i32, i16, i8, f16, flex32, tf32, bf16, f32, f64, u64, u32, u16, u8);
+    impl_index_vec!(
+        i64, i32, i16, i8, f16, flex32, tf32, bf16, f32, f64, u64, u32, u16, u8
+    );
 
     impl<E: CubeType, I: Index> CubeIndex<I> for Slice<E> {
         type Output = E;
@@ -187,7 +191,7 @@ pub mod index {
 pub mod add_assign_array_op {
     use self::ir::Arithmetic;
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -204,7 +208,7 @@ pub mod add_assign_array_op {
 pub mod sub_assign_array_op {
     use self::ir::Arithmetic;
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -221,7 +225,7 @@ pub mod sub_assign_array_op {
 pub mod mul_assign_array_op {
     use self::ir::Arithmetic;
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -238,7 +242,7 @@ pub mod mul_assign_array_op {
 pub mod div_assign_array_op {
     use self::ir::Arithmetic;
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -255,7 +259,7 @@ pub mod div_assign_array_op {
 pub mod rem_assign_array_op {
     use self::ir::Arithmetic;
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -271,7 +275,7 @@ pub mod rem_assign_array_op {
 
 pub mod bitor_assign_array_op {
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -287,7 +291,7 @@ pub mod bitor_assign_array_op {
 
 pub mod bitand_assign_array_op {
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -303,7 +307,7 @@ pub mod bitand_assign_array_op {
 
 pub mod bitxor_assign_array_op {
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -320,7 +324,7 @@ pub mod bitxor_assign_array_op {
 pub mod shl_assign_array_op {
 
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -337,7 +341,7 @@ pub mod shl_assign_array_op {
 pub mod shr_assign_array_op {
 
     use super::*;
-    use crate::prelude::{array_assign_binary_op_expand, CubeType, ExpandElementTyped};
+    use crate::prelude::{CubeType, ExpandElementTyped, array_assign_binary_op_expand};
 
     pub fn expand<A: CubeType + CubeIndex<u32>>(
         scope: &mut Scope,
@@ -500,7 +504,7 @@ pub mod add_assign {
     use cubecl_ir::Arithmetic;
 
     use super::*;
-    use crate::prelude::{assign_op_expand, CubePrimitive, ExpandElementTyped};
+    use crate::prelude::{CubePrimitive, ExpandElementTyped, assign_op_expand};
 
     pub fn expand<C: CubePrimitive>(
         scope: &mut Scope,
