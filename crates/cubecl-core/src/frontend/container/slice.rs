@@ -5,7 +5,7 @@ use crate::{
         Tensor, indexation::Index,
     },
     ir::{Instruction, Scope},
-    prelude::{IntoRuntime, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{List, ListExpand, ListMut, ListMutExpand, index, index_assign},
     unexpanded,
 };
 use cubecl_ir::{ExpandElement, Operator};
@@ -438,18 +438,6 @@ pub fn slice_expand<I: Into<ExpandElement>, S1: Index, S2: Index>(
     ));
 
     out
-}
-
-impl<E: CubePrimitive> IntoRuntime for Slice<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Array can't exist at compile time")
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for SliceMut<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Array can't exist at compile time")
-    }
 }
 
 impl<T: CubePrimitive> List<T> for Slice<T> {

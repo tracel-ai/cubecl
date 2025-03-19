@@ -1,7 +1,7 @@
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
-#[derive(CubeLaunch)]
+#[derive(CubeLaunch, CubeType)]
 pub struct ComptimeTag {
     array: Array<f32>,
     #[cube(comptime)]
