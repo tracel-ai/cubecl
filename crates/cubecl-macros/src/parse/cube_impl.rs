@@ -1,7 +1,7 @@
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
-    spanned::Spanned, visit_mut::VisitMut, GenericArgument, Generics, Ident, ImplItem, ItemImpl,
-    LitStr, PathArguments, Token, Type, TypePath,
+    GenericArgument, Generics, Ident, ImplItem, ItemImpl, LitStr, PathArguments, Token, Type,
+    TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{parse::kernel::KernelBody, scope::Context};

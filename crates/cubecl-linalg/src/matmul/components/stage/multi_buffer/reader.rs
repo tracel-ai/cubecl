@@ -1,10 +1,10 @@
-use crate::matmul::components::stage::shared::CommonStageConfig;
+use crate::matmul::components::Ident;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::TilingLayout;
+use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::tile::TileConfig;
-use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

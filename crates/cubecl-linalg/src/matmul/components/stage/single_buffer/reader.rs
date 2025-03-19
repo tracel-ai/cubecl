@@ -1,11 +1,11 @@
 use crate::matmul::components::{
-    stage::{shared::CommonStageConfig, ReaderFamily, TilingLayout},
+    stage::{ReaderFamily, TilingLayout, shared::CommonStageConfig},
     tile::{Tile, TileConfig},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{stage::Stage, Ident};
+use crate::matmul::components::{Ident, stage::Stage};
 
 #[derive(CubeType)]
 pub struct LhsBufferReader<ES: Numeric, T: TilingLayout> {

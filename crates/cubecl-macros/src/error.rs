@@ -1,7 +1,7 @@
 // modified from https://github.com/elastio/bon/blob/master/bon-macros/src/error.rs
 
 use proc_macro2::{TokenStream, TokenTree};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::parse::Parse;
 
 use crate::parse::helpers::is_helper;

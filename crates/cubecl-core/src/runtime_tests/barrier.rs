@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes, prelude::barrier::BarrierLevel, Feature};
+use crate::{self as cubecl, Feature, as_bytes, prelude::barrier::BarrierLevel};
 use barrier::Barrier;
 use cubecl::prelude::*;
 

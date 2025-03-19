@@ -8,12 +8,12 @@ use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmulFamily;
 use crate::matmul::components::{
-    global,
-    stage::{StageConfig as _, StageWriter},
-    tile, Ident, MatmulProblem,
+    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
+    Ident, MatmulProblem, global,
+    stage::{StageConfig as _, StageWriter},
+    tile,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 

@@ -1,15 +1,15 @@
 use core::future::Future;
 
 use crate::{
+    DeviceProperties,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
-    DeviceProperties,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -125,10 +125,12 @@ where
         kernel: Server::Kernel,
         count: CubeCount,
         bindings: Vec<Binding>,
-    ) { unsafe {
-        self.channel
-            .execute(kernel, count, bindings, ExecutionMode::Unchecked)
-    }}
+    ) {
+        unsafe {
+            self.channel
+                .execute(kernel, count, bindings, ExecutionMode::Unchecked)
+        }
+    }
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {

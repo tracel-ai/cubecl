@@ -2,8 +2,8 @@ use cubecl_ir::{Id, Item, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes},
     Optimizer,
+    analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes},
 };
 
 use super::version::{PhiEntry, PhiInstruction};

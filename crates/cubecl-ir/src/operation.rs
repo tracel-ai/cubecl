@@ -2,8 +2,8 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
 use crate::{
-    comparison::Comparison, Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs,
-    OperationReflect, Operator,
+    Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator,
+    comparison::Comparison,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{

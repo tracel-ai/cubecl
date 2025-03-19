@@ -1,7 +1,7 @@
 use cubecl_core::ir::{Plane, UnaryOperator, Variable};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
-use crate::{item::Elem, SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_plane(&mut self, plane: Plane, out: Option<Variable>, uniform: bool) {

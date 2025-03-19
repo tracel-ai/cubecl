@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Ident, Member, Pat, Path, PathArguments};
+use syn::{Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
 
 use crate::{
     expression::{Block, Expression, MatchArm},
@@ -457,7 +457,7 @@ impl Expression {
                         return error!(
                             args.span(),
                             "Fn generics not supported when constructing runtime structs"
-                        )
+                        );
                     }
                 };
 

@@ -1,8 +1,7 @@
 use darling::FromMeta;
 use syn::{
-    parse_quote,
+    Attribute, Expr, ExprReference, parse_quote,
     visit_mut::{self, VisitMut},
-    Attribute, Expr, ExprReference,
 };
 
 use crate::{expression::Expression, paths::prelude_path, scope::Context};

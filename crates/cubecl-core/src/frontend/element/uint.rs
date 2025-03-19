@@ -1,13 +1,13 @@
 use cubecl_ir::{ExpandElement, Scope, UIntKind};
 
+use crate::Runtime;
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::Elem;
 use crate::prelude::{KernelBuilder, KernelLauncher};
-use crate::Runtime;
 
 use super::{
-    init_expand_element, ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings,
+    ExpandElementBaseInit, ExpandElementTyped, Init, Int, IntoRuntime, LaunchArgExpand,
+    ScalarArgSettings, init_expand_element,
 };
 
 macro_rules! declare_uint {

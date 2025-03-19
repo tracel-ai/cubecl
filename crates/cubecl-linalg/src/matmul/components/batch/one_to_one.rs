@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::batch::shared::gmm_execute;
 use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
+    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
 };
 use crate::matmul::components::{
     InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -69,11 +69,13 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
-    ) { unsafe {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-            client, cube_count, cube_dim, input, output, config,
-        );
-    }}
+    ) {
+        unsafe {
+            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+                client, cube_count, cube_dim, input, output, config,
+            );
+        }
+    }
 }
 
 /// Executes matrix multiplication at the batch level,

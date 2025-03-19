@@ -1,9 +1,9 @@
 use cubecl_ir::{ExpandElement, Scope};
 use cubecl_runtime::debug::DebugLogger;
 
+use crate::KernelSettings;
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
-use crate::KernelSettings;
 use crate::{InputInfo, KernelExpansion, KernelIntegrator, OutputInfo};
 use std::collections::HashMap;
 

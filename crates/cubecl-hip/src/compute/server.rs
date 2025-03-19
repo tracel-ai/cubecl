@@ -5,19 +5,19 @@ use crate::runtime::HipCompiler;
 
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
-use super::{uninit_vec, HipResource};
-use cubecl_core::compute::DebugInformation;
+use super::{HipResource, uninit_vec};
 use cubecl_core::Feature;
-use cubecl_core::{prelude::*, KernelId};
-use cubecl_hip_sys::{hiprtcResult_HIPRTC_SUCCESS, HIP_SUCCESS};
+use cubecl_core::compute::DebugInformation;
+use cubecl_core::{KernelId, prelude::*};
+use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;

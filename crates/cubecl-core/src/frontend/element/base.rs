@@ -1,8 +1,8 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
-    prelude::{init_expand, KernelBuilder, KernelLauncher},
     Runtime,
+    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
+    prelude::{KernelBuilder, KernelLauncher, init_expand},
 };
 use cubecl_common::{flex32, tf32};
 use cubecl_ir::ExpandElement;

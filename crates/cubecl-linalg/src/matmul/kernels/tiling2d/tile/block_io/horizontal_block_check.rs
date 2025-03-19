@@ -10,7 +10,7 @@ use crate::matmul::kernels::tiling2d::{
     write_output::WriteTileInfo,
 };
 
-use super::base::{all_zeros_comptime, all_zeros_runtime, BlockLoader, BlockWriter};
+use super::base::{BlockLoader, BlockWriter, all_zeros_comptime, all_zeros_runtime};
 
 pub(crate) struct HorizontalCheckBlockIO;
 

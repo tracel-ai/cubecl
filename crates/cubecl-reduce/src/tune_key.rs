@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 
-use cubecl_core::{ir::Elem, AutotuneKey};
+use cubecl_core::{AutotuneKey, ir::Elem};
 use serde::{Deserialize, Serialize};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]

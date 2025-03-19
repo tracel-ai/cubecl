@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{single_stage, GlobalConfig, InputLoader};
+use crate::matmul::components::global::{GlobalConfig, InputLoader, single_stage};
 use crate::matmul::components::global::{LoadingValidation, SyncInputLoader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use cubecl_ir::Id;
 use petgraph::graph::NodeIndex;
 
-use crate::{analyses::post_order::PostOrder, Optimizer};
+use crate::{Optimizer, analyses::post_order::PostOrder};
 
 use super::Analysis;
 

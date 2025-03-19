@@ -1,4 +1,4 @@
-use cubecl_core::{prelude::*, Feature};
+use cubecl_core::{Feature, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::ReduceError;

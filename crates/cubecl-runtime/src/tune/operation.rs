@@ -5,9 +5,9 @@ use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
 use super::{
+    AutotuneError,
     input_generator::{InputGenerator, IntoInputGenerator},
     key_generator::{IntoKeyGenerator, KeyGenerator},
-    AutotuneError,
 };
 
 /// Default checksum for an operation set

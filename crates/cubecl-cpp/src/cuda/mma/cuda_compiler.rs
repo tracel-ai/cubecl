@@ -1,8 +1,8 @@
 use crate::{
-    cuda::{arch::CudaArchitecture, CudaDialect},
+    cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
-        WmmaCompiler, WmmaInstruction,
+        Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};

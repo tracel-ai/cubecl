@@ -3,13 +3,13 @@ use std::{marker::PhantomData, num::NonZero};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
         TensorHandleRef,
     },
-    Runtime,
 };
 
 use super::Array;
@@ -91,16 +91,18 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
         vectorization_factor: u8,
-    ) -> Self { unsafe {
-        ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(
-                handle,
-                length,
-                E::size().expect("Element should have a size"),
-            ),
-            vectorization_factor,
+    ) -> Self {
+        unsafe {
+            ArrayArg::Handle {
+                handle: ArrayHandleRef::from_raw_parts(
+                    handle,
+                    length,
+                    E::size().expect("Element should have a size"),
+                ),
+                vectorization_factor,
+            }
         }
-    }}
+    }
 
     /// Create a new array argument with a manual element size in bytes.
     ///
@@ -112,12 +114,14 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         length: usize,
         vectorization_factor: u8,
         elem_size: usize,
-    ) -> Self { unsafe {
-        ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
-            vectorization_factor,
+    ) -> Self {
+        unsafe {
+            ArrayArg::Handle {
+                handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
+                vectorization_factor,
+            }
         }
-    }}
+    }
 }
 
 impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
