@@ -547,25 +547,25 @@ impl MatchArm {
             // Useful for recursive call.
             Pat::Ident(_) => {}
             // Match path::Enum::Ident
-            Pat::Path(ref mut pat) => {
+            Pat::Path(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match path::Enum::Variant {a, b, c}
-            Pat::Struct(ref mut pat) => {
+            Pat::Struct(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match path::Enum::Variant(a, b, c)
-            Pat::TupleStruct(ref mut pat) => {
+            Pat::TupleStruct(pat) => {
                 let mut path = pat.path.clone();
                 append_expand_to_enum_name(&mut path);
                 pat.path = path;
             }
             // Match Pat1 | Pat2 | ...
-            Pat::Or(ref mut pat) => {
+            Pat::Or(pat) => {
                 pat.cases.iter_mut().for_each(Self::expand_pat);
             }
             // Match the underscore pattern _
