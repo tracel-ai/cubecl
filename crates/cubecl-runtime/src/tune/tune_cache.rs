@@ -2,6 +2,7 @@
 use super::AutotuneOutcome;
 #[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::Cache;
+#[cfg(autotune_persistent_cache)]
 use cubecl_common::cache::CacheError;
 #[cfg(autotune_persistent_cache)]
 use serde::{Deserialize, Serialize};
@@ -185,7 +186,9 @@ impl<K: AutotuneKey> TuneCache<K> {
                     value_previous,
                     value_updated,
                 } => {
-                    log::warn!("Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}");
+                    log::warn!(
+                        "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+                    );
                 }
                 CacheError::KeyOutOfSync { .. } => {
                     // This is OK.

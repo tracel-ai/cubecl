@@ -1,19 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::shared::gmm_execute;
-use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
-};
-use crate::matmul::components::{
-    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch, MatmulPrecision,
+    MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingDimensions,
+    batch::{self, shared::gmm_execute},
+    config::MatmulConfig,
+    global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, CubeDispatch};
@@ -71,9 +69,11 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     ) {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-            client, cube_count, cube_dim, input, output, config,
-        );
+        unsafe {
+            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+                client, cube_count, cube_dim, input, output, config,
+            );
+        }
     }
 }
 
@@ -98,7 +98,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();

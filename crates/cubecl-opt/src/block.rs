@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use cubecl_ir::{Instruction, Variable};
 use stable_vec::StableVec;
 
-use crate::{version::PhiInstruction, ControlFlow, Optimizer};
+use crate::{ControlFlow, Optimizer, version::PhiInstruction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockUse {

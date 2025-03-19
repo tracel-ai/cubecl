@@ -6,15 +6,15 @@ use crate::matmul::components::{
     OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
-use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
+use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
+    Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
 use cubecl_std::MaybeQuantized;
 
-use super::{select_kernel, Algorithm};
+use super::{Algorithm, select_kernel};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -152,12 +152,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         Some(plane_dim) => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-            ))
+            ));
         }
         None => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,
-            ))
+            ));
         }
     };
 
@@ -231,8 +231,22 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             plane_dim,
             false,
         )
-    } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() {
+    } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
+        && tf32::is_supported(client)
+    {
         select_kernel::<SingleMatmulSpec<EG::Numeric, tf32, f32>, R, A>(
+            client,
+            TensorInputsLaunch::new(
+                lhs.as_tensor_arg(lhs_line_size),
+                rhs.as_tensor_arg(rhs_line_size),
+            ),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            plane_dim,
+            false,
+        )
+    } else if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() {
+        select_kernel::<SingleMatmulSpec<EG::Numeric, half::f16, f32>, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),

@@ -1,7 +1,6 @@
 use cubecl_core::{
-    self as cubecl,
+    self as cubecl, CubeDim,
     prelude::{Init, Scope},
-    CubeDim,
 };
 use cubecl_core::{CubeCount, CubeType};
 

@@ -3,13 +3,13 @@ use std::{marker::PhantomData, num::NonZero};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, Item, Vectorization},
     prelude::{
         ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
         TensorHandleRef,
     },
-    Runtime,
 };
 
 use super::Array;
@@ -92,13 +92,15 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         length: usize,
         vectorization_factor: u8,
     ) -> Self {
-        ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(
-                handle,
-                length,
-                E::size().expect("Element should have a size"),
-            ),
-            vectorization_factor,
+        unsafe {
+            ArrayArg::Handle {
+                handle: ArrayHandleRef::from_raw_parts(
+                    handle,
+                    length,
+                    E::size().expect("Element should have a size"),
+                ),
+                vectorization_factor,
+            }
         }
     }
 
@@ -113,9 +115,11 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         vectorization_factor: u8,
         elem_size: usize,
     ) -> Self {
-        ArrayArg::Handle {
-            handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
-            vectorization_factor,
+        unsafe {
+            ArrayArg::Handle {
+                handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
+                vectorization_factor,
+            }
         }
     }
 }

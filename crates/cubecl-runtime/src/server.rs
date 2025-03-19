@@ -1,13 +1,13 @@
 use crate::{
     memory_management::{
-        memory_pool::{SliceBinding, SliceHandle},
         MemoryHandle, MemoryUsage,
+        memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -19,6 +19,8 @@ where
 {
     /// The kernel type defines the computation algorithms.
     type Kernel: Send;
+    /// Information that can be retrieved for the runtime.
+    type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
     /// The type of the features supported by the server.

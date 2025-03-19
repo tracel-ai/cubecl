@@ -30,7 +30,7 @@ pub use strategy::*;
 
 use launch::*;
 
-pub use launch::{reduce_kernel, ReduceParams};
+pub use launch::{ReduceParams, reduce_kernel};
 
 #[cfg(feature = "export_tests")]
 pub mod test;

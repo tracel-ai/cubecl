@@ -1,31 +1,35 @@
 use config::HomogeneousConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 use std::marker::PhantomData;
 
-use crate::convolution::{
-    base::{
-        Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
-        ConvolutionProblem,
-    },
-    config::ConvGemmConfig,
-    loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
-    precision::ConvPrecision,
-};
 use crate::matmul::components::{
+    Ident, InvalidConfigError, MatrixLayout,
     global::{
-        self,
+        self, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
         loader::sync::{CyclicCoalescedLoading, SyncRhsLoader},
         output_loader::Unloader,
-        single_stage, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
+        single_stage,
     },
     stage::{
-        self,
+        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
         multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
-        ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
     },
-    Ident, InvalidConfigError, MatrixLayout,
+};
+use crate::{
+    convolution::{
+        base::{
+            Convolution, ConvolutionConfigFactory, ConvolutionFamily, ConvolutionLaunch,
+            ConvolutionProblem,
+        },
+        config::ConvGemmConfig,
+        loader::{bias::BiasLoader, im2col::SimpleIm2colLoader},
+    },
+    matmul::components::MatmulPrecision,
 };
 
 pub struct ImplicitGemmConvolutionFamily<SMM: StageMatmulFamily> {
@@ -38,7 +42,7 @@ impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
 {
-    type Convolution<CS: ConvPrecision> = ImplicitGemmConvolution<
+    type Convolution<CS: MatmulPrecision> = ImplicitGemmConvolution<
         CS,
         SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
     >;
@@ -48,7 +52,7 @@ where
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
 pub struct ImplicitGemmConvolution<
-    CS: ConvPrecision,
+    CS: MatmulPrecision,
     SMM: stage::StageMatmul<CS::ES, CS::EG, CS::EA>,
 > {
     _cs: PhantomData<CS>,
@@ -56,15 +60,15 @@ pub struct ImplicitGemmConvolution<
 }
 
 #[cube]
-impl<CS: ConvPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
+impl<CS: MatmulPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
 where
     SMM: stage::StageMatmul<
-        CS::ES,
-        CS::EG,
-        CS::EA,
-        LhsReader = LhsReader<CS::ES, ConvTilingLayout>,
-        RhsReader = RhsReader<CS::ES, ConvTilingLayout>,
-    >,
+            CS::ES,
+            CS::EG,
+            CS::EA,
+            LhsReader = LhsReader<CS::ES, ConvTilingLayout>,
+            RhsReader = RhsReader<CS::ES, ConvTilingLayout>,
+        >,
 {
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
@@ -118,7 +122,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                None,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -131,7 +135,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            None,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -237,7 +241,7 @@ where
 impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
-    unsafe fn launch_unchecked<CS: ConvPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<CS: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
@@ -247,17 +251,19 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
         out: TensorArg<'_, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
-            client,
-            cube_count,
-            cube_dim,
-            input,
-            weight,
-            bias,
-            out,
-            config,
-            config.has_bias,
-        );
+        unsafe {
+            implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
+                client,
+                cube_count,
+                cube_dim,
+                input,
+                weight,
+                bias,
+                out,
+                config,
+                config.has_bias,
+            );
+        }
     }
 }
 

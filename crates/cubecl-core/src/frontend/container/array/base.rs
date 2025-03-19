@@ -2,16 +2,16 @@ use std::{marker::PhantomData, num::NonZero};
 
 use cubecl_ir::{ExpandElement, Scope};
 
-use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime};
+use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
 use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer};
-use crate::{
-    frontend::indexation::Index,
-    prelude::{assign, index, index_assign},
-};
 use crate::{
     frontend::CubeType,
     ir::{Item, Metadata},
     unexpanded,
+};
+use crate::{
+    frontend::indexation::Index,
+    prelude::{assign, index, index_assign},
 };
 
 /// A contiguous array of elements.
@@ -319,12 +319,6 @@ mod indexation {
                 *self.expand,
             ));
         }
-    }
-}
-
-impl<E: CubePrimitive> IntoRuntime for Array<E> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {
-        unimplemented!("Array can't exist at compile time")
     }
 }
 

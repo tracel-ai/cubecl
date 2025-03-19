@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout,
+    Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout, config::MatmulConfig,
 };
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
@@ -25,14 +25,14 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
-pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync + Clone {
+pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync  {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
     type Lhs: CubeType;
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Accumulator: CubeType + Clone + IntoRuntime;
+    type Accumulator: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(

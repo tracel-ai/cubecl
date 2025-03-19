@@ -1,11 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 
 use crate::matmul::components::{
+    Ident, MatmulConfigFactory, MatmulSize, MatrixLayout, TilingDimensions,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, IndexedQuantization},
     tile::TileConfig,
-    Ident, MatmulConfigFactory, MatmulSize, MatrixLayout, TilingDimensions,
 };
 
 use super::TilingLayout;
@@ -71,7 +72,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         instruction_lhs: &mut Self::LhsTile,
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: Option<f32>,
+        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     );
 
@@ -81,7 +82,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     fn read_accumulator<Out: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        quantization: Option<IndexedQuantization<EG>>,
+        quantization: CubeOption<IndexedQuantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );

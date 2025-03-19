@@ -1,15 +1,15 @@
 use core::future::Future;
 
 use crate::{
+    DeviceProperties,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
     server::{Binding, ComputeServer, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
-    DeviceProperties,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{benchmark::TimestampsResult, ExecutionMode};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -23,6 +23,7 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
     timestamp_lock: async_lock::Mutex<()>,
+    info: Server::Info,
 }
 
 impl<S, C> Clone for ComputeClient<S, C>
@@ -43,9 +44,18 @@ where
     Server: ComputeServer,
     Channel: ComputeChannel<Server>,
 {
+    /// Get the info of the current backend.
+    pub fn info(&self) -> &Server::Info {
+        &self.state.info
+    }
+
     /// Create a new client.
-    pub fn new(channel: Channel, properties: DeviceProperties<Server::Feature>) -> Self {
-        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()));
+    pub fn new(
+        channel: Channel,
+        properties: DeviceProperties<Server::Feature>,
+        info: Server::Info,
+    ) -> Self {
+        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()), info);
         Self {
             channel,
             state: Arc::new(state),
@@ -116,8 +126,10 @@ where
         count: CubeCount,
         bindings: Vec<Binding>,
     ) {
-        self.channel
-            .execute(kernel, count, bindings, ExecutionMode::Unchecked)
+        unsafe {
+            self.channel
+                .execute(kernel, count, bindings, ExecutionMode::Unchecked)
+        }
     }
 
     /// Flush all outstanding commands.

@@ -4,7 +4,7 @@ use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
-    batch, config::MatmulConfig, global, Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions,
+    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
 };
 use crate::matmul::components::{
     InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
@@ -14,6 +14,7 @@ use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::CubeOption;
 
 use super::{BatchConfig as _, BatchMatmulFamily, CubeDispatch};
 
@@ -75,9 +76,11 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
     ) {
-        super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-            client, cube_count, cube_dim, input, output, config,
-        );
+        unsafe {
+            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+                client, cube_count, cube_dim, input, output, config,
+            );
+        }
     }
 }
 
@@ -108,7 +111,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();

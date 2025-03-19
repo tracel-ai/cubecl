@@ -1,15 +1,17 @@
 use crate::matmul::components::{
+    Ident, MatmulLaunch, MatmulPrecision, TilingDimensions,
     config::MatmulConfig,
     global::{
-        self,
+        self, Quantization,
         args::{self, MatmulArgs, TensorInput, TensorOutput},
-        Quantization,
     },
-    Ident, MatmulLaunch, MatmulPrecision, TilingDimensions,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
@@ -42,7 +44,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -97,9 +99,9 @@ pub(crate) fn matmul<
     let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
 
     let quantization = if config.quantized() {
-        Some::<Quantization<EG>>(Args::quantization(&state))
+        CubeOption::new_Some(Args::quantization(&state))
     } else {
-        None::<Quantization<EG>>
+        CubeOption::new_None()
     };
 
     BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, quantization, config);

@@ -1,27 +1,23 @@
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::Quantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
 use crate::matmul::components::{
-    global,
-    stage::{StageConfig as _, StageWriter},
-    tile, Ident, MatmulProblem,
-};
-use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
+use crate::matmul::components::{
+    Ident, MatmulProblem, global,
+    stage::{StageConfig as _, StageWriter},
+    tile,
+};
 use crate::matmul::kernels::MatmulAvailabilityError;
+use core::any::TypeId;
+use core::marker::PhantomData;
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use cubecl_reduce::instructions::MaxAbs;
-use cubecl_reduce::primitives::{reduce_slice_shared, reduce_tree, ReduceRange};
-use cubecl_reduce::ReduceInstruction;
-use cubecl_std::div_ceil;
-use std::any::TypeId;
-use std::marker::PhantomData;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::reader::{LhsReader, RhsReader};
 use super::{LhsReaderFamily, RhsReaderFamily};
@@ -131,7 +127,7 @@ where
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: Option<f32>,
+        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
         #[unroll]
@@ -150,7 +146,7 @@ where
                 );
                 TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
 
-                let mut accumulator = acc.index_mut(accumulator_iter).clone();
+                let mut accumulator = acc.index_mut(accumulator_iter);
                 TMM::execute(
                     lhs_tile,
                     rhs_tile,
@@ -180,7 +176,7 @@ where
     fn read_accumulator<SW: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: Option<IndexedQuantization<EG>>,
+        quantization: CubeOption<IndexedQuantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -190,8 +186,8 @@ where
 
         let start = num_tile_lines * UNIT_POS_Y;
 
-        match comptime!(quantization) {
-            Some(quantization) => {
+        match quantization {
+            CubeOption::Some(quantization) => {
                 let mut acc_smem = SharedMemory::<EA>::new_lined(
                     num_tile_lines * stage_config.num_planes(),
                     out_smem_line_size,
@@ -222,7 +218,7 @@ where
                     );
                 }
             }
-            None => {
+            CubeOption::None => {
                 let mut out_smem = SharedMemory::<EG>::new_lined(
                     num_tile_lines * stage_config.num_planes(),
                     out_smem_line_size,
@@ -375,23 +371,23 @@ type Acc<ES, EA, TMM: TileMatmul<ES, EA>> = TMM::Accumulator;
 #[derive(CubeType, Clone)]
 struct MaybeWithQuantization<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> {
     tmm_accumulator: TMM::Accumulator,
-    quantized_mem: Option<SharedMemory<Line<f32>>>,
+    quantized_mem: CubeOption<SharedMemory<Line<f32>>>,
 }
 
 #[cube]
 impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> MaybeWithQuantization<ES, EA, TMM> {
     fn scale_if_quantized(
         &mut self,
-        scaling: Option<f32>,
+        scaling: CubeOption<f32>,
         #[comptime] mem_size: u32,
         #[comptime] line_size: u32,
         #[comptime] config: TMM::Config,
     ) {
         match (self.quantized_mem, scaling) {
-            (Some(acc_f32), Some(scaling)) => {
+            (CubeOption::Some(acc_f32), CubeOption::Some(scaling)) => {
                 let len = acc_f32.to_slice().len();
                 let mut mem_ea = SharedMemory::<EA>::new_lined(mem_size, line_size);
-                TMM::read_accumulator(&self.accumulator, &mut mem_ea.to_slice_mut(), config);
+                TMM::read_accumulator(&self.tmm_accumulator, &mut mem_ea.to_slice_mut(), config);
                 let elems_per_unit = mem_size / config.plane_dim();
                 #[unroll]
                 for index in 0..elems_per_unit {

@@ -1,13 +1,13 @@
 use quote::{format_ident, quote};
 use syn::{
-    visit_mut::VisitMut, Attribute, Generics, Ident, ImplItem, ItemImpl, ItemTrait, LitStr, Path,
-    Token, TraitItem, Type, Visibility,
+    Attribute, Generics, Ident, ImplItem, ItemImpl, ItemTrait, LitStr, Path, Token, TraitItem,
+    Type, Visibility, visit_mut::VisitMut,
 };
 
 use super::{
+    StripBounds, StripDefault,
     helpers::{RemoveHelpers, ReplaceIndices},
     kernel::{KernelFn, KernelSignature},
-    StripBounds, StripDefault,
 };
 
 pub struct CubeTrait {

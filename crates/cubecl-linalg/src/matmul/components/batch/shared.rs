@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    global::{self, GlobalConfig, IndexRange, IndexedQuantization, Quantization},
     Ident, MatmulPrecision,
+    global::{self, GlobalConfig, IndexRange, IndexedQuantization, Quantization},
 };
-use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, div_ceil, CubeOptionExpand};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
@@ -20,7 +20,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: Option<Quantization<MP::EG>>,
+    quantization: CubeOption<Quantization<MP::EG>>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
@@ -34,8 +34,8 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         batch_rhs += tmp % rhs.shape(axis) * rhs.stride(axis);
     }
 
-    let indexed_quantization = match comptime!(quantization) {
-        Some(quantization) => {
+    let indexed_quantization = match quantization {
+        CubeOption::Some(quantization) => {
             // TODO Support broadcast
             //      The launcher should panic before executing the kernel
             //      if it is quantized and broadcasted.
@@ -100,14 +100,14 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
                 + x_offset * num_stages_out_col_axis
                 + y_offset;
 
-            Some::<IndexedQuantization<MP::EG>>(IndexedQuantization::new(
+            CubeOption::new_Some(IndexedQuantization::new(
                 quantization,
                 range_lhs,
                 range_rhs,
                 index_out,
             ))
         }
-        None => None,
+        CubeOption::None => CubeOption::new_None(),
     };
 
     GMM::execute(

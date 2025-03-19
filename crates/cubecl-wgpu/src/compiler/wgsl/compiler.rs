@@ -1,14 +1,13 @@
 use super::Subgroup;
-use super::{shader::ComputeShader, ConstantArray};
+use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
-    compute,
+    Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
     prelude::{expand_checked_index_assign, expand_erf},
-    Metadata, WgpuCompilationOptions,
 };
 
 /// Wgsl Compiler.
@@ -60,6 +59,10 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn elem_size(&self, elem: cube::Elem) -> usize {
         Self::compile_elem(elem).size()
+    }
+
+    fn extension(&self) -> &'static str {
+        "wgsl"
     }
 }
 

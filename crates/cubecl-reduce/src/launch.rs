@@ -3,12 +3,12 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::args::init_tensors;
+use crate::BoundChecksInner;
 use crate::args::ReduceArgs;
 use crate::args::TensorArgs;
+use crate::args::init_tensors;
 use crate::instructions::*;
 use crate::primitives::*;
-use crate::BoundChecksInner;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
 
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.

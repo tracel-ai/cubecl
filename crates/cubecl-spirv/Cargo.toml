@@ -2,7 +2,7 @@
 authors = ["Genna Wingert"]
 categories = ["algorithms"]
 description = "SPIR-V compiler for CubeCL"
-edition = "2021"
+edition.workspace = true
 keywords = ["gpu", "compiler"]
 license.workspace = true
 name = "cubecl-spirv"

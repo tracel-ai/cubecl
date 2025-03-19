@@ -3,12 +3,12 @@ use std::num::NonZero;
 use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
+use crate::Runtime;
 use crate::compute::KernelLauncher;
 use crate::ir::{Item, Scope, Variable};
 use crate::prelude::Clamp;
-use crate::Runtime;
 use crate::{
-    frontend::{index_assign, Abs, Max, Min, Remainder},
+    frontend::{Abs, Max, Min, Remainder, index_assign},
     unexpanded,
 };
 use crate::{
@@ -16,7 +16,9 @@ use crate::{
     prelude::CubeIndexMut,
 };
 
-use super::{ArgSettings, ExpandElementBaseInit, ExpandElementTyped, LaunchArg, LaunchArgExpand};
+use super::{
+    ArgSettings, ExpandElementBaseInit, ExpandElementTyped, IntoRuntime, LaunchArg, LaunchArgExpand,
+};
 
 /// Type that encompasses both (unsigned or signed) integers and floats
 /// Used in kernels that should work for both.
@@ -28,6 +30,7 @@ pub trait Numeric:
     + Clamp
     + Remainder
     + CubePrimitive
+    + IntoRuntime
     + LaunchArgExpand<CompilationArg = ()>
     + ScalarArgSettings
     + ExpandElementBaseInit

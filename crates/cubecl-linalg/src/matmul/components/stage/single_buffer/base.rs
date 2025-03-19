@@ -2,18 +2,19 @@ use core::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    global::{self, AccumulatorLoader},
-    stage::{self, StageConfig as _, StageWriter},
-    Ident, MatmulConfigFactory, MatmulProblem,
+    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
+    Ident, MatmulConfigFactory, MatmulProblem,
+    global::{self, AccumulatorLoader},
+    stage::{self, StageConfig as _, StageWriter},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 
@@ -125,7 +126,7 @@ where
         lhs_tile: &mut Self::LhsTile,
         rhs_tile: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: Option<f32>,
+        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
         comptime! {
@@ -188,7 +189,7 @@ where
     fn read_accumulator<SW: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: Option<IndexedQuantization<EG>>,
+        quantization: CubeOption<IndexedQuantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {

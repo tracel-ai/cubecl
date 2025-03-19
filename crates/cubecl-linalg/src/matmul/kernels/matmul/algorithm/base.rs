@@ -1,8 +1,8 @@
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    batch, global, stage, tile, CompleteStageTiling, MatmulConfigFactory, MatmulPrecision,
-    MatmulProblem, MatmulSelection,
+    CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSelection,
+    batch, global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 

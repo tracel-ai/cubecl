@@ -1,7 +1,7 @@
 use crate::matmul::components::{
-    stage::{self, StageMatmulFamily},
-    tile::{accelerated::Accelerated, TileMatmulFamily},
     InvalidConfigError,
+    stage::{self, StageMatmulFamily},
+    tile::{TileMatmulFamily, accelerated::Accelerated},
 };
 use cubecl_core::prelude::*;
 

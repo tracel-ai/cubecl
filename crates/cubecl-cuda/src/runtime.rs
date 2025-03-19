@@ -1,15 +1,15 @@
 use std::mem::MaybeUninit;
 
 use cubecl_core::{
+    AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime,
     ir::{Elem, FloatKind},
-    AtomicFeature, DeviceId, Feature, MemoryConfiguration, Runtime,
 };
 use cubecl_runtime::{
+    ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
-    ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
@@ -17,10 +17,10 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_cpp::{
+    CudaCompiler, WmmaCompiler,
     cuda::{arch::CudaArchitecture, mma::CudaWmmaCompiler},
     register_supported_types,
     shared::register_wmma_features,
-    CudaCompiler, WmmaCompiler,
 };
 
 /// Options configuring the CUDA runtime.
@@ -72,27 +72,40 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let max_shared = unsafe {
-        cudarc::driver::result::device::get_attribute(device_ptr, cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,).unwrap() as usize
-    };
     let storage = CudaStorage::new(stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: CudaStorage::ALIGNMENT,
     };
 
-    let warp_size = unsafe {
-        cudarc::driver::result::device::get_attribute(
-            device_ptr,
-            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_WARP_SIZE,
-        )
-        .unwrap()
-    };
-    let hardware_props = HardwareProperties {
-        plane_size_min: warp_size as u32,
-        plane_size_max: warp_size as u32,
-        max_bindings: crate::device::CUDA_MAX_BINDINGS,
-        max_shared_memory_size: max_shared,
+    let hardware_props = unsafe {
+        use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
+        let warp_size = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_WARP_SIZE).unwrap() as u32;
+        let max_shared = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
+            .unwrap() as usize;
+        let max_threads =
+            get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK).unwrap() as u32;
+        let block_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X).unwrap();
+        let block_dim_y = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y).unwrap();
+        let block_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z).unwrap();
+        let max_cube_dim =
+            CubeDim::new_3d(block_dim_x as u32, block_dim_y as u32, block_dim_z as u32);
+
+        let grid_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X).unwrap();
+        let grid_dim_y = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y).unwrap();
+        let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
+        let max_cube_count =
+            CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
+
+        HardwareProperties {
+            plane_size_min: warp_size,
+            plane_size_max: warp_size,
+            max_bindings: crate::device::CUDA_MAX_BINDINGS,
+            max_shared_memory_size: max_shared,
+            max_cube_count,
+            max_units_per_cube: max_threads,
+            max_cube_dim,
+        }
     };
 
     let memory_management =
@@ -122,7 +135,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let comp_opts = Default::default();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props)
+    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for CudaRuntime {
@@ -142,7 +155,7 @@ impl Runtime for CudaRuntime {
         DeviceId::new(0, device.index as u32)
     }
 
-    fn name() -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "cuda"
     }
 
@@ -156,9 +169,5 @@ impl Runtime for CudaRuntime {
 
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
-
-    fn extension() -> &'static str {
-        "cu"
     }
 }

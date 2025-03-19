@@ -2,11 +2,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
+    MatmulPrecision,
     batch::shared::swizzle,
     global::{self, Quantization},
-    MatmulPrecision,
 };
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 use super::shared::gmm_execute;
 
@@ -37,7 +40,7 @@ pub trait SpanMatmul: 'static + Send + Sync {
         span: Span,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     );
 }
@@ -95,7 +98,7 @@ impl SpanMatmul for RowMajorSpanMatmul {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -129,7 +132,7 @@ impl SpanMatmul for ColMajorSpanMatmul {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -163,7 +166,7 @@ impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: GMM::Config,
     ) {
         let num_swizzle = span.row.num_iterations() * span.col.num_iterations();

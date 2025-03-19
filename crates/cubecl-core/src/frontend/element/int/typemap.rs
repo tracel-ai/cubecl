@@ -6,13 +6,13 @@ use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     prelude::Index,
     prelude::*,
-    Runtime,
 };
 
-use super::{init_expand_element, Int};
+use super::{Int, init_expand_element};
 
 #[repr(transparent)]
 #[derive(

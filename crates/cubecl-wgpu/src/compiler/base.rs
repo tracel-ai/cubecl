@@ -2,9 +2,9 @@ use std::fmt::Display;
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
+    Compiler, WgpuCompilationOptions,
     prelude::{CompiledKernel, KernelDefinition},
     server::ComputeServer,
-    Compiler, WgpuCompilationOptions,
 };
 use derive_more::derive::From;
 
@@ -75,6 +75,14 @@ impl Compiler for AutoCompiler {
             AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
+        }
+    }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            AutoCompiler::Wgsl(_) => "wgsl",
+            #[cfg(feature = "spirv")]
+            AutoCompiler::SpirV(_) => "spv",
         }
     }
 }

@@ -1,21 +1,21 @@
 use std::{future::Future, time::Duration};
 
 use super::WgpuResource;
-use super::{stream::WgpuStream, WgpuStorage};
-use crate::{timestamps::KernelTimestamps, AutoGraphicsApi};
-use crate::{AutoCompiler, GraphicsApi};
+use super::{WgpuStorage, stream::WgpuStream};
+use crate::AutoCompiler;
+use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
-    compute::DebugInformation, prelude::*, server::Binding, Feature, KernelId, MemoryConfiguration,
-    WgpuCompilationOptions,
+    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions, compute::DebugInformation,
+    prelude::*, server::Binding,
 };
 use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
     debug::{DebugLogger, ProfileLevel},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
-    TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;
@@ -41,6 +41,7 @@ impl WgpuServer {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        backend: wgpu::Backend,
     ) -> Self {
         let logger = DebugLogger::default();
         let mut timestamps = KernelTimestamps::Disabled;
@@ -65,7 +66,7 @@ impl WgpuServer {
             logger,
             duration_profiled: None,
             stream,
-            backend: AutoGraphicsApi::backend(),
+            backend,
         }
     }
 
@@ -101,6 +102,7 @@ impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Feature = Feature;
+    type Info = wgpu::Backend;
 
     fn read(
         &mut self,

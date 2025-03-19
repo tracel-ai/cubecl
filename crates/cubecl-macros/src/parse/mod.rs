@@ -1,4 +1,4 @@
-use syn::{visit_mut::VisitMut, GenericParam, TypeParam};
+use syn::{GenericParam, TypeParam, visit_mut::VisitMut};
 
 pub mod autotune;
 pub mod branch;

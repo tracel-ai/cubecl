@@ -1,18 +1,18 @@
 use cubecl_core::{
-    server::{Binding, Handle},
     CubeCount, MemoryConfiguration,
+    server::{Binding, Handle},
 };
 use std::{future::Future, num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource, WgpuStorage};
+use super::{WgpuResource, WgpuStorage, poll::WgpuPoll, timestamps::KernelTimestamps};
 use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
     memory_management::{
         self, MemoryDeviceProperties, MemoryHandle, MemoryManagement, MemoryPoolOptions,
     },
-    TimestampsError, TimestampsResult,
 };
-use wgpu::{util::StagingBelt, BufferDescriptor, BufferUsages, ComputePipeline};
+use wgpu::{BufferDescriptor, BufferUsages, ComputePipeline, util::StagingBelt};
 
 // When uploading data smaller than this size, consider the data
 // as a special 'small uniform' buffer which we can handle more efficiently.
@@ -62,7 +62,8 @@ impl WgpuStream {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
-        let memory_main = MemoryManagement::from_configuration(
+        #[allow(unused_mut)]
+        let mut memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
                 BufferUsages::STORAGE
@@ -96,8 +97,7 @@ impl WgpuStream {
         // Allocate a separate storage & memory management for 'uniforms' (small bits of data
         // that need to be uploaded quickly). We allocate these with the BufferUsages::UNIFORM flag
         // to allow binding them as uniforms.
-        #[allow(unused_mut)]
-        let mut memory_uniforms = MemoryManagement::from_configuration(
+        let memory_uniforms = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 device.clone(),
                 BufferUsages::STORAGE

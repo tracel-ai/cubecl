@@ -1,39 +1,41 @@
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::sync::{
-    SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader,
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::{
+        GlobalMatmul, IndexedQuantization, SyncInputLoader, ZeroAccumulatorLoader,
+        base::InputLoader,
+        loader::sync::{SyncFullLoadingStrategy, SyncLhsLoader, SyncRhsLoader},
+        output_loader::Unloader,
+        single_stage::Config,
+    },
+    stage::{
+        StageMatmul,
+        multi_buffer::{LhsReader, RhsReader},
+    },
 };
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::{MatmulPrecision, MatmulSize};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 use std::marker::PhantomData;
-
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
 
 use crate::matmul::{
     components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
 
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -43,8 +45,8 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimpleMatmul<
         MP,
@@ -57,8 +59,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -107,8 +109,8 @@ where
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -120,14 +122,14 @@ pub struct SimpleMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-    >,
-    LL: SyncLoadingStrategy,
-    RL: SyncLoadingStrategy,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+        >,
+    LL: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
@@ -143,7 +145,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -164,12 +166,12 @@ where
 
             sync_units();
 
-            let scaling = match comptime!(quantization.clone()) {
-                Some(quantization) => Some::<f32>(
+            let scaling = match quantization.clone() {
+                CubeOption::Some(quantization) => CubeOption::new_Some(
                     quantization.read_current_scale_lhs(config.global_line_size(Ident::Lhs))
                         * quantization.read_current_scale_rhs(config.global_line_size(Ident::Rhs)),
                 ),
-                None => None,
+                CubeOption::None => CubeOption::new_None(),
             };
 
             SMM::execute(
@@ -185,9 +187,9 @@ where
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
-            match comptime!(quantization.clone()) {
-                Some(mut quantization) => quantization.advance_indices(),
-                None => {}
+            match quantization.clone() {
+                CubeOption::Some(mut quantization) => quantization.advance_indices(),
+                CubeOption::None => {}
             }
         }
 

@@ -1,7 +1,7 @@
+use cubecl_core::Runtime;
 use cubecl_core::calculate_cube_count_elemwise;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_core::Runtime;
 use cubecl_runtime::server::Handle;
 use std::marker::PhantomData;
 
@@ -28,10 +28,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "Tensor {{ shape: {:?}, strides: {:?}, runtime: {}, dtype: {}}}",
+            "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
             self.shape,
             self.strides,
-            R::name(),
             core::any::type_name::<E>(),
         ))
     }

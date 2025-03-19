@@ -4,12 +4,12 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_common::ExecutionMode;
 use cubecl_core::ir::VariableKind;
 use cubecl_core::{
-    ir::{self as gpu},
     Compiler, Feature,
+    ir::{self as gpu},
 };
 use cubecl_core::{
     ir::{Operation, SourceLoc},
-    prelude::{expand_checked_index_assign, FastMath, KernelDefinition},
+    prelude::{FastMath, KernelDefinition, expand_checked_index_assign},
 };
 use cubecl_runtime::DeviceProperties;
 
@@ -101,6 +101,10 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
     fn elem_size(&self, elem: gpu::Elem) -> usize {
         elem.size()
+    }
+
+    fn extension(&self) -> &'static str {
+        "cpp"
     }
 }
 

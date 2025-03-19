@@ -1,5 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_core::{ir as core, prelude::FastMath, Metadata, WgpuCompilationOptions};
+use cubecl_core::{Metadata, WgpuCompilationOptions, ir as core, prelude::FastMath};
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
 use cubecl_runtime::debug::DebugLogger;
 use std::{
@@ -10,19 +10,19 @@ use std::{
     rc::Rc,
 };
 
-use cubecl_core::{compute::KernelDefinition, Compiler};
+use cubecl_core::{Compiler, compute::KernelDefinition};
 use rspirv::{
     dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
 use crate::{
+    SpirvKernel,
     debug::DebugInfo,
     item::Item,
     lookups::LookupTables,
     target::{GLCompute, SpirvTarget},
     transformers::{BitwiseTransform, ErfTransform},
-    SpirvKernel,
 };
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
@@ -159,6 +159,10 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn elem_size(&self, elem: core::Elem) -> usize {
         elem.size()
+    }
+
+    fn extension(&self) -> &'static str {
+        "spv"
     }
 }
 

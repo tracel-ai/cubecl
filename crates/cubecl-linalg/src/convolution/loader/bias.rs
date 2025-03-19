@@ -3,27 +3,31 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use crate::convolution::{
-    homogeneous::base::ConvTilingLayout, precision::ConvPrecision, reader::bias::BiasReader,
-};
 use crate::matmul::components::{
+    Ident,
     global::AccumulatorLoader,
     stage::{Stage, StageConfig},
     tile::{Tile, TileConfig, TileMatmul},
-    Ident,
+};
+use crate::{
+    convolution::{homogeneous::base::ConvTilingLayout, reader::bias::BiasReader},
+    matmul::components::MatmulPrecision,
 };
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
-pub struct BiasLoader<CS: ConvPrecision, G: StageConfig> {
+pub struct BiasLoader<CS: MatmulPrecision, G: StageConfig> {
     pub tensor_view: BiasReader<CS::EG>,
     pub stage: Stage<CS::EA, ConvTilingLayout>,
     pub has_bias: bool,
+    #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G> for BiasLoader<CS, G> {
+impl<CS: MatmulPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G>
+    for BiasLoader<CS, G>
+{
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         if this.has_bias {
             let stage_tiling = config.tiling_dimensions(Ident::Rhs);
@@ -66,7 +70,7 @@ impl<CS: ConvPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G> for
 }
 
 #[cube]
-impl<CS: ConvPrecision, G: StageConfig> BiasLoader<CS, G> {
+impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
     pub fn new(
         tensor: VirtualTensor<CS::EG>,
         n_offset: u32,
@@ -82,7 +86,7 @@ impl<CS: ConvPrecision, G: StageConfig> BiasLoader<CS, G> {
                 tensor_view,
                 stage,
                 has_bias,
-                _config: PhantomData::<G>.runtime(),
+                _config: PhantomData::<G>,
             }
         } else {
             let stage = init_empty_stage::<CS::EA>();
@@ -91,7 +95,7 @@ impl<CS: ConvPrecision, G: StageConfig> BiasLoader<CS, G> {
                 stage,
                 tensor_view,
                 has_bias,
-                _config: PhantomData::<G>.runtime(),
+                _config: PhantomData::<G>,
             }
         }
     }

@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    tile::TileConfig, CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout,
-    TilingDimensions,
+    CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions,
+    tile::TileConfig,
 };
 
 use super::StageConfig;

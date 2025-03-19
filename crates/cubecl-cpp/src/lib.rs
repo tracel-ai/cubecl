@@ -19,4 +19,4 @@ pub type HipDialectRocWmma = hip::HipDialect<hip::mma::RocWmmaCompiler>;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 #[cfg(feature = "cuda")]
-pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect<cuda::mma::CudaWmmaCompiler>>;
+pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect>;

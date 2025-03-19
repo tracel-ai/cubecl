@@ -11,11 +11,11 @@ use parse::{
     cube_trait::{CubeTrait, CubeTraitImpl},
     cube_type::CubeType,
     helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{from_tokens, Launch},
+    kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Item};
+use syn::{Item, visit_mut::VisitMut};
 
 mod error;
 mod expression;
@@ -133,6 +133,18 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
     };
 
     cube_type.generate(with_launch).into()
+}
+
+/// Attribute macro to define a type that can be used as a kernel comptime argument
+/// This derive Debug, Hash, PartialEq, Eq, Clone, Copy
+#[proc_macro_attribute]
+pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> TokenStream {
+    let input: proc_macro2::TokenStream = input.into();
+    quote! {
+        #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+        #input
+    }
+    .into()
 }
 
 /// Mark the contents of this macro as compile time values, turning off all expansion for this code

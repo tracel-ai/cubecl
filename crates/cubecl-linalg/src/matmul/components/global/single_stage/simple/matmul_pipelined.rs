@@ -1,33 +1,34 @@
-use crate::matmul::components::global::base::AsyncInputLoader;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::r#async::AsyncLhsLoader;
-use crate::matmul::components::global::loader::r#async::AsyncLoadingStrategy;
-use crate::matmul::components::global::loader::r#async::AsyncRhsLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::{
+        GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        base::{AsyncInputLoader, InputLoader},
+        loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
+        output_loader::Unloader,
+        single_stage::Config,
+    },
+    stage::{
+        StageMatmul,
+        multi_buffer::{LhsReader, RhsReader},
+    },
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 use pipeline::Pipeline;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
-
 use crate::matmul::{
     components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -128,12 +129,12 @@ pub struct SimplePipelinedMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
@@ -150,7 +151,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: Option<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         comptime! {
@@ -199,7 +200,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                None,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -212,7 +213,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            None,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );

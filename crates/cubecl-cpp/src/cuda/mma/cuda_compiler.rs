@@ -1,8 +1,8 @@
 use crate::{
-    cuda::{arch::CudaArchitecture, CudaDialect},
+    cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
-        WmmaCompiler, WmmaInstruction,
+        Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
@@ -13,7 +13,7 @@ const WMMA_MINIMUM_VERSION: u32 = 70;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaWmmaCompiler {}
 
-impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
+impl WmmaCompiler<CudaDialect> for CudaWmmaCompiler {
     type Architecture = CudaArchitecture;
 
     fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,28 +29,28 @@ impl WmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
     }
 
     fn compile_fragment_ident(
-        ident: &FragmentIdent<CudaDialect<Self>>,
+        ident: &FragmentIdent<CudaDialect>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_ident(WMMA_NAMESPACE, ident, f)
     }
 
     fn compile_fragment_layout(
-        layout: &FragmentLayout<CudaDialect<Self>>,
+        layout: &FragmentLayout<CudaDialect>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment_layout(WMMA_NAMESPACE, layout, f)
     }
 
     fn compile_fragment(
-        fragment: &Fragment<CudaDialect<Self>>,
+        fragment: &Fragment<CudaDialect>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(WMMA_NAMESPACE, fragment, f)
     }
 
     fn compile_instruction(
-        instruction: &WmmaInstruction<CudaDialect<Self>>,
+        instruction: &WmmaInstruction<CudaDialect>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_instruction(WMMA_NAMESPACE, instruction, f)
