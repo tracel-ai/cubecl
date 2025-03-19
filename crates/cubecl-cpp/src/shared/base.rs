@@ -156,7 +156,7 @@ impl<D: Dialect> CppCompiler<D> {
             wmma_activated: self.wmma,
             pipeline: self.pipeline,
             barrier: self.barrier,
-            tma: self.tma,
+            tma: true,
             bf16: self.bf16,
             f16: self.f16,
             fast_math,
@@ -400,7 +400,10 @@ impl<D: Dialect> CppCompiler<D> {
                 ),
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
-                gpu::BarrierOps::InitProxied { barrier } => {
+                gpu::BarrierOps::Init {
+                    barrier,
+                    with_cta_fence,
+                } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
                     };
@@ -408,7 +411,7 @@ impl<D: Dialect> CppCompiler<D> {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
                         barrier,
                         level,
-                        with_proxy_fence: true,
+                        with_cta_fence,
                     }));
                 }
                 gpu::BarrierOps::MemCopyAsync { barrier, source } => {
@@ -1089,11 +1092,15 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem()))
             }
-            gpu::VariableKind::SharedMemory { id, length } => {
+            gpu::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
                 let item = self.compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
-                        .push(SharedMemory::new(id, item, length));
+                        .push(SharedMemory::new(id, item, length, alignment));
                 }
                 Variable::SharedMemory(id, item, length)
             }
@@ -1193,19 +1200,11 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                     _ => {}
                 }
-                let barrier = Variable::Barrier {
+                Variable::Barrier {
                     id,
                     item: self.compile_item(item),
                     level,
-                };
-                // if !self.barriers.iter().any(|s| s.barrier_id() == id) {
-                //     self.barriers.push(BarrierOps::Init {
-                //         barrier,
-                //         level,
-                //         with_proxy_fence: false,
-                //     });
-                // }
-                barrier
+                }
             }
             gpu::VariableKind::ArrivalToken { id } => Variable::ArrivalToken { id },
         }

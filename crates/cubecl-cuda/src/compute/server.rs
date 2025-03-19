@@ -24,16 +24,16 @@ use cubecl_runtime::{
 };
 use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cudarc::driver::sys::{
-    CUctx_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion,
+    CUctx_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion,
     CUtensorMapSwizzle,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Instant;
 use std::{ffi::CStr, os::raw::c_void};
+use std::{ffi::CString, mem::MaybeUninit};
 
 #[cfg(feature = "cache-ptx")]
 use cubecl_common::cache::{Cache, CacheOption};
@@ -235,11 +235,11 @@ impl ComputeServer for CudaServer {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let mut resources = constants
+        let tensor_maps: Vec<_> = constants
             .iter()
-            .map(|binding| match binding {
+            .map(|it| match it {
                 server::ConstBinding::TensorMap { binding, map } => {
-                    let mut resource = ctx
+                    let resource = ctx
                         .memory_management
                         .get_resource(
                             binding.memory.clone(),
@@ -247,15 +247,21 @@ impl ComputeServer for CudaServer {
                             binding.offset_end,
                         )
                         .expect("Failed to find resource");
+                    let device_ptr = *(resource.binding as *const cudarc::driver::sys::CUdeviceptr)
+                        as *mut c_void;
+                    assert!(
+                        device_ptr as usize % 16 == 0,
+                        "Tensor pointer must be 16 byte aligned"
+                    );
                     let lib = cudarc::driver::sys::lib();
-                    let mut map_ptr = Box::new_uninit();
+                    let mut map_ptr = MaybeUninit::zeroed();
                     let data_ty = elem_to_tmap_type(map.elem);
                     match &map.format {
                         TensorMapFormat::Tiled { tile_size } => lib.cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
                             data_ty,
                             map.rank as u32,
-                            resource.as_binding(),
+                            device_ptr,
                             map.shape.as_ptr(),
                             map.strides.as_ptr(),
                             tile_size.as_ptr(),
@@ -291,21 +297,28 @@ impl ComputeServer for CudaServer {
                             unimplemented!("Not yet implemented in cudarc")
                         }
                     };
-                    resource.binding = Box::into_raw(map_ptr.assume_init()) as *mut c_void;
-                    resource
+                    map_ptr.assume_init()
                 }
             })
+            .collect::<_>();
+
+        let resources = bindings
+            .into_iter()
+            .map(|binding| {
+                ctx.memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .expect("Failed to find resource")
+            })
             .collect::<Vec<_>>();
-        resources.extend(bindings.into_iter().map(|binding| {
-            ctx.memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Failed to find resource")
-        }));
+
+        // Just to ensure the `Vec`s aren't accidentally consumed and dropped while the pointers
+        // are still needed.
+        let _ = constants.iter();
 
         if let Some(level) = profile_level {
             ctx.sync();
             let start = std::time::SystemTime::now();
-            ctx.execute_task(kernel_id, count, resources);
+            ctx.execute_task(kernel_id, count, &tensor_maps, &resources);
             ctx.sync();
 
             let (name, kernel_id) = profile_info.unwrap();
@@ -325,7 +338,7 @@ impl ComputeServer for CudaServer {
             self.logger
                 .register_profiled(info, start.elapsed().unwrap());
         } else {
-            ctx.execute_task(kernel_id, count, resources);
+            ctx.execute_task(kernel_id, count, &tensor_maps, &resources);
         }
     }
 
@@ -543,17 +556,18 @@ impl CudaContext {
         &mut self,
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
-        resources: Vec<CudaResource>,
+        tensor_maps: &[CUtensorMap],
+        resources: &[CudaResource],
     ) {
-        let mut bindings = resources
+        let mut bindings = tensor_maps
             .iter()
-            .map(|memory| memory.as_binding())
+            .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
+        bindings.extend(resources.iter().map(|memory| memory.as_binding()));
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         unsafe {
-            println!("Launching {kernel_id}");
             cudarc::driver::result::launch_kernel(
                 kernel.func,
                 dispatch_count,

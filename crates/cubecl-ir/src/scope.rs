@@ -397,6 +397,7 @@ impl Scope {
         &mut self,
         item: I,
         shared_memory_size: u32,
+        alignment: Option<u32>,
     ) -> ExpandElement {
         let item = item.into();
         let index = self.new_local_index();
@@ -404,6 +405,7 @@ impl Scope {
             VariableKind::SharedMemory {
                 id: index,
                 length: shared_memory_size,
+                alignment,
             },
             item,
         );

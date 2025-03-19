@@ -38,9 +38,9 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     ) -> Slice<Line<EG>>;
 
     /// Reinterpret lhs as tensor map
-    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3>;
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG>;
     /// Reinterpret rhs as tensor map
-    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3>;
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG>;
 
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>);
@@ -157,7 +157,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
     fn __expand_as_tensor_map_method(
         &self,
         _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<EG, 3>> {
+    ) -> ExpandElementTyped<TensorMap<EG>> {
         todo!()
     }
 }
@@ -219,7 +219,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
     fn __expand_as_tensor_map_method(
         &self,
         scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<EG, 3>> {
+    ) -> ExpandElementTyped<TensorMap<EG>> {
         TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -325,7 +325,7 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<EG, 3> {
+    pub fn as_tensor_map(&self) -> TensorMap<EG> {
         unsafe {
             match comptime![&self.ident] {
                 TensorInputIdent::Lhs => MA::as_tensor_map_lhs(&(*self.state)),
@@ -431,11 +431,11 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.1).slice(start, end) }
     }
 
-    fn as_tensor_map_lhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG, 3> {
+    fn as_tensor_map_lhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
         TensorMap::dummy()
     }
 
-    fn as_tensor_map_rhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG, 3> {
+    fn as_tensor_map_rhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
         TensorMap::dummy()
     }
 
@@ -512,20 +512,20 @@ pub struct TensorMapArgs;
 
 #[derive(CubeLaunch)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
-pub struct TensorMapInputs<EG: Numeric, const RANK: usize> {
+pub struct TensorMapInputs<EG: Numeric> {
     /// The lhs tensor.
-    pub lhs: TensorMap<EG, RANK>,
+    pub lhs: TensorMap<EG>,
     /// The rhs tensor.
-    pub rhs: TensorMap<EG, RANK>,
+    pub rhs: TensorMap<EG>,
 }
 
 #[cube]
 impl MatmulArgs for TensorMapArgs {
     type Output<EG: Numeric> = Tensor<Line<EG>>;
-    type Input<EG: Numeric> = TensorMapInputs<EG, 3>;
+    type Input<EG: Numeric> = TensorMapInputs<EG>;
     type State<EG: Numeric> = (
-        *const TensorMap<EG, 3>,
-        *const TensorMap<EG, 3>,
+        *const TensorMap<EG>,
+        *const TensorMap<EG>,
         *mut Tensor<Line<EG>>,
     );
 
@@ -561,11 +561,11 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { &*state.2 }.slice(start, end)
     }
 
-    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3> {
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG> {
         unsafe { *state.0 }
     }
 
-    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG, 3> {
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG> {
         unsafe { *state.1 }
     }
 

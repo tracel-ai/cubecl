@@ -337,7 +337,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-    (lhs_line_size, rhs_line_size, out_line_size): (u8, u8, u8),
+    (_, _, out_line_size): (u8, u8, u8),
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
@@ -360,6 +360,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
                 tile_size: stage_size_lhs,
             },
             lhs.as_tensor_arg(1),
+            3,
             half::f16::as_elem_native_unchecked(),
         );
         let rhs = TensorMapArg::new(
@@ -367,6 +368,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
                 tile_size: stage_size_rhs,
             },
             rhs.as_tensor_arg(1),
+            3,
             half::f16::as_elem_native_unchecked(),
         );
         let config_input = CompleteStageTiling {

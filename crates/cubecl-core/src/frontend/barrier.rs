@@ -183,7 +183,7 @@ impl<C: CubePrimitive> Barrier<C> {
 
     pub fn memcpy_async_bulk_to_shared_2d(
         &self,
-        _source: &TensorMap<C, 2>,
+        _source: &TensorMap<C>,
         _destination: &mut SliceMut<Line<C>>,
         _a: i32,
         _b: i32,
@@ -193,7 +193,7 @@ impl<C: CubePrimitive> Barrier<C> {
 
     pub fn memcpy_async_bulk_to_shared_3d(
         &self,
-        _source: &TensorMap<C, 3>,
+        _source: &TensorMap<C>,
         _destination: &mut SliceMut<Line<C>>,
         _a: i32,
         _b: i32,
@@ -204,7 +204,7 @@ impl<C: CubePrimitive> Barrier<C> {
 
     pub fn memcpy_async_bulk_to_shared_4d(
         &self,
-        _source: &TensorMap<C, 4>,
+        _source: &TensorMap<C>,
         _destination: &mut SliceMut<Line<C>>,
         _a: i32,
         _b: i32,
@@ -217,7 +217,7 @@ impl<C: CubePrimitive> Barrier<C> {
     #[allow(clippy::too_many_arguments)]
     pub fn memcpy_async_bulk_to_shared_5d(
         &self,
-        _source: &TensorMap<C, 5>,
+        _source: &TensorMap<C>,
         _destination: &mut SliceMut<Line<C>>,
         _a: i32,
         _b: i32,
@@ -252,6 +252,10 @@ impl<C: CubePrimitive> Barrier<C> {
         let elem = C::as_elem(scope);
 
         let variable = scope.create_barrier(Item::new(elem), level.0.into());
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: false,
+        });
         BarrierExpand {
             elem: variable,
             _c: PhantomData,
@@ -262,7 +266,10 @@ impl<C: CubePrimitive> Barrier<C> {
         let elem = C::as_elem(scope);
 
         let variable = scope.create_barrier(Item::new(elem), level.0.into());
-        scope.register(BarrierOps::InitProxied { barrier: *variable });
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: true,
+        });
         BarrierExpand {
             elem: variable,
             _c: PhantomData,
@@ -281,7 +288,7 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_2d(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<TensorMap<C, 2>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -292,7 +299,7 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_3d(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<TensorMap<C, 3>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -305,7 +312,7 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_4d(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<TensorMap<C, 4>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -327,7 +334,7 @@ impl<C: CubePrimitive> Barrier<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_5d(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        source: ExpandElementTyped<TensorMap<C, 5>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -397,7 +404,7 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_2d_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<TensorMap<C, 2>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -418,7 +425,7 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_3d_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<TensorMap<C, 3>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -441,7 +448,7 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_4d_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<TensorMap<C, 4>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,
@@ -465,7 +472,7 @@ impl<C: CubePrimitive> BarrierExpand<C> {
     pub fn __expand_memcpy_async_bulk_to_shared_5d_method(
         &self,
         scope: &mut Scope,
-        source: ExpandElementTyped<TensorMap<C, 5>>,
+        source: ExpandElementTyped<TensorMap<C>>,
         destination: ExpandElementTyped<SliceMut<Line<C>>>,
         a: ExpandElementTyped<i32>,
         b: ExpandElementTyped<i32>,

@@ -40,7 +40,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register a mapped tensor to be launched.
-    pub fn register_tensor_map<const RANK: usize>(&mut self, tensor: &TensorMapArg<'_, R, RANK>) {
+    pub fn register_tensor_map(&mut self, tensor: &TensorMapArg<'_, R>) {
         self.constants.push_tensor_map(tensor);
     }
 
@@ -251,20 +251,22 @@ impl<R: Runtime> Default for ConstantState<R> {
 
 impl<R: Runtime> ConstantState<R> {
     /// Push a new tensor to the state.
-    pub fn push_tensor_map<const RANK: usize>(&mut self, map: &TensorMapArg<'_, R, RANK>) {
+    pub fn push_tensor_map(&mut self, map: &TensorMapArg<'_, R>) {
         let tensor = match &map.tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { .. } => panic!("Can't use aliased tensor for tensor map"),
         };
 
-        assert_eq!(tensor.shape.len(), RANK);
-
         let binding = tensor.handle.clone().binding();
         let map = TensorMap {
             format: map.format.clone(),
-            rank: RANK,
+            rank: tensor.shape.len(),
             shape: tensor.shape.iter().map(|it| *it as u64).collect(),
-            strides: tensor.strides.iter().map(|it| *it as u64).collect(),
+            strides: tensor
+                .strides
+                .iter()
+                .map(|it| *it as u64 * map.elem.size() as u64)
+                .collect(),
             elem_stride: map.elem_stride.to_vec(),
             interleave: map.interleave,
             swizzle: map.swizzle,

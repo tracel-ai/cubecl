@@ -72,6 +72,7 @@ pub enum VariableKind {
     SharedMemory {
         id: Id,
         length: u32,
+        alignment: Option<u32>,
     },
     Matrix {
         id: Id,

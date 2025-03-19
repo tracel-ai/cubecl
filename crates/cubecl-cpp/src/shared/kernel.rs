@@ -2,7 +2,7 @@ use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{
     compute::{ConstBinding, Visibility},
     ir::Id,
-    ConstantInfo, CubeDim,
+    CubeDim,
 };
 use std::{collections::HashSet, fmt::Display};
 
@@ -18,6 +18,7 @@ pub struct SharedMemory<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
     pub size: u32,
+    pub align: Option<u32>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,8 +43,13 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-        Self { index, item, size }
+    pub fn new(index: Id, item: Item<D>, size: u32, align: Option<u32>) -> Self {
+        Self {
+            index,
+            item,
+            size,
+            align,
+        }
     }
 }
 
@@ -106,7 +112,6 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         if self.tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
-alignas(64)
 unsigned long long int opaque[16];
 } CUtensorMap;\n",
             )?;

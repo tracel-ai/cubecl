@@ -11,7 +11,7 @@ pub enum BarrierOps<D: Dialect> {
     Init {
         barrier: Variable<D>,
         level: BarrierLevel,
-        with_proxy_fence: bool,
+        with_cta_fence: bool,
     },
     MemCopyAsync {
         barrier: Variable<D>,
@@ -67,7 +67,7 @@ impl<D: Dialect> Display for BarrierOps<D> {
             BarrierOps::Init {
                 barrier,
                 level,
-                with_proxy_fence,
+                with_cta_fence: with_proxy_fence,
             } => {
                 let proxy_fence = match with_proxy_fence {
                     true => "\ncuda::device::experimental::fence_proxy_async_shared_cta();",

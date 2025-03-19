@@ -24,7 +24,7 @@ pub struct TensorReader<E: Numeric> {
 /// A view of a tensor that starts reading data from a specified offset.
 /// Uses a [`TensorMap`] to actually execute the load.
 pub struct MappedTensorReader<E: Numeric> {
-    pub tensor: TensorMap<E, 3>,
+    pub tensor: TensorMap<E>,
     pub tile_x: u32,
     pub tile_y: u32,
     pub batch: u32,
@@ -61,7 +61,7 @@ pub struct Window<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> MappedTensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(tensor: TensorMap<EG, 3>, tile_x: u32, tile_y: u32, batch: u32) -> Self {
+    pub fn new(tensor: TensorMap<EG>, tile_x: u32, tile_y: u32, batch: u32) -> Self {
         MappedTensorReader::<EG> {
             tensor,
             tile_x,

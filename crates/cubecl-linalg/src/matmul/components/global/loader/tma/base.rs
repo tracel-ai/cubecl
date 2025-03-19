@@ -86,7 +86,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
     pub fn new<G: global::GlobalConfig>(
-        tensor: TensorMap<EG, 3>,
+        tensor: TensorMap<EG>,
         x: u32,
         y: u32,
         batch: u32,
@@ -159,7 +159,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, ES, S> {
     pub fn new<G: global::GlobalConfig>(
-        tensor: TensorMap<EG, 3>,
+        tensor: TensorMap<EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -240,7 +240,7 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     fn __expand_as_tensor_map_method(
         &self,
         _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<P::In, 3>> {
+    ) -> ExpandElementTyped<TensorMap<P::In>> {
         todo!()
     }
 }
@@ -304,7 +304,7 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
     fn __expand_as_tensor_map_method(
         &self,
         _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<P::Out, 3>> {
+    ) -> ExpandElementTyped<TensorMap<P::Out>> {
         todo!()
     }
 }

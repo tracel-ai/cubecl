@@ -221,11 +221,15 @@ impl WgslCompiler {
             cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
-            cube::VariableKind::SharedMemory { id, length } => {
+            cube::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
                 let item = Self::compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
-                        .push(SharedMemory::new(id, item, length));
+                        .push(SharedMemory::new(id, item, length, alignment));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }

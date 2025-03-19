@@ -49,7 +49,7 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
 
 #[allow(unused, clippy::all)]
 impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
-    pub fn as_tensor_map(&self) -> TensorMap<E, 3> {
+    pub fn as_tensor_map(&self) -> TensorMap<E> {
         unexpanded!()
     }
     pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
@@ -79,7 +79,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_tensor_map(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <TensorMap<E, 3> as CubeType>::ExpandType {
+    ) -> <TensorMap<E> as CubeType>::ExpandType {
         this.__expand_as_tensor_map_method(context)
     }
     pub fn __expand_as_slice(
@@ -129,7 +129,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_tensor_map_method(
         self,
         context: &mut Scope,
-    ) -> <TensorMap<E, 3> as CubeType>::ExpandType {
+    ) -> <TensorMap<E> as CubeType>::ExpandType {
         self.state.clone().__expand_as_tensor_map_method(context)
     }
 
@@ -317,10 +317,7 @@ pub trait VirtualTensorOperations<E: Numeric> {
 /// For now this needs to be manually implemented for any type that needs to become a virtual
 /// tensor.
 pub trait VirtualTensorOperationsExpand<E: Numeric> {
-    fn __expand_as_tensor_map_method(
-        &self,
-        scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<E, 3>>;
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> ExpandElementTyped<TensorMap<E>>;
     fn __expand_read_method(
         &self,
         scope: &mut Scope,
@@ -437,7 +434,7 @@ mod __tensor {
         fn __expand_as_tensor_map_method(
             &self,
             _scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E, 3>> {
+        ) -> ExpandElementTyped<TensorMap<E>> {
             todo!()
         }
     }
@@ -447,8 +444,8 @@ mod __tensor {
 mod __tensor_map {
     use super::*;
 
-    impl<E: Numeric> VirtualTensorOperations<E> for TensorMap<E, 3> {}
-    impl<E: Numeric> VirtualTensorOperationsExpand<E> for ExpandElementTyped<TensorMap<E, 3>> {
+    impl<E: Numeric> VirtualTensorOperations<E> for TensorMap<E> {}
+    impl<E: Numeric> VirtualTensorOperationsExpand<E> for ExpandElementTyped<TensorMap<E>> {
         fn __expand_read_method(
             &self,
             _scope: &mut Scope,
@@ -503,7 +500,7 @@ mod __tensor_map {
         fn __expand_as_tensor_map_method(
             &self,
             _scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E, 3>> {
+        ) -> ExpandElementTyped<TensorMap<E>> {
             self.clone()
         }
     }

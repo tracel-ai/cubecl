@@ -3,7 +3,7 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::Variable;
+use crate::{ConstantScalarValue, Variable};
 
 /// An operation that can be reflected on
 pub trait OperationReflect: Sized {
@@ -87,5 +87,19 @@ impl FromArgList for Vec<Variable> {
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         self.iter().cloned()
+    }
+}
+
+impl FromArgList for bool {
+    fn from_arg_list(args: &mut VecDeque<Variable>) -> Self {
+        args.pop_front()
+            .expect("Missing variable from arg list")
+            .as_const()
+            .unwrap()
+            .as_bool()
+    }
+
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        [Variable::constant(ConstantScalarValue::Bool(*self))]
     }
 }

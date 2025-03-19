@@ -19,6 +19,7 @@ pub mod plane;
 pub mod sequence;
 pub mod slice;
 pub mod tensor;
+pub mod tensormap;
 pub mod topology;
 pub mod traits;
 pub mod unary;
@@ -92,6 +93,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_slice!();
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_atomic_float!();
+        cubecl_core::testgen_tensormap!();
     };
 }
 

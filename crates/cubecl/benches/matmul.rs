@@ -101,13 +101,19 @@ fn main() {
         type R = cubecl::wgpu::WgpuRuntime;
         use half::f16;
 
-        //run::<R, f16>(Default::default(), matmul::Strategy::Simple);
+        run::<R, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         run::<R, f16>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f16>(Default::default(), matmul::Strategy::DoubleBuffering);
         //run::<R, flex32>(Default::default(), matmul::Strategy::Simple);
         run::<R, flex32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, flex32>(Default::default(), matmul::Strategy::DoubleBuffering);
-        //run::<R, f32>(Default::default(), matmul::Strategy::Simple);
+        run::<R, f32>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         run::<R, f32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f32>(Default::default(), matmul::Strategy::DoubleBuffering);
     }
@@ -145,33 +151,33 @@ fn main() {
     {
         use half::f16;
 
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::DoubleBuffering,
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-        // );
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
         );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::DoubleBuffering,
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+        );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+        // );
     }
 }
