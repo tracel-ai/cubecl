@@ -78,9 +78,9 @@ impl Display for BarrierOps {
                     .map(|it| format!("{it}, "))
                     .collect::<String>();
                 write!(
-                            f,
-                            "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
-                        )
+                    f,
+                    "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
+                )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),
             BarrierOps::ArriveTx {

@@ -1,5 +1,5 @@
 use cubecl_common::ExecutionMode;
-use cubecl_runtime::{server::ConstBinding, TimestampsError, TimestampsResult};
+use cubecl_runtime::{TimestampsError, TimestampsResult, server::ConstBinding};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;

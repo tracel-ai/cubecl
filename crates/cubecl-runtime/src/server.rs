@@ -1,15 +1,15 @@
 use crate::{
     memory_management::{
-        memory_pool::{SliceBinding, SliceHandle},
         MemoryHandle, MemoryUsage,
+        memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
 use cubecl_common::{
-    benchmark::TimestampsResult, ExecutionMode, OobFill, TensorMapFormat, TensorMapInterleave,
-    TensorMapPrefetch, TensorMapSwizzle,
+    ExecutionMode, OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch,
+    TensorMapSwizzle, benchmark::TimestampsResult,
 };
 use cubecl_ir::Elem;
 

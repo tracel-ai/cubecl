@@ -1,21 +1,21 @@
-use crate::matmul::components::{global::args::TensorInputsLaunch, CompleteStageTiling};
-use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
+use crate::matmul::components::{CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
+use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
-use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
+use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_common::TensorMapFormat;
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
+    Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
 use cubecl_std::MaybeQuantized;
 
-use super::{matmul_selection, select_kernel, Algorithm};
+use super::{Algorithm, matmul_selection, select_kernel};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -325,12 +325,12 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm
         Some(plane_dim) => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-            ))
+            ));
         }
         None => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,
-            ))
+            ));
         }
     };
 

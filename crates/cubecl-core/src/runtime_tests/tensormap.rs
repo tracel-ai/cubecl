@@ -1,9 +1,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    self as cubecl,
+    self as cubecl, Feature, TmaFeature,
     prelude::barrier::{ArrivalToken, Barrier, BarrierLevel},
-    Feature, TmaFeature,
 };
 
 use cubecl::prelude::*;

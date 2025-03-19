@@ -1,8 +1,8 @@
 use super::{Body, Dialect, Item, Variable};
 use cubecl_core::{
+    CubeDim,
     compute::{ConstBinding, Visibility},
     ir::Id,
-    CubeDim,
 };
 use std::{collections::HashSet, fmt::Display};
 

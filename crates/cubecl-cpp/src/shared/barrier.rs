@@ -144,7 +144,10 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     .iter()
                     .map(|it| format!("{it}, "))
                     .collect::<String>();
-                writeln!(f, "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});")
+                writeln!(
+                    f,
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});"
+                )
             }
             BarrierOps::Arrive { barrier, out, .. } => {
                 let out = out.fmt_left();
@@ -157,7 +160,10 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                 transaction_count_update,
             } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});")
+                writeln!(
+                    f,
+                    "{out} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
+                )
             }
             BarrierOps::Wait { barrier, token, .. } => {
                 writeln!(f, "{barrier}.wait(std::move({token}));")

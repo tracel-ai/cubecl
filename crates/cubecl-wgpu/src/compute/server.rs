@@ -1,23 +1,23 @@
 use std::{future::Future, time::Duration};
 
 use super::WgpuResource;
-use super::{stream::WgpuStream, WgpuStorage};
-use crate::timestamps::KernelTimestamps;
+use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
+use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
+    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
     prelude::*,
     server::{Binding, ConstBinding},
-    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
 };
 use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
     debug::{DebugLogger, ProfileLevel},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
     storage::BindingResource,
-    TimestampsError, TimestampsResult,
 };
 use hashbrown::HashMap;
 use wgpu::ComputePipeline;

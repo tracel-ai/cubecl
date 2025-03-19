@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
 use crate::KernelSettings;
-use crate::{compute::KernelTask, ir::UIntKind};
-use crate::{
-    ir::{Elem, FloatKind, IntKind},
-    MetadataBuilder,
-};
+use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
 use crate::{Kernel, Runtime};
+use crate::{
+    MetadataBuilder,
+    ir::{Elem, FloatKind, IntKind},
+};
+use crate::{compute::KernelTask, ir::UIntKind};
 use bytemuck::NoUninit;
 use cubecl_runtime::server::{Binding, ConstBinding, CubeCount};
 use cubecl_runtime::{client::ComputeClient, server::TensorMap};
