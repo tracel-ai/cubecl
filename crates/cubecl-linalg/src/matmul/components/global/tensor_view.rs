@@ -153,46 +153,6 @@ impl<EG: Numeric> TensorReader<EG> {
         )
     }
 
-    pub fn load_window_in_buffer<G: global::GlobalConfig>(
-        &self,
-        nth_window: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let matrix_layout = config.matrix_layout(ident);
-        let num_buffers = 2;
-
-        let num_lines_in_window = comptime! {
-                match ident.as_input() {
-                    InputIdent::Lhs => match matrix_layout {
-                        MatrixLayout::RowMajor =>
-                            tiling_dimensions.total_col() / (num_buffers * line_size)
-                        ,
-                        MatrixLayout::ColMajor =>
-                            tiling_dimensions.total_row() / (line_size)
-                        ,
-                    },
-                    InputIdent::Rhs => match matrix_layout {
-                        MatrixLayout::RowMajor =>
-                            tiling_dimensions.total_col() / (line_size)
-                        ,
-                        MatrixLayout::ColMajor =>
-                            tiling_dimensions.total_row() / (num_buffers * line_size)
-                        ,
-            }
-        }};
-
-        self.load_window::<G>(
-            nth_window,
-            (0u32, 0u32).runtime(),
-            num_lines_in_window,
-            ident,
-            config,
-        )
-    }
-
     fn load_window<G: global::GlobalConfig>(
         &self,
         nth_window: u32,

@@ -35,22 +35,23 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
     ) {
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
-        let num_buffers = 2;
+        let num_buffers = 2u32;
 
-        let num_slices = match ident.as_input() {
-            InputIdent::Lhs => match matrix_layout {
-                MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-                MatrixLayout::ColMajor => tiling_dimensions.total_col() / num_buffers,
-            },
-            InputIdent::Rhs => match matrix_layout {
-                MatrixLayout::RowMajor => tiling_dimensions.total_row() / num_buffers,
-                MatrixLayout::ColMajor => tiling_dimensions.total_col(),
-            },
-        };
+        let num_slices = comptime! {match (ident.as_input(), matrix_layout) {
+            (InputIdent::Lhs, MatrixLayout::RowMajor) => tiling_dimensions.total_row(),
+            (InputIdent::Lhs, MatrixLayout::ColMajor) => {
+                tiling_dimensions.total_col() / num_buffers
+            }
+            (InputIdent::Rhs, MatrixLayout::RowMajor) => {
+                tiling_dimensions.total_row() / num_buffers
+            }
+            (InputIdent::Rhs, MatrixLayout::ColMajor) => tiling_dimensions.total_col(),
+        }};
+
         let unit_count = config.plane_dim() * config.num_planes();
 
         let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
-        let buffer_offset = buffer_index * num_slices;
+        let num_slices_buffer_offset = buffer_index * num_slices;
 
         // Typically there will be only 1 slice per unit
         #[unroll(slices_per_unit==1)]
@@ -60,20 +61,22 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
-                    nth_slice_in_buffer + buffer_offset,
+                    nth_slice_in_buffer + num_slices_buffer_offset,
                     read_view,
                     stage,
                     mechanism,
+                    buffer_index,
                     ident,
                     config,
                 );
             } else {
                 if nth_slice_in_buffer < num_slices {
                     load_nth_slice::<EG, ES, CM, G>(
-                        nth_slice_in_buffer + buffer_offset,
+                        nth_slice_in_buffer + num_slices_buffer_offset,
                         read_view,
                         stage,
                         mechanism,
+                        buffer_index,
                         ident,
                         config,
                     );
@@ -93,10 +96,16 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     read_view: &TensorReader<EG>,
     stage: &mut Stage<ES, StridedTilingLayout>,
     mechanism: &CM,
+    buffer_index: u32,
     #[comptime] ident: Ident,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = read_view.load_window_in_buffer::<G>(nth_slice, ident, config);
+    let tiling_dimensions = config.tiling_dimensions(ident);
+    let matrix_layout = config.matrix_layout(ident);
+    let line_size = config.global_line_size(ident);
+    let num_buffers = 2;
+
+    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
         stage,
         nth_slice,
@@ -104,9 +113,25 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
         config.to_smm_config(),
     );
 
-    CM::memcpy_async(
-        mechanism,
-        &window.slice.try_cast_unchecked(),
-        &mut destination,
-    );
+    let slice_length = match (ident.as_input(), matrix_layout) {
+        (InputIdent::Lhs, MatrixLayout::RowMajor) => tiling_dimensions.total_col() / num_buffers,
+        (InputIdent::Lhs, MatrixLayout::ColMajor) => tiling_dimensions.total_row(),
+        (InputIdent::Rhs, MatrixLayout::RowMajor) => tiling_dimensions.total_col(),
+        (InputIdent::Rhs, MatrixLayout::ColMajor) => tiling_dimensions.total_row() / num_buffers,
+    } / line_size;
+    let slice_buffer_offset = match (ident.as_input(), matrix_layout) {
+        (InputIdent::Lhs, MatrixLayout::RowMajor) => buffer_index * slice_length,
+        (InputIdent::Lhs, MatrixLayout::ColMajor) => 0u32,
+        (InputIdent::Rhs, MatrixLayout::RowMajor) => 0u32,
+        (InputIdent::Rhs, MatrixLayout::ColMajor) => buffer_index * slice_length,
+    };
+
+    let start = slice_buffer_offset;
+    let length = Min::min(window.size - slice_buffer_offset, slice_length);
+    let end = start + length;
+
+    let src = window.slice.slice(start, end);
+    let mut dest = destination.slice_mut(start, end);
+
+    CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
 }
