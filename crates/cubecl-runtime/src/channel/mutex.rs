@@ -67,9 +67,9 @@ where
         count: CubeCount,
         handles: Vec<Binding>,
         kind: ExecutionMode,
-    ) {
+    ) { unsafe {
         self.server.lock().execute(kernel, count, handles, kind)
-    }
+    }}
 
     fn flush(&self) {
         self.server.lock().flush();

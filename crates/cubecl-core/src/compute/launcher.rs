@@ -142,13 +142,13 @@ impl<R: Runtime> KernelLauncher<R> {
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R::Server, R::Channel>,
-    ) {
+    ) { unsafe {
         let bindings = self.into_bindings(client);
 
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
         client.execute_unchecked(kernel, cube_count, bindings);
-    }
+    }}
 
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///

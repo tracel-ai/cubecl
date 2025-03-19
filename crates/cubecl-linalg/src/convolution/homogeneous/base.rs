@@ -246,7 +246,7 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
         bias: TensorArg<'_, R>,
         out: TensorArg<'_, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
-    ) {
+    ) { unsafe {
         implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
             client,
             cube_count,
@@ -258,7 +258,7 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
             config,
             config.has_bias,
         );
-    }
+    }}
 }
 
 #[cube(launch_unchecked)]

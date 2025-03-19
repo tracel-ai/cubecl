@@ -72,11 +72,11 @@ where
         count: CubeCount,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
-    ) {
+    ) { unsafe {
         self.server
             .borrow_mut()
             .execute(kernel_description, count, bindings, kind)
-    }
+    }}
 
     fn flush(&self) {
         self.server.borrow_mut().flush()

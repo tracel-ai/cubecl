@@ -125,10 +125,10 @@ where
         kernel: Server::Kernel,
         count: CubeCount,
         bindings: Vec<Binding>,
-    ) {
+    ) { unsafe {
         self.channel
             .execute(kernel, count, bindings, ExecutionMode::Unchecked)
-    }
+    }}
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {

@@ -69,11 +69,11 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         config: Self::Config,
-    ) {
+    ) { unsafe {
         super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
             client, cube_count, cube_dim, input, output, config,
         );
-    }
+    }}
 }
 
 /// Executes matrix multiplication at the batch level,

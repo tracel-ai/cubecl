@@ -91,7 +91,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
         vectorization_factor: u8,
-    ) -> Self {
+    ) -> Self { unsafe {
         ArrayArg::Handle {
             handle: ArrayHandleRef::from_raw_parts(
                 handle,
@@ -100,7 +100,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
             ),
             vectorization_factor,
         }
-    }
+    }}
 
     /// Create a new array argument with a manual element size in bytes.
     ///
@@ -112,12 +112,12 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         length: usize,
         vectorization_factor: u8,
         elem_size: usize,
-    ) -> Self {
+    ) -> Self { unsafe {
         ArrayArg::Handle {
             handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
             vectorization_factor,
         }
-    }
+    }}
 }
 
 impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
