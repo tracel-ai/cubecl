@@ -112,7 +112,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         if self.tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
-unsigned long long int opaque[16];
+alignas(64) unsigned long long int opaque[16];
 } CUtensorMap;\n",
             )?;
         }
