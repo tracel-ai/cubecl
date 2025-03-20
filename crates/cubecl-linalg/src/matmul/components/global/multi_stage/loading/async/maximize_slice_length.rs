@@ -56,7 +56,7 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
                     let slice_length = tiling_dimensions.total_row() / line_size;
                     let slice_buffer_offset = 0;
 
-                    (num_slices, num_slices_buffer_offset, slice_length , slice_buffer_offset)
+                    (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
                 },
                 (InputIdent::Rhs, MatrixLayout::RowMajor) => {
                     let num_slices = tiling_dimensions.total_row() / num_buffers;
@@ -64,7 +64,7 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
                     let slice_length = tiling_dimensions.total_col() / line_size;
                     let slice_buffer_offset = 0;
 
-                    (num_slices, num_slices_buffer_offset, slice_length , slice_buffer_offset)
+                    (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
                 },
                 (InputIdent::Rhs, MatrixLayout::ColMajor) => {
                     let num_slices = tiling_dimensions.total_col();
