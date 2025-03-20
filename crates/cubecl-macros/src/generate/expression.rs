@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::{Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
@@ -483,14 +481,14 @@ impl Expression {
             Expression::Block(block) => block.to_tokens(context),
             Expression::Match {
                 runtime_variants,
-                expr: const_expr,
+                expr,
                 arms,
             } => {
                 let arms = arms
                     .iter()
                     .map(|arm| arm.to_tokens(context, *runtime_variants));
                 quote! {
-                    match #const_expr {
+                    match #expr {
                         #(#arms,)*
                     }
                 }

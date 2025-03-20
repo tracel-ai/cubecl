@@ -4,7 +4,7 @@ use crate::matmul::components::global::base::InputBufferLoader;
 use crate::matmul::components::global::base::SyncInputBufferLoader;
 use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig, SyncInputLoader};
+use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{MatmulPrecision, stage};

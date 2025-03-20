@@ -5,7 +5,7 @@ use crate::matmul::components::{
         base::InputLoader, loader::sync::SyncBufferLoadingStrategy, output_loader::Unloader,
     },
     stage::{
-        ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul,
+        StageMatmul,
         single_buffer::{LhsBufferReader, RhsBufferReader},
     },
 };
