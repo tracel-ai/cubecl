@@ -67,7 +67,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     ) -> Self::AccumulatorItem {
         let coordinate = match coordinate {
             ReduceCoordinate::Required(val) => val,
-            ReduceCoordinate::NotRequired => comptime![panic!["Should be calculated"]],
+            ReduceCoordinate::NotRequired => comptime![panic!["Coordinates are required for ArgMin"]],
         };
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_min(item);
