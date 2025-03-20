@@ -25,7 +25,7 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
-pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync  {
+pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
     type Lhs: CubeType;

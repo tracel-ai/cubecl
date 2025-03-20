@@ -11,7 +11,10 @@ use crate::matmul::components::{
     stage::{self, StageWriter},
     tile,
 };
-use cubecl_std::{tensor::r#virtual::{ReadWrite, VirtualTensor}, CubeOption};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:

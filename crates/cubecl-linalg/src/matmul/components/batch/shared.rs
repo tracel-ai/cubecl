@@ -6,7 +6,7 @@ use crate::matmul::components::{
     global::{self, GlobalConfig, IndexRange, IndexedQuantization, Quantization},
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use cubecl_std::{CubeOption, div_ceil, CubeOptionExpand};
+use cubecl_std::{CubeOption, CubeOptionExpand, div_ceil};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.

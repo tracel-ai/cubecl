@@ -20,8 +20,8 @@ use barrier::Barrier;
 use cubecl_core::Feature;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::{tensor::r#virtual::ReadWrite, CubeOption};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 use std::marker::PhantomData;
 
 pub struct SimpleBarrierMatmulFamily<
