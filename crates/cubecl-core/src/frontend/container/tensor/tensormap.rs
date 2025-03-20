@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::prelude::*;
 use crate::{ConstantInfo, ir::ExpandElement};
+use crate::{prelude::*, unexpanded};
 use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
@@ -148,8 +148,193 @@ impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum CopyDirection {
-    GlobalToShared,
-    SharedToGlobal,
+pub fn memcpy_async_bulk_commit() {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_commit {
+    use cubecl_ir::TmaOps;
+
+    use super::*;
+
+    pub fn expand(scope: &mut Scope) {
+        scope.register(TmaOps::CommitGroup)
+    }
+}
+
+pub fn memcpy_async_bulk_wait(_max_pending: u32) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_wait {
+    use cubecl_ir::TmaOps;
+
+    use super::*;
+
+    pub fn expand(scope: &mut Scope, max_pending: u32) {
+        scope.register(TmaOps::WaitGroup { max_pending })
+    }
+}
+
+pub fn memcpy_async_bulk_wait_read(_max_pending: u32) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_wait_read {
+    use cubecl_ir::TmaOps;
+
+    use super::*;
+
+    pub fn expand(scope: &mut Scope, max_pending: u32) {
+        scope.register(TmaOps::WaitGroupRead { max_pending })
+    }
+}
+
+pub fn memcpy_async_bulk_to_global_2d<E: CubePrimitive>(
+    _src: &Slice<Line<E>>,
+    _dst: &mut TensorMap<E>,
+    _x: i32,
+    _y: i32,
+) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_to_global_2d {
+    use cubecl_ir::{Instruction, TmaOps};
+
+    use super::*;
+
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        src: ExpandElementTyped<Slice<Line<E>>>,
+        dst: ExpandElementTyped<TensorMap<E>>,
+        x: ExpandElementTyped<i32>,
+        y: ExpandElementTyped<i32>,
+    ) {
+        let source = *src.expand;
+        let dst = *dst.expand;
+        let coordinates = vec![*x.expand, *y.expand];
+        scope.register(Instruction::new(
+            TmaOps::MemCopyAsyncBulkToGlobal {
+                source,
+                coordinates,
+            },
+            dst,
+        ))
+    }
+}
+
+pub fn memcpy_async_bulk_to_global_3d<E: CubePrimitive>(
+    _src: &Slice<Line<E>>,
+    _dst: &mut TensorMap<E>,
+    _x: i32,
+    _y: i32,
+    _z: i32,
+) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_to_global_3d {
+    use cubecl_ir::{Instruction, TmaOps};
+
+    use super::*;
+
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        src: ExpandElementTyped<Slice<Line<E>>>,
+        dst: ExpandElementTyped<TensorMap<E>>,
+        x: ExpandElementTyped<i32>,
+        y: ExpandElementTyped<i32>,
+        z: ExpandElementTyped<i32>,
+    ) {
+        let source = *src.expand;
+        let dst = *dst.expand;
+        let coordinates = vec![*x.expand, *y.expand, *z.expand];
+        scope.register(Instruction::new(
+            TmaOps::MemCopyAsyncBulkToGlobal {
+                source,
+                coordinates,
+            },
+            dst,
+        ))
+    }
+}
+
+pub fn memcpy_async_bulk_to_global_4d<E: CubePrimitive>(
+    _src: &Slice<Line<E>>,
+    _dst: &mut TensorMap<E>,
+    _x: i32,
+    _y: i32,
+    _z: i32,
+    _w: i32,
+) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_to_global_4d {
+    use cubecl_ir::{Instruction, TmaOps};
+
+    use super::*;
+
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        src: ExpandElementTyped<Slice<Line<E>>>,
+        dst: ExpandElementTyped<TensorMap<E>>,
+        x: ExpandElementTyped<i32>,
+        y: ExpandElementTyped<i32>,
+        z: ExpandElementTyped<i32>,
+        w: ExpandElementTyped<i32>,
+    ) {
+        let source = *src.expand;
+        let dst = *dst.expand;
+        let coordinates = vec![*x.expand, *y.expand, *z.expand, *w.expand];
+        scope.register(Instruction::new(
+            TmaOps::MemCopyAsyncBulkToGlobal {
+                source,
+                coordinates,
+            },
+            dst,
+        ))
+    }
+}
+
+pub fn memcpy_async_bulk_to_global_5d<E: CubePrimitive>(
+    _src: &Slice<Line<E>>,
+    _dst: &mut TensorMap<E>,
+    _x: i32,
+    _y: i32,
+    _z: i32,
+    _w: i32,
+    _v: i32,
+) {
+    unexpanded!()
+}
+
+pub mod memcpy_async_bulk_to_global_5d {
+    use cubecl_ir::{Instruction, TmaOps};
+
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        src: ExpandElementTyped<Slice<Line<E>>>,
+        dst: ExpandElementTyped<TensorMap<E>>,
+        x: ExpandElementTyped<i32>,
+        y: ExpandElementTyped<i32>,
+        z: ExpandElementTyped<i32>,
+        w: ExpandElementTyped<i32>,
+        v: ExpandElementTyped<i32>,
+    ) {
+        let source = *src.expand;
+        let dst = *dst.expand;
+        let coordinates = vec![*x.expand, *y.expand, *z.expand, *w.expand, *v.expand];
+        scope.register(Instruction::new(
+            TmaOps::MemCopyAsyncBulkToGlobal {
+                source,
+                coordinates,
+            },
+            dst,
+        ))
+    }
 }

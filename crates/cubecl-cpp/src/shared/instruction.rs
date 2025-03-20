@@ -158,7 +158,10 @@ pub enum Instruction<D: Dialect> {
     ProxyFence,
     BulkCommitGroup,
     BulkWaitGroup {
-        index: u32,
+        max_pending: u32,
+    },
+    BulkWaitGroupRead {
+        max_pending: u32,
     },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
@@ -656,9 +659,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_commit_group();"
             ),
-            Instruction::BulkWaitGroup { index } => writeln!(
+            Instruction::BulkWaitGroup { max_pending } => writeln!(
                 f,
-                "cuda::device::experimental::cp_async_bulk_wait_group_read<{index}>();"
+                "cuda::device::experimental::cp_async_bulk_wait_group<{max_pending}>();"
+            ),
+            Instruction::BulkWaitGroupRead { max_pending } => writeln!(
+                f,
+                "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
             Instruction::MemCopyAsyncBulkSharedToGlobal {
                 smem_buffer,

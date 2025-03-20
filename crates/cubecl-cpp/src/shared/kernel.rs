@@ -88,6 +88,15 @@ impl<D: Dialect> ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut tma = self.tma;
+        if self
+            .constants
+            .iter()
+            .any(|c| matches!(c, ConstBinding::TensorMap))
+        {
+            tma = true;
+        }
+
         if self.bf16 {
             D::include_bf16(f)?;
         }
@@ -104,12 +113,12 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
         }
-        if self.barrier {
+        if self.barrier || tma {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
-        if self.tma {
+        if tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
 alignas(64) unsigned long long int opaque[16];

@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, Operation, Operator, PipelineOps, Plane, UnaryOperator, Variable,
+    Metadata, Operation, Operator, PipelineOps, Plane, TmaOps, UnaryOperator, Variable,
 };
 
 use super::Optimizer;
@@ -51,6 +51,7 @@ impl Optimizer {
             Operation::Branch(_) => unreachable!(),
             Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
+            Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
         }
     }
 
@@ -359,6 +360,25 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, token);
             }
+        }
+    }
+
+    fn visit_tma(
+        &mut self,
+        tma_ops: &mut TmaOps,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match tma_ops {
+            TmaOps::MemCopyAsyncBulkToGlobal {
+                source,
+                coordinates,
+            } => {
+                visit_read(self, source);
+                for coord in coordinates {
+                    visit_read(self, coord)
+                }
+            }
+            TmaOps::CommitGroup | TmaOps::WaitGroup { .. } | TmaOps::WaitGroupRead { .. } => {}
         }
     }
 

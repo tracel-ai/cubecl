@@ -156,7 +156,7 @@ impl<D: Dialect> CppCompiler<D> {
             wmma_activated: self.wmma,
             pipeline: self.pipeline,
             barrier: self.barrier,
-            tma: true,
+            tma: self.tma,
             bf16: self.bf16,
             f16: self.f16,
             fast_math,
@@ -254,6 +254,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
+                gpu::Synchronization::SyncProxy => {
+                    self.tma = true;
+                    instructions.push(Instruction::ProxyFence)
+                }
             },
             gpu::Operation::Plane(op) => {
                 self.warp_size_checked = true;
@@ -488,6 +492,33 @@ impl<D: Dialect> CppCompiler<D> {
                     ))
                 }
             },
+            gpu::Operation::Tma(tma_ops) => {
+                self.tma = true;
+                match tma_ops {
+                    gpu::TmaOps::MemCopyAsyncBulkToGlobal {
+                        source,
+                        coordinates,
+                    } => {
+                        instructions.push(Instruction::MemCopyAsyncBulkSharedToGlobal {
+                            smem_buffer: self.compile_variable(source),
+                            tensor_map: self.compile_variable(out.unwrap()),
+                            indices: coordinates
+                                .into_iter()
+                                .map(|it| self.compile_variable(it))
+                                .collect(),
+                        });
+                    }
+                    gpu::TmaOps::CommitGroup => {
+                        instructions.push(Instruction::BulkCommitGroup);
+                    }
+                    gpu::TmaOps::WaitGroup { max_pending } => {
+                        instructions.push(Instruction::BulkWaitGroup { max_pending });
+                    }
+                    gpu::TmaOps::WaitGroupRead { max_pending } => {
+                        instructions.push(Instruction::BulkWaitGroupRead { max_pending });
+                    }
+                }
+            }
         }
     }
 

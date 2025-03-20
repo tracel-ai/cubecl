@@ -77,6 +77,7 @@ impl Uniformity {
                     Synchronization::SyncUnits | Synchronization::SyncStorage => {
                         block_uniform = true;
                     }
+                    Synchronization::SyncProxy => {}
                 },
                 op => {
                     let is_uniform =

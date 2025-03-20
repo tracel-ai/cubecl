@@ -410,7 +410,6 @@ impl WgslCompiler {
             cube::Operation::NonSemantic(cube::NonSemantic::Comment { content }) => {
                 self.compile_comment(instructions, content)
             }
-            // No good way to attach debug info
             cube::Operation::NonSemantic(_) => {}
             cube::Operation::Pipeline(_) => {
                 panic!("Pipeline isn't supported on wgpu.")
@@ -418,6 +417,7 @@ impl WgslCompiler {
             cube::Operation::Barrier(_) => {
                 panic!("Barrier isn't supported on wgpu.")
             }
+            cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
         }
     }
 
@@ -540,6 +540,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
+            cube::Synchronization::SyncProxy => panic!("TMA is not supported in WGSL"),
         };
     }
 
