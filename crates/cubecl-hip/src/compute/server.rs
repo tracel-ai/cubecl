@@ -155,6 +155,14 @@ impl ComputeServer for HipServer {
         self.read_async(bindings)
     }
 
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<server::TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let bindings = bindings.into_iter().map(|it| it.binding()).collect();
+        self.read_async(bindings)
+    }
+
     fn memory_usage(&self) -> MemoryUsage {
         self.ctx.memory_usage()
     }
@@ -186,16 +194,35 @@ impl ComputeServer for HipServer {
         handle
     }
 
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: Vec<usize>,
+        elem_size: usize,
+    ) -> server::TensorHandle {
+        let strides = compact_strides(&shape);
+        let handle = self.create(data);
+        server::TensorHandle::new(handle, strides, shape, elem_size)
+    }
+
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
     }
 
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> server::TensorHandle {
+        let strides = compact_strides(&shape);
+        let size = shape.iter().product::<usize>() * elem_size;
+        let handle = self.empty(size);
+        server::TensorHandle::new(handle, strides, shape, elem_size)
+    }
+
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<server::ConstBinding>,
         bindings: Vec<server::Binding>,
         mode: ExecutionMode,
     ) {
@@ -231,6 +258,14 @@ impl ComputeServer for HipServer {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
+        let _ = constants
+            .iter()
+            .map(|it| match it {
+                server::ConstBinding::TensorMap { .. } => {
+                    panic!("TensorMap not supported in ROCm")
+                }
+            })
+            .collect::<Vec<()>>();
         let resources = bindings
             .into_iter()
             .map(|binding| {
@@ -562,4 +597,13 @@ fn hip_path() -> Option<PathBuf> {
     }
     // Default path (only Linux is supported for now)
     Some(PathBuf::from("/opt/rocm"))
+}
+
+fn compact_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i];
+    }
+    strides
 }

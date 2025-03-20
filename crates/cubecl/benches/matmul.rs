@@ -132,7 +132,10 @@ fn main() {
         // CmmaOld
         // run::<cubecl::hip::HipRuntime,<cubecl::hip::HipDialect> f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::hip::HipRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         // Half-precision ----------------------------------------------------
         // Tiling2D
         run::<cubecl::hip::HipRuntime, half::f16>(
@@ -144,7 +147,10 @@ fn main() {
         // CmmaOld: OOM
         // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
     }
 
     #[cfg(feature = "cuda")]
