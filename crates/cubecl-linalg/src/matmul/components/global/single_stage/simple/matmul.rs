@@ -1,31 +1,31 @@
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::single_stage::SyncFullLhsLoader;
 use crate::matmul::components::global::single_stage::SyncFullLoader;
 use crate::matmul::components::global::single_stage::{SyncFullLoadingStrategy, SyncFullRhsLoader};
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::{
     output_loader::Unloader,
     single_stage::{Config, FullLoader},
 };
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -120,12 +120,12 @@ pub struct SimpleMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {

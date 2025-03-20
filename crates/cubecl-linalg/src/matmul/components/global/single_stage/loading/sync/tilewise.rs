@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{tensor_view::TensorReader, GlobalConfig, LoadingValidation},
+    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
-    FormattedConfigError, Ident, InvalidConfigError,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -14,6 +13,7 @@ use super::SyncFullLoadingStrategy;
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
 pub struct TilewiseCoalescedLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 

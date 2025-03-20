@@ -7,12 +7,12 @@ use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
-    global::{self, AccumulatorLoader},
-    stage::{self, StageConfig as _, StageWriter},
-    Ident, MatmulConfigFactory, MatmulProblem,
+    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
 };
 use crate::matmul::components::{
-    CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
+    Ident, MatmulConfigFactory, MatmulProblem,
+    global::{self, AccumulatorLoader},
+    stage::{self, StageConfig as _, StageWriter},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 

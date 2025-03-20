@@ -1,4 +1,4 @@
-use super::{barrier::BarrierOps, pipeline::PipelineOps, Dialect, Instruction, Variable};
+use super::{Dialect, Instruction, Variable, barrier::BarrierOps, pipeline::PipelineOps};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).

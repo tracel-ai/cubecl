@@ -5,9 +5,9 @@ use cubecl_core::prelude::*;
 use crate::{
     matmul::kernels::tiling2d::{
         base::tiling2d_cube_kernel,
-        config::{tiling2d_cube_count, tiling2d_cube_dim, CubeTiling2dConfig},
+        config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
     },
-    tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle},
+    tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout},
 };
 
 use super::config::Tiling2dConfig;

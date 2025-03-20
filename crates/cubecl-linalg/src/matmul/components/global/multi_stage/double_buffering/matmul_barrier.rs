@@ -1,13 +1,13 @@
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
+use crate::matmul::components::Ident;
 use crate::matmul::components::global::multi_stage::AsyncBufferLoader;
 use crate::matmul::components::global::multi_stage::BufferLoader;
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::Ident;
-use crate::matmul::components::{stage, MatmulPrecision};
+use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::prelude::barrier::Barrier;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -15,13 +15,13 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
+use crate::matmul::components::InvalidConfigError;
+use crate::matmul::components::MatmulConfigFactory;
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::InvalidConfigError;
-use crate::matmul::components::MatmulConfigFactory;
-use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 use super::AsyncLhsBufferLoader;
@@ -40,9 +40,9 @@ pub struct DoubleBufferingBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-        LhsReader = LhsBufferReaderFamily,
-        RhsReader = RhsBufferReaderFamily,
-    >,
+            LhsReader = LhsBufferReaderFamily,
+            RhsReader = RhsBufferReaderFamily,
+        >,
     LL: AsyncBufferLoadingStrategy,
     RL: AsyncBufferLoadingStrategy,
 {
@@ -126,12 +126,12 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingBarrierMatmul<MP, SMM, LL, RL>
 where
     SMM: stage::StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: AsyncBufferLoadingStrategy,
     RL: AsyncBufferLoadingStrategy,
 {

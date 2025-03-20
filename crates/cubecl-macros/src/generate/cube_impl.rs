@@ -1,7 +1,7 @@
 use crate::parse::cube_impl::{CubeImpl, CubeImplItem};
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{spanned::Spanned, Ident};
+use syn::{Ident, spanned::Spanned};
 
 impl CubeImpl {
     pub fn to_tokens_mut(&mut self) -> TokenStream {

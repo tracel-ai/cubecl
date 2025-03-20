@@ -2,7 +2,7 @@ use cubecl_ir::ExpandElement;
 
 use crate::{
     ir::{Branch, Item, RangeLoop, Scope},
-    prelude::{index, CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable},
+    prelude::{CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable, index},
 };
 
 use super::Array;

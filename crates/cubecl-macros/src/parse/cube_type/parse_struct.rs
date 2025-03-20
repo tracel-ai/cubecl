@@ -1,8 +1,8 @@
 use std::iter;
 
-use darling::{ast::Data, util::Flag, FromDeriveInput, FromField};
+use darling::{FromDeriveInput, FromField, ast::Data, util::Flag};
 use quote::format_ident;
-use syn::{parse_quote, punctuated::Punctuated, Generics, Ident, Type, Visibility};
+use syn::{Generics, Ident, Type, Visibility, parse_quote, punctuated::Punctuated};
 
 use crate::paths::prelude_type;
 

@@ -9,34 +9,33 @@ use crate::{
 
 impl CubeTypeStruct {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
-        let expand_ty = self.expand_ty();
-        let launch_ty = self.launch_ty();
-        let launch_new = self.launch_new();
-
-        let cube_type_impl = self.cube_type_impl();
-        let arg_settings_impl = self.arg_settings_impl();
-        let launch_arg_impl = self.launch_arg_impl();
-        let expand_type_impl = self.expand_type_impl();
-
         if with_launch {
+            let launch_ty = self.launch_ty();
+            let launch_new = self.launch_new();
+            let arg_settings_impl = self.arg_settings_impl();
+            let launch_arg_impl = self.launch_arg_impl();
+
             quote! {
-                #expand_ty
                 #launch_ty
                 #launch_new
-
-                #cube_type_impl
                 #arg_settings_impl
                 #launch_arg_impl
-                #expand_type_impl
             }
         } else {
+            let expand_ty = self.expand_ty();
+            let clone_expand = self.clone_expand();
+            let cube_type_impl = self.cube_type_impl();
+            let expand_type_impl = self.expand_type_impl();
+
             quote! {
                 #expand_ty
+                #clone_expand
                 #cube_type_impl
                 #expand_type_impl
             }
         }
     }
+
     fn expand_ty(&self) -> proc_macro2::TokenStream {
         let fields = self.fields.iter().map(TypeField::expand_field);
         let name = &self.name_expand;
@@ -44,9 +43,26 @@ impl CubeTypeStruct {
         let vis = &self.vis;
 
         quote! {
-            #[derive(Clone)]
             #vis struct #name #generics {
                 #(#fields),*
+            }
+        }
+    }
+
+    fn clone_expand(&self) -> proc_macro2::TokenStream {
+        let fields = self.fields.iter().map(TypeField::clone_field);
+        let name = &self.name_expand;
+        let generics = &self.generics;
+
+        let (generics_impl, generics_use, where_clause) = generics.split_for_impl();
+
+        quote! {
+            impl #generics_impl Clone for #name #generics_use #where_clause {
+                fn clone(&self) -> Self {
+                    Self {
+                        #(#fields),*
+                    }
+                }
             }
         }
     }
@@ -164,7 +180,7 @@ impl CubeTypeStruct {
         let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
         let vis = &self.vis;
 
-        fn gen<'a, F: Fn(&Ident) -> TokenStream>(
+        fn generate<'a, F: Fn(&Ident) -> TokenStream>(
             fields: impl Iterator<Item = &'a TypeField>,
             func: F,
         ) -> Vec<TokenStream> {
@@ -173,13 +189,13 @@ impl CubeTypeStruct {
                 .collect::<Vec<_>>()
         }
 
-        let clone = gen(self.fields.iter(), |name| quote!(#name: self.#name.clone()));
-        let hash = gen(self.fields.iter(), |name| quote!(self.#name.hash(state)));
-        let partial_eq = gen(
+        let clone = generate(self.fields.iter(), |name| quote!(#name: self.#name.clone()));
+        let hash = generate(self.fields.iter(), |name| quote!(self.#name.hash(state)));
+        let partial_eq = generate(
             self.fields.iter(),
             |name| quote!(self.#name.eq(&other.#name)),
         );
-        let debug = gen(self.fields.iter(), |name| {
+        let debug = generate(self.fields.iter(), |name| {
             quote!(f.write_fmt(format_args!("{}: {:?},", stringify!(#name), &self.#name))?)
         });
 
@@ -303,9 +319,7 @@ impl CubeTypeStruct {
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let init = prelude_type("Init");
         let debug = prelude_type("CubeDebug");
-        let into_runtime = prelude_type("IntoRuntime");
         let context = prelude_type("Scope");
-        let name = &self.ident;
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
@@ -319,17 +333,6 @@ impl CubeTypeStruct {
                     quote![#ident: #init::init(self.#ident, context)]
                 }
             });
-        let fields_to_runtime =
-            self.fields
-                .iter()
-                .map(TypeField::split)
-                .map(|(_, name, _, is_comptime)| {
-                    if is_comptime {
-                        quote![#name: self.#name]
-                    } else {
-                        quote![#name: #into_runtime::__expand_runtime_method(self.#name, context)]
-                    }
-                });
 
         quote! {
             impl #generics #init for #name_expand #generic_names #where_clause {
@@ -341,15 +344,6 @@ impl CubeTypeStruct {
             }
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
-
-            impl #generics #into_runtime for #name #generic_names #where_clause {
-                fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {
-                    let expand = #name_expand {
-                        #(#fields_to_runtime),*
-                    };
-                    Init::init(expand, context)
-                }
-            }
         }
     }
 }
@@ -365,6 +359,11 @@ impl TypeField {
         } else {
             quote![#vis #name: <#ty as #cube_type>::ExpandType]
         }
+    }
+
+    pub fn clone_field(&self) -> TokenStream {
+        let name = self.ident.as_ref().unwrap();
+        quote![#name: self.#name.clone()]
     }
 
     pub fn launch_field(&self) -> TokenStream {

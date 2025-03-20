@@ -8,8 +8,9 @@ use cubecl_ir::{ConstantScalarValue, Instruction, Operation, OperationReflect, V
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
+    AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
     analyses::{liveness::Liveness, post_order::PostOrder},
-    visit_noop, AtomicCounter, BasicBlock, BlockUse, ControlFlow, Optimizer,
+    visit_noop,
 };
 
 use super::OptimizerPass;

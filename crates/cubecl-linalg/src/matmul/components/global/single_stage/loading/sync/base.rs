@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -34,7 +34,9 @@ pub struct SyncFullLhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -47,7 +49,9 @@ pub struct SyncFullRhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -97,8 +101,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         SyncFullLhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }
@@ -149,8 +153,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         SyncFullRhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }

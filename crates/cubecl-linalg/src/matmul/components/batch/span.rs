@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
+    MatmulPrecision,
     batch::shared::swizzle,
     global::{self},
-    MatmulPrecision,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 

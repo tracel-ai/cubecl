@@ -3,7 +3,7 @@ use std::{cell::RefCell, mem::take};
 use cubecl_ir::{Instruction, Item, Operation, Operator, UnaryOperator};
 use stable_vec::StableVec;
 
-use crate::{visit_noop, AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Optimizer, visit_noop};
 
 use super::OptimizerPass;
 

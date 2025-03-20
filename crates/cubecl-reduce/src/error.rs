@@ -24,15 +24,33 @@ pub enum ReduceError {
 impl fmt::Display for ReduceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PlanesUnavailable => write!(f, "Trying to launch a kernel using plane instructions, but there are not supported by the hardware."),
-            Self::CubeCountTooLarge => write!(f, "The cube count is larger than the max supported."),
-            Self::ImprecisePlaneDim => write!(f, "Trying to launch a kernel using plane instructions, but the min and max plane dimensions are different."),
-            Self::InvalidAxis{axis, rank} => write!(f, "The provided axis ({axis}) must be smaller than the input tensor rank ({rank})."),
-            Self::MismatchShape { expected_shape, output_shape } => {
-                write!(f, "The output shape (currently {output_shape:?}) should be {expected_shape:?}.")
+            Self::PlanesUnavailable => write!(
+                f,
+                "Trying to launch a kernel using plane instructions, but there are not supported by the hardware."
+            ),
+            Self::CubeCountTooLarge => {
+                write!(f, "The cube count is larger than the max supported.")
             }
-            Self::MissingAtomicAdd(elem) =>
-                        write!(f, "Atomic add not supported by the client for {elem}")
+            Self::ImprecisePlaneDim => write!(
+                f,
+                "Trying to launch a kernel using plane instructions, but the min and max plane dimensions are different."
+            ),
+            Self::InvalidAxis { axis, rank } => write!(
+                f,
+                "The provided axis ({axis}) must be smaller than the input tensor rank ({rank})."
+            ),
+            Self::MismatchShape {
+                expected_shape,
+                output_shape,
+            } => {
+                write!(
+                    f,
+                    "The output shape (currently {output_shape:?}) should be {expected_shape:?}."
+                )
+            }
+            Self::MissingAtomicAdd(elem) => {
+                write!(f, "Atomic add not supported by the client for {elem}")
+            }
         }
     }
 }

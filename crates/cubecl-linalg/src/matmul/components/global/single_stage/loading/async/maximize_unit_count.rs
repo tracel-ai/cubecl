@@ -1,10 +1,10 @@
 use crate::matmul::components::{
+    Ident, InvalidConfigError, MatrixLayout,
     global::{
-        tensor_view::{TensorReader, Window},
         CopyMechanism, GlobalConfig, LoadingValidation,
+        tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
-    Ident, InvalidConfigError, MatrixLayout,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};

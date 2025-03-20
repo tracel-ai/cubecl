@@ -1,4 +1,4 @@
-use darling::{ast::Data, FromDeriveInput, FromField};
+use darling::{FromDeriveInput, FromField, ast::Data};
 use syn::{Generics, Ident};
 
 #[derive(FromDeriveInput)]

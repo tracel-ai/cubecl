@@ -5,7 +5,7 @@ use cubecl_core::{
 use half::{bf16, f16};
 use std::fmt::Display;
 
-use super::{Dialect, Fragment, FragmentIdent, COUNTER_TMP_VAR};
+use super::{COUNTER_TMP_VAR, Dialect, Fragment, FragmentIdent};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum Elem<D: Dialect> {
@@ -467,11 +467,7 @@ impl<D: Dialect> Variable<D> {
     }
 
     pub fn const_qualifier(&self) -> &str {
-        if self.is_const() {
-            " const"
-        } else {
-            ""
-        }
+        if self.is_const() { " const" } else { "" }
     }
 
     pub fn id(&self) -> Option<Id> {

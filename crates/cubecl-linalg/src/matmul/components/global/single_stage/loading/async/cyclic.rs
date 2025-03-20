@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::{tensor_view::TensorReader, CopyMechanism, GlobalConfig, LoadingValidation},
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
     Ident, InvalidConfigError, MatrixLayout,
+    global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    stage::{ContiguousTilingLayout, Stage, TilingOrder},
+    stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -14,6 +16,7 @@ use super::AsyncFullLoadingStrategy;
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicWindowLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
@@ -24,7 +27,9 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 
         let num_slices = tiling.tile_shape_row() * tiling.tile_count();
         if num_slices >= total_units && num_slices % total_units != 0 {
-            return Err(Box::new(format!("Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices")));
+            return Err(Box::new(format!(
+                "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
+            )));
         }
 
         Ok(())

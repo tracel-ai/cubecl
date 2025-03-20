@@ -6,15 +6,15 @@ use crate::matmul::components::{
     OutputRuntimeArg, SingleMatmulSpec,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
-use crate::tensor::{into_contiguous, matrix_layout, MatrixLayout, TensorHandle};
+use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel, Runtime,
+    Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
 use cubecl_std::MaybeQuantized;
 
-use super::{select_kernel, Algorithm};
+use super::{Algorithm, select_kernel};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -153,12 +153,12 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         Some(plane_dim) => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
-            ))
+            ));
         }
         None => {
             return Err(MatmulLaunchError::Unavailable(
                 MatmulAvailabilityError::PlaneDimUnknown,
-            ))
+            ));
         }
     };
 

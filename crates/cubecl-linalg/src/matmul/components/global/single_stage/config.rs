@@ -1,7 +1,7 @@
 use crate::matmul::components::{
+    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
     global::{self},
     stage::{self},
-    Ident, MatmulConfig, MatrixLayout, TilingDimensions,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

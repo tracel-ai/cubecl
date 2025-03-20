@@ -1,6 +1,6 @@
-use crate::matmul::components::global::tensor_view::TensorWriter;
-use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::Ident;
+use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::tensor_view::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -38,7 +38,9 @@ impl TilewiseUnloading {
 }
 
 fn check_line_size(out_line_size: u32, slice_line_size: u32) {
-    assert_eq!(out_line_size, slice_line_size, "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
+    assert_eq!(
+        out_line_size, slice_line_size,
+        "Error: Expected global output and output shared memory to have equal line size, but found out_line_size = {} and slice_line_size = {}.",
         out_line_size, slice_line_size
     );
 }

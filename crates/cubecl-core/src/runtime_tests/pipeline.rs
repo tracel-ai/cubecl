@@ -1,4 +1,4 @@
-use crate::{self as cubecl, as_bytes, Feature};
+use crate::{self as cubecl, Feature, as_bytes};
 use cubecl::prelude::*;
 use pipeline::Pipeline;
 

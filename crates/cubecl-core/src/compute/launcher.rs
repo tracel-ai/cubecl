@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::prelude::{ArrayArg, TensorArg};
 use crate::KernelSettings;
-use crate::{compute::KernelTask, ir::UIntKind};
-use crate::{
-    ir::{Elem, FloatKind, IntKind},
-    MetadataBuilder,
-};
+use crate::prelude::{ArrayArg, TensorArg};
 use crate::{Kernel, Runtime};
+use crate::{
+    MetadataBuilder,
+    ir::{Elem, FloatKind, IntKind},
+};
+use crate::{compute::KernelTask, ir::UIntKind};
 use bytemuck::NoUninit;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, CubeCount};
@@ -143,11 +143,13 @@ impl<R: Runtime> KernelLauncher<R> {
         kernel: K,
         client: &ComputeClient<R::Server, R::Channel>,
     ) {
-        let bindings = self.into_bindings(client);
+        unsafe {
+            let bindings = self.into_bindings(client);
 
-        let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
+            let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
-        client.execute_unchecked(kernel, cube_count, bindings);
+            client.execute_unchecked(kernel, cube_count, bindings);
+        }
     }
 
     /// We need to create the bindings in the same order they are defined in the compilation step.

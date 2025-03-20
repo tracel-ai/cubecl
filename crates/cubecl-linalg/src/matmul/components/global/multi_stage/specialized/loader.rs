@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::Ident;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::multi_stage::{
@@ -8,7 +9,6 @@ use crate::matmul::components::global::multi_stage::{
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
-use crate::matmul::components::Ident;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -26,6 +26,7 @@ pub struct SyncLhsBufferLoader<
     pub stage: Stage<ES, L::TilingLayout>,
     num_buffers: u32,
     is_producer: bool,
+    #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
@@ -40,6 +41,7 @@ pub struct SyncRhsBufferLoader<
     pub stage: Stage<ES, L::TilingLayout>,
     num_buffers: u32,
     is_producer: bool,
+    #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
@@ -95,7 +97,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             stage,
             num_buffers: config.tiling_dimensions(Ident::Lhs).tile_count_col(),
             is_producer,
-            _config: PhantomData::<S>.runtime(),
+            _config: PhantomData,
         }
     }
 }
@@ -152,7 +154,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             stage,
             num_buffers: config.tiling_dimensions(Ident::Rhs).tile_count_row(),
             is_producer,
-            _config: PhantomData::<S>.runtime(),
+            _config: PhantomData::<S>,
         }
     }
 }

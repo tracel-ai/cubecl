@@ -1,22 +1,25 @@
-use crate::matmul::components::{
-    global::{AccumulatorLoader, OutputLoader},
-    stage::{StageMatmul, StageMatmulFamily},
-    InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+use crate::matmul::{
+    components::{
+        InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+        global::{AccumulatorLoader, OutputLoader},
+        stage::{StageMatmul, StageMatmulFamily},
+    },
+    kernels::MatmulAvailabilityError,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use super::{homogeneous::base::ConvTilingLayout, ConvGemmConfig};
+use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
 
 pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
     type Convolution<CS: MatmulPrecision>: Convolution<
-        CS,
-        SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
-        Config = Self::Config,
-    >;
+            CS,
+            SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
+            Config = Self::Config,
+        >;
 }
 
 #[cube]
@@ -92,6 +95,11 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config;
+
+    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), MatmulAvailabilityError>;
 }
 
 /// Provides launch entry point to solve a matmul

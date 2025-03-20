@@ -1,12 +1,12 @@
-use cubecl_core::{client::ComputeClient, ir::Elem, prelude::CubePrimitive, Feature, Runtime};
+use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg, MatmulProblem,
-        MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
+        CompleteStageTiling, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
+        MatmulSpec, OutputRuntimeArg, tile::TileMatmulFamily,
     },
-    kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
+    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
 
 use super::Algorithm;

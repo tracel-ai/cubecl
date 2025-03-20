@@ -4,10 +4,10 @@ use cubecl_ir::{self as ir, Operation};
 use petgraph::graph::NodeIndex;
 
 use crate::{
+    AtomicCounter, Optimizer, PhiInstruction,
     analyses::dominance::Dominators,
     gvn::{convert::value_of_var, phi_translate},
     version::PhiEntry,
-    AtomicCounter, Optimizer, PhiInstruction,
 };
 
 use super::GvnState;
