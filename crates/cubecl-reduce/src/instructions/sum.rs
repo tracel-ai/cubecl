@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceInstruction};
+use super::{Reduce, ReduceCoordinate, ReduceInstruction};
 
 #[derive(Debug)]
 pub struct Sum;
@@ -12,6 +12,8 @@ impl Reduce for Sum {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Sum {
+    const REQUIRES_COORDINATE: bool = false;
+
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
 
@@ -30,7 +32,7 @@ impl<In: Numeric> ReduceInstruction<In> for Sum {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        _coordinate: Line<u32>,
+        _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
