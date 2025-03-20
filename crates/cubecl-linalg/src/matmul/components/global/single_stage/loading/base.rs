@@ -14,7 +14,7 @@ pub trait FullLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     type StageReader: CubeType;
 
     /// Returns a reader for the stage at the current k offset
-    fn as_stage_reader(this: &Self) -> Self::StageReader;
+    fn reader(this: &Self) -> Self::StageReader;
 
     /// Move the k offset by k_offset
     fn advance_view(this: &mut Self, k_offset: u32);
