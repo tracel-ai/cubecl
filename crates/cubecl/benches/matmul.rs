@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::{self};
+use cubecl_linalg::matmul::{self, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -153,21 +153,21 @@ fn main() {
             Default::default(),
             matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
         );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::DoubleBuffering,
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-        );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::DoubleBuffering,
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
+        // );
+        // run::<cubecl::cuda::CudaRuntime, f16>(
+        //     Default::default(),
+        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+        // );
     }
 }
