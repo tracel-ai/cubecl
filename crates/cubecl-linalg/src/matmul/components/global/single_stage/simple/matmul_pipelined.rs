@@ -1,22 +1,20 @@
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_buffer::AsyncFullLoader;
-use crate::matmul::components::global::single_buffer::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_buffer::AsyncLhsLoader;
-use crate::matmul::components::global::single_buffer::AsyncRhsLoader;
-use crate::matmul::components::global::single_buffer::Config;
-use crate::matmul::components::global::single_buffer::FullLoader;
+use crate::matmul::components::global::single_stage::AsyncFullLoader;
+use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
+use crate::matmul::components::global::single_stage::AsyncLhsLoader;
+use crate::matmul::components::global::single_stage::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::single_stage::FullLoader;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::MatmulPrecision;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-use barrier::Barrier;
 use cubecl_core::prelude::*;
-use cubecl_core::Feature;
-use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_core::{self as cubecl, Feature};
+use pipeline::Pipeline;
 use std::marker::PhantomData;
 
 use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
@@ -33,7 +31,7 @@ use crate::matmul::{
     kernels::MatmulAvailabilityError,
 };
 
-pub struct SimpleBarrierMatmulFamily<
+pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
@@ -43,13 +41,13 @@ pub struct SimpleBarrierMatmulFamily<
     _rhs_loading: PhantomData<RL>,
 }
 
-impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
+    type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
         MP,
         SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
         LL,
@@ -57,7 +55,7 @@ where
     >;
 }
 
-impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
     LL: AsyncFullLoadingStrategy,
@@ -78,8 +76,8 @@ where
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
-        if !client.properties().feature_enabled(Feature::Barrier) {
-            return Err(MatmulAvailabilityError::BarrierUnavailable);
+        if !client.properties().feature_enabled(Feature::Pipeline) {
+            return Err(MatmulAvailabilityError::PipelineUnavailable);
         }
 
         Ok(())
@@ -113,7 +111,7 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleBarrierMatmul<
+pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
     LL: AsyncFullLoadingStrategy,
@@ -126,7 +124,7 @@ pub struct SimpleBarrierMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
         MP::ES,
@@ -157,12 +155,11 @@ where
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
 
+        // Pipeline is declared with two stages, one for lhs and one for rhs
+        let pipeline = Pipeline::<MP::ES>::new(2);
+
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
-
-        let barrier_level = LL::barrier_level();
-        comptime!(assert!(barrier_level == RL::barrier_level()));
-        let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for loop_iter in 0..num_loops {
             sync_units();
@@ -177,13 +174,17 @@ where
             }
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+            pipeline.producer_acquire();
+            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, &pipeline, config);
+            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
+            pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
 
-            barrier.wait();
+            // Wait for load to finish for this thread, then sync to make sure all planes have finished
+            pipeline.consumer_wait();
+            sync_units();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -193,6 +194,8 @@ where
                 acc,
                 config.to_smm_config(),
             );
+
+            pipeline.consumer_release();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);

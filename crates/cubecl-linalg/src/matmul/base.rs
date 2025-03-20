@@ -5,7 +5,7 @@ use crate::tensor::TensorHandle;
 
 use super::{
     components::{
-        global::single_buffer::{
+        global::single_stage::{
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
             StridedCoalescedLoading, WindowCooperativeLoading,
         },

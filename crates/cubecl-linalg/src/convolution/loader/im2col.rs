@@ -5,7 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::single_buffer::{FullLoader, SyncFullLoader},
+    global::single_stage::{FullLoader, SyncFullLoader},
     stage::{multi_buffer::LhsReader, ContiguousTilingLayout, RowMajorTilingOrder},
     Ident, MatmulPrecision,
 };

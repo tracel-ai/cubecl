@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::global::{
-    multi_buffer::double_buffering::BufferId, CopyMechanism, GlobalConfig,
+    multi_stage::double_buffering::BufferId, CopyMechanism, GlobalConfig,
 };
 
 #[cube]

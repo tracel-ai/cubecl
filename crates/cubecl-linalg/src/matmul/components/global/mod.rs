@@ -1,6 +1,6 @@
 pub mod args;
-pub mod multi_buffer;
-pub mod single_buffer;
+pub mod multi_stage;
+pub mod single_stage;
 pub mod tensor_view;
 
 mod accumulator_loader;

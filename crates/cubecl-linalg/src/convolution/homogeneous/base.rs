@@ -4,12 +4,12 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_buffer::{FullLoader, SyncFullLoader};
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
     global::{
         self,
         output_loader::Unloader,
-        single_buffer::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
         AccumulatorLoader, GlobalConfig,
     },
     stage::{
@@ -70,7 +70,7 @@ where
     >,
 {
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
-    type Config = HomogeneousConfig<single_buffer::Config<SMM::Config>>;
+    type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
         SyncFullRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<CS, SMM::Config>;
@@ -189,7 +189,7 @@ impl<SMM> ConvolutionConfigFactory for ImplicitGemmConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
-    type Config = config::HomogeneousConfig<single_buffer::Config<SMM::Config>>;
+    type Config = config::HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type Input = SMM::Input;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -212,7 +212,7 @@ where
         let size = SMM::stage_shape(&smm_config);
 
         config::HomogeneousConfig::new(
-            single_buffer::Config::new(
+            single_stage::Config::new(
                 smm_config,
                 // TODO: Find the correct condition to avoid check bounds.
                 true,

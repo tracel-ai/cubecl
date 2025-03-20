@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self, single_buffer::AsyncFullLoadingStrategy},
+    global::{self, single_stage::AsyncFullLoadingStrategy},
     stage, tile, MatmulProblem, MatmulSelection,
 };
 
@@ -27,7 +27,7 @@ where
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul =
-        global::single_buffer::simple::SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+        global::single_stage::simple::SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 

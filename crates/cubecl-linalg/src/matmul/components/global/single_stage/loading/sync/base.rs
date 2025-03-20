@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_buffer;
-use crate::matmul::components::global::single_buffer::{FullLoader, SyncFullLoader};
+use crate::matmul::components::global::single_stage;
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
@@ -53,7 +53,7 @@ pub struct SyncFullRhsLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_buffer::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_stage::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
 
@@ -68,10 +68,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullLoader<EG, ES, single_buffer::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
+    SyncFullLoader<EG, ES, single_stage::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
 {
-    fn fill_stage(this: &mut Self, #[comptime] config: single_buffer::Config<S>) {
-        L::load_full::<EG, ES, single_buffer::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Lhs,
@@ -105,7 +105,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_buffer::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
+    FullLoader<EG, ES, single_stage::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
 
@@ -120,10 +120,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullLoader<EG, ES, single_buffer::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
+    SyncFullLoader<EG, ES, single_stage::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
 {
-    fn fill_stage(this: &mut Self, #[comptime] config: single_buffer::Config<S>) {
-        L::load_full::<EG, ES, single_buffer::Config<S>>(
+    fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        L::load_full::<EG, ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Rhs,
