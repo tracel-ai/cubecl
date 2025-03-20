@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    ArgAccumulator, Reduce, ReduceCoordinates, ReduceCoordinatesExpand, ReduceInstruction,
+    ArgAccumulator, Reduce, ReduceCoordinate, ReduceCoordinateExpand, ReduceInstruction,
     lowest_coordinate_matching,
 };
 
@@ -62,12 +62,12 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        coordinate: ReduceCoordinates,
+        coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         let coordinate = match coordinate {
-            ReduceCoordinates::Calculated(val) => val,
-            ReduceCoordinates::NotRequired => comptime![panic!["Should be calculated"]],
+            ReduceCoordinate::Required(val) => val,
+            ReduceCoordinate::NotRequired => comptime![panic!["Should be calculated"]],
         };
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_min(item);

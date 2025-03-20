@@ -102,20 +102,20 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     #[comptime] line_mode: LineMode,
 ) -> R::AccumulatorItem {
     let mut accumulator = R::null_accumulator(line_size);
-
     let mut index = range.start;
     let mut coordinate = 0;
+
     while index < range.end {
         let coordinates = if R::REQUIRES_COORDINATE {
-            let coordinates = fill_coordinate_line(coordinate, line_size, line_mode);
-            ReduceCoordinates::new_Calculated(coordinates)
+            ReduceCoordinate::new_Required(fill_coordinate_line(coordinate, line_size, line_mode))
         } else {
-            ReduceCoordinates::new_NotRequired()
+            ReduceCoordinate::new_NotRequired()
         };
         reduce_inplace::<N, R>(&mut accumulator, items.read(index), coordinates, false);
         index += range.step;
         coordinate += 1;
     }
+
     accumulator
 }
 
@@ -145,11 +145,13 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
     let mut first_coordinate = 0;
     while first_index < range.end {
         let coordinates = if R::REQUIRES_COORDINATE {
-            let coordinates =
-                fill_coordinate_line(first_coordinate + UNIT_POS_X, line_size, line_mode);
-            ReduceCoordinates::new_Calculated(coordinates)
+            ReduceCoordinate::new_Required(fill_coordinate_line(
+                first_coordinate + UNIT_POS_X,
+                line_size,
+                line_mode,
+            ))
         } else {
-            ReduceCoordinates::new_NotRequired()
+            ReduceCoordinate::new_NotRequired()
         };
 
         let index = first_index + UNIT_POS_X * range.step;
@@ -240,9 +242,9 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
                 Line::empty(line_size).fill(u32::MAX),
             );
 
-            ReduceCoordinates::new_Calculated(coordinate)
+            ReduceCoordinate::new_Required(coordinate)
         } else {
-            ReduceCoordinates::new_NotRequired()
+            ReduceCoordinate::new_NotRequired()
         };
 
         reduce_shared_inplace::<N, R>(

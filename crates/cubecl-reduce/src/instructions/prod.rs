@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceCoordinates, ReduceInstruction};
+use super::{Reduce, ReduceCoordinate, ReduceInstruction};
 
 #[derive(Debug)]
 pub struct Prod;
@@ -32,7 +32,7 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        _coordinates: ReduceCoordinates,
+        _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {

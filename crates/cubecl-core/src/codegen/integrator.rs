@@ -224,20 +224,6 @@ impl KernelSettings {
     }
 }
 
-#[allow(dead_code)]
-fn is_contiguous(strides: &[usize]) -> bool {
-    let mut current = 0;
-
-    for stride in strides.iter().rev() {
-        if current > *stride {
-            return false;
-        }
-        current = *stride;
-    }
-
-    true
-}
-
 /// Information related to an input.
 #[derive(Clone, Debug)]
 pub enum InputInfo {

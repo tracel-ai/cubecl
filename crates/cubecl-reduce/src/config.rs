@@ -2,6 +2,7 @@ use cubecl_core::{
     channel::ComputeChannel, prelude::*, server::ComputeServer, tensor_line_size_parallel,
     tensor_line_size_perpendicular,
 };
+use cubecl_std::tensor::is_contiguous;
 
 use crate::ReduceStrategy;
 
@@ -221,18 +222,4 @@ impl ReduceConfig {
     fn do_bound_checks_if(&mut self, condition: bool) {
         self.bound_checks = self.bound_checks || condition;
     }
-}
-
-#[allow(dead_code)]
-fn is_contiguous(strides: &[usize]) -> bool {
-    let mut current = 0;
-
-    for stride in strides.iter().rev() {
-        if current > *stride {
-            return false;
-        }
-        current = *stride;
-    }
-
-    true
 }

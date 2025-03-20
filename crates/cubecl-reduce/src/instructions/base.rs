@@ -44,7 +44,7 @@ pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debu
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        coordinate: ReduceCoordinates,
+        coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem;
 
@@ -65,8 +65,8 @@ pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debu
 }
 
 #[derive(CubeType)]
-pub enum ReduceCoordinates {
-    Calculated(Line<u32>),
+pub enum ReduceCoordinate {
+    Required(Line<u32>),
     NotRequired,
 }
 
@@ -131,10 +131,10 @@ impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
 pub fn reduce_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::AccumulatorItem,
     item: Line<In>,
-    coordinates: ReduceCoordinates,
+    coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
-    let reduction = &R::reduce(accumulator, item, coordinates, use_planes);
+    let reduction = &R::reduce(accumulator, item, coordinate, use_planes);
     R::assign_accumulator(accumulator, reduction);
 }
 
@@ -143,11 +143,11 @@ pub fn reduce_shared_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::SharedAccumulator,
     index: u32,
     item: Line<In>,
-    coordinates: ReduceCoordinates,
+    coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
     let acc_item = R::SharedAccumulator::read(accumulator, index);
-    let reduction = R::reduce(&acc_item, item, coordinates, use_planes);
+    let reduction = R::reduce(&acc_item, item, coordinate, use_planes);
     R::SharedAccumulator::write(accumulator, index, reduction);
 }
 
