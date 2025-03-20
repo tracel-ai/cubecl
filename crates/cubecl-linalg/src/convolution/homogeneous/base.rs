@@ -231,6 +231,13 @@ where
             problem.has_bias,
         )
     }
+
+    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+        SMM::check_availability::<R, CS>(client, &config.to_smm_config())
+    }
 }
 
 impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
