@@ -147,18 +147,20 @@ where
                 (&mut rhs_fragments.1, &mut rhs_fragments.0)
             };
 
-            let rhs_tile_next =
-                RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter + 1, config);
+            let rhs_tile_next = RhsBufferReader::read_tile::<TMM::Config>(
+                rhs_reader,
+                comptime![accumulator_iter + 1],
+                config,
+            );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
 
             let accumulator = acc.index_mut(accumulator_iter);
             TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
 
-            accumulator_iter += 1;
+            comptime![accumulator_iter += 1];
         }
 
-        accumulator_iter += 1;
-        let last = if comptime! {accumulator_iter % 2 == 1} {
+        let last = if comptime! {accumulator_iter % 2 == 0} {
             &mut rhs_fragments.0
         } else {
             &mut rhs_fragments.1

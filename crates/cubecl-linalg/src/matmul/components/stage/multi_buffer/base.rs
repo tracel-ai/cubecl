@@ -117,13 +117,13 @@ where
     type RhsReader = RhsReader<I, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
-    type RhsTile = TMM::Rhs;
+    type RhsTile = (TMM::Rhs, TMM::Rhs);
 
     fn execute(
         lhs_reader: &LhsReader<I, TL>,
         rhs_reader: &RhsReader<I, TR>,
-        lhs_tile: &mut Self::LhsTile,
-        rhs_tile: &mut Self::RhsTile,
+        lhs_fragment: &mut Self::LhsTile,
+        rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
@@ -131,28 +131,62 @@ where
         for buffer_iter in 0..config.tile_count().k {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
-            TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
+            TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
+
+            let mut accumulator_iter = comptime![0];
+
+            let rhs_tile_first = RhsReader::read_tile::<TMM::Config>(
+                rhs_reader,
+                buffer_iter,
+                accumulator_iter,
+                config,
+            );
+            TMM::fill_rhs(
+                &rhs_tile_first,
+                &mut rhs_fragments.0,
+                config.to_tmm_config(),
+            );
 
             #[unroll]
-            for accumulator_iter in 0..acc.len() {
-                let tile_rhs = RhsReader::read_tile::<TMM::Config>(
+            for _ in 1..acc.len() {
+                let (current, next) = if comptime! {accumulator_iter % 2 == 0} {
+                    (&mut rhs_fragments.0, &mut rhs_fragments.1)
+                } else {
+                    (&mut rhs_fragments.1, &mut rhs_fragments.0)
+                };
+
+                let rhs_tile_next = RhsReader::read_tile::<TMM::Config>(
                     rhs_reader,
                     buffer_iter,
-                    accumulator_iter,
+                    comptime![accumulator_iter + 1],
                     config,
                 );
-                TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
+                TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
 
                 let accumulator = acc.index_mut(accumulator_iter);
-                TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
+                TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
+
+                comptime![accumulator_iter += 1];
             }
+
+            let last = if comptime! {accumulator_iter % 2 == 0} {
+                &mut rhs_fragments.0
+            } else {
+                &mut rhs_fragments.1
+            };
+
+            let accumulator = acc.index_mut(accumulator_iter);
+            TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
         }
     }
 
-    fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, (TMM::Rhs, TMM::Rhs)) {
         (
             TMM::allocate_lhs(config.to_tmm_config()),
-            TMM::allocate_rhs(config.to_tmm_config()),
+            (
+                TMM::allocate_rhs(config.to_tmm_config()),
+                TMM::allocate_rhs(config.to_tmm_config()),
+            ),
         )
     }
 
