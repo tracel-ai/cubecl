@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
-        GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
@@ -9,7 +9,7 @@ use crate::matmul::components::{
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use super::{AsyncFullLoadingStrategy, CopyMechanism};
+use super::AsyncFullLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.

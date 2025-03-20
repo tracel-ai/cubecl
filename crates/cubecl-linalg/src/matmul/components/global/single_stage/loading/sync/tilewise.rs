@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError};
 use crate::matmul::components::{
-    FormattedConfigError, Ident, InvalidConfigError,
     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };

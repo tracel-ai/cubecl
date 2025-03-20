@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -15,11 +17,9 @@ use barrier::Barrier;
 use cubecl_core::Feature;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use std::marker::PhantomData;
-
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{

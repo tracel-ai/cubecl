@@ -293,6 +293,7 @@ macro_rules! matmul_standard_tests {
         };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
+        use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
@@ -410,6 +411,20 @@ macro_rules! matmul_standard_tests {
         pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn double_buffering_barrier() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(

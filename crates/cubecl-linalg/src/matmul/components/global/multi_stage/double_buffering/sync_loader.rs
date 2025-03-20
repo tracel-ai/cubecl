@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
+use super::BufferId;
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::CommonGlobalConfig;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::multi_stage::{
     BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
@@ -52,10 +52,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -112,10 +108,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: CommonGlobalConfig<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 
