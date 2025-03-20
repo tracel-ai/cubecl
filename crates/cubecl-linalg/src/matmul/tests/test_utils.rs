@@ -5,7 +5,7 @@ use cubecl_core::{
     client::ComputeClient,
     flex32,
     prelude::{Float, Numeric},
-    server::Handle,
+    server::{self},
     tf32,
 };
 
@@ -38,7 +38,7 @@ pub trait TestPrecision {
         rhs: &[Self::EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::TensorHandle,
     );
 
     // TODO: This is a temporary hack to not run some quantized matmul test during development.
@@ -67,7 +67,7 @@ where
         rhs: &[EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::TensorHandle,
     ) {
         let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
             a: ES::as_elem_native().expect("To be a native type"),
@@ -102,11 +102,11 @@ where
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle,
+    output: server::TensorHandle,
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one_tensor(output);
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -167,9 +167,9 @@ impl TestPrecision for Q8 {
         rhs: &[u8],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::TensorHandle,
     ) {
-        let out = client.read_one(out.binding());
+        let out = client.read_one_tensor(out);
         let out = u8::from_bytes(&out);
 
         let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
@@ -574,10 +574,7 @@ impl MatmulTestCase {
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
-        TensorHandle::new_contiguous(
-            vec![self.batch, self.m, self.n],
-            self.create_empty::<R>(client, self.batch * self.m, self.n),
-        )
+        TensorHandle::empty(client, vec![self.batch, self.m, self.n])
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
@@ -586,16 +583,7 @@ impl MatmulTestCase {
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
         let data = F::sample(shape.iter().product(), 999);
-        let handle = client.create(bytemuck::cast_slice(&data));
-        TensorHandle::new_contiguous(shape, handle)
-    }
-
-    pub(crate) fn create_empty<R: Runtime>(
-        &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-        x: usize,
-        y: usize,
-    ) -> Handle {
-        client.empty(x * y * core::mem::size_of::<f32>())
+        let handle = client.create_tensor(bytemuck::cast_slice(&data), shape, size_of::<F>());
+        TensorHandle::new(handle)
     }
 }

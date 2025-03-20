@@ -161,7 +161,7 @@ impl CudaServer {
                 .memory_management
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Failed to find resource");
-            let mut data = uninit_vec(resource.size() as usize);
+            let mut data = vec![0; handle.shape.iter().product::<usize>() * handle.elem_size];
 
             let rank = handle.shape.len();
             if rank <= 1 {
@@ -175,7 +175,7 @@ impl CudaServer {
 
             let dim_x = handle.shape[rank - 1];
             let width_bytes = dim_x * handle.elem_size;
-            let dim_y: usize = handle.shape.iter().rev().skip(1).sum();
+            let dim_y: usize = handle.shape.iter().rev().skip(1).product();
             let pitch = handle.strides[rank - 2] * handle.elem_size;
 
             let cpy = CUDA_MEMCPY2D_st {
@@ -278,7 +278,7 @@ impl ComputeServer for CudaServer {
 
         let dim_x = handle.shape[rank - 1];
         let width_bytes = dim_x * elem_size;
-        let dim_y: usize = handle.shape.iter().rev().skip(1).sum();
+        let dim_y: usize = handle.shape.iter().rev().skip(1).product();
         let pitch = handle.strides[rank - 2] * elem_size;
 
         let cpy = CUDA_MEMCPY2D_st {
@@ -311,7 +311,7 @@ impl ComputeServer for CudaServer {
         let rank = shape.len();
         let ctx = self.get_context();
         let width = *shape.last().unwrap_or(&1);
-        let height: usize = shape.iter().rev().skip(1).sum();
+        let height: usize = shape.iter().rev().skip(1).product();
         let height = height.max(1);
         let width_bytes = width * elem_size;
         // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
@@ -325,7 +325,7 @@ impl ComputeServer for CudaServer {
         }
         if rank > 2 {
             for i in (0..rank - 2).rev() {
-                strides[i] = strides[i + 1] * shape[i];
+                strides[i] = strides[i + 1] * shape[i + 1];
             }
         }
         let mem_handle = server::Handle::new(handle, None, None, size as u64);

@@ -736,7 +736,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     }
 
     fn execute(&self, args: Self::Args) {
-        let smem_size = args.1.shape[0] as u32;
+        let smem_size = args.1.shape()[0] as u32;
         launch_ref::<R, E>(
             self.strategy,
             &self.client,

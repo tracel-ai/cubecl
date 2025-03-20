@@ -93,7 +93,7 @@ impl ComputeServer for DummyServer {
         let rank = shape.len();
         let mut strides = vec![1; rank];
         for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * shape[i];
+            strides[i] = strides[i + 1] * shape[i + 1];
         }
         let handle = self.create(data);
 
@@ -113,7 +113,7 @@ impl ComputeServer for DummyServer {
         let rank = shape.len();
         let mut strides = vec![1; rank];
         for i in (0..rank - 1).rev() {
-            strides[i] = strides[i + 1] * shape[i];
+            strides[i] = strides[i + 1] * shape[i + 1];
         }
         let size = (shape.iter().product::<usize>() * elem_size) as u64;
         let handle = Handle::new(self.memory_management.reserve(size), None, None, size);
