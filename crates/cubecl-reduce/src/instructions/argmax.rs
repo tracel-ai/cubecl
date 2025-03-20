@@ -68,9 +68,12 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
         let coordinate = match coordinate {
             ReduceCoordinate::Required(val) => val,
             ReduceCoordinate::NotRequired => {
-                comptime![panic!["Coordinates are required for ArgMax"]]
+                comptime! {panic!("Coordinates are required for ArgMin")};
+                #[allow(unreachable_code)]
+                Line::new(0)
             }
         };
+
         let (candidate_item, candidate_coordinate) = if use_planes {
             let candidate_item = plane_max(item);
             let candidate_coordinate = lowest_coordinate_matching(candidate_item, item, coordinate);
@@ -78,6 +81,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMax {
         } else {
             (item, coordinate)
         };
+
         Self::choose_argmax(
             candidate_item,
             candidate_coordinate,
