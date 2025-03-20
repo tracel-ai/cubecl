@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    lowest_coordinate_matching, ArgAccumulator, Reduce, ReduceCoordinates, ReduceCoordinatesExpand,
-    ReduceInstruction,
+    ArgAccumulator, Reduce, ReduceCoordinates, ReduceCoordinatesExpand, ReduceInstruction,
+    lowest_coordinate_matching,
 };
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
