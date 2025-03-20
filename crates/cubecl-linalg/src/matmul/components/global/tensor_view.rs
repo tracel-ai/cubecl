@@ -294,19 +294,22 @@ impl<EG: Numeric> TensorReader<EG> {
             config.check_row_bounds(ident),
             config.check_col_bounds(ident)
         )) {
-            (true, true) => select(
+            (true, true) => conditional_read::<Line<EG>, u32>(
                 view_x < self.shape_x && view_y < self.shape_y,
-                self.tensor.read(read_pos),
+                self.tensor.as_slice(0, self.tensor.len()),
+                read_pos,
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
-            (true, false) => select(
+            (true, false) => conditional_read::<Line<EG>, u32>(
                 view_x < self.shape_x,
-                self.tensor.read(read_pos),
+                self.tensor.as_slice(0, self.tensor.len()),
+                read_pos,
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
-            (false, true) => select(
+            (false, true) => conditional_read::<Line<EG>, u32>(
                 view_y < self.shape_y,
-                self.tensor.read(read_pos),
+                self.tensor.as_slice(0, self.tensor.len()),
+                read_pos,
                 Line::empty(line_size).fill(EG::from_int(0)),
             ),
             (false, false) => self.tensor.read(read_pos),
