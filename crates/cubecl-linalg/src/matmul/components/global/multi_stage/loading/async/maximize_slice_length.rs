@@ -38,47 +38,44 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
         let line_size = config.global_line_size(ident);
         let num_buffers = 2;
 
-        // let (num_slices,)
+        // If buffer is parallel to slices, slices are as long as in full stage, but there are less.
+        // Otherwise, slices are shorter but there are as many as in full stage
+        let (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset) = comptime! {
+            match (ident.as_input(), matrix_layout) {
+                (InputIdent::Lhs, MatrixLayout::RowMajor) => {
+                    let num_slices = tiling_dimensions.total_row();
+                    let num_slices_buffer_offset = 0;
+                    let slice_length = tiling_dimensions.total_col() / (num_buffers * line_size);
+                    let slice_buffer_offset = buffer_index * slice_length;
 
-        let num_slices = comptime! {match (ident.as_input(), matrix_layout) {
-            (InputIdent::Lhs, MatrixLayout::RowMajor) => tiling_dimensions.total_row(),
-            (InputIdent::Lhs, MatrixLayout::ColMajor) => {
-                tiling_dimensions.total_col() / num_buffers
-            }
-            (InputIdent::Rhs, MatrixLayout::RowMajor) => {
-                tiling_dimensions.total_row() / num_buffers
-            }
-            (InputIdent::Rhs, MatrixLayout::ColMajor) => tiling_dimensions.total_col(),
-        }};
+                    (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
+                },
+                (InputIdent::Lhs, MatrixLayout::ColMajor) => {
+                    let num_slices = tiling_dimensions.total_col() / num_buffers;
+                    let num_slices_buffer_offset = buffer_index * num_slices;
+                    let slice_length = tiling_dimensions.total_row() / line_size;
+                    let slice_buffer_offset = 0;
 
-        let num_slices_buffer_offset = comptime! {match (ident.as_input(), matrix_layout) {
-            (InputIdent::Lhs, MatrixLayout::RowMajor) =>
-                0
-            ,
-            (InputIdent::Lhs, MatrixLayout::ColMajor) =>
-         buffer_index * num_slices
-            ,
-            (InputIdent::Rhs, MatrixLayout::RowMajor) => buffer_index * num_slices,
-            (InputIdent::Rhs, MatrixLayout::ColMajor) => 0,
-        }};
+                    (num_slices, num_slices_buffer_offset, slice_length , slice_buffer_offset)
+                },
+                (InputIdent::Rhs, MatrixLayout::RowMajor) => {
+                    let num_slices = tiling_dimensions.total_row() / num_buffers;
+                    let num_slices_buffer_offset = buffer_index * num_slices;
+                    let slice_length = tiling_dimensions.total_col() / line_size;
+                    let slice_buffer_offset = 0;
 
-        let slice_length = comptime! {match (ident.as_input(), matrix_layout) {
-            (InputIdent::Lhs, MatrixLayout::RowMajor) => {
-                tiling_dimensions.total_col() / num_buffers
-            }
-            (InputIdent::Lhs, MatrixLayout::ColMajor) => tiling_dimensions.total_row(),
-            (InputIdent::Rhs, MatrixLayout::RowMajor) => tiling_dimensions.total_col(),
-            (InputIdent::Rhs, MatrixLayout::ColMajor) => {
-                tiling_dimensions.total_row() / num_buffers
-            }
-        }} / line_size;
+                    (num_slices, num_slices_buffer_offset, slice_length , slice_buffer_offset)
+                },
+                (InputIdent::Rhs, MatrixLayout::ColMajor) => {
+                    let num_slices = tiling_dimensions.total_col();
+                    let num_slices_buffer_offset = 0;
+                    let slice_length = tiling_dimensions.total_row() / (num_buffers * line_size);
+                    let slice_buffer_offset = buffer_index * slice_length;
 
-        let slice_buffer_offset = comptime! {match (ident.as_input(), matrix_layout) {
-            (InputIdent::Lhs, MatrixLayout::RowMajor) => buffer_index * slice_length,
-            (InputIdent::Lhs, MatrixLayout::ColMajor) => 0u32,
-            (InputIdent::Rhs, MatrixLayout::RowMajor) => 0u32,
-            (InputIdent::Rhs, MatrixLayout::ColMajor) => buffer_index * slice_length,
-        }};
+                    (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset)
+                },
+            }
+        };
 
         let unit_count = config.plane_dim() * config.num_planes();
         let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
@@ -100,14 +97,12 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
                 );
 
             let start = slice_buffer_offset;
-
             let limit = select(
                 slice_buffer_offset < window.size,
                 slice_buffer_offset,
                 window.size,
             );
-            let length = Min::min(window.size - limit, slice_length);
-            let end = start + length;
+            let end = start + Min::min(window.size - limit, slice_length);
 
             let src = window.slice.slice(start, end);
             let mut dest = destination.slice_mut(start, end);
