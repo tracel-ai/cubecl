@@ -3,26 +3,26 @@ use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
 use cubecl_cpp::{
     hip::HipDialect,
     register_supported_types,
-    shared::{register_wmma_features, Architecture, CompilationOptions, CppCompiler, WmmaCompiler},
+    shared::{Architecture, CompilationOptions, CppCompiler, WmmaCompiler, register_wmma_features},
 };
 
 use cubecl_core::{
-    ir::{Elem, FloatKind},
     AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime,
+    ir::{Elem, FloatKind},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
+    ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
-    ComputeRuntime, DeviceProperties,
 };
 
 use crate::{
+    HipWmmaCompiler,
     compute::{HipContext, HipServer, HipStorage},
     device::HipDevice,
-    HipWmmaCompiler,
 };
 
 /// The values that control how a HIP Runtime will perform its calculations.

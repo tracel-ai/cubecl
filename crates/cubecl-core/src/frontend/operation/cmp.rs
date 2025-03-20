@@ -1,5 +1,5 @@
-use crate::frontend::operation::base::cmp_expand;
 use crate::frontend::ExpandElementTyped;
+use crate::frontend::operation::base::cmp_expand;
 use crate::ir::{Comparison, Scope};
 use crate::prelude::CubePrimitive;
 

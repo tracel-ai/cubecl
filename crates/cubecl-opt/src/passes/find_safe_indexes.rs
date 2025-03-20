@@ -1,8 +1,8 @@
 use cubecl_ir::{Operation, Operator, Variable, VariableKind};
 
 use crate::{
-    analyses::{const_len::Slices, integer_range::Ranges},
     AtomicCounter, Optimizer,
+    analyses::{const_len::Slices, integer_range::Ranges},
 };
 
 use super::OptimizerPass;

@@ -1,8 +1,8 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
-    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
-    prelude::{init_expand, KernelBuilder, KernelLauncher},
     Runtime,
+    ir::{ConstantScalarValue, Operation, Scope, Variable, VariableKind},
+    prelude::{KernelBuilder, KernelLauncher, init_expand},
 };
 use cubecl_common::{flex32, tf32};
 use cubecl_ir::ExpandElement;
@@ -35,11 +35,8 @@ pub trait CubeType {
     }
 }
 
-/// Trait useful for cube types that are also used with comptime.
-///
-/// This is used to set a variable as mutable. (Need to be fixed or at least renamed.)
+/// Trait useful to convert a comptime value into runtime value.
 pub trait IntoRuntime: CubeType + Sized {
-    /// Make sure a type is actually expanded into its runtime [expand type](CubeType::ExpandType).
     fn runtime(self) -> Self {
         self
     }
@@ -62,6 +59,27 @@ pub trait CubeDebug: Sized {
     #[allow(unused)]
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
 }
+
+/// A type that can be used as a kernel comptime argument.
+/// Note that a type doesn't need to implement `CubeComptime` to be used as
+/// a comptime argument. However, this facilitate the declaration of generic cube types.
+///
+/// # Example
+///
+/// ```ignore
+/// #[derive(CubeType)]
+/// pub struct Example<A: CubeType, B: CubeComptime> {
+///     a: A,
+///     #[cube(comptime)]
+///     b: B
+/// }
+/// ```
+pub trait CubeComptime: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
+impl<T> CubeComptime for T where T: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
+
+/// A [CubeType] that can be used as a kernel argument such as [Array] or [Tensor].
+pub trait CubeLaunch: CubeType + LaunchArg + LaunchArgExpand {}
+impl<T: CubeType + LaunchArg + LaunchArgExpand> CubeLaunch for T {}
 
 /// Argument used during the compilation of kernels.
 pub trait CompilationArg:
@@ -98,6 +116,8 @@ impl CompilationArg for () {}
 
 /// Defines how a [launch argument](LaunchArg) can be expanded.
 ///
+/// TODO Verify the accuracy of the next comment.
+///
 /// Normally this type should be implemented two times for an argument.
 /// Once for the reference and the other for the mutable reference. Often time, the reference
 /// should expand the argument as an input while the mutable reference should expand the argument
@@ -112,6 +132,7 @@ pub trait LaunchArgExpand: CubeType {
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType;
+
     /// Register an output variable during compilation that fill the [KernelBuilder].
     fn expand_output(
         arg: &Self::CompilationArg,
@@ -127,39 +148,6 @@ pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
     type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
-}
-
-impl LaunchArg for () {
-    type RuntimeArg<'a, R: Runtime> = ();
-
-    fn compilation_arg<'a, R: Runtime>(
-        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
-    ) -> Self::CompilationArg {
-    }
-}
-
-impl<R: Runtime> ArgSettings<R> for () {
-    fn register(&self, _launcher: &mut KernelLauncher<R>) {
-        // nothing to do
-    }
-}
-
-impl LaunchArgExpand for () {
-    type CompilationArg = ();
-
-    fn expand(
-        _: &Self::CompilationArg,
-        _builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
-    }
-}
-
-impl<T: Clone> CubeType for PhantomData<T> {
-    type ExpandType = ();
-}
-
-impl<T: Clone> IntoRuntime for PhantomData<T> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Self::ExpandType {}
 }
 
 /// Defines the argument settings used to launch a kernel.
@@ -389,4 +377,29 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
     let const_val = input.expand.as_const().unwrap();
     let var = Variable::constant(const_val.cast_to(Out::as_elem(scope)));
     ExpandElement::Plain(var).into()
+}
+
+impl LaunchArg for () {
+    type RuntimeArg<'a, R: Runtime> = ();
+
+    fn compilation_arg<'a, R: Runtime>(
+        _runtime_arg: &'a Self::RuntimeArg<'a, R>,
+    ) -> Self::CompilationArg {
+    }
+}
+
+impl<R: Runtime> ArgSettings<R> for () {
+    fn register(&self, _launcher: &mut KernelLauncher<R>) {
+        // nothing to do
+    }
+}
+
+impl LaunchArgExpand for () {
+    type CompilationArg = ();
+
+    fn expand(
+        _: &Self::CompilationArg,
+        _builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
+    }
 }

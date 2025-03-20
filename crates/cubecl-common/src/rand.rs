@@ -1,4 +1,4 @@
-pub use rand::{rngs::StdRng, Rng, SeedableRng};
+pub use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use rand::distr::StandardUniform;
 use rand::prelude::Distribution;

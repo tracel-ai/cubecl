@@ -5,18 +5,17 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
+    Ident, InvalidConfigError, MatrixLayout,
     global::{
-        self,
+        self, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
         loader::sync::{CyclicCoalescedLoading, SyncRhsLoader},
         output_loader::Unloader,
-        single_stage, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
+        single_stage,
     },
     stage::{
-        self,
+        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
         multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
-        ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
     },
-    Ident, InvalidConfigError, MatrixLayout,
 };
 use crate::{
     convolution::{
@@ -61,12 +60,12 @@ pub struct ImplicitGemmConvolution<
 impl<CS: MatmulPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
 where
     SMM: stage::StageMatmul<
-        CS::ES,
-        CS::EG,
-        CS::EA,
-        LhsReader = LhsReader<CS::ES, ConvTilingLayout>,
-        RhsReader = RhsReader<CS::ES, ConvTilingLayout>,
-    >,
+            CS::ES,
+            CS::EG,
+            CS::EA,
+            LhsReader = LhsReader<CS::ES, ConvTilingLayout>,
+            RhsReader = RhsReader<CS::ES, ConvTilingLayout>,
+        >,
 {
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
@@ -232,6 +231,13 @@ where
             problem.has_bias,
         )
     }
+
+    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+        SMM::check_availability::<R, CS>(client, &config.to_smm_config())
+    }
 }
 
 impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
@@ -247,17 +253,19 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
         out: TensorArg<'_, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
-        implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
-            client,
-            cube_count,
-            cube_dim,
-            input,
-            weight,
-            bias,
-            out,
-            config,
-            config.has_bias,
-        );
+        unsafe {
+            implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
+                client,
+                cube_count,
+                cube_dim,
+                input,
+                weight,
+                bias,
+                out,
+                config,
+                config.has_bias,
+            );
+        }
     }
 }
 

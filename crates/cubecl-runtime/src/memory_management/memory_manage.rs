@@ -1,6 +1,6 @@
 use super::{
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool},
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool},
 };
 use crate::storage::{ComputeStorage, StorageHandle};
 #[cfg(not(feature = "std"))]

@@ -1,5 +1,5 @@
-use cubecl_core::ir::{self as gpu};
 use cubecl_core::Feature;
+use cubecl_core::ir::{self as gpu};
 use cubecl_runtime::DeviceProperties;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -231,7 +231,10 @@ pub mod wmma_api_base {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(f, "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});")
+                    writeln!(
+                        f,
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});"
+                    )
                 } else {
                     writeln!(
                         f,
@@ -254,7 +257,10 @@ pub mod wmma_api_base {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    writeln!(f, "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});")
+                    writeln!(
+                        f,
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride}, {layout});"
+                    )
                 } else {
                     writeln!(
                         f,

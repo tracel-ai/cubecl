@@ -12,6 +12,7 @@ use cubecl_core::prelude::*;
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicCoalescedLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 

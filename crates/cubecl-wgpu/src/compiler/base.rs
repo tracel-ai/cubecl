@@ -2,9 +2,9 @@ use std::fmt::Display;
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
+    Compiler, WgpuCompilationOptions,
     prelude::{CompiledKernel, KernelDefinition},
     server::ComputeServer,
-    Compiler, WgpuCompilationOptions,
 };
 use derive_more::derive::From;
 

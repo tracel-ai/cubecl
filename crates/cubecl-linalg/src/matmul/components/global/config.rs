@@ -1,6 +1,6 @@
 use crate::matmul::components::{
-    stage::{self},
     Ident, MatmulConfig, MatrixLayout, TilingDimensions,
+    stage::{self},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
