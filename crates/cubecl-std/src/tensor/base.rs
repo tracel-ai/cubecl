@@ -1,6 +1,6 @@
 /// Checks if the tensor associated with the given strides is contiguous.
 pub fn is_contiguous(strides: &[usize]) -> bool {
-    let mut current = 0;
+    let mut current = 1;
 
     for stride in strides.iter().rev() {
         if current > *stride {
