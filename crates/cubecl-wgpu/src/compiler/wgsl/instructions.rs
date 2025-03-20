@@ -1,6 +1,6 @@
 use super::{
-    base::{Item, Variable},
     Elem, Subgroup,
+    base::{Item, Variable},
 };
 use std::fmt::Display;
 

@@ -1,8 +1,8 @@
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Matrix,
     variable::{ConstVal, IndexedVariable, Variable},
-    SpirvCompiler, SpirvTarget,
 };
 use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
 use rspirv::spirv::{

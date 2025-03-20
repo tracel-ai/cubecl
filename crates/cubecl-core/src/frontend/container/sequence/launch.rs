@@ -3,9 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Runtime,
     compute::KernelBuilder,
     prelude::{ArgSettings, CompilationArg, LaunchArg, LaunchArgExpand},
-    Runtime,
 };
 
 use super::{Sequence, SequenceExpand};

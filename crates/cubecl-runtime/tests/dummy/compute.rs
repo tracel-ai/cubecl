@@ -2,13 +2,13 @@ use super::DummyServer;
 use cubecl_common::CubeDim;
 use cubecl_runtime::storage::BytesStorage;
 use cubecl_runtime::tune::LocalTuner;
+use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 use cubecl_runtime::{channel::MutexComputeChannel, memory_management::HardwareProperties};
 use cubecl_runtime::{client::ComputeClient, tune::TunableSet};
 use cubecl_runtime::{
     memory_management::{MemoryConfiguration, MemoryDeviceProperties, MemoryManagement},
     server::Binding,
 };
-use cubecl_runtime::{ComputeRuntime, DeviceProperties};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, ExpandElementTyped, Init, IntoRuntime};
+use crate::prelude::{CubeDebug, CubeType, ExpandElementTyped, Init};
 
 /// It is similar to a map, but where the keys are stored at comptime, but the values can be runtime
 /// variables.
@@ -137,9 +137,3 @@ impl<K: PartialOrd + Ord, V> Init for Registry<K, V> {
 }
 
 impl<K: PartialOrd + Ord, V> CubeDebug for Registry<K, V> {}
-
-impl<K: PartialOrd + Ord, V: CubeType> IntoRuntime for Registry<K, V> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> Registry<K, V::ExpandType> {
-        unimplemented!("Comptime registry can't be moved to runtime.");
-    }
-}

@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
 use cubecl_core::{
-    prelude::{Numeric, Runtime},
     CubeElement,
+    prelude::{Numeric, Runtime},
 };
 
 use super::test_utils::identity_cpu;

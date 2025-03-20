@@ -1,16 +1,16 @@
 use std::{ffi::CStr, ptr::null_mut};
 
 use ash::vk::{
-    DeviceCreateInfo, ExtendsDeviceCreateInfo, ExtendsPhysicalDeviceFeatures2,
-    PhysicalDevice16BitStorageFeatures, PhysicalDevice8BitStorageFeatures,
-    PhysicalDeviceCooperativeMatrixFeaturesKHR, PhysicalDeviceFeatures2,
-    PhysicalDeviceShaderAtomicFloat2FeaturesEXT, PhysicalDeviceShaderAtomicFloatFeaturesEXT,
-    PhysicalDeviceShaderFloat16Int8Features, PhysicalDeviceShaderFloatControls2FeaturesKHR,
+    DeviceCreateInfo, EXT_SHADER_ATOMIC_FLOAT_NAME, EXT_SHADER_ATOMIC_FLOAT2_NAME,
+    ExtendsDeviceCreateInfo, ExtendsPhysicalDeviceFeatures2, KHR_COOPERATIVE_MATRIX_NAME,
+    KHR_SHADER_FLOAT_CONTROLS2_NAME, PhysicalDevice8BitStorageFeatures,
+    PhysicalDevice16BitStorageFeatures, PhysicalDeviceCooperativeMatrixFeaturesKHR,
+    PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloat2FeaturesEXT,
+    PhysicalDeviceShaderAtomicFloatFeaturesEXT, PhysicalDeviceShaderFloat16Int8Features,
+    PhysicalDeviceShaderFloatControls2FeaturesKHR,
     PhysicalDeviceShaderSubgroupExtendedTypesFeatures, PhysicalDeviceVulkanMemoryModelFeatures,
-    EXT_SHADER_ATOMIC_FLOAT2_NAME, EXT_SHADER_ATOMIC_FLOAT_NAME, KHR_COOPERATIVE_MATRIX_NAME,
-    KHR_SHADER_FLOAT_CONTROLS2_NAME,
 };
-use wgpu::{hal::vulkan, Features};
+use wgpu::{Features, hal::vulkan};
 
 #[derive(Default, Debug)]
 pub struct ExtendedFeatures<'a> {

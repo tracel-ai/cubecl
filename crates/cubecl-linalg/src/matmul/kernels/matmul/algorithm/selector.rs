@@ -1,12 +1,12 @@
-use cubecl_core::{client::ComputeClient, ir::Elem, prelude::CubePrimitive, Feature, Runtime};
+use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg, MatmulProblem,
-        MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg,
+        CompleteStageTiling, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
+        MatmulSpec, OutputRuntimeArg, tile::TileMatmulFamily,
     },
-    kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
+    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
 
 use super::Algorithm;
@@ -44,7 +44,7 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
-fn find_instruction_shape(
+pub(crate) fn find_instruction_shape(
     properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
     m: usize,
     n: usize,
@@ -71,7 +71,7 @@ fn find_instruction_shape(
 /// Maximizes tensor core usage unless doing so would significantly impair
 /// parallelization across SMs. It ensures the number of cubes is as close as
 /// possible to the available SMs.
-fn find_stage_size_m_n(
+pub(crate) fn find_stage_size_m_n(
     m: usize,
     n: usize,
     num_batches: usize,

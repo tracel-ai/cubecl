@@ -1,21 +1,20 @@
 use crate::{
-    backend,
+    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend,
     compute::{WgpuServer, WgpuStorage},
-    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use cubecl_common::future;
 use cubecl_core::{
-    ir::{Elem, FloatKind},
     AtomicFeature, CubeDim, DeviceId, Feature, Runtime,
+    ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
+    ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
     debug::{DebugLogger, ProfileLevel},
-    ComputeRuntime,
 };
-use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
+use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
@@ -40,7 +39,8 @@ impl Runtime for WgpuRuntime {
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
         RUNTIME.client(device, move || {
-            let setup = future::block_on(create_setup_for_device::<AutoGraphicsApi>(device));
+            let setup =
+                future::block_on(create_setup_for_device(device, AutoGraphicsApi::backend()));
             create_client_on_setup(setup, RuntimeOptions::default())
         })
     }
@@ -122,6 +122,8 @@ pub struct WgpuSetup {
     pub device: wgpu::Device,
     /// The queue Burn commands will be submitted to.
     pub queue: wgpu::Queue,
+    /// The backend used by the setup.
+    pub backend: wgpu::Backend,
 }
 
 /// Create a [`WgpuDevice`] on an existing [`WgpuSetup`].
@@ -169,7 +171,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
     device: &WgpuDevice,
     options: RuntimeOptions,
 ) -> WgpuSetup {
-    let setup = create_setup_for_device::<G>(device).await;
+    let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
     let client = create_client_on_setup(setup, options);
     RUNTIME.register(device, client);
@@ -221,7 +223,6 @@ pub(crate) fn create_client_on_setup(
     }
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
-    let backend = AutoGraphicsApi::backend();
     let server = WgpuServer::new(
         mem_props,
         options.memory_config,
@@ -229,7 +230,7 @@ pub(crate) fn create_client_on_setup(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
-        backend,
+        setup.backend,
     );
     let channel = MutexComputeChannel::new(server);
 
@@ -240,12 +241,16 @@ pub(crate) fn create_client_on_setup(
         device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 
-    ComputeClient::new(channel, device_props, backend)
+    ComputeClient::new(channel, device_props, setup.backend)
 }
 
-/// Select the wgpu device and queue based on the provided [device](WgpuDevice).
-pub(crate) async fn create_setup_for_device<G: GraphicsApi>(device: &WgpuDevice) -> WgpuSetup {
-    let (instance, adapter) = request_adapter::<G>(device).await;
+/// Select the wgpu device and queue based on the provided [device](WgpuDevice) and
+/// [backend](wgpu::Backend).
+pub(crate) async fn create_setup_for_device(
+    device: &WgpuDevice,
+    backend: wgpu::Backend,
+) -> WgpuSetup {
+    let (instance, adapter) = request_adapter(device, backend).await;
     let (device, queue) = backend::request_device(&adapter).await;
 
     log::info!(
@@ -259,10 +264,14 @@ pub(crate) async fn create_setup_for_device<G: GraphicsApi>(device: &WgpuDevice)
         adapter,
         device,
         queue,
+        backend,
     }
 }
 
-async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance, wgpu::Adapter) {
+async fn request_adapter(
+    device: &WgpuDevice,
+    backend: wgpu::Backend,
+) -> (wgpu::Instance, wgpu::Adapter) {
     let debug = DebugLogger::default();
     let instance_flags = match (debug.profile_level(), debug.is_activated()) {
         (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
@@ -271,7 +280,7 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
     };
     log::debug!("{instance_flags:?}");
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: G::backend().into(),
+        backends: backend.into(),
         flags: instance_flags,
         ..Default::default()
     });
@@ -290,20 +299,32 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
 
     let adapter = match device {
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::DiscreteGpu(num) => {
-            select_from_adapter_list::<G>(num, "No Discrete GPU device found", &instance, &device)
-        }
+        WgpuDevice::DiscreteGpu(num) => select_from_adapter_list(
+            num,
+            "No Discrete GPU device found",
+            &instance,
+            &device,
+            backend,
+        ),
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::IntegratedGpu(num) => {
-            select_from_adapter_list::<G>(num, "No Integrated GPU device found", &instance, &device)
-        }
+        WgpuDevice::IntegratedGpu(num) => select_from_adapter_list(
+            num,
+            "No Integrated GPU device found",
+            &instance,
+            &device,
+            backend,
+        ),
         #[cfg(not(target_family = "wasm"))]
-        WgpuDevice::VirtualGpu(num) => {
-            select_from_adapter_list::<G>(num, "No Virtual GPU device found", &instance, &device)
-        }
+        WgpuDevice::VirtualGpu(num) => select_from_adapter_list(
+            num,
+            "No Virtual GPU device found",
+            &instance,
+            &device,
+            backend,
+        ),
         #[cfg(not(target_family = "wasm"))]
         WgpuDevice::Cpu => {
-            select_from_adapter_list::<G>(0, "No CPU device found", &instance, &device)
+            select_from_adapter_list(0, "No CPU device found", &instance, &device, backend)
         }
         WgpuDevice::Existing(_) => {
             unreachable!("Cannot select an adapter for an existing device.")
@@ -324,17 +345,18 @@ async fn request_adapter<G: GraphicsApi>(device: &WgpuDevice) -> (wgpu::Instance
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn select_from_adapter_list<G: GraphicsApi>(
+fn select_from_adapter_list(
     num: usize,
     error: &str,
     instance: &wgpu::Instance,
     device: &WgpuDevice,
+    backend: wgpu::Backend,
 ) -> wgpu::Adapter {
     let mut adapters_other = Vec::new();
     let mut adapters = Vec::new();
 
     instance
-        .enumerate_adapters(G::backend().into())
+        .enumerate_adapters(backend.into())
         .into_iter()
         .for_each(|adapter| {
             let device_type = adapter.get_info().device_type;

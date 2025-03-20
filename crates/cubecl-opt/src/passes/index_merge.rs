@@ -4,7 +4,7 @@ use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Operation, Operator, Variab
 
 use crate::{AtomicCounter, Optimizer};
 
-use super::{item_compatible, OptimizerPass};
+use super::{OptimizerPass, item_compatible};
 
 /// Transform consecutive `Index` and `IndexAssign` operations that don't modify the value into a
 /// single `Copy` operation.

@@ -2,9 +2,7 @@ use cubecl_ir::{ExpandElement, Scope};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    frontend::{
-        branch::Iterable, indexation::Index, CubeType, ExpandElementTyped, Init, IntoRuntime,
-    },
+    frontend::{CubeType, ExpandElementTyped, Init, branch::Iterable, indexation::Index},
     prelude::CubeDebug,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -244,11 +242,5 @@ impl<T: CubeType> SequenceExpand<T> {
     pub fn __expand_len_method(&self, _scope: &mut Scope) -> u32 {
         let values = self.values.borrow();
         values.len() as u32
-    }
-}
-
-impl<T: CubeType> IntoRuntime for Sequence<T> {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> SequenceExpand<T> {
-        unimplemented!("Sequence doesn't exist at compile time");
     }
 }

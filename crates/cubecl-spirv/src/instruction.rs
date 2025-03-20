@@ -5,10 +5,10 @@ use cubecl_core::ir::{
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Slice,
     variable::IndexedVariable,
-    SpirvCompiler, SpirvTarget,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {

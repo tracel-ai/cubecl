@@ -7,7 +7,7 @@ extern crate derive_new;
 pub mod frontend;
 
 /// Some future utilities that work across environments.
-pub use cubecl_common::{future, PLANE_DIM_APPROX};
+pub use cubecl_common::{PLANE_DIM_APPROX, future};
 
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 pub use frontend::cmma;

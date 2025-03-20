@@ -1,22 +1,22 @@
 use crate::matmul::components::{
-    stage::{shared::CommonStageConfig, ReaderFamily, TilingLayout},
+    stage::{ReaderFamily, TilingLayout, shared::CommonStageConfig},
     tile::{Tile, TileConfig},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{stage::Stage, Ident};
+use crate::matmul::components::{Ident, stage::Stage};
 
 #[derive(CubeType)]
 pub struct LhsBufferReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
-    pub buffer: u32,
+    pub buffer_idx: u32,
 }
 
 #[derive(CubeType)]
 pub struct RhsBufferReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
-    pub buffer: u32,
+    pub buffer_idx: u32,
 }
 
 pub struct LhsBufferReaderFamily;
@@ -32,6 +32,10 @@ impl ReaderFamily for RhsBufferReaderFamily {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
+    pub fn new(stage: Stage<ES, T>, buffer_idx: u32) -> LhsBufferReader<ES, T> {
+        LhsBufferReader::<ES, T> { stage, buffer_idx }
+    }
+
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
@@ -39,7 +43,7 @@ impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
             compute_plane_offset,
-            this.buffer,
+            this.buffer_idx,
             Ident::Lhs,
             config,
         )
@@ -48,13 +52,17 @@ impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> RhsBufferReader<ES, T> {
+    pub fn new(stage: Stage<ES, T>, buffer_idx: u32) -> RhsBufferReader<ES, T> {
+        RhsBufferReader::<ES, T> { stage, buffer_idx }
+    }
+
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         accumulator_offset: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
-            this.buffer,
+            this.buffer_idx,
             accumulator_offset,
             Ident::Rhs,
             config,

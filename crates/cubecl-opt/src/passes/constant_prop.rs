@@ -4,8 +4,8 @@ use cubecl_ir::{
 };
 
 use crate::{
-    analyses::const_len::{Slice, Slices},
     AtomicCounter, Optimizer,
+    analyses::const_len::{Slice, Slices},
 };
 
 use super::OptimizerPass;

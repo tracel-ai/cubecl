@@ -2,11 +2,10 @@ use std::mem::take;
 
 use quote::quote_spanned;
 use syn::{
-    parse_quote,
+    Expr, ExprLoop, ExprWhile, Index, Local, LocalInit, Pat, PatStruct, PatTuple, PatTupleStruct,
+    Stmt, parse_quote,
     spanned::Spanned,
     visit_mut::{self, VisitMut},
-    Expr, ExprLoop, ExprWhile, Index, Local, LocalInit, Pat, PatStruct, PatTuple, PatTupleStruct,
-    Stmt,
 };
 
 pub struct Desugar;

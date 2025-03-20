@@ -3,9 +3,9 @@ use cubecl_core::ir::Metadata;
 use rspirv::spirv::{StorageClass, Word};
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{Globals, Variable},
-    SpirvCompiler, SpirvTarget,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {

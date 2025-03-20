@@ -99,17 +99,17 @@ mod profile {
             write_line("⎺", f)?;
 
             writeln!(
-            f,
-            "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
-            header_name,
-            header_duration,
-            header_num_computed,
-            header_ratio,
-            width_name = name_len,
-            width_duration = duration_len,
-            width_num_computed = num_computed_len,
-            width_ratio = ratio_len,
-        )?;
+                f,
+                "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
+                header_name,
+                header_duration,
+                header_num_computed,
+                header_ratio,
+                width_name = name_len,
+                width_duration = duration_len,
+                width_num_computed = num_computed_len,
+                width_ratio = ratio_len,
+            )?;
 
             write_line("⎼", f)?;
 
@@ -117,17 +117,17 @@ mod profile {
                 let ratio = (100 * num.as_micros()) / total_duration.as_micros();
 
                 writeln!(
-                f,
-                "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
-                name,
-                duration,
-                num_computed,
-                format!("{} %", ratio),
-                width_name = name_len,
-                width_duration = duration_len,
-                width_num_computed = num_computed_len,
-                width_ratio = ratio_len,
-            )?;
+                    f,
+                    "| {:<width_name$} | {:<width_duration$} | {:<width_num_computed$} | {:<width_ratio$} |",
+                    name,
+                    duration,
+                    num_computed,
+                    format!("{} %", ratio),
+                    width_name = name_len,
+                    width_duration = duration_len,
+                    width_num_computed = num_computed_len,
+                    width_ratio = ratio_len,
+                )?;
             }
 
             write_line("⎼", f)?;

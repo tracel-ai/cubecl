@@ -1,8 +1,8 @@
 use crate::{
-    hip::{arch::AMDArchitecture, HipDialect},
+    hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        wmma_api_base, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
-        WmmaCompiler, WmmaInstruction,
+        Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};

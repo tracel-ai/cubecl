@@ -1,15 +1,17 @@
 use cubecl_core::{
+    Runtime,
     client::ComputeClient,
     prelude::{Numeric, TensorArg},
-    Runtime,
 };
 
-use crate::convolution::base::ConvolutionLaunch;
 use crate::matmul::kernels::MatmulLaunchError;
+use crate::{convolution::base::ConvolutionLaunch, matmul::components::MatmulPrecision};
 
 use super::{
-    algorithm::Algorithm, base::ConvolutionProblem, precision::ConvPrecision,
-    selection::ConvSelector, ConvLaunchError,
+    ConvLaunchError,
+    algorithm::Algorithm,
+    base::{ConvolutionConfigFactory, ConvolutionProblem},
+    selection::ConvSelector,
 };
 
 /// Perform a 2D convolution using the implicit GEMM (im2col) algorithm, using cubecl tiling matmul
@@ -19,7 +21,7 @@ use super::{
 /// * `weight` - The weights (filter) applied to each kernel
 /// * `bias` - The bias added to each channel
 /// * `options` - The options to use for the convolution
-pub fn launch_conv2d_nhwc<R: Runtime, SP: ConvPrecision, Alg: Algorithm, S: ConvSelector<Alg>>(
+pub fn launch_conv2d_nhwc<R: Runtime, SP: MatmulPrecision, Alg: Algorithm, S: ConvSelector<Alg>>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorArg<R>,
     weight: TensorArg<R>,
@@ -36,12 +38,16 @@ where
         .defined_plane_size()
         .unwrap_or(32);
 
-    let (selection, config_input) = S::select_kernel::<R, SP>(plane_dim);
+    let (selection, config_input) = S::select_kernel::<R, SP>(client, &problem, plane_dim);
     let cube_dim = Alg::cube_dim(&selection);
     let cube_count = Alg::cube_count(&selection, &problem);
 
     let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
+
+    <Alg::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, SP>(
+        client, &config,
+    )?;
 
     unsafe {
         Alg::GlobalConvolution::launch_unchecked::<SP, R>(

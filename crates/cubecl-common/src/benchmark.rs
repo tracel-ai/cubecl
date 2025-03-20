@@ -261,11 +261,15 @@ pub trait Benchmark {
             Ok(time) => time,
             Err(err) => match err {
                 TimestampsError::Disabled => {
-                    panic!("Collecting timestamps is deactivated, make sure to enable it before running the benchmark");
+                    panic!(
+                        "Collecting timestamps is deactivated, make sure to enable it before running the benchmark"
+                    );
                 }
                 TimestampsError::Unavailable => start.elapsed(),
                 TimestampsError::Unknown(err) => {
-                    panic!("An unknown error occurred while collecting the timestamps when benchmarking: {err}");
+                    panic!(
+                        "An unknown error occurred while collecting the timestamps when benchmarking: {err}"
+                    );
                 }
             },
         }

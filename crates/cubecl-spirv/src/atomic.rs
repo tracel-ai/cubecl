@@ -1,7 +1,7 @@
 use cubecl_core::ir::{AtomicOp, Variable};
 use rspirv::spirv::{Capability, MemorySemantics, Scope};
 
-use crate::{item::Elem, SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_atomic(&mut self, atomic: AtomicOp, out: Option<Variable>) {

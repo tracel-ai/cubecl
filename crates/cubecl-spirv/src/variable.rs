@@ -1,9 +1,9 @@
 use std::mem::transmute;
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Array,
-    SpirvCompiler, SpirvTarget,
 };
 use cubecl_common::ExecutionMode;
 use cubecl_core::ir::{self, ConstantScalarValue, FloatKind, Id};

@@ -1,5 +1,5 @@
 #[cfg(autotune_persistent_cache)]
-use rand::{distr::Alphanumeric, Rng};
+use rand::{Rng, distr::Alphanumeric};
 use std::sync::Arc;
 
 use cubecl_runtime::{
@@ -8,12 +8,12 @@ use cubecl_runtime::{
 };
 
 use crate::{
+    DummyKernel,
     dummy::{
         CacheTestFastOn3, CacheTestSlowOn3, DummyClient, DummyElementwiseAddition,
         DummyElementwiseMultiplication, DummyElementwiseMultiplicationSlowWrong,
         OneKernelAutotuneOperation,
     },
-    DummyKernel,
 };
 
 use super::DummyElementwiseAdditionSlowWrong;

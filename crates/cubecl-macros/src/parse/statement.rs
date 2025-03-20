@@ -1,5 +1,5 @@
 use quote::format_ident;
-use syn::{parse_quote, ExprArray, LitStr, Pat, Stmt, Type, TypeReference};
+use syn::{ExprArray, LitStr, Pat, Stmt, Type, TypeReference, parse_quote};
 
 use crate::{
     expression::Expression,

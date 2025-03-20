@@ -1,18 +1,18 @@
 use cubecl_ir::ExpandElement;
 
+use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
 use crate::prelude::{FindFirstSet, LeadingZeros};
-use crate::Runtime;
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
 };
 
 use super::{
-    init_expand_element, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init,
-    IntoRuntime, LaunchArgExpand, ScalarArgSettings, __expand_new,
+    __expand_new, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings, init_expand_element,
 };
 
 mod typemap;
