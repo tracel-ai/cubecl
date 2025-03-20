@@ -1,7 +1,7 @@
-use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::LoadingValidation;
+use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

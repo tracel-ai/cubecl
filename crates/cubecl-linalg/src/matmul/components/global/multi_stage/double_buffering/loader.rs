@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::Ident;
+use crate::matmul::components::global::CommonGlobalConfig;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::multi_stage::{
     BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::CommonGlobalConfig;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
