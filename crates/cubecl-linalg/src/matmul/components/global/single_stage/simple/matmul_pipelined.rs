@@ -2,10 +2,11 @@ use crate::matmul::components::{
     MatmulPrecision,
     global::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        base::{AsyncInputLoader, InputLoader},
-        loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
         output_loader::Unloader,
-        single_stage::Config,
+        single_stage::{
+            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
+            FullLoader,
+        },
     },
     stage::{
         StageMatmul,
@@ -35,8 +36,8 @@ use crate::matmul::{
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -46,8 +47,8 @@ pub struct SimplePipelinedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
         MP,
@@ -60,8 +61,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -116,8 +117,8 @@ where
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -135,8 +136,8 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;

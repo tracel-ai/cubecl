@@ -355,11 +355,15 @@ impl MatmulConfigFactory for PlaneMma {
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         if config.size.m * config.size.n % config.plane_dim != 0 {
-            return Err(Box::new("Todo"));
+            return Err(Box::new(
+                "Lhs number of elements should be divisible by plane dimension.",
+            ));
         }
 
         if config.size.k * config.size.n % config.plane_dim != 0 {
-            return Err(Box::new("Todo"));
+            return Err(Box::new(
+                "Rhs number of elements should be divisible by plane dimension.",
+            ));
         }
 
         Ok(())

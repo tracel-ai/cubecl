@@ -1,30 +1,25 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::base::InputBufferLoader;
-use crate::matmul::components::global::base::SyncInputBufferLoader;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig};
-use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::{MatmulPrecision, stage};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
+use super::SyncLhsBufferLoader;
+use super::SyncRhsBufferLoader;
+use crate::matmul::components::{
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
+};
+use crate::matmul::components::{
+    global::{
+        self, CommonGlobalConfig, GlobalConfig, GlobalMatmulFamily, IndexedQuantization,
+        ZeroAccumulatorLoader,
+        multi_stage::{BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy},
+        output_loader::Unloader,
+    },
+    stage::single_buffer::{
+        LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
+    },
+};
+use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
-
-use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
-
-use crate::matmul::components::InvalidConfigError;
-use crate::matmul::components::MatmulConfigFactory;
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::stage::single_buffer::{
-    LhsBufferReaderFamily, RhsBufferReaderFamily,
-};
-use crate::matmul::kernels::MatmulAvailabilityError;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,

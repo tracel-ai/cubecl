@@ -1,11 +1,12 @@
 use crate::matmul::components::{
     MatmulPrecision,
     global::{
-        GlobalMatmul, IndexedQuantization, SyncInputLoader, ZeroAccumulatorLoader,
-        base::InputLoader,
-        loader::sync::{SyncFullLoadingStrategy, SyncLhsLoader, SyncRhsLoader},
+        GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
-        single_stage::Config,
+        single_stage::{
+            Config, FullLoader, SyncFullLhsLoader, SyncFullLoader, SyncFullLoadingStrategy,
+            SyncFullRhsLoader,
+        },
     },
     stage::{
         StageMatmul,
@@ -14,10 +15,8 @@ use crate::matmul::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{
-    CubeOption, CubeOptionExpand,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::matmul::{
@@ -132,8 +131,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncFullLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncFullRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

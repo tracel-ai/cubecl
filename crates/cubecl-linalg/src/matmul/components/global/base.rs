@@ -1,9 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{
-    IndexedQuantization, loader::r#async::CopyMechanism, multi_stage::double_buffering::BufferId,
-};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
@@ -15,6 +12,8 @@ use cubecl_std::{
     CubeOption,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
+
+use super::IndexedQuantization;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -97,79 +96,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
-}
-
-// TODO move to single stage
-#[cube]
-/// Input to the global matmul, responsible of filling the stage and providing a reader for it.
-/// Advances along the k-dimension to fill the stage with further data.
-pub trait InputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    CubeType + 'static + Send + Sync
-{
-    /// The stage reader which matches the input of the underlying stage matmul.
-    type StageReader: CubeType;
-
-    /// Returns a reader for the stage at the current k offset
-    fn as_stage_reader(this: &Self) -> Self::StageReader;
-
-    /// Move the k offset by k_offset
-    fn advance_view(this: &mut Self, k_offset: u32);
-
-    /// Fills the stage with zeros
-    fn clear_stage(this: &mut Self, #[comptime] config: G);
-}
-
-#[cube]
-pub trait SyncInputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    InputLoader<EG, ES, G>
-{
-    /// Fills the stage at the current k offset.
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
-}
-
-#[cube]
-pub trait AsyncInputLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    InputLoader<EG, ES, G>
-{
-    /// Fills the stage at the current k offset.
-    fn fill_stage<CM: CopyMechanism<ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
-}
-
-// TODO move to multi stage
-#[cube]
-pub trait InputBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    CubeType + 'static + Send + Sync
-{
-    type StageReader: CubeType;
-
-    // TODO maybe buffer cannot be comptime in the future
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader;
-
-    fn advance_view(this: &mut Self, k_offset: u32);
-
-    // TODO: Maybe will need buffer index
-    fn clear_stage(this: &mut Self, #[comptime] config: G);
-}
-
-#[cube]
-pub trait SyncInputBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    InputBufferLoader<EG, ES, G>
-{
-    /// Fills the buffer at the current k offset.
-    fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G);
-}
-
-#[cube]
-pub trait AsyncInputBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    InputBufferLoader<EG, ES, G>
-{
-    /// Fills the buffer at the current k offset.
-    fn fill_stage<CM: CopyMechanism<ES>>(
-        this: &mut Self,
-        mechanism: &CM,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: G,
-    );
 }
 
 #[cube]

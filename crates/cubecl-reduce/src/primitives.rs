@@ -323,6 +323,7 @@ pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
 }
 
 #[cube]
+#[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
 #[allow(clippy::manual_div_ceil)]
 fn div_ceil(a: u32, b: u32) -> u32 {
     (a + b - 1) / b

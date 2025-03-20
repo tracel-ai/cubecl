@@ -4,10 +4,11 @@ use crate::matmul::{
         global::{
             GlobalConfig, GlobalMatmul, GlobalMatmulFamily, IndexedQuantization,
             ZeroAccumulatorLoader,
-            base::{AsyncInputLoader, InputLoader},
-            loader::r#async::{AsyncLhsLoader, AsyncLoadingStrategy, AsyncRhsLoader},
             output_loader::Unloader,
-            single_stage::Config,
+            single_stage::{
+                AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
+                FullLoader,
+            },
         },
         stage::{
             self, StageMatmul,
@@ -17,17 +18,17 @@ use crate::matmul::{
     kernels::MatmulAvailabilityError,
 };
 use barrier::Barrier;
-use cubecl_core::Feature;
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
+use core::marker::PhantomData;
+use cubecl::Feature;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
-use std::marker::PhantomData;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -37,8 +38,8 @@ pub struct SimpleBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
         MP,
@@ -51,8 +52,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -107,8 +108,8 @@ where
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -126,8 +127,8 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
