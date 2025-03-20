@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
+use crate::matmul::components::Ident;
 use crate::matmul::components::global::CommonGlobalConfig;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::{

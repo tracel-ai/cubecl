@@ -10,7 +10,6 @@ use crate::matmul::components::global::multi_stage::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;

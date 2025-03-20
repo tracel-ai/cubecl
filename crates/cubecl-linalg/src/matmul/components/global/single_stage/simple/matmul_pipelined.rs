@@ -1,3 +1,4 @@
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
@@ -8,7 +9,6 @@ use crate::matmul::components::global::single_stage::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::single_stage::FullLoader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 

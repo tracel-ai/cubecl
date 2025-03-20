@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    MatmulProblem, MatmulProblem, MatmulSelection, MatmulSelection,
+    MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self, single_stage::AsyncFullLoadingStrategy},
     stage, tile,

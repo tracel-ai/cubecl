@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
@@ -9,9 +12,9 @@ use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::single_stage::FullLoader;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 
 use barrier::Barrier;
+use cubecl_core::Feature;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};

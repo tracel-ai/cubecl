@@ -24,7 +24,6 @@ pub struct SyncLhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    num_buffers: u32,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -39,7 +38,6 @@ pub struct SyncRhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    num_buffers: u32,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -95,7 +93,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncLhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            num_buffers: config.tiling_dimensions(Ident::Lhs).tile_count_col(),
             is_producer,
             _config: PhantomData,
         }
@@ -152,7 +149,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncRhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            num_buffers: config.tiling_dimensions(Ident::Rhs).tile_count_row(),
             is_producer,
             _config: PhantomData::<S>,
         }

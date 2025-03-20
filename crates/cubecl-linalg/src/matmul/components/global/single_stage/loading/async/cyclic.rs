@@ -3,8 +3,6 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;

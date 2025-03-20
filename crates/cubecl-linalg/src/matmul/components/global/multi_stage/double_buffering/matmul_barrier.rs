@@ -8,6 +8,7 @@ use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{MatmulPrecision, stage};
+use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -78,6 +79,10 @@ where
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
+        if !client.properties().feature_enabled(Feature::Barrier) {
+            return Err(MatmulAvailabilityError::BarrierUnavailable);
+        }
+
         SMM::check_availability::<R, MP>(client, &config.smm_config)
     }
 

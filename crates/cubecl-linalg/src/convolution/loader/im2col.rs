@@ -7,8 +7,6 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::single_stage::{FullLoader, SyncFullLoader},
-    global::{InputLoader, SyncInputLoader},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
 };
 use crate::{
