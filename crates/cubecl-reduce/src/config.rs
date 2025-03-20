@@ -154,6 +154,7 @@ impl ReduceConfig {
         };
 
         if self.line_size_input > 1 && self.line_mode == LineMode::Perpendicular {
+            // TODO that this can be improved
             let rank = output.strides.len();
             let is_contiguous =
                 is_contiguous(&output.strides[axis..rank]) && output.strides[rank - 1] == 1;
