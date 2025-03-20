@@ -71,10 +71,10 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     let reduce_index = get_reduce_index(params);
 
-    if comptime![params.bound_checks] {
-        if reduce_index >= get_reduce_count(output.len() * params.line_size_output, params) {
-            terminate!();
-        }
+    if comptime![params.bound_checks]
+        && reduce_index >= get_reduce_count(output.len() * params.line_size_output, params)
+    {
+        terminate!();
     }
 
     let range = ReduceRange::new::<In, Out>(
