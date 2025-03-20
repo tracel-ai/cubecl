@@ -1,21 +1,20 @@
 use crate::{
-    backend,
+    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend,
     compute::{WgpuServer, WgpuStorage},
-    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice,
 };
 use cubecl_common::future;
 use cubecl_core::{
-    ir::{Elem, FloatKind},
     AtomicFeature, CubeDim, DeviceId, Feature, Runtime,
+    ir::{Elem, FloatKind},
 };
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::{
+    ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
     debug::{DebugLogger, ProfileLevel},
-    ComputeRuntime,
 };
-use cubecl_runtime::{memory_management::HardwareProperties, DeviceProperties};
+use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{memory_management::MemoryDeviceProperties, storage::ComputeStorage};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 

@@ -3,11 +3,11 @@ use crate::{
     flex32,
     frontend::{CubePrimitive, ExpandElementTyped},
 };
+use crate::{frontend::CubeType, tf32};
 use crate::{
     frontend::operation::base::{binary_expand, binary_expand_fixed_output},
     unexpanded,
 };
-use crate::{frontend::CubeType, tf32};
 use half::{bf16, f16};
 
 pub mod add {

@@ -1,15 +1,15 @@
+use crate::matmul::components::Ident;
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::multi_stage::{
     BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
@@ -18,16 +18,16 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
+        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
         },
-        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -45,9 +45,9 @@ pub struct SpecializedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-        LhsReader = LhsBufferReaderFamily,
-        RhsReader = RhsBufferReaderFamily,
-    >,
+            LhsReader = LhsBufferReaderFamily,
+            RhsReader = RhsBufferReaderFamily,
+        >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
@@ -70,7 +70,9 @@ where
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         if config.num_producers() == 0 {
-            return Err(Box::new("There are no producer planes. Make sure there are more planes than the underlying stage matmul requires."));
+            return Err(Box::new(
+                "There are no producer planes. Make sure there are more planes than the underlying stage matmul requires.",
+            ));
         }
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() <= 1 {
             return Err(Box::new("Producer-consumer needs at least 2 buffers."));
@@ -136,12 +138,12 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for SpecializedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
@@ -280,17 +282,17 @@ where
 
 #[cube]
 impl<
-        MP: MatmulPrecision,
-        SMM: StageMatmul<
+    MP: MatmulPrecision,
+    SMM: StageMatmul<
             MP::ES,
             MP::EG,
             MP::EA,
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,
-        LL: SyncBufferLoadingStrategy,
-        RL: SyncBufferLoadingStrategy,
-    > SpecializedMatmul<MP, SMM, LL, RL>
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+> SpecializedMatmul<MP, SMM, LL, RL>
 {
     fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {
         UNIT_POS_Y < config.num_consumers()

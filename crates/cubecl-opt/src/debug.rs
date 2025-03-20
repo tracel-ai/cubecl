@@ -4,9 +4,9 @@ use cubecl_ir::{FloatKind, IntKind, UIntKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{
+    ControlFlow,
     analyses::{const_len::Slices, liveness::Liveness, uniformity::Uniformity},
     gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
-    ControlFlow,
 };
 
 use super::Optimizer;

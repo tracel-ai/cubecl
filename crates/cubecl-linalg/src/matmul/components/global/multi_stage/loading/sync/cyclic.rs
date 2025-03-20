@@ -13,6 +13,7 @@ use super::SyncBufferLoadingStrategy;
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct CyclicCoalescedBufferLoading<T: TilingOrder> {
+    #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 

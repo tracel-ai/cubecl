@@ -3,15 +3,11 @@ use crate::{
     paths::prelude_type,
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, PathArguments, Type};
 
 impl CubeTypeEnum {
     pub fn generate(&self, with_launch: bool) -> TokenStream {
-        let expand_ty = self.expand_ty();
-        let cube_type_impl = self.cube_type_impl();
-        let expand_type_impl = self.expand_type_impl();
-
         if with_launch {
             let args_ty = self.args_ty();
             let arg_settings_impl = self.arg_settings_impl();
@@ -21,10 +17,6 @@ impl CubeTypeEnum {
             let launch_arg_expand_impl = self.launch_arg_expand_impl();
 
             quote! {
-                #expand_ty
-                #cube_type_impl
-                #expand_type_impl
-
                 #args_ty
                 #arg_settings_impl
                 #launch_arg_impl
@@ -33,6 +25,10 @@ impl CubeTypeEnum {
                 #launch_arg_expand_impl
             }
         } else {
+            let expand_ty = self.expand_ty();
+            let cube_type_impl = self.cube_type_impl();
+            let expand_type_impl = self.expand_type_impl();
+
             quote! {
                 #expand_ty
                 #cube_type_impl
@@ -48,7 +44,6 @@ impl CubeTypeEnum {
         let vis = &self.vis;
 
         quote! {
-            #[derive(Clone)]
             #vis enum #name #generics {
                 #(#variants),*
             }
@@ -71,7 +66,6 @@ impl CubeTypeEnum {
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let context = prelude_type("Scope");
-        let into_runtime = prelude_type("IntoRuntime");
         let init = prelude_type("Init");
         let debug = prelude_type("CubeDebug");
 
@@ -83,15 +77,15 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.init_body(name_expand))
+                .map(|v| v.map_body(name_expand, |f| quote!(#init::init(#f, context))))
                 .collect(),
         );
 
-        let body_into_runtime = self.match_impl(
+        let body_clone = self.match_impl(
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.runtime_body(name, name_expand))
+                .map(|v| v.map_body(name_expand, |f| quote!(#f.clone())))
                 .collect(),
         );
 
@@ -111,10 +105,9 @@ impl CubeTypeEnum {
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
 
-            impl #generics #into_runtime for #name #generic_names #where_clause {
-                fn __expand_runtime_method(self, context: &mut #context) -> Self::ExpandType {
-                    let expand = #body_into_runtime;
-                    #init::init(expand, context)
+            impl #generics Clone for #name_expand #generic_names #where_clause {
+                fn clone(&self) -> Self {
+                    #body_clone
                 }
             }
 
@@ -125,6 +118,7 @@ impl CubeTypeEnum {
                     #new_variant_functions
                 )*
             }
+
         }
     }
 
@@ -356,14 +350,72 @@ impl CubeTypeEnum {
 
         let (generics_impl, generic_names, where_clause) = self.generics.split_for_impl();
 
+        let body_clone = self.match_impl(
+            quote! {self},
+            self.variants
+                .iter()
+                .map(|v| v.map_body(&name, |f| quote!(#f.clone())))
+                .collect(),
+        );
+
+        let body_partial_eq = self.match_impl(
+            quote! {(self, other)},
+            self.variants
+                .iter()
+                .map(|v| v.partial_eq_body(&name))
+                .chain(std::iter::once(quote! { _ => false}))
+                .collect(),
+        );
+
+        let body_hash = self.match_impl(
+            quote! {self},
+            self.variants
+                .iter()
+                .map(|v| v.for_each_body(&name, |f| quote!(#f.hash(state))))
+                .collect(),
+        );
+
+        let body_debug = self.match_impl(
+            quote! {self},
+            self.variants.iter().map(|v| v.debug_body(&name)).collect(),
+        );
+
         quote! {
-            #[derive(Clone, serde::Serialize, serde::Deserialize, Hash, PartialEq, Eq, Debug)]
+            #[derive(serde::Serialize, serde::Deserialize)]
             #[serde(bound(serialize = "", deserialize = ""))]
             #vis enum #name #generics {
                 #(
                     #variants
                 ),*
             }
+
+            impl #generics_impl Clone for #name #generic_names #where_clause {
+                fn clone(&self) -> Self {
+                    #body_clone
+                }
+            }
+
+            impl #generics_impl PartialEq for #name #generic_names #where_clause {
+                fn eq(&self, other: &Self) -> bool {
+                    #body_partial_eq
+                }
+            }
+
+            impl #generics_impl Eq for #name #generic_names #where_clause {}
+
+            impl #generics_impl core::hash::Hash for #name #generic_names #where_clause {
+                fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+                    #body_hash;
+                }
+            }
+
+
+            impl #generics_impl core::fmt::Debug for #name #generic_names #where_clause {
+                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    #body_debug
+                }
+            }
+
 
             impl #generics_impl #compilation_arg for #name #generic_names #where_clause {}
         }
@@ -536,41 +588,21 @@ impl CubeTypeVariant {
         }
     }
 
-    fn runtime_body(&self, ident_ty: &Ident, ident_ty_expand: &Ident) -> TokenStream {
+    fn map_body<F: Fn(&Ident) -> TokenStream>(
+        &self,
+        ident_ty_expand: &Ident,
+        fn_call: F,
+    ) -> TokenStream {
         let name = &self.ident;
-        let into_runtime = prelude_type("IntoRuntime");
         let body = self.field_names.iter().map(|name| {
+            let called = fn_call(name);
             if let VariantKind::Named = self.kind {
                 quote! {
-                    #name: #into_runtime::__expand_runtime_method(#name, context)
+                    #name: #called
                 }
             } else {
                 quote! {
-                    #into_runtime::__expand_runtime_method(#name, context)
-                }
-            }
-        });
-
-        let body = match self.kind {
-            VariantKind::Named => quote![#ident_ty_expand::#name { #(#body),*} ],
-            VariantKind::Unnamed => quote![#ident_ty_expand::#name ( #(#body),* ) ],
-            VariantKind::Empty => quote![#ident_ty_expand::#name],
-        };
-
-        self.run_on_variants(ident_ty, body)
-    }
-
-    fn init_body(&self, ident_ty_expand: &Ident) -> TokenStream {
-        let name = &self.ident;
-        let init = prelude_type("Init");
-        let body = self.field_names.iter().map(|name| {
-            if let VariantKind::Named = self.kind {
-                quote! {
-                    #name: #init::init(#name, context)
-                }
-            } else {
-                quote! {
-                    #init::init(#name, context)
+                    #called
                 }
             }
         });
@@ -579,6 +611,72 @@ impl CubeTypeVariant {
             VariantKind::Named => quote![#ident_ty_expand::#name { #(#body),* } ],
             VariantKind::Unnamed => quote![#ident_ty_expand::#name ( #(#body),* ) ],
             VariantKind::Empty => quote![#ident_ty_expand::#name],
+        };
+
+        self.run_on_variants(ident_ty_expand, body)
+    }
+
+    fn for_each_body<F: Fn(&Ident) -> TokenStream>(
+        &self,
+        ident_ty_expand: &Ident,
+        fn_call: F,
+    ) -> TokenStream {
+        let body = self.field_names.iter().map(|name| {
+            let called = fn_call(name);
+            quote! {
+                #called
+            }
+        });
+
+        let body = match self.kind {
+            VariantKind::Named | VariantKind::Unnamed => quote![ {#(#body;)*} ],
+            VariantKind::Empty => quote![{}],
+        };
+
+        self.run_on_variants(ident_ty_expand, body)
+    }
+
+    fn partial_eq_body(&self, ident_ty_expand: &Ident) -> TokenStream {
+        let body = self.field_names.iter().map(|name| {
+            let ident_0 = format_ident!("{name}_0");
+            let ident_1 = format_ident!("{name}_1");
+            quote! { #ident_0 == #ident_1 }
+        });
+
+        let body = match self.kind {
+            VariantKind::Named => quote![{ #(#body)&& * } ],
+            VariantKind::Unnamed => quote![{ #(#body)&& * } ],
+            VariantKind::Empty => quote![{ true }],
+        };
+
+        self.run_on_variant_pairs(ident_ty_expand, body)
+    }
+
+    fn debug_body(&self, ident_ty_expand: &Ident) -> TokenStream {
+        let body = self.field_names.iter().map(|name| match self.kind {
+            VariantKind::Named => {
+                let field = name.to_string();
+                quote! { .field(#field, #name) }
+            }
+            VariantKind::Unnamed => quote! { .field(#name) },
+            VariantKind::Empty => quote! {},
+        });
+
+        let variant = &self.ident;
+        let name = quote!(#ident_ty_expand::#variant).to_string();
+
+        let body = match self.kind {
+            VariantKind::Named => quote![
+                f.debug_struct(#name)
+                #(#body)*
+                .finish()
+            ],
+            VariantKind::Unnamed => quote![
+                f.debug_tuple(#name)
+                #(#body)*
+                .finish()
+            ],
+            VariantKind::Empty => quote![write!(f, #name)],
         };
 
         self.run_on_variants(ident_ty_expand, body)
@@ -691,6 +789,56 @@ impl CubeTypeVariant {
             ),
             VariantKind::Empty => quote! {
                 #parent_ty::#ident => #body
+            },
+        }
+    }
+
+    fn run_on_variant_pairs(&self, parent_ty: &Ident, body: TokenStream) -> TokenStream {
+        let ident = &self.ident;
+
+        match self.kind {
+            VariantKind::Named => {
+                let decl_0 = self.field_names.iter().map(|name| {
+                    let binding = Ident::new(&format!("{name}_0"), Span::call_site());
+                    quote! { #name: #binding}
+                });
+                let decl_1 = self.field_names.iter().map(|name| {
+                    let binding = Ident::new(&format!("{name}_1"), Span::call_site());
+                    quote! { #name: #binding}
+                });
+                quote! {
+                    (
+                        #parent_ty::#ident {
+                            #(#decl_0),*
+                        },
+                        #parent_ty::#ident {
+                            #(#decl_1),*
+                        }
+                    ) => #body
+                }
+            }
+            VariantKind::Unnamed => {
+                let decl_0 = self
+                    .field_names
+                    .iter()
+                    .map(|name| Ident::new(&format!("{name}_0"), Span::call_site()));
+                let decl_1 = self
+                    .field_names
+                    .iter()
+                    .map(|name| Ident::new(&format!("{name}_1"), Span::call_site()));
+                quote! (
+                    (
+                        #parent_ty::#ident (
+                            #(#decl_0),*
+                        ),
+                        #parent_ty::#ident (
+                            #(#decl_1),*
+                        )
+                    ) => #body
+                )
+            }
+            VariantKind::Empty => quote! {
+                (#parent_ty::#ident, #parent_ty::#ident) => #body
             },
         }
     }

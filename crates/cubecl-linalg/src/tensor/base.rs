@@ -1,7 +1,7 @@
+use cubecl_core::Runtime;
 use cubecl_core::calculate_cube_count_elemwise;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_core::Runtime;
 use cubecl_runtime::server::Handle;
 use std::marker::PhantomData;
 

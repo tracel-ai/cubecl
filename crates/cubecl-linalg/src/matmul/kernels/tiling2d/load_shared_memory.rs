@@ -1,5 +1,5 @@
 use cubecl_core as cubecl;
-use cubecl_core::{prelude::*, CubeType};
+use cubecl_core::{CubeType, prelude::*};
 
 use super::{
     base::{BatchOffsets, Coordinates, Dimensions, SharedMemories},

@@ -1,7 +1,7 @@
 use crate::{
+    Runtime,
     compute::{KernelBuilder, KernelLauncher},
     prelude::{ArgSettings, CompilationArg, LaunchArg, LaunchArgExpand},
-    Runtime,
 };
 use std::marker::PhantomData;
 

@@ -1,18 +1,18 @@
 use cubecl_core::{
-    server::{Binding, Handle},
     CubeCount, MemoryConfiguration,
+    server::{Binding, Handle},
 };
 use std::{future::Future, num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
-use super::{poll::WgpuPoll, timestamps::KernelTimestamps, WgpuResource, WgpuStorage};
+use super::{WgpuResource, WgpuStorage, poll::WgpuPoll, timestamps::KernelTimestamps};
 use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
     memory_management::{
         self, MemoryDeviceProperties, MemoryHandle, MemoryManagement, MemoryPoolOptions,
     },
-    TimestampsError, TimestampsResult,
 };
-use wgpu::{util::StagingBelt, BufferDescriptor, BufferUsages, ComputePipeline};
+use wgpu::{BufferDescriptor, BufferUsages, ComputePipeline, util::StagingBelt};
 
 // When uploading data smaller than this size, consider the data
 // as a special 'small uniform' buffer which we can handle more efficiently.

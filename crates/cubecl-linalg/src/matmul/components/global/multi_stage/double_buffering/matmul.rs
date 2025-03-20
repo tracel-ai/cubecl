@@ -5,8 +5,9 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::Ident;
-use crate::matmul::components::{stage, MatmulPrecision};
+use crate::matmul::components::{
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
+};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
@@ -17,9 +18,6 @@ use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::stage::single_buffer::{
     LhsBufferReaderFamily, RhsBufferReaderFamily,
 };
-use crate::matmul::components::InvalidConfigError;
-use crate::matmul::components::MatmulConfigFactory;
-use crate::matmul::components::MatmulProblem;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 use super::SyncLhsBufferLoader;
@@ -38,9 +36,9 @@ pub struct DoubleBufferingMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-        LhsReader = LhsBufferReaderFamily,
-        RhsReader = RhsBufferReaderFamily,
-    >,
+            LhsReader = LhsBufferReaderFamily,
+            RhsReader = RhsBufferReaderFamily,
+        >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
@@ -138,12 +136,12 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL>
 where
     SMM: stage::StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {

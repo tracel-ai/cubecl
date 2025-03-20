@@ -2,10 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    TilingDimensions,
     config::MatmulConfig,
     stage::{self, StageWriter},
-    tile, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
-    TilingDimensions,
+    tile,
 };
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 

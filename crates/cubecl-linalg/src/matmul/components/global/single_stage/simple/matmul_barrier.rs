@@ -1,3 +1,6 @@
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::AsyncFullLoader;
 use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
@@ -5,30 +8,27 @@ use crate::matmul::components::global::single_stage::AsyncLhsLoader;
 use crate::matmul::components::global::single_stage::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::single_stage::FullLoader;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 
 use barrier::Barrier;
-use cubecl_core::prelude::*;
 use cubecl_core::Feature;
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use cubecl_core::{client::ComputeClient, CubeCount, CubeDim, Runtime};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -129,12 +129,12 @@ pub struct SimpleBarrierMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-        MP::ES,
-        MP::EG,
-        MP::EA,
-        LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-        RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-    >,
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+        >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {

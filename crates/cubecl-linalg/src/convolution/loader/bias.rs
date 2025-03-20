@@ -4,10 +4,10 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
+    Ident,
     global::AccumulatorLoader,
     stage::{Stage, StageConfig},
     tile::{Tile, TileConfig, TileMatmul},
-    Ident,
 };
 use crate::{
     convolution::{homogeneous::base::ConvTilingLayout, reader::bias::BiasReader},
@@ -20,6 +20,7 @@ pub struct BiasLoader<CS: MatmulPrecision, G: StageConfig> {
     pub tensor_view: BiasReader<CS::EG>,
     pub stage: Stage<CS::EA, ConvTilingLayout>,
     pub has_bias: bool,
+    #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
@@ -85,7 +86,7 @@ impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
                 tensor_view,
                 stage,
                 has_bias,
-                _config: PhantomData::<G>.runtime(),
+                _config: PhantomData::<G>,
             }
         } else {
             let stage = init_empty_stage::<CS::EA>();
@@ -94,7 +95,7 @@ impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
                 stage,
                 tensor_view,
                 has_bias,
-                _config: PhantomData::<G>.runtime(),
+                _config: PhantomData::<G>,
             }
         }
     }

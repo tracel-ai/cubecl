@@ -5,7 +5,7 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
-use crate::matmul::components::{global, Ident};
+use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl_core::prelude::pipeline::Pipeline;
@@ -77,7 +77,9 @@ pub struct AsyncLhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -90,7 +92,9 @@ pub struct AsyncRhsLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    #[cube(comptime)]
     _config: PhantomData<S>,
+    #[cube(comptime)]
     _loading: PhantomData<L>,
 }
 
@@ -159,8 +163,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         AsyncLhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }
@@ -230,8 +234,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         AsyncRhsLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>.runtime(),
-            _loading: PhantomData::<L>.runtime(),
+            _config: PhantomData::<S>,
+            _loading: PhantomData::<L>,
         }
     }
 }

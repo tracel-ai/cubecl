@@ -9,9 +9,9 @@ use hashbrown::{HashMap, HashSet};
 use rspirv::spirv::{BuiltIn, CooperativeMatrixLayout, CooperativeMatrixUse, StorageClass, Word};
 
 use crate::{
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{ConstVal, Globals, Variable},
-    SpirvCompiler, SpirvTarget,
 };
 
 #[derive(Clone, Debug, Default)]

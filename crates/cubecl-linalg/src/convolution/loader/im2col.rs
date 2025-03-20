@@ -5,12 +5,12 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::{multi_buffer::LhsReader, ContiguousTilingLayout, RowMajorTilingOrder},
     Ident, MatmulPrecision,
+    global::single_stage::{FullLoader, SyncFullLoader},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
 };
 use crate::{
-    convolution::{reader::im2col::Im2colReader, ConvGemmConfig},
+    convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
     matmul::components::stage::Stage,
 };
 
@@ -19,6 +19,7 @@ use crate::{
 pub struct SimpleIm2colLoader<CS: MatmulPrecision, G: ConvGemmConfig> {
     pub tensor_view: Im2colReader<CS::EG>,
     pub stage: Stage<CS::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
@@ -82,7 +83,7 @@ impl<CS: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<CS, G> {
         SimpleIm2colLoader::<CS, G> {
             tensor_view,
             stage,
-            _config: PhantomData::<G>.runtime(),
+            _config: PhantomData::<G>,
         }
     }
 }

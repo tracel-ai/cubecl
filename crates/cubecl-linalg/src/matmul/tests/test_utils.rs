@@ -1,11 +1,12 @@
 use std::fmt::Display;
 
 use cubecl_core::{
+    CubeElement, Feature, Runtime,
     client::ComputeClient,
     flex32,
     prelude::{Float, Numeric},
     server::Handle,
-    tf32, CubeElement, Feature, Runtime,
+    tf32,
 };
 
 pub use cubecl_std::Q8;
@@ -117,12 +118,12 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
         if f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()) >= allowed_error {
             return Err(format!(
-            "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
-            i,
-            *a,
-            *e,
-            f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
-            epsilon
+                "Values differ more than epsilon: index={} actual={}, expected={}, difference={}, epsilon={}",
+                i,
+                *a,
+                *e,
+                f32::abs(a.to_f32().unwrap() - e.to_f32().unwrap()),
+                epsilon
             ));
         }
     }
@@ -397,7 +398,10 @@ where
     let num_batches = problem.num_batches();
 
     let (b_lhs, b_rhs) = problem.batches.clone();
-    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
+    assert!(
+        b_lhs.len() == b_rhs.len(),
+        "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
+    );
 
     let lhs_strides = strides(problem, Ident::Lhs);
     let rhs_strides = strides(problem, Ident::Rhs);
@@ -452,7 +456,10 @@ where
     let num_batches = problem.num_batches();
 
     let (b_lhs, b_rhs) = problem.batches.clone();
-    assert!(b_lhs.len() == b_rhs.len(), "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning.");
+    assert!(
+        b_lhs.len() == b_rhs.len(),
+        "Cpu reference only works with batches of equal length. Please pad the shortest one with ones at the beginning."
+    );
 
     let lhs_strides = strides(problem, Ident::Lhs);
     let rhs_strides = strides(problem, Ident::Rhs);

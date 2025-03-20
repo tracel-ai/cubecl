@@ -18,7 +18,7 @@ mod plane;
 mod polyfills;
 mod topology;
 
-pub use branch::{range, range_stepped, RangeExpand, SteppedRangeExpand};
+pub use branch::{RangeExpand, SteppedRangeExpand, range, range_stepped};
 pub use comment::*;
 pub use const_expand::*;
 pub use container::*;
