@@ -17,8 +17,7 @@ default = [
     "cubecl-core/default",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
-msl = ["cubecl-cpp"]
-msl2 = ["cubecl-msl"]
+msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
@@ -39,7 +38,6 @@ cubecl-spirv = { path = "../cubecl-spirv", version = "0.5.0", optional = true }
 
 # Metal
 cubecl-cpp = { path = "../cubecl-cpp", version = "0.5.0", features = ["metal"], optional = true }
-cubecl-msl = { path = "../cubecl-msl", version = "0.5.0", optional = true }
 
 bytemuck = { workspace = true }
 
