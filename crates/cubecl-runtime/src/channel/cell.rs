@@ -1,5 +1,5 @@
 use super::ComputeChannel;
-use crate::server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle};
+use crate::server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle, TensorHandle};
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -51,6 +51,14 @@ where
         future.await
     }
 
+    async fn read_tensor(&self, bindings: Vec<TensorHandle>) -> Vec<Vec<u8>> {
+        let future = {
+            let mut server = self.server.borrow_mut();
+            server.read_tensor(bindings)
+        };
+        future.await
+    }
+
     fn get_resource(
         &self,
         binding: Binding,
@@ -62,8 +70,18 @@ where
         self.server.borrow_mut().create(resource)
     }
 
+    fn create_tensor(&self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+        self.server
+            .borrow_mut()
+            .create_tensor(data, shape, elem_size)
+    }
+
     fn empty(&self, size: usize) -> Handle {
         self.server.borrow_mut().empty(size)
+    }
+
+    fn empty_tensor(&self, shape: Vec<usize>, elem_size: usize) -> crate::server::TensorHandle {
+        self.server.borrow_mut().empty_tensor(shape, elem_size)
     }
 
     unsafe fn execute(

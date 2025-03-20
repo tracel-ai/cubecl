@@ -15,17 +15,20 @@ use cubecl_core::{
     compute::DebugInformation,
     ir::{Elem, IntKind, UIntKind},
 };
-use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{TimestampsError, TimestampsResult};
+use cubecl_runtime::{
+    debug::{DebugLogger, ProfileLevel},
+    storage::ComputeStorage,
+};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
 use cudarc::driver::sys::{
-    CUctx_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion,
-    CUtensorMapSwizzle,
+    CUDA_MEMCPY2D_st, CUctx_st, CUmemorytype, CUtensorMap, CUtensorMapDataType,
+    CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -145,6 +148,63 @@ impl CudaServer {
         }
     }
 
+    fn read_tensor_async(
+        &mut self,
+        handles: Vec<server::TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
+        let ctx = self.get_context();
+        let mut result = Vec::with_capacity(handles.len());
+
+        for handle in handles {
+            let binding = handle.handle.binding();
+            let resource = ctx
+                .memory_management
+                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                .expect("Failed to find resource");
+            let mut data = uninit_vec(resource.size() as usize);
+
+            let rank = handle.shape.len();
+            if rank <= 1 {
+                unsafe {
+                    cudarc::driver::result::memcpy_dtoh_async(&mut data, resource.ptr, ctx.stream)
+                        .unwrap();
+                };
+                result.push(data);
+                continue;
+            }
+
+            let dim_x = handle.shape[rank - 1];
+            let width_bytes = dim_x * handle.elem_size;
+            let dim_y: usize = handle.shape.iter().rev().skip(1).sum();
+            let pitch = handle.strides[rank - 2] * handle.elem_size;
+
+            let cpy = CUDA_MEMCPY2D_st {
+                srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+                srcDevice: resource.ptr,
+                srcPitch: pitch,
+                dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+                dstHost: data.as_mut_ptr() as *mut c_void,
+                dstPitch: width_bytes,
+                WidthInBytes: width_bytes,
+                Height: dim_y,
+                ..Default::default()
+            };
+
+            unsafe {
+                let lib = cudarc::driver::sys::lib();
+                lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+            };
+            result.push(data);
+        }
+
+        let fence = ctx.fence();
+
+        async move {
+            fence.wait();
+            result
+        }
+    }
+
     fn sync_stream_async(&mut self) -> impl Future<Output = ()> + 'static + Send {
         let ctx = self.get_context();
         // We can't use a fence here because no action has been recorded on the context.
@@ -172,6 +232,13 @@ impl ComputeServer for CudaServer {
         self.read_async(bindings)
     }
 
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<server::TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        self.read_tensor_async(bindings)
+    }
+
     fn create(&mut self, data: &[u8]) -> server::Handle {
         let handle = self.empty(data.len());
         let ctx = self.get_context();
@@ -189,10 +256,80 @@ impl ComputeServer for CudaServer {
         handle
     }
 
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: Vec<usize>,
+        elem_size: usize,
+    ) -> server::TensorHandle {
+        let rank = shape.len();
+        if rank <= 1 {
+            let handle = self.create(data);
+            return server::TensorHandle::new(handle, vec![1], shape, elem_size);
+        }
+        let handle = self.empty_tensor(shape, elem_size);
+        let ctx = self.get_context();
+
+        let binding = handle.clone().binding();
+        let resource = ctx
+            .memory_management
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
+
+        let dim_x = handle.shape[rank - 1];
+        let width_bytes = dim_x * elem_size;
+        let dim_y: usize = handle.shape.iter().rev().skip(1).sum();
+        let pitch = handle.strides[rank - 2] * elem_size;
+
+        let cpy = CUDA_MEMCPY2D_st {
+            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+            srcHost: data.as_ptr() as *const c_void,
+            srcPitch: width_bytes,
+            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+            dstDevice: resource.ptr,
+            dstPitch: pitch,
+            WidthInBytes: width_bytes,
+            Height: dim_y,
+            ..Default::default()
+        };
+
+        unsafe {
+            let lib = cudarc::driver::sys::lib();
+            lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+        }
+
+        handle
+    }
+
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
         let handle = ctx.memory_management.reserve(size as u64);
         server::Handle::new(handle, None, None, size as u64)
+    }
+
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> server::TensorHandle {
+        let rank = shape.len();
+        let ctx = self.get_context();
+        let width = *shape.last().unwrap_or(&1);
+        let height: usize = shape.iter().rev().skip(1).sum();
+        let height = height.max(1);
+        let width_bytes = width * elem_size;
+        // This should be done with cuMemAllocPitch, but that would propagate changes much deeper
+        // through memory management. So just manually pitch to alignment for now.
+        let pitch = width_bytes.next_multiple_of(Self::Storage::ALIGNMENT as usize);
+        let size = height * pitch;
+        let handle = ctx.memory_management.reserve(size as u64);
+        let mut strides = vec![1; rank];
+        if rank > 1 {
+            strides[rank - 2] = pitch / elem_size;
+        }
+        if rank > 2 {
+            for i in (0..rank - 2).rev() {
+                strides[i] = strides[i + 1] * shape[i];
+            }
+        }
+        let mem_handle = server::Handle::new(handle, None, None, size as u64);
+        server::TensorHandle::new(mem_handle, strides, shape, elem_size)
     }
 
     unsafe fn execute(
@@ -247,12 +384,14 @@ impl ComputeServer for CudaServer {
                             binding.offset_end,
                         )
                         .expect("Failed to find resource");
-                    let device_ptr =
-                        unsafe { *(resource.binding as *const cudarc::driver::sys::CUdeviceptr) }
-                            as *mut c_void;
+                    let device_ptr = resource.ptr as *mut c_void;
                     assert!(
                         device_ptr as usize % 16 == 0,
                         "Tensor pointer must be 16 byte aligned"
+                    );
+                    assert!(
+                        map.strides.iter().all(|it| it % 16 == 0),
+                        "Strides must be 16 byte aligned"
                     );
                     let lib = unsafe { cudarc::driver::sys::lib() };
                     let mut map_ptr = MaybeUninit::zeroed();
@@ -274,6 +413,8 @@ impl ComputeServer for CudaServer {
                                 prefetch_to_cuda(map.prefetch),
                                 oob_to_cuda(map.oob_fill),
                             )
+                            .result()
+                            .unwrap()
                         },
                         TensorMapFormat::Im2col {
                             pixel_box_lower_corner,
@@ -298,6 +439,8 @@ impl ComputeServer for CudaServer {
                                 prefetch_to_cuda(map.prefetch),
                                 oob_to_cuda(map.oob_fill),
                             )
+                            .result()
+                            .unwrap()
                         },
                         TensorMapFormat::Im2colWide { .. } => {
                             unimplemented!("Not yet implemented in cudarc")

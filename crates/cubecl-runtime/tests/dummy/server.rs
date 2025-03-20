@@ -1,5 +1,8 @@
 use cubecl_common::ExecutionMode;
-use cubecl_runtime::{TimestampsError, TimestampsResult, server::ConstBinding};
+use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
+    server::{ConstBinding, TensorHandle},
+};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,6 +65,14 @@ impl ComputeServer for DummyServer {
         async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
     }
 
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let bindings = bindings.into_iter().map(|it| it.binding()).collect();
+        self.read(bindings)
+    }
+
     fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
@@ -78,6 +89,17 @@ impl ComputeServer for DummyServer {
         handle
     }
 
+    fn create_tensor(&mut self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+        let rank = shape.len();
+        let mut strides = vec![1; rank];
+        for i in (0..rank - 1).rev() {
+            strides[i] = strides[i + 1] * shape[i];
+        }
+        let handle = self.create(data);
+
+        TensorHandle::new(handle, strides, shape, elem_size)
+    }
+
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
             self.memory_management.reserve(size as u64),
@@ -85,6 +107,17 @@ impl ComputeServer for DummyServer {
             None,
             size as u64,
         )
+    }
+
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+        let rank = shape.len();
+        let mut strides = vec![1; rank];
+        for i in (0..rank - 1).rev() {
+            strides[i] = strides[i + 1] * shape[i];
+        }
+        let size = (shape.iter().product::<usize>() * elem_size) as u64;
+        let handle = Handle::new(self.memory_management.reserve(size), None, None, size);
+        TensorHandle::new(handle, strides, shape, elem_size)
     }
 
     unsafe fn execute(

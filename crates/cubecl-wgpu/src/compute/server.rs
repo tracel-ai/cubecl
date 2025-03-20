@@ -10,7 +10,7 @@ use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
     prelude::*,
-    server::{Binding, ConstBinding},
+    server::{Binding, ConstBinding, TensorHandle},
 };
 use cubecl_runtime::{
     TimestampsError, TimestampsResult,
@@ -247,6 +247,32 @@ impl ComputeServer for WgpuServer {
             self.stream.timestamps.disable();
         }
     }
+
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<server::TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+        let bindings = bindings.into_iter().map(|it| it.binding()).collect();
+        self.read(bindings)
+    }
+
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: Vec<usize>,
+        elem_size: usize,
+    ) -> server::TensorHandle {
+        let strides = compact_strides(&shape);
+        let handle = self.create(data);
+        TensorHandle::new(handle, strides, shape, elem_size)
+    }
+
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> server::TensorHandle {
+        let strides = compact_strides(&shape);
+        let size = shape.iter().product::<usize>() * elem_size;
+        let handle = self.empty(size);
+        TensorHandle::new(handle, strides, shape, elem_size)
+    }
 }
 
 fn compiler(backend: wgpu::Backend) -> AutoCompiler {
@@ -255,4 +281,13 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
+}
+
+fn compact_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i];
+    }
+    strides
 }

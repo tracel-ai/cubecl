@@ -36,6 +36,12 @@ where
         bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
 
+    /// Given tensor handles, returns the owned resources as bytes.
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
+
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
@@ -45,8 +51,14 @@ where
     /// Given a resource as bytes, stores it and returns the memory handle.
     fn create(&mut self, data: &[u8]) -> Handle;
 
+    /// Given a resource as bytes with `shape`, stores it and returns the tensor handle.
+    fn create_tensor(&mut self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle;
+
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn empty(&mut self, size: usize) -> Handle;
+
+    /// Reserves `shape` bytes in the storage, and returns a handle to it.
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> TensorHandle;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -130,6 +142,27 @@ impl Handle {
     }
 }
 
+/// Tensor representation with an owned [server handle](Handle),
+/// the strides and the shape.
+#[derive(new, Debug, Clone)]
+pub struct TensorHandle {
+    /// The handle to the memory resource
+    pub handle: Handle,
+    /// The strides of this buffer
+    pub strides: Vec<usize>,
+    /// The shape of this buffer
+    pub shape: Vec<usize>,
+    /// The size of each element
+    pub elem_size: usize,
+}
+
+impl TensorHandle {
+    /// The total size of this tensor, excluding padding
+    pub fn size(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
@@ -193,6 +226,20 @@ impl Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
         }
+    }
+}
+
+impl TensorHandle {
+    /// If the tensor handle can be reused inplace.
+    pub fn can_mut(&self) -> bool {
+        self.handle.memory.can_mut()
+    }
+}
+
+impl TensorHandle {
+    /// Convert the [handle](TensorHandle) into a [binding](Binding).
+    pub fn binding(self) -> Binding {
+        self.handle.binding()
     }
 }
 

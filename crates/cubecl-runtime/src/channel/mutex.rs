@@ -1,5 +1,5 @@
 use super::ComputeChannel;
-use crate::server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle};
+use crate::server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle, TensorHandle};
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -46,6 +46,16 @@ where
         fut.await
     }
 
+    async fn read_tensor(&self, bindings: Vec<TensorHandle>) -> Vec<Vec<u8>> {
+        // Nb: The order here is really important - the mutex guard has to be dropped before
+        // the future is polled. Just calling lock().read().await can deadlock.
+        let fut = {
+            let mut server = self.server.lock();
+            server.read_tensor(bindings)
+        };
+        fut.await
+    }
+
     fn get_resource(
         &self,
         binding: Binding,
@@ -57,8 +67,16 @@ where
         self.server.lock().create(data)
     }
 
+    fn create_tensor(&self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+        self.server.lock().create_tensor(data, shape, elem_size)
+    }
+
     fn empty(&self, size: usize) -> Handle {
         self.server.lock().empty(size)
+    }
+
+    fn empty_tensor(&self, shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+        self.server.lock().empty_tensor(shape, elem_size)
     }
 
     unsafe fn execute(

@@ -4,7 +4,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle},
+    server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle, TensorHandle},
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
@@ -89,6 +89,33 @@ where
         cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
     }
 
+    /// Given bindings, returns owned resources as bytes.
+    pub async fn read_tensor_async(&self, bindings: Vec<TensorHandle>) -> Vec<Vec<u8>> {
+        self.channel.read_tensor(bindings).await
+    }
+
+    /// Given bindings, returns owned resources as bytes.
+    ///
+    /// # Remarks
+    ///
+    /// Panics if the read operation fails.
+    pub fn read_tensor(&self, bindings: Vec<TensorHandle>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.channel.read_tensor(bindings))
+    }
+
+    /// Given a binding, returns owned resource as bytes.
+    pub async fn read_one_tensor_async(&self, binding: TensorHandle) -> Vec<u8> {
+        self.channel.read_tensor([binding].into()).await.remove(0)
+    }
+
+    /// Given a binding, returns owned resource as bytes.
+    ///
+    /// # Remarks
+    /// Panics if the read operation fails.
+    pub fn read_one_tensor(&self, binding: TensorHandle) -> Vec<u8> {
+        cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
+    }
+
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
@@ -102,9 +129,24 @@ where
         self.channel.create(data)
     }
 
+    /// Given a resource and shape, stores it and returns the tensor handle.
+    pub fn create_tensor(
+        &self,
+        data: &[u8],
+        shape: impl Into<Vec<usize>>,
+        elem_size: usize,
+    ) -> TensorHandle {
+        self.channel.create_tensor(data, shape.into(), elem_size)
+    }
+
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         self.channel.empty(size)
+    }
+
+    /// Reserves `shape` in the storage, and returns a tensor handle for it.
+    pub fn empty_tensor(&self, shape: impl Into<Vec<usize>>, elem_size: usize) -> TensorHandle {
+        self.channel.empty_tensor(shape.into(), elem_size)
     }
 
     /// Executes the `kernel` over the given `bindings`.

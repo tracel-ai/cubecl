@@ -43,9 +43,9 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
     }
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let handle = client.create(F::as_bytes(&values));
-    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &[64, 1], &[64, 64], 1) };
-    let out = client.empty(32 * 16 * size_of::<F>());
+    let handle = client.create_tensor(F::as_bytes(&values), [64, 64], size_of::<F>());
+    let input = TensorArg::from_handle(&handle, 1);
+    let out = client.empty(16 * 32 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
         &client,
