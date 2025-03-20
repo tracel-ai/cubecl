@@ -36,6 +36,7 @@ pub enum Operator {
     /// A select statement/ternary
     #[operation(pure)]
     Select(Select),
+    ConditionalRead(ConditionalRead),
 }
 
 impl Display for Operator {
@@ -74,6 +75,9 @@ impl Display for Operator {
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
+            Operator::ConditionalRead(op) => {
+                write!(f, "{} ? {} : {}", op.cond, op.slice, op.fallback)
+            }
         }
     }
 }
@@ -120,4 +124,14 @@ pub struct Select {
     pub cond: Variable,
     pub then: Variable,
     pub or_else: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct ConditionalRead {
+    pub cond: Variable,
+    pub slice: Variable,
+    pub index: Variable,
+    pub fallback: Variable,
 }

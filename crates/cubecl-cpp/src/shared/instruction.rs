@@ -61,6 +61,13 @@ pub enum Instruction<D: Dialect> {
         rhs: Variable<D>,
         out: Variable<D>,
     },
+    ConditionalRead {
+        cond: Variable<D>,
+        slice: Variable<D>,
+        index: Variable<D>,
+        fallback: Variable<D>,
+        out: Variable<D>,
+    },
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -267,6 +274,55 @@ impl<D: Dialect> Display for Instruction<D> {
                     } else {
                         writeln!(f, " : {item_out}{{}};")
                     }
+                }
+            }
+            Instruction::ConditionalRead {
+                cond,
+                slice,
+                index,
+                fallback,
+                out,
+            } => {
+                let item_fallback = fallback.item();
+                let item_slice = slice.item();
+                let item_out = out.item();
+                let item_cond = cond.item();
+                let elem_cond = item_cond.elem;
+
+                let vf_slice = item_slice.vectorization;
+                let vf_fallback = item_fallback.vectorization;
+                let vf_out = item_out.vectorization;
+                let vf_cond = item_cond.vectorization;
+
+                let out = out.fmt_left();
+
+                let should_broadcast =
+                    vf_cond > 1 || item_out != item_fallback || item_out != item_slice;
+
+                if should_broadcast {
+                    let vf = usize::max(vf_cond, vf_out);
+                    let vf = usize::max(vf, vf_slice);
+                    let vf = usize::max(vf, vf_fallback);
+
+                    writeln!(f, "{out} = {item_out} {{")?;
+                    for i in 0..vf {
+                        let fallbacki = fallback.index(i);
+                        let condi = cond.index(i);
+                        let condi = EnsureBoolArg {
+                            var: &condi,
+                            elem: &elem_cond,
+                        };
+
+                        writeln!(f, "({condi}) ? {slice}[{index} + i] : {fallbacki},")?;
+                    }
+
+                    writeln!(f, "}};")
+                } else {
+                    let cond = EnsureBoolArg {
+                        var: &cond,
+                        elem: &elem_cond,
+                    };
+                    writeln!(f, "{out} = ({cond}) ? {slice}[{index}] : {fallback};")
                 }
             }
             Instruction::Copy {
