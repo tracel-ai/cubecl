@@ -1,3 +1,4 @@
+#![allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
 #![allow(clippy::manual_div_ceil)]
 
 use cubecl::prelude::barrier::{Barrier, BarrierLevel};

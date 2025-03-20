@@ -1,12 +1,13 @@
 use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::sync::{
-    SyncFullLoadingStrategy, SyncLhsLoader, SyncRhsLoader,
+use crate::matmul::components::global::single_stage::SyncFullLhsLoader;
+use crate::matmul::components::global::single_stage::SyncFullLoader;
+use crate::matmul::components::global::single_stage::{SyncFullLoadingStrategy, SyncFullRhsLoader};
+use crate::matmul::components::global::{
+    output_loader::Unloader,
+    single_stage::{Config, FullLoader},
 };
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -129,8 +130,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncFullLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncFullRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

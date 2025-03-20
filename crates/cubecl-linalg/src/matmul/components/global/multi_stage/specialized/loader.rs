@@ -2,9 +2,11 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
+use crate::matmul::components::global::multi_stage::{
+    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
+};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{InputLoader, SyncInputLoader};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
@@ -22,8 +24,6 @@ pub struct SyncLhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    buffer_iter: u32,
-    num_buffers: u32,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -38,8 +38,6 @@ pub struct SyncRhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
-    buffer_iter: u32,
-    num_buffers: u32,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -47,16 +45,15 @@ pub struct SyncRhsBufferLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    InputLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
+    BufferLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        LhsBufferReader::new(this.stage, this.buffer_iter)
+    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+        LhsBufferReader::new(this.stage, buffer.to_u32())
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Lhs);
     }
 
@@ -67,14 +64,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncInputLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
+    SyncBufferLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
-    fn fill_stage(this: &mut Self, #[comptime] config: Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                this.buffer_iter,
+                buffer_id.to_u32(),
                 Ident::Lhs,
                 config,
             );
@@ -100,8 +97,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncLhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            buffer_iter: 0u32.runtime(),
-            num_buffers: config.tiling_dimensions(Ident::Lhs).tile_count_col(),
             is_producer,
             _config: PhantomData,
         }
@@ -110,16 +105,15 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    InputLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+    BufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
-        RhsBufferReader::new(this.stage, this.buffer_iter)
+    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+        RhsBufferReader::new(this.stage, buffer.to_u32())
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.buffer_iter = (this.buffer_iter + 1) % this.num_buffers;
         this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
 
@@ -130,14 +124,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncInputLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+    SyncBufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
-    fn fill_stage(this: &mut Self, #[comptime] config: Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                this.buffer_iter,
+                buffer.to_u32(),
                 Ident::Rhs,
                 config,
             );
@@ -163,8 +157,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         SyncRhsBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            buffer_iter: 0u32.runtime(),
-            num_buffers: config.tiling_dimensions(Ident::Rhs).tile_count_row(),
             is_producer,
             _config: PhantomData::<S>,
         }
