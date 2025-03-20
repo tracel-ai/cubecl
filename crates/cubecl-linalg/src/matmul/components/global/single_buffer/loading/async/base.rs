@@ -38,8 +38,8 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
-        buffer_index: u32,
         mechanism: &CM,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );

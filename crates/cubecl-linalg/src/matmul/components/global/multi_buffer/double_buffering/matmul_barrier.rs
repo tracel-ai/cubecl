@@ -174,7 +174,7 @@ where
 
         #[allow(clippy::collapsible_if)]
         if comptime!(config.check_k_bounds()) {
-            if num_loops == 0 {
+            if num_loops <= 1 {
                 Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
                 Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
                 sync_units();
@@ -236,7 +236,7 @@ where
 
             #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
-                if loop_iter == num_loops - 1 {
+                if loop_iter == num_loops - 2 {
                     Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
                     Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
                     sync_units();

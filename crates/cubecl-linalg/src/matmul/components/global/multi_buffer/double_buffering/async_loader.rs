@@ -68,8 +68,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
-            buffer.to_u32(),
             mechanism,
+            buffer.to_u32(),
             Ident::Lhs,
             config,
         );
@@ -136,8 +136,8 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
-            buffer.to_u32(),
             mechanism,
+            buffer.to_u32(),
             Ident::Rhs,
             config,
         );

@@ -28,8 +28,8 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
-        buffer_index: u32,
         mechanism: &CM,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -51,7 +51,16 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
         let unit_count = config.plane_dim() * config.num_planes();
 
         let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
-        let num_slices_buffer_offset = buffer_index * num_slices;
+        let num_slices_buffer_offset = comptime! {match (ident.as_input(), matrix_layout) {
+            (InputIdent::Lhs, MatrixLayout::RowMajor) =>
+                0
+            ,
+            (InputIdent::Lhs, MatrixLayout::ColMajor) =>
+         buffer_index * num_slices
+            ,
+            (InputIdent::Rhs, MatrixLayout::RowMajor) => buffer_index * num_slices,
+            (InputIdent::Rhs, MatrixLayout::ColMajor) => 0,
+        }};
 
         // Typically there will be only 1 slice per unit
         #[unroll(slices_per_unit==1)]
@@ -127,7 +136,13 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     };
 
     let start = slice_buffer_offset;
-    let length = Min::min(window.size - slice_buffer_offset, slice_length);
+
+    let limit = select(
+        slice_buffer_offset < window.size,
+        slice_buffer_offset,
+        window.size,
+    );
+    let length = Min::min(window.size - limit, slice_length);
     let end = start + length;
 
     let src = window.slice.slice(start, end);
