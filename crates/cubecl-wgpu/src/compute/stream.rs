@@ -346,7 +346,7 @@ impl WgpuStream {
         let resource = self.mem_manage.get_resource(alloc.clone().binding());
 
         // Nb: using write_buffer_with here has no advantages. It'd only be faster if create() would expose
-        // it's API as a slice to write into.
+        // its API as a slice to write into.
         //
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
