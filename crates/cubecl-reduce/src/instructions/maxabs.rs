@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceInstruction};
+use super::{Reduce, ReduceCoordinate, ReduceInstruction};
 
 // TODO Add to test framework.
 /// Return the item with the maximum absolute value.
@@ -14,6 +14,8 @@ impl Reduce for MaxAbs {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
+    const REQUIRES_COORDINATE: bool = false;
+
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
 
@@ -32,7 +34,7 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        _coordinate: Line<u32>,
+        _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
