@@ -13,8 +13,7 @@ pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem, MatrixLayout},
-        kernels::matmul::Algorithm,
+        components::{Ident, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
@@ -40,11 +39,6 @@ pub trait TestPrecision {
         client: &ComputeClient<R::Server, R::Channel>,
         out: Handle,
     );
-
-    // TODO: This is a temporary hack to not run some quantized matmul test during development.
-    //       This avoids breaking the CI with incomplete implementations.
-    //       Remove when quantization is fully supported.
-    fn should_run<A: Algorithm>(layouts: (MatrixLayout, MatrixLayout)) -> bool;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
@@ -92,10 +86,6 @@ where
         if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
             panic!("{}", e);
         }
-    }
-
-    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
-        true
     }
 }
 
@@ -190,10 +180,6 @@ impl TestPrecision for SymQ8 {
             approx_scaling,
         );
         assert_eq!(out, expected);
-    }
-
-    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
-        false
     }
 }
 
