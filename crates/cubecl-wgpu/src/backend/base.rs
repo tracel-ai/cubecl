@@ -159,7 +159,7 @@ pub fn register_features(
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
-    comp_options: &mut CompilationOptions,
+    comp_options: &mut WgpuCompilationOptions,
 ) {
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);

@@ -135,12 +135,13 @@ fn request_device(
         label: None,
         required_features: full_feat,
         required_limits: limits,
+        trace: wgpu::Trace::Off,
         memory_hints,
     };
 
     unsafe {
         wgpu_adapter
-            .create_device_from_hal(device, &descriptor, None)
+            .create_device_from_hal(device, &descriptor)
             .expect("Failed to create wgpu device")
     }
 }

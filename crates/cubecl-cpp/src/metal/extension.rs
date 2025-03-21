@@ -1,4 +1,7 @@
-use crate::{shared::{Component, Variable}, Dialect};
+use crate::{
+    Dialect,
+    shared::{Component, Variable},
+};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
@@ -7,7 +10,11 @@ pub enum Extension<D: Dialect> {
     NoExtension,
 }
 
-pub fn format_erf<D: Dialect>(f: &mut core::fmt::Formatter<'_>, input: &Variable<D>, output: &Variable<D>) -> core::fmt::Result {
+pub fn format_erf<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    input: &Variable<D>,
+    output: &Variable<D>,
+) -> core::fmt::Result {
     let input_elem = input.elem();
     let output_elem = output.elem();
     write!(

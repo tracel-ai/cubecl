@@ -1,2 +1,5 @@
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub enum Extension {}
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Extension {
+    #[default]
+    NoExtension,
+}

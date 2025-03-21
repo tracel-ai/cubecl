@@ -42,7 +42,7 @@ using namespace metal;
     ) -> std::fmt::Result {
         for extension in extensions {
             match extension {
-                Extension::Erf(input, output) => format_erf::<Self>(f, &input, &output)?,
+                Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
                 Extension::NoExtension => {}
             }
         }
@@ -58,7 +58,7 @@ using namespace metal;
         #[allow(clippy::single_match)]
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
-                register_extension(Extension::Erf(instruction.input.clone(), instruction.out.clone()));
+                register_extension(Extension::Erf(instruction.input, instruction.out));
             }
             _ => {}
         }
