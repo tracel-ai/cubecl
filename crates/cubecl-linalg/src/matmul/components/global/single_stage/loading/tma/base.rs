@@ -76,7 +76,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> FullLoader<EG, ES, single_
 {
     type StageReader = LhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
+    fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
 
@@ -114,7 +114,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> FullLoader<EG, ES, single_
 {
     type StageReader = RhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
+    fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
     }
 
