@@ -1,11 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 
-use crate::matmul::components::tile::TileConfig;
-use crate::matmul::components::{Ident, MatrixLayout};
-use crate::matmul::components::{MatmulConfigFactory, global};
-use crate::matmul::components::{MatmulSize, TilingDimensions};
-use crate::matmul::components::{config::MatmulConfig, global::AccumulatorLoader};
+use crate::matmul::components::{
+    Ident, MatmulConfigFactory, MatmulSize, MatrixLayout, TilingDimensions,
+    config::MatmulConfig,
+    global::{self, AccumulatorLoader, IndexedQuantization},
+    tile::TileConfig,
+};
 
 use super::TilingLayout;
 
@@ -50,7 +52,7 @@ pub trait StageMatmulFamily:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sync {
+pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + Sync {
     type Config: StageConfig;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
@@ -64,21 +66,34 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
     type RhsTile: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
+    ///
+    /// # Quantization
+    ///
+    /// If scaling is provided, the matmul will be performed in a quantized version.
+    /// This assumes that [read_accumulator] is called with some `quantization` provided.
     fn execute(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
+        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     );
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn read_accumulator<Out: StageWriter<O>, G: global::GlobalConfig>(
+    ///
+    /// # Quantization
+    ///
+    /// If some `quantization` is provided, the read will also requantize the stage in the output
+    /// and update the scaling of the output tensor. This assumes that [execute] is called
+    /// with some `scaling` provided.
+    fn read_accumulator<Out: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
+        quantization: CubeOption<IndexedQuantization<EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
@@ -90,7 +105,7 @@ pub trait StageMatmul<I: Numeric, O: Numeric, Acc: Numeric>: 'static + Send + Sy
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator<L: AccumulatorLoader<O, Acc, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<EG, EA, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,

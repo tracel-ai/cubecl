@@ -1,10 +1,17 @@
+use crate::matmul::components::{
+    Ident, MatmulLaunch, MatmulPrecision, TilingDimensions,
+    config::MatmulConfig,
+    global::{
+        self, Quantization,
+        args::{self, MatmulArgs, TensorInput, TensorOutput},
+    },
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
-use crate::matmul::components::{Ident, MatmulLaunch, config::MatmulConfig, global};
-use crate::matmul::components::{MatmulPrecision, TilingDimensions};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
@@ -37,6 +44,7 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -60,6 +68,9 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
+
+    /// Returns true if the matmul is quantized.
+    fn quantized(&self) -> bool;
 }
 
 type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
@@ -87,5 +98,11 @@ pub(crate) fn matmul<
     let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
     let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, config);
+    let quantization = if config.quantized() {
+        CubeOption::new_Some(Args::quantization(&state))
+    } else {
+        CubeOption::new_None()
+    };
+
+    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, quantization, config);
 }

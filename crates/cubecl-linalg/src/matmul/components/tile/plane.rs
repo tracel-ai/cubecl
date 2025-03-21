@@ -19,6 +19,7 @@ use super::Tile;
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
 ///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
 ///  - If not vec4, there are patches in read_output that may harm performance
+#[derive(CubeType, Clone)]
 pub struct PlaneMma;
 
 impl TileMatmulFamily for PlaneMma {

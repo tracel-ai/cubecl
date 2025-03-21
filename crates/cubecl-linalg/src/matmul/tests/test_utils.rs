@@ -9,7 +9,7 @@ use cubecl_core::{
     tf32,
 };
 
-pub use cubecl_std::Q8;
+pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
@@ -125,8 +125,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
 // TODO:
 //   - Add different conversions from i32 to u8.
-//   - Add support for multipliers (zero_offsets).
-impl TestPrecision for Q8 {
+//   - Fix with proper types for precision
+impl TestPrecision for SymQ8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;

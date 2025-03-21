@@ -1,37 +1,29 @@
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncFullLoader;
-use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage::AsyncLhsLoader;
-use crate::matmul::components::global::single_stage::AsyncRhsLoader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::single_stage::FullLoader;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-
-use barrier::Barrier;
-use cubecl_core::Feature;
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-use std::marker::PhantomData;
-
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
-
 use crate::matmul::{
     components::{
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
+        global::{
+            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, IndexedQuantization,
+            ZeroAccumulatorLoader,
+            output_loader::Unloader,
+            single_stage::{
+                AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
+                FullLoader,
+            },
+        },
         stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
+            self, StageMatmul,
+            multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
         },
     },
     kernels::MatmulAvailabilityError,
 };
+use barrier::Barrier;
+use core::marker::PhantomData;
+use cubecl::Feature;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -151,8 +143,14 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -191,6 +189,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -201,6 +200,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantization,
             config.to_smm_config(),
             config,
         );

@@ -88,7 +88,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let unit_position = unit_position_base + i * jump_length;
 
             // We assume unit_position < total_num_lines * line_size;
-            // This is catched by the loading validation
+            // This is caught by the loading validation
 
             let unit_pos_in_buffer = unit_position / tile_size;
             let pos_within_tile = unit_position % tile_size;
