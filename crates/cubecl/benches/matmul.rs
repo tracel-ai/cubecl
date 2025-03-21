@@ -171,10 +171,6 @@ fn main() {
         );
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
-            matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
             matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
         );
         run::<cubecl::cuda::CudaRuntime, f16>(

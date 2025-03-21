@@ -1,4 +1,4 @@
-use crate::matmul::components::{CompleteStageTiling, global::args::TensorInputsLaunch};
+use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
@@ -361,14 +361,17 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             SingleMatmulSpec<EG::Numeric, half::f16, f32, TensorMapArgs>,
             R,
         >(client, &problem, plane_dim);
-        let stage_size_lhs = vec![
-            selection.tile_count.m * selection.tile_shape.m,
-            selection.tile_count.k * selection.tile_shape.k,
-        ];
-        let stage_size_rhs = vec![
-            selection.tile_count.k * selection.tile_shape.k,
-            selection.tile_count.n * selection.tile_shape.n,
-        ];
+        let stage_m = selection.tile_count.m * selection.tile_shape.m;
+        let stage_n = selection.tile_count.n * selection.tile_shape.n;
+        let stage_k = selection.tile_count.k * selection.tile_shape.k;
+        let stage_size_lhs = match problem.lhs_layout {
+            components::MatrixLayout::RowMajor => vec![stage_k, stage_m, 1],
+            components::MatrixLayout::ColMajor => vec![stage_m, stage_k, 1],
+        };
+        let stage_size_rhs = match problem.rhs_layout {
+            components::MatrixLayout::RowMajor => vec![stage_n, stage_k, 1],
+            components::MatrixLayout::ColMajor => vec![stage_k, stage_n, 1],
+        };
         let lhs = TensorMapArg::new(
             TensorMapFormat::Tiled {
                 tile_size: stage_size_lhs,
