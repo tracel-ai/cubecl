@@ -111,8 +111,8 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             sync_units();
 

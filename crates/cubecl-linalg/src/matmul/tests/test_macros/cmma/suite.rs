@@ -299,7 +299,7 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
-        pub fn simple() {
+        pub fn simple_coalesced() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,

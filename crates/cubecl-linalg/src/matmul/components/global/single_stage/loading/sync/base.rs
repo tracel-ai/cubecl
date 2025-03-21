@@ -61,7 +61,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 {
     type StageReader = LhsReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
+    fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
 
@@ -113,7 +113,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 {
     type StageReader = RhsReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
+    fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
     }
 
