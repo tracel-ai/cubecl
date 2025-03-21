@@ -77,7 +77,7 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Get the stride of the out tensor using the state.
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
 
-    /// It is the responsability of the caller to ensure it is safe to call this function.
+    /// It is the responsibility of the caller to ensure it is safe to call this function.
     /// That is, when a matmul is indeed quantized. Else, it will most likely results in
     /// out-of-bound memory access.
     fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization<EG>;

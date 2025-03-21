@@ -288,10 +288,10 @@ fn check_num_planes(
 // # Cooperation at cube-level
 //
 // Unlike other routines in the stage matmul which use plane-level cooperation,
-// this is cube-level cooperation. This is expected since we need the whole ouput stage (the result of all plane operations)
+// this is cube-level cooperation. This is expected since we need the whole output stage (the result of all plane operations)
 // to compute the output quantization scaling parameter.
 //
-// This function doesn't sync_units, it is the responsability of the caller to make sure all planes have finish their
+// This function doesn't sync_units, it is the responsibility of the caller to make sure all planes have finish their
 // work on tiling matmul before calling this function.
 //
 // # Note on generics
@@ -388,7 +388,7 @@ pub struct StageAcc<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> {
     quantization_memories: CubeOption<QuantizationMemories<EA>>,
 }
 
-// Each memory is stored as a single SharedMemory big enough to accomodate all tmm accumulators.
+// Each memory is stored as a single SharedMemory big enough to accommodate all tmm accumulators.
 //
 // TODO Maybe we can work with a smaller quantized memory as it is only used to read the tmm accumulators
 //      into shared memory. Thus the same slice could be reused across many reads.
@@ -405,7 +405,7 @@ struct QuantizationMemories<EA: Numeric> {
 
 #[cube]
 impl<EA: Numeric> QuantizationMemories<EA> {
-    // Returns the chunck of quantized memory corresponding to acc_index and UNIT_POS_Y (plane pos)
+    // Returns the chunk of quantized memory corresponding to acc_index and UNIT_POS_Y (plane pos)
     // as a mutable slice.
     fn quantized_slice_mut<TMM: TileConfig>(
         &mut self,
