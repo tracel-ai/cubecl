@@ -7,8 +7,9 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use crate::matmul::components::{
     Ident,
     global::{
-        self, AsyncInputLoader, GlobalConfig, InputLoader, loader::r#async::CopyMechanism,
-        single_stage, tensor_view::MappedTensorReader,
+        self, GlobalConfig,
+        single_stage::{self, AsyncFullLoader, CopyMechanism, FullLoader},
+        tensor_view::MappedTensorReader,
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
@@ -36,7 +37,7 @@ pub struct TmaRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
-    AsyncInputLoader<EG, ES, single_stage::Config<S>> for TmaLhsLoader<EG, ES, S>
+    AsyncFullLoader<EG, ES, single_stage::Config<S>> for TmaLhsLoader<EG, ES, S>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
@@ -63,10 +64,14 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
         }
         this.barrier.wait(token);
     }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    }
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single_stage::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> FullLoader<EG, ES, single_stage::Config<S>>
     for TmaLhsLoader<EG, ES, S>
 {
     type StageReader = LhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -77,10 +82,6 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -108,7 +109,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single_stage::Config<S>>
+impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> FullLoader<EG, ES, single_stage::Config<S>>
     for TmaRhsLoader<EG, ES, S>
 {
     type StageReader = RhsReader<ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -120,15 +121,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> InputLoader<EG, ES, single
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
     }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
-    }
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
-    AsyncInputLoader<EG, ES, single_stage::Config<S>> for TmaRhsLoader<EG, ES, S>
+    AsyncFullLoader<EG, ES, single_stage::Config<S>> for TmaRhsLoader<EG, ES, S>
 {
     fn fill_stage<CM: CopyMechanism<ES>>(
         this: &mut Self,
@@ -154,6 +151,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
             this.barrier.arrive(&mut token);
         }
         this.barrier.wait(token);
+    }
+
+    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
+        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 

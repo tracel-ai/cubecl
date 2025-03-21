@@ -4,13 +4,13 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
-        self, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
-        loader::sync::{CyclicCoalescedLoading, SyncRhsLoader},
+        self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage,
+        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
@@ -70,7 +70,7 @@ where
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+        SyncFullRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<CS, SMM::Config>;
 
     type Out = Unloader<CS::EG>;
@@ -230,6 +230,13 @@ where
             problem.padding,
             problem.has_bias,
         )
+    }
+
+    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &Self::Config,
+    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+        SMM::check_availability::<R, CS>(client, &config.to_smm_config())
     }
 }
 

@@ -47,6 +47,13 @@ pub enum Instruction {
         or_else: Variable,
         out: Variable,
     },
+    ConditionalRead {
+        cond: Variable,
+        slice: Variable,
+        index: Variable,
+        fallback: Variable,
+        out: Variable,
+    },
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
@@ -987,6 +994,42 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "/* {content} */")
                 } else {
                     writeln!(f, "// {content}")
+                }
+            }
+            Instruction::ConditionalRead {
+                cond,
+                slice,
+                index,
+                fallback,
+                out,
+            } => {
+                let vf_slice = slice.item().vectorization_factor();
+                let vf_fallback = fallback.item().vectorization_factor();
+                let vf_out = out.item().vectorization_factor();
+                let vf_cond = cond.item().vectorization_factor();
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_slice);
+                let vf = usize::max(vf, vf_fallback);
+
+                let out = out.fmt_left();
+                if vf != vf_slice || vf != vf_fallback || vf != vf_cond || vf != vf_out {
+                    writeln!(f, "{out} = vec{vf}(")?;
+                    for i in 0..vf {
+                        let fallbacki = fallback.index(i);
+                        let condi = cond.index(i);
+
+                        writeln!(
+                            f,
+                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + i], {condi}),"
+                        )?;
+                    }
+
+                    writeln!(f, ");")
+                } else {
+                    writeln!(
+                        f,
+                        "{out} = select({fallback}, (*{slice}_ptr)[{index} + {slice}_offset], {cond});"
+                    )
                 }
             }
         }

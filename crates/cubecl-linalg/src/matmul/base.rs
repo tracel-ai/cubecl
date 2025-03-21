@@ -5,12 +5,9 @@ use crate::tensor::TensorHandle;
 
 use super::{
     components::{
-        global::loader::{
-            r#async::{
-                CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-                WindowCooperativeLoading,
-            },
-            sync::StridedCoalescedLoading,
+        global::single_stage::{
+            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
+            StridedCoalescedLoading, WindowCooperativeLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,

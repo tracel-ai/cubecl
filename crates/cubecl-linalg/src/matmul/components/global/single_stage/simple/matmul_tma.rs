@@ -1,13 +1,17 @@
-use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::loader::tma::{TmaLhsLoader, TmaRhsLoader};
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::single_stage::{
+    Config, FullLoader, loading::AsyncFullLoader,
+};
+use crate::matmul::components::stage::ContiguousTilingLayout;
+use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::{global::base::AsyncInputLoader, stage::RowMajorTilingOrder};
-use crate::matmul::components::{global::base::InputLoader, stage::ContiguousTilingLayout};
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
+};
 
 use barrier::Barrier;
 use cubecl_core::Feature;

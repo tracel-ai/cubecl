@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, MatmulPrecision,
-    global::{InputLoader, SyncInputLoader},
+    global::single_stage::{FullLoader, SyncFullLoader},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
 };
 use crate::{
@@ -24,7 +24,7 @@ pub struct SimpleIm2colLoader<CS: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> FullLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     type StageReader = LhsReader<CS::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -36,14 +36,10 @@ impl<CS: MatmulPrecision, G: ConvGemmConfig> InputLoader<CS::EG, CS::ES, G>
     fn as_stage_reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
-
-    fn clear_stage(_this: &mut Self, #[comptime] _config: G) {
-        // Unreachable
-    }
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: ConvGemmConfig> SyncInputLoader<CS::EG, CS::ES, G>
+impl<CS: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<CS::EG, CS::ES, G>
     for SimpleIm2colLoader<CS, G>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
