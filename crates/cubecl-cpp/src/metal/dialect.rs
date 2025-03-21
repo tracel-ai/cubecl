@@ -23,7 +23,7 @@ impl Dialect for MslDialect {}
 // Includes
 
 impl DialectIncludes<Self> for MslDialect {
-    type Extension = Extension;
+    type Extension = Extension<Self>;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         write!(
@@ -42,7 +42,7 @@ using namespace metal;
     ) -> std::fmt::Result {
         for extension in extensions {
             match extension {
-                Extension::Erf => format_erf::<Self>(f)?,
+                Extension::Erf(input, output) => format_erf::<Self>(f, &input, &output)?,
                 Extension::NoExtension => {}
             }
         }
@@ -57,8 +57,8 @@ using namespace metal;
         };
         #[allow(clippy::single_match)]
         match instruction {
-            shared::Instruction::<Self>::Erf(_) => {
-                register_extension(Extension::Erf);
+            shared::Instruction::<Self>::Erf(instruction) => {
+                register_extension(Extension::Erf(instruction.input.clone(), instruction.out.clone()));
             }
             _ => {}
         }
