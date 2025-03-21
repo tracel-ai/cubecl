@@ -408,7 +408,7 @@ impl WgpuStream {
             None => {
                 #[cfg(not(target_family = "wasm"))]
                 {
-                    self.device.poll(wgpu::MaintainBase::Wait).unwrap();
+                    self.device.poll(wgpu::MaintainBase::Wait);
                     Box::pin(async move {})
                 }
                 #[cfg(target_family = "wasm")]
@@ -632,10 +632,7 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        device
-                            .poll(wgpu::MaintainBase::WaitForSubmissionIndex(index))
-                            .unwrap();
-
+                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
                         *tasks_count_submitted = 0;
                     }
                 }
