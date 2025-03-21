@@ -22,6 +22,7 @@ pub(crate) enum CacheEntry {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Some variants are not created when the cache isn't saved.
 pub(crate) enum ChecksumState {
     Match,
     NoMatch,

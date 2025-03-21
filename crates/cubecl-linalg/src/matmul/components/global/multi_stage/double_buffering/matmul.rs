@@ -173,10 +173,10 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
