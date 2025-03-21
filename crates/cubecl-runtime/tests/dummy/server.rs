@@ -80,7 +80,7 @@ impl ComputeServer for DummyServer {
 
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
-            self.memory_management.reserve(size as u64),
+            self.memory_management.reserve(size as u64, None),
             None,
             None,
             size as u64,
