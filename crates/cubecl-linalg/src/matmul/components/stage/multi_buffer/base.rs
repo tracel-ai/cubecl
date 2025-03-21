@@ -18,6 +18,7 @@ use cubecl_reduce::instructions::MaxAbs;
 use cubecl_reduce::primitives::ReduceRange;
 use cubecl_reduce::primitives::reduce_slice_shared;
 use cubecl_reduce::primitives::reduce_tree;
+use cubecl_std::div_ceil;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::reader::{LhsReader, RhsReader};
@@ -357,11 +358,19 @@ fn rescale(
 ) {
     let scale_out = Line::empty(line_size).fill(scale_out);
 
-    let num_elems_per_unit = length / num_units; // TODO is this always exact.
+    let bound_check = length % num_units != 0;
+    let num_elems_per_unit = length.div_ceil(num_units);
+
     #[unroll]
     for k in 0..num_elems_per_unit {
         let index = num_units * k + UNIT_POS;
-        slice[index] = Line::round(slice[index] / scale_out);
+        if bound_check {
+            if index < length {
+                slice[index] = Line::round(slice[index] / scale_out);
+            }
+        } else {
+            slice[index] = Line::round(slice[index] / scale_out);
+        }
     }
 }
 

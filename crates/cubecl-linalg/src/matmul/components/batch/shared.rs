@@ -60,8 +60,8 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
                 nth_batch * num_stages_lhs_per_batch + x_offset * num_stages_lhs_col_axis;
 
             let range_lhs = IndexRange {
-                current: start_lhs,
-                end: start_lhs + num_stages_lhs_col_axis,
+                current: start_lhs + k_range.0,
+                end: start_lhs + k_range.1,
                 step: 1,
             };
 
@@ -80,8 +80,8 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
             let start_rhs = nth_batch * num_stages_rhs_per_batch + y_offset;
 
             let range_rhs = IndexRange {
-                current: start_rhs,
-                end: start_rhs + num_stages_rhs_per_batch,
+                current: start_rhs + k_range.0 * num_stages_rhs_col_axis,
+                end: start_rhs + k_range.1 * num_stages_rhs_col_axis,
                 step: num_stages_rhs_col_axis,
             };
 

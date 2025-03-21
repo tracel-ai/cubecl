@@ -85,7 +85,7 @@ impl<EG: Numeric> IndexedQuantization<EG> {
     }
 }
 
-/// This functions assume that `slice` that actually store f32 values,
+/// This functions assume that `slice` actually store f32 values,
 /// but because of typing issue, it is represented in the type system as Slice<Line<EG>>.
 /// This reads and converts to an f32 the value at position `index` in the slice, that is bytes `4 * index`  to `4 * (index + 1)`
 /// when viewing `slice` as an array of bytes.
@@ -94,7 +94,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
     let num_bytes_line_eg = comptime!(core::mem::size_of::<EG>() as u32) * line_size;
     match num_bytes_line_eg {
         1 => {
-            // Each item is a 1 byte value, we need for of them.
+            // Each item is a 1 byte value, we need four of them.
             let start = index * 4;
             let mut bytes = Line::empty(4);
             #[unroll]
@@ -151,7 +151,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
     }
 }
 
-/// This functions assume that `slice` that actually store f32 values,
+/// This functions assume that `slice` actually store f32 values,
 /// but because of typing issue, it is represented in the type system as Slice<Line<EG>>.
 /// This writes the given `value` at position `index` in the slice, that is bytes `4 * index`  to `4 * (index + 1)`
 /// when viewing `slice` as an array of bytes.

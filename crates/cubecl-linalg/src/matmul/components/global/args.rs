@@ -479,7 +479,7 @@ impl MatmulArgs for TensorArgs {
             Quantization::<EG> {
                 lhs: (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
                 rhs: (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
-                out: (*out).slice_mut(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+                out: (*out).slice_mut(Self::len_out(state), Self::buffer_len_out(state)),
             }
             // TODO Currently I assume that buffer_len = metadata_len + len.
             //      That is, all the data within the tensors are contiguous and there are no hole
