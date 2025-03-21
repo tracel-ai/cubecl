@@ -5,7 +5,9 @@ use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
-use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
+use crate::matmul::kernels::{
+    MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
+};
 use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
@@ -44,6 +46,12 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
+    if EG::QUANTIZED {
+        return Err(MatmulLaunchError::Unimplemented(
+            MatmulUnimplementedError::Quantization,
+        ));
+    }
+
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),
         MatrixLayout::MildlyPermuted {
