@@ -315,37 +315,37 @@ impl DialectWarp for MslDialect {
         _var: &str,
         _source: &str,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_shuffle_xor(
         _f: &mut std::fmt::Formatter<'_>,
         _var: &str,
         _offset: &str,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_shuffle_up(
         _f: &mut std::fmt::Formatter<'_>,
         _var: &str,
         _offset: &str,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_shuffle_down(
         _f: &mut std::fmt::Formatter<'_>,
         _var: &str,
         _offset: &str,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_all(_f: &mut std::fmt::Formatter<'_>, _var: &str) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_any(_f: &mut std::fmt::Formatter<'_>, _var: &str) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
     fn compile_warp_ballot(_f: &mut std::fmt::Formatter<'_>, _out: &str) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 }
 
@@ -355,43 +355,43 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     type Architecture = MetalArchitecture;
 
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_fragment_ident(
         _ident: &crate::shared::FragmentIdent<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_fragment_layout(
         _layout: &crate::shared::FragmentLayout<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_fragment(
         _fragment: &crate::shared::Fragment<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn compile_instruction(
         _instruction: &crate::shared::WmmaInstruction<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        Ok(())
+        todo!()
     }
 
     fn supported_wmma_combinations(

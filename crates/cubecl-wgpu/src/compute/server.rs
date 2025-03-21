@@ -92,6 +92,11 @@ impl WgpuServer {
             ));
         }
         let compile = self.logger.debug(compile);
+        // TODO This is usefull while working purely on the compiler without the runtime part
+        // Also the errors are printed nicely which is no the case when this is the runtime
+        // that does it.
+        // We can delete this once the compiler is mature and hopefully we can make the runtime
+        // to pretty print the compilation error.
         // {
         //     // Write shader in metal file then compile it for error
         //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
@@ -167,7 +172,7 @@ impl ComputeServer for WgpuServer {
         let pipeline = self.pipeline(kernel, mode);
         self.stream.register(pipeline, bindings, &count);
 
-        // // If profiling, write out results.
+        // If profiling, write out results.
         if let Some(level) = profile_level {
             let (name, kernel_id) = profile_info.unwrap();
 
