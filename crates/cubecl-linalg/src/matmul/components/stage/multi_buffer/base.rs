@@ -377,7 +377,7 @@ fn rescale(
 ///
 /// For quantized matmul, we also add a pair of shared memories.
 /// A quantized one with `Line<EA>` and a dequantized one with `Line<f32>`.
-/// The quantized memory is used to transfert the result of the tmm_accumulators into shared memory.
+/// The quantized memory is used to transfer the result of the tmm_accumulators into shared memory.
 /// The dequantized memory is persistent for the whole stage matmul.
 /// We need to upload the result of each quantized accumulators into the dequantized one
 /// since pair of lhs and rhs stages may have different scaling parameters.
