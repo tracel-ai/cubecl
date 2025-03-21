@@ -165,7 +165,6 @@ where
 
             sync_units();
 
-
             let scaling = match quantization.clone() {
                 CubeOption::Some(quantization) => CubeOption::new_Some(
                     quantization.read_current_scale_lhs(config.global_line_size(Ident::Lhs))
