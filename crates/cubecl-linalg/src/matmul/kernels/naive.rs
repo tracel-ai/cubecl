@@ -156,15 +156,6 @@ pub fn launch<R: Runtime, E: Numeric>(
         false => 1,
     };
 
-    println!("lhs: {:?}", lhs.handle);
-    println!(
-        "rhs shape: {rhs_original_shape:?}, strides: {:?}, handle: {:?}",
-        rhs.strides(),
-        rhs.handle
-    );
-    println!("out: {out:?}, handle: {:?}", out.handle);
-    println!("vectorization: {vectorization_factor}");
-
     unsafe {
         matmul_kernel::launch_unchecked::<E, R>(
             client,

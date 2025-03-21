@@ -523,8 +523,8 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
-        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
+        let lhs_binding = &client.read_one_tensor(lhs.handle.clone());
+        let rhs_binding = &client.read_one_tensor(rhs.handle.clone());
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);
