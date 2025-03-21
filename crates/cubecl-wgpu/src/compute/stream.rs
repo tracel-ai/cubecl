@@ -7,7 +7,7 @@ use web_time::Instant;
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, TimestampsError, TimestampsResult,
+    TimestampsError, TimestampsResult, memory_management::MemoryDeviceProperties,
 };
 use wgpu::ComputePipeline;
 

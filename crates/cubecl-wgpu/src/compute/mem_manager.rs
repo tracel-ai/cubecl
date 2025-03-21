@@ -1,6 +1,6 @@
 use cubecl_core::{
-    server::{Binding, Handle},
     MemoryConfiguration,
+    server::{Binding, Handle},
 };
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement, StorageExclude},
