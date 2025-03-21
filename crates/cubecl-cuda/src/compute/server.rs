@@ -303,7 +303,7 @@ impl ComputeServer for CudaServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64);
+        let handle = ctx.memory_management.reserve(size as u64, None);
         server::Handle::new(handle, None, None, size as u64)
     }
 
@@ -318,7 +318,7 @@ impl ComputeServer for CudaServer {
         // through memory management. So just manually pitch to alignment for now.
         let pitch = width_bytes.next_multiple_of(Self::Storage::ALIGNMENT as usize);
         let size = height * pitch;
-        let handle = ctx.memory_management.reserve(size as u64);
+        let handle = ctx.memory_management.reserve(size as u64, None);
         let mut strides = vec![1; rank];
         if rank > 1 {
             strides[rank - 2] = pitch / elem_size;

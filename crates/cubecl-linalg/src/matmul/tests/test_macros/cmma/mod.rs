@@ -33,7 +33,7 @@ macro_rules! testgen_matmul_quantized {
         mod matmul_quantized {
             use super::*;
 
-            type Precision = $crate::matmul::tests::Q8;
+            type Precision = $crate::matmul::tests::SymQ8;
             type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
 
             $crate::matmul_standard_tests!();

@@ -2,6 +2,8 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand};
 
+use super::Quantization;
+
 #[cube]
 /// Arguments for the matrix multiplication algorithm.
 pub trait MatmulArgs: Send + Sync + 'static + Clone {
@@ -79,6 +81,11 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     fn stride_rhs<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
     /// Get the stride of the out tensor using the state.
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, axis: u32) -> u32;
+
+    /// It is the responsibility of the caller to ensure it is safe to call this function.
+    /// That is, when a matmul is indeed quantized. Else, it will most likely results in
+    /// out-of-bound memory access.
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization<EG>;
 }
 
 #[derive(Clone, Copy)]
@@ -502,6 +509,20 @@ impl MatmulArgs for TensorArgs {
     fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).buffer_len() }
     }
+
+    fn quantization<EG: Numeric>(state: &Self::State<EG>) -> Quantization<EG> {
+        let (lhs, rhs, out) = *state;
+        unsafe {
+            Quantization::<EG> {
+                lhs: (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
+                rhs: (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+                out: (*out).slice_mut(Self::len_out(state), Self::buffer_len_out(state)),
+            }
+            // TODO Currently I assume that buffer_len = metadata_len + len.
+            //      That is, all the data within the tensors are contiguous and there are no hole
+            //      in the stride pattern.
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -631,6 +652,18 @@ impl MatmulArgs for TensorMapArgs {
 
     fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
         unsafe { (*state.2).buffer_len() }
+    }
+
+    fn quantization<EG: Numeric>(_state: &Self::State<EG>) -> Quantization<EG> {
+        comptime!(todo!("Quantized TMA not yet supported"));
+        #[allow(unreachable_code)]
+        unsafe {
+            Quantization::<EG> {
+                lhs: (*_state.2).slice(Self::len_out(_state), Self::buffer_len_out(_state)),
+                rhs: (*_state.2).slice(Self::len_out(_state), Self::buffer_len_out(_state)),
+                out: (*_state.2).slice_mut(Self::len_out(_state), Self::buffer_len_out(_state)),
+            }
+        }
     }
 }
 

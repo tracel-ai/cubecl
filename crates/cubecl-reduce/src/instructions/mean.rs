@@ -45,6 +45,8 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
         Sum::fuse_accumulators(lhs, rhs)
     }
 
+    // TODO Remove shape_axis_reduce when fusion-on-write is well supported for reduce instructions.
+    //      Then, an instruction like Mean can be implemented by fusing a Sum reduction and a element-wise division.
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out {
         Sum::merge_line::<Out>(accumulator, shape_axis_reduce) / Out::cast_from(shape_axis_reduce)
     }

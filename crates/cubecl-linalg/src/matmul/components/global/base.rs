@@ -8,7 +8,12 @@ use crate::matmul::components::{
     stage::{self, StageWriter},
     tile,
 };
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
+
+use super::IndexedQuantization;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -56,6 +61,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     );
 

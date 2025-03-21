@@ -102,7 +102,7 @@ impl ComputeServer for DummyServer {
 
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
-            self.memory_management.reserve(size as u64),
+            self.memory_management.reserve(size as u64, None),
             None,
             None,
             size as u64,
@@ -116,7 +116,7 @@ impl ComputeServer for DummyServer {
             strides[i] = strides[i + 1] * shape[i + 1];
         }
         let size = (shape.iter().product::<usize>() * elem_size) as u64;
-        let handle = Handle::new(self.memory_management.reserve(size), None, None, size);
+        let handle = Handle::new(self.memory_management.reserve(size, None), None, None, size);
         TensorHandle::new(handle, strides, shape, elem_size)
     }
 

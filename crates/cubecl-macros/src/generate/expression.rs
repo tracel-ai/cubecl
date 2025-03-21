@@ -481,14 +481,14 @@ impl Expression {
             Expression::Block(block) => block.to_tokens(context),
             Expression::Match {
                 runtime_variants,
-                expr: const_expr,
+                expr,
                 arms,
             } => {
                 let arms = arms
                     .iter()
                     .map(|arm| arm.to_tokens(context, *runtime_variants));
                 quote! {
-                    match #const_expr {
+                    match #expr {
                         #(#arms,)*
                     }
                 }
@@ -575,7 +575,7 @@ impl MatchArm {
             // Match the underscore pattern _
             Pat::Wild(_) => {}
             _ => {
-                panic!("unsupported pattern in match");
+                panic!("unsupported pattern in match for {pat:?}");
                 // NOTE: From the documentation https://docs.rs/syn/latest/syn/enum.Pat.html
                 //       I don't think we should support any other patterns.
                 //       Users can always use a big if, else if, else pattern instead.
@@ -591,7 +591,7 @@ fn append_expand_to_enum_name(path: &mut Path) {
         let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if
         segment.ident = Ident::new(&format!("{}Expand", segment.ident), Span::call_site());
     } else {
-        panic!("unsupported pattern in match");
+        panic!("unsupported pattern in match because of segment len");
     }
 }
 

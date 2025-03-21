@@ -207,7 +207,7 @@ impl ComputeServer for HipServer {
 
     fn empty(&mut self, size: usize) -> server::Handle {
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(size as u64);
+        let handle = ctx.memory_management.reserve(size as u64, None);
         server::Handle::new(handle, None, None, size as u64)
     }
 

@@ -114,7 +114,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<WgpuResource> {
-        let resource = self.stream.get_resource(binding.clone());
+        let resource = self.stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
 
@@ -230,11 +230,11 @@ impl ComputeServer for WgpuServer {
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.stream.memory_usage()
+        self.stream.mem_manage.memory_usage()
     }
 
     fn memory_cleanup(&mut self) {
-        self.stream.memory_cleanup();
+        self.stream.mem_manage.memory_cleanup(true);
     }
 
     fn enable_timestamps(&mut self) {

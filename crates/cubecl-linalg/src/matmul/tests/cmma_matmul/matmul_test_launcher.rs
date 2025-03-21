@@ -80,17 +80,6 @@ pub fn test_matmul_algorithm<A, P, R>(
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
-    if !P::should_run::<A>((problem.lhs_layout, problem.rhs_layout)) {
-        let msg = "Skipped - Algorithm should not run with given precision and layouts.";
-        if panic_on_launch_err {
-            panic!("{msg}");
-        } else {
-            println!("{msg}");
-            client.flush();
-            return;
-        }
-    }
-
     let config = match A::make_config(input, &problem, &cube_dim, &cube_count, P::QUANTIZED) {
         Ok(config) => config,
         Err(err) => {

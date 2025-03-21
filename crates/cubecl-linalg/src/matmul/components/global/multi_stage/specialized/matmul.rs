@@ -1,15 +1,18 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
-use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
+use crate::matmul::components::{
+    Ident, MatmulPrecision,
+    global::{
+        self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        multi_stage::{
+            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
+        },
+        output_loader::Unloader,
+    },
+    stage::{
+        StageMatmul,
+        single_buffer::{LhsBufferReader, RhsBufferReader},
+    },
 };
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
@@ -160,8 +163,15 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
@@ -194,6 +204,7 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
+                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -210,6 +221,7 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
+                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -222,6 +234,7 @@ where
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
+                CubeOption::new_None(),
                 config.to_smm_config(),
                 config,
             );

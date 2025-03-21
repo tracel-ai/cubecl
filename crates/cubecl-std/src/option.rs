@@ -1,10 +1,37 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-#[derive(CubeType)]
+#[derive(CubeType, Clone, Copy)]
 pub enum CubeOption<T: CubeType> {
     Some(T),
     None,
+}
+
+#[cube]
+impl<T: CubeType> CubeOption<T> {
+    pub fn is_some(&self) -> bool {
+        match self {
+            CubeOption::Some(_) => true,
+            CubeOption::None => false,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        !self.is_some()
+    }
+}
+
+impl<T: CubeType> CubeOptionExpand<T> {
+    pub fn is_some(&self) -> bool {
+        match self {
+            CubeOptionExpand::Some(_) => true,
+            CubeOptionExpand::None => false,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        !self.is_some()
+    }
 }
 
 // Manually implement CubeLaunch as the macro is currently not permissive enough.
