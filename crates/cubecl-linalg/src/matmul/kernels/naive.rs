@@ -36,7 +36,7 @@ fn matmul_kernel<N: Numeric>(
 
     let mut offset_lhs = 0;
     let mut offset_rhs = 0;
-    let offset_out = n_rows * n_cols * batch_pos;
+    let offset_out = batch_pos * out.stride(rank - 2) * out.shape(rank - 2);
 
     #[unroll(unroll)]
     for i in 0..end {
@@ -54,13 +54,13 @@ fn matmul_kernel<N: Numeric>(
     k /= line_size.runtime();
 
     for i in 0..k {
-        let lhs_index = row * k + i + offset_lhs;
-        let rhs_index = col * k + i + offset_rhs;
+        let lhs_index = row * lhs.stride(rank - 2) / line_size + i + offset_lhs;
+        let rhs_index = col * rhs.stride(rank - 2) / line_size + i + offset_rhs;
 
         sum += lhs[lhs_index] * rhs[rhs_index];
     }
 
-    let mut out_index = row * n_cols + col;
+    let mut out_index = row * out.stride(rank - 2) + col;
     out_index += offset_out;
 
     let unroll_sum = line_size != 1;
@@ -155,6 +155,15 @@ pub fn launch<R: Runtime, E: Numeric>(
         true => 4,
         false => 1,
     };
+
+    println!("lhs: {:?}", lhs.handle);
+    println!(
+        "rhs shape: {rhs_original_shape:?}, strides: {:?}, handle: {:?}",
+        rhs.strides(),
+        rhs.handle
+    );
+    println!("out: {out:?}, handle: {:?}", out.handle);
+    println!("vectorization: {vectorization_factor}");
 
     unsafe {
         matmul_kernel::launch_unchecked::<E, R>(

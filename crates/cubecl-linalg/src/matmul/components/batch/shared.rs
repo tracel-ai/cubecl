@@ -19,7 +19,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
-    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
+    let batch_out = nth_batch * out.stride(rank - 2) * out.shape(rank - 2);
     let mut batch_lhs = 0u32.runtime();
     let mut batch_rhs = 0u32.runtime();
     for b in 0..rank - 2 {
