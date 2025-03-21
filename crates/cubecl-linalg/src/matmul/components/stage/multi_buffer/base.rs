@@ -179,12 +179,6 @@ where
 
         match (quantization, quantization_memories) {
             (CubeOption::Some(quantization), CubeOption::Some(memories)) => {
-                // let mut acc_smem = SharedMemory::<EA>::new_lined(
-                //     num_tile_lines * stage_config.num_planes(),
-                //     out_smem_line_size,
-                // );
-                // let mut acc_slice = acc_smem.slice_mut(start, start + num_tile_lines);
-
                 let mut mem_dequantized = memories.dequantized;
                 let slice_mut = mem_dequantized.to_slice_mut();
 
@@ -286,9 +280,24 @@ fn check_num_planes(
     Ok(())
 }
 
+// Given a slice of f32 data, we compute the maximum absolute value (M).
+// Then we rescale all values by 127 / M so that they fit within -127 and 127 (both inclusives).
+//
+// This also update the corresponding quantization scaling in the output to M / 127.
+//
+// # Cooperation at cube-level
+//
+// Unlike other routines in the stage matmul which use plane-level cooperation,
+// this is cube-level cooperation. This is expected since we need the whole ouput stage (the result of all plane operations)
+// to compute the output quantization scaling parameter.
+//
+// This function doesn't sync_units, it is the responsability of the caller to make sure all planes have finish their
+// work on tiling matmul before calling this function.
+//
+// # Note on generics
+//
 // This currently assumes that EG is i8.
 // The types are generics simply to please the rust type system.
-// As such all type casts should be no-ops (I hope).
 #[cube]
 fn requantize<EG: Numeric, TMM: TileConfig>(
     slice: SliceMut<Line<f32>>,
@@ -321,51 +330,76 @@ fn requantize<EG: Numeric, TMM: TileConfig>(
     let max_abs = reduce_tree::<f32, MaxAbs>(&mut accumulator, config.num_planes());
     let max_abs = MaxAbs::merge_line::<f32>(max_abs, 0); // The 0 here is a dummy value
 
-    let scale_out = 1.0 / max_abs;
-    quantization.write_scale_out(1.0 / max_abs, line_size);
-    rescale::<f32>(
+    // This is where I assume that EG is i8.
+    let scale_out = 127.0 / max_abs;
+    rescale(
         slice,
         scale_out,
         length,
         line_size,
         config.num_planes() * config.plane_dim(),
     );
+
+    quantization.write_scale_out(1.0 / scale_out, line_size);
 }
 
+// Multiply all element of the slice by scale_out using all units within the cube.
+// See comment on [requantize] for why it is ok to use cube-level cooperation.
+//
+// TODO: Move this in cubecl_std.
 #[cube]
-fn rescale<EA: Numeric>(
-    mut slice: SliceMut<Line<EA>>,
+fn rescale(
+    mut slice: SliceMut<Line<f32>>,
     scale_out: f32,
     #[comptime] length: u32,
     #[comptime] line_size: u32,
     #[comptime] num_units: u32,
 ) {
+    let scale_out = Line::empty(line_size).fill(scale_out);
+
     let num_elems_per_unit = length / num_units; // TODO is this always exact.
     #[unroll]
     for k in 0..num_elems_per_unit {
         let index = num_units * k + UNIT_POS;
-        let scale_out = Line::empty(line_size).fill(scale_out);
-        let value = Line::<f32>::cast_from(slice[index]);
-        let value = Line::<EA>::cast_from(Line::round(value / scale_out));
-        slice[index] = value;
+        slice[index] = Line::round(slice[index] / scale_out);
     }
 }
 
+/// For a regular matmul (without quantization), this is simply a sequence of TileMatmul accumulators.
+///
+/// For quantized matmul, we also add a pair of shared memories.
+/// A quantized one with `Line<EA>` and a dequantized one with `Line<f32>`.
+/// The quantized memory is used to transfert the result of the tmm_accumulators into shared memory.
+/// The dequantized memory is persistent for the whole stage matmul.
+/// We need to upload the result of each quantized accumulators into the dequantized one
+/// since pair of lhs and rhs stages may have different scaling parameters.
+/// See the [accumulated_dequantized_if_quantized] method.
 #[derive(CubeType, Clone)]
 pub struct StageAcc<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> {
     tmm_accumulators: Sequence<TMM::Accumulator>,
     quantization_memories: CubeOption<QuantizationMemories<EA>>,
 }
 
+// Each memory is stored as a single SharedMemory big enough to accomodate all tmm accumulators.
+//
+// TODO Maybe we can work with a smaller quantized memory as it is only used to read the tmm accumulators
+//      into shared memory. Thus the same slice could be reused across many reads.
+//
+//      Also, when TMM is PlaneMMA, we don't really need an extra SharedMemory as the TMM accumulators
+//      are themselves shared memories. I don't know if it is worth it to spend time on this as PlaneMMA are
+//      only used during testing. I still think it is good to be aware of that optimization for future TMM implementation
+//      or if we find a way to read and rescale lines from cmma fragments of the Acceralted TMM directly into the dequantized f32 memory.
 #[derive(CubeType, Clone, Copy)]
 struct QuantizationMemories<EA: Numeric> {
-    quantized: SharedMemory<Line<EA>>,
-    dequantized: SharedMemory<Line<f32>>,
+    quantized: SharedMemory<Line<EA>>, // Only to read from tmm_accumulators
+    dequantized: SharedMemory<Line<f32>>, // The persistent accumulator for the stage matmul.
 }
 
 #[cube]
 impl<EA: Numeric> QuantizationMemories<EA> {
-    pub fn quantized_slice_mut<TMM: TileConfig>(
+    // Returns the chunck of quantized memory corresponding to acc_index and UNIT_POS_Y (plane pos)
+    // as a mutable slice.
+    fn quantized_slice_mut<TMM: TileConfig>(
         &mut self,
         acc_index: u32,
         #[comptime] config: CommonStageConfig<TMM>,
@@ -380,6 +414,10 @@ impl<EA: Numeric> QuantizationMemories<EA> {
         self.quantized.slice_mut(start, end)
     }
 
+    // Read elements from the quantized memory and multiply them by scaling before
+    // adding them to the dequantized memory.
+    //
+    // This cooperates at the cube-level. See comment on [requantize] for why this is ok.
     fn add_dequantized<TMM: TileConfig>(
         &mut self,
         scaling: f32,
@@ -401,6 +439,13 @@ impl<EA: Numeric> QuantizationMemories<EA> {
 
 #[cube]
 impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> StageAcc<ES, EA, TMM> {
+    // Read the tmm_accumulator into the quantized memory.
+    // Then convert the element from the quantized memory to f32
+    // and multiply them by scaling before adding the result to the dequantized memory.
+    //
+    // Do nothing if either scaling or self.quantization_memories is None.
+    //
+    // This cooperates at the cube-level. See comment on [requantize] for why this is ok.
     fn accumulate_dequantized_if_quantized(
         &mut self,
         scaling: CubeOption<f32>,
@@ -408,6 +453,7 @@ impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> StageAcc<ES, EA, TMM> {
     ) {
         let quantization_memories = self.quantization_memories;
         let acc = &self.tmm_accumulators;
+
         #[allow(clippy::single_match)]
         match (quantization_memories, scaling) {
             (CubeOption::Some(memories), CubeOption::Some(scaling)) => {

@@ -66,6 +66,11 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     type RhsTile: CubeType;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
+    ///
+    /// # Quantization
+    ///
+    /// If scaling is provided, the matmul will be performed in a quantized version.
+    /// This assumes that [read_accumulator] is called with some `quantization` provided.
     fn execute(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
@@ -79,6 +84,12 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
 
     /// Reads the result of the accumulator and hands it to the stage writer
+    ///
+    /// # Quantization
+    ///
+    /// If some `quantization` is provided, the read will also requantize the stage in the output
+    /// and update the scaling of the output tensor. This assumes that [execute] is called
+    /// with some `scaling` provided.
     fn read_accumulator<Out: StageWriter<EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
