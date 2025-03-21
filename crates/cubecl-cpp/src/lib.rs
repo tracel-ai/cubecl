@@ -3,8 +3,8 @@ extern crate derive_new;
 
 pub mod shared;
 
-pub use shared::register_supported_types;
 pub use shared::ComputeKernel;
+pub use shared::register_supported_types;
 pub use shared::{Dialect, DialectWmmaCompiler};
 
 /// Format CPP code.
@@ -20,8 +20,8 @@ pub type HipDialectRocWmma = hip::HipDialect<hip::mma::RocWmmaCompiler>;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 #[cfg(feature = "cuda")]
-
 pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect>;
+
 #[cfg(feature = "metal")]
 pub mod metal;
 #[cfg(feature = "metal")]

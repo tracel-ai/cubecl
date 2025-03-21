@@ -1,8 +1,9 @@
-use std::{collections::HashSet, fmt::Debug};
 use std::hash::Hash;
+use std::{collections::HashSet, fmt::Debug};
 
 use super::{
-    Architecture, Binding, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, WmmaInstruction
+    Architecture, Binding, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
+    SupportedWmmaCombinations, WmmaInstruction,
 };
 
 // Base dialect
@@ -32,16 +33,23 @@ pub trait DialectIncludes<D: Dialect> {
     type Extension: Debug + Clone + Sync + Send;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result;
-    fn compile_extensions(f: &mut std::fmt::Formatter<'_>, extensions: &Vec<Self::Extension>) -> std::fmt::Result;
-    fn register_extension(extensions: &mut Vec<Self::Extension> ,instruction: &Instruction<D>);
+    fn compile_extensions(
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
+    ) -> std::fmt::Result;
+    fn register_extension(extensions: &mut Vec<Self::Extension>, instruction: &Instruction<D>);
 }
 
 // Types
 
 pub trait DialectTypes<D: Dialect> {
-    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &Elem<D>)  -> std::fmt::Result;
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<D>)  -> std::fmt::Result;
-    fn compile_type_definitions(f: &mut std::fmt::Formatter<'_>, items: &HashSet<Item<D>>, flags: &Flags) -> std::fmt::Result;
+    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &Elem<D>) -> std::fmt::Result;
+    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<D>) -> std::fmt::Result;
+    fn compile_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        items: &HashSet<Item<D>>,
+        flags: &Flags,
+    ) -> std::fmt::Result;
 }
 
 // Kernel argument bindings
@@ -50,9 +58,9 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        inputs: &Vec<Binding<D>>,
-        outputs: &Vec<Binding<D>>,
-        named: &Vec<(String, Binding<D>)>,
+        inputs: &[Binding<D>],
+        outputs: &[Binding<D>],
+        named: &[(String, Binding<D>)],
         flags: &Flags,
     ) -> std::fmt::Result;
 }
@@ -90,7 +98,11 @@ pub trait DialectCubeBuiltins {
 // Warp
 
 pub trait DialectWarp {
-    fn compile_warp_shuffle(f: &mut std::fmt::Formatter<'_>, var: &str, source: &str) -> std::fmt::Result;
+    fn compile_warp_shuffle(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        source: &str,
+    ) -> std::fmt::Result;
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,

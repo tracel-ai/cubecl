@@ -4,7 +4,6 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::WgpuCompilationOptions;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},

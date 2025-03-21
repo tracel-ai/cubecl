@@ -58,7 +58,7 @@ impl<D: Dialect> Display for AtomicKind<D> {
 
 impl<D: Dialect> Display for Elem<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_elem(f, &self)
+        D::compile_elem(f, self)
     }
 }
 

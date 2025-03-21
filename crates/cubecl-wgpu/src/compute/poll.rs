@@ -20,7 +20,8 @@ mod _impl {
                     // Check whether the WgpuPoll, this thread, and something else is holding
                     // a handle.
                     if std::sync::Arc::strong_count(&thread_check) > 2 {
-                        device.poll(wgpu::MaintainBase::Poll);
+                        // TODO: handle result here
+                        device.poll(wgpu::MaintainBase::Poll).unwrap();
                     } else {
                         // Do not cancel thread while someone still needs to poll.
                         if cancel_receiver.try_recv().is_ok() {

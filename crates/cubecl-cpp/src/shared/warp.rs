@@ -67,8 +67,12 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ReduceProd { input, out } => reduce_operator(f, input, out, "*="),
             WarpInstruction::ReduceMax { input, out } => reduce_comparison(f, input, out, "max"),
             WarpInstruction::ReduceMin { input, out } => reduce_comparison(f, input, out, "min"),
-            WarpInstruction::All { input, out } => reduce_quantifier(f, input, out, D::compile_warp_all),
-            WarpInstruction::Any { input, out } => reduce_quantifier(f, input, out, D::compile_warp_any),
+            WarpInstruction::All { input, out } => {
+                reduce_quantifier(f, input, out, D::compile_warp_all)
+            }
+            WarpInstruction::Any { input, out } => {
+                reduce_quantifier(f, input, out, D::compile_warp_any)
+            }
             WarpInstruction::Ballot { input, out } => {
                 assert_eq!(
                     input.item().vectorization,
@@ -82,11 +86,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
 {out_fmt} = {{ "
                 )?;
                 D::compile_warp_ballot(f, &format!("{input}"))?;
-                write!(
-                    f,
-                    ", 0, 0, 0 }};
-"
-                )
+                writeln!(f, ", 0, 0, 0 }};")
             }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
             WarpInstruction::Elect { out } => write!(
@@ -122,11 +122,7 @@ fn reduce_operator<D: Dialect>(
         let acc_indexed = maybe_index(acc, index);
         write!(f, "{acc_indexed} {op} ")?;
         D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
-        write!(
-            f,
-            ";
-"
-        )
+        writeln!(f, ";")
     })
 }
 
@@ -212,11 +208,7 @@ fn reduce_comparison<D: Dialect>(
         let acc_indexed = maybe_index(acc, index);
         write!(f, "{acc_indexed} = {instruction}({acc_indexed}, ")?;
         D::compile_warp_shuffle_xor(f, &acc_indexed, "offset")?;
-        write!(
-            f,
-            ");
-"
-        )
+        writeln!(f, ");")
     })
 }
 
@@ -232,11 +224,7 @@ fn reduce_broadcast<D: Dialect>(
         let comma = if i > 0 { ", " } else { "" };
         D::compile_warp_shuffle(f, &format!("{comma}{}", input.index(i)), &format!("{id}"))?;
     }
-    write!(
-        f,
-        " }};
-"
-    )
+    writeln!(f, " }};")
 }
 
 fn reduce_with_loop<
@@ -281,11 +269,7 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> s
         let comma = if i > 0 { ", " } else { "" };
         quantifier(f, &format!("{comma}{}", input.index(i)))?;
     }
-    write!(
-        f,
-        "}};
-"
-    )
+    writeln!(f, "}};")
 }
 
 fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {

@@ -9,11 +9,11 @@ use wgpu::{
 
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
-#[cfg(feature = "msl")]
-use cubecl_cpp::metal;
 #[cfg(feature = "spirv")]
 use super::vulkan;
 use super::wgsl;
+#[cfg(feature = "msl")]
+use cubecl_cpp::metal;
 
 impl WgpuServer {
     pub fn create_pipeline(

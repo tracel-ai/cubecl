@@ -1,4 +1,4 @@
-use crate::{shared::Variable, Dialect};
+use crate::{Dialect, shared::Variable};
 
 use super::BuiltInAttribute;
 

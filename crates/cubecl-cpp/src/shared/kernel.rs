@@ -1,47 +1,51 @@
 use super::{Body, Component, Dialect, Elem, Flags, Item, Variable};
-use cubecl_core::{compute::{Location, Visibility}, ir::Id, CubeDim};
+use cubecl_core::{
+    CubeDim,
+    compute::{Location, Visibility},
+    ir::Id,
+};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding<D: Dialect> {
-pub item: Item<D>,
-pub location: Location,
-pub size: Option<usize>,
-pub vis: Visibility,
+    pub item: Item<D>,
+    pub location: Location,
+    pub size: Option<usize>,
+    pub vis: Visibility,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory<D: Dialect> {
-pub index: Id,
-pub item: Item<D>,
-pub size: u32,
+    pub index: Id,
+    pub item: Item<D>,
+    pub size: u32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ConstArray<D: Dialect> {
-pub index: Id,
-pub item: Item<D>,
-pub size: u32,
-pub values: Vec<Variable<D>>,
+    pub index: Id,
+    pub item: Item<D>,
+    pub size: u32,
+    pub values: Vec<Variable<D>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LocalArray<D: Dialect> {
-pub index: Id,
-pub item: Item<D>,
-pub size: u32,
+    pub index: Id,
+    pub item: Item<D>,
+    pub size: u32,
 }
 
 impl<D: Dialect> LocalArray<D> {
-pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-    Self { index, item, size }
-}
+    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+        Self { index, item, size }
+    }
 }
 
 impl<D: Dialect> SharedMemory<D> {
-pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-    Self { index, item, size }
-}
+    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
+        Self { index, item, size }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +83,14 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         D::compile_extensions(f, &self.extensions)?;
 
         // Kernel signature --------------------------------------------------
-        D::compile_kernel_signature(f, &self.kernel_name, &self.inputs, &self.outputs, &self.named, &self.flags)?;
+        D::compile_kernel_signature(
+            f,
+            &self.kernel_name,
+            &self.inputs,
+            &self.outputs,
+            &self.named,
+            &self.flags,
+        )?;
 
         // Body --------------------------------------------------------------
         f.write_str(" {\n")?;
@@ -92,15 +103,18 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 }
 
 pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "typedef unsigned char {};\n", Elem::<D>::U8)?;
-    write!(f, "typedef unsigned short {};\n", Elem::<D>::U16)?;
-    write!(f, "typedef unsigned int {};\n", Elem::<D>::U32)?;
-    write!(f, "typedef unsigned long long int {};\n", Elem::<D>::U64)?;
-    write!(f, "typedef long long int {};\n", Elem::<D>::I64)?;
+    writeln!(f, "typedef unsigned char {};", Elem::<D>::U8)?;
+    writeln!(f, "typedef unsigned short {};", Elem::<D>::U16)?;
+    writeln!(f, "typedef unsigned int {};", Elem::<D>::U32)?;
+    writeln!(f, "typedef unsigned long long int {};", Elem::<D>::U64)?;
+    writeln!(f, "typedef long long int {};", Elem::<D>::I64)?;
     Ok(())
 }
 
-pub fn type_vectorized_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>, items: &HashSet<Item<D>>)  -> std::fmt::Result {
+pub fn type_vectorized_definitions<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    items: &HashSet<Item<D>>,
+) -> std::fmt::Result {
     for item in items.iter() {
         let elem = item.elem;
         let size = item.vectorization;
@@ -128,9 +142,9 @@ struct __align__({alignment}) {item} {{"
 
 pub fn compile_bindings<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
-    inputs: &Vec<Binding<D>>,
-    outputs: &Vec<Binding<D>>,
-    named: &Vec<(String, Binding<D>)>,
+    inputs: &[Binding<D>],
+    outputs: &[Binding<D>],
+    named: &[(String, Binding<D>)],
 ) -> std::fmt::Result {
     let num_bindings = inputs.len() + outputs.len() + named.len();
     let mut binding_index = 0;

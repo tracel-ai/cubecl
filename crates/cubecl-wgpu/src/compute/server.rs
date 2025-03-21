@@ -87,7 +87,7 @@ impl WgpuServer {
 
         if self.logger.is_activated() {
             compile.debug_info = Some(DebugInformation::new(
-                &compiler.lang_tag(),
+                compiler.lang_tag(),
                 kernel_id.clone(),
             ));
         }

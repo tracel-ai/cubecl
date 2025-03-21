@@ -2,13 +2,14 @@ use std::collections::HashSet;
 use std::fmt::Display;
 
 use crate::{
-    shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item
-    },
     Dialect,
+    shared::{
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
+        DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item,
+    },
 };
 
-use super::{arch::CudaArchitecture, mma::CudaWmmaCompiler, Extension};
+use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaDialect {}
@@ -45,24 +46,38 @@ impl DialectIncludes<Self> for CudaDialect {
         Ok(())
     }
 
-    fn compile_extensions(_f: &mut std::fmt::Formatter<'_>, _extensions: &Vec<Self::Extension>) -> std::fmt::Result {
+    fn compile_extensions(
+        _f: &mut std::fmt::Formatter<'_>,
+        _extensions: &[Self::Extension],
+    ) -> std::fmt::Result {
         Ok(())
     }
 
-    fn register_extension(_extensions: &mut Vec<Self::Extension>, _instruction: &Instruction<Self>) {}
+    fn register_extension(
+        _extensions: &mut Vec<Self::Extension>,
+        _instruction: &Instruction<Self>,
+    ) {
+    }
 }
 
 // Types
 
 impl DialectTypes<Self> for CudaDialect {
-    fn compile_type_definitions(f: &mut std::fmt::Formatter<'_>, items: &HashSet<Item<Self>>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        items: &HashSet<Item<Self>>,
+        _flags: &Flags,
+    ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, &items)?;
+        shared::type_vectorized_definitions::<Self>(f, items)?;
         Self::compile_wmma_type_definitions(f)?;
         Ok(())
     }
 
-    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &shared::Elem<Self>)  -> std::fmt::Result {
+    fn compile_elem(
+        f: &mut std::fmt::Formatter<'_>,
+        elem: &shared::Elem<Self>,
+    ) -> std::fmt::Result {
         match elem {
             shared::Elem::F16 => f.write_str("__half"),
             shared::Elem::F162 => f.write_str("__half2"),
@@ -85,7 +100,7 @@ impl DialectTypes<Self> for CudaDialect {
         }
     }
 
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>)  -> std::fmt::Result {
+    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
@@ -99,9 +114,9 @@ impl DialectBindings<Self> for CudaDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        inputs: &Vec<Binding<Self>>,
-        outputs: &Vec<Binding<Self>>,
-        named: &Vec<(String, Binding<Self>)>,
+        inputs: &[Binding<Self>],
+        outputs: &[Binding<Self>],
+        named: &[(String, Binding<Self>)],
         _flags: &Flags,
     ) -> std::fmt::Result {
         write!(
@@ -239,7 +254,11 @@ impl DialectCubeBuiltins for CudaDialect {
 // Warp
 
 impl DialectWarp for CudaDialect {
-    fn compile_warp_shuffle(f: &mut std::fmt::Formatter<'_>, var: &str, source: &str) -> std::fmt::Result {
+    fn compile_warp_shuffle(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        source: &str,
+    ) -> std::fmt::Result {
         write!(f, "__shfl_sync(-1, {var}, {source})")
     }
     fn compile_warp_shuffle_xor(

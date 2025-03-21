@@ -1,6 +1,10 @@
 use cubecl_core::compute::Visibility;
 
-use crate::{metal::AddressSpace, shared::{Binding, Component, MslComputeKernel, Variable}, Dialect};
+use crate::{
+    Dialect,
+    metal::AddressSpace,
+    shared::{Binding, Component, MslComputeKernel, Variable},
+};
 
 pub fn bindings(repr: &MslComputeKernel) -> Vec<(usize, Visibility)> {
     let mut bindings: Vec<(usize, Visibility)> = vec![];
@@ -39,7 +43,10 @@ pub fn format_global_binding_arg<D: Dialect>(
     let ty = binding.item;
     let attribute = address_space.attribute();
 
-    write!(f, "{comma}\n    {address_space} {ty}{pointer} g_{name}{suffix}",)?;
+    write!(
+        f,
+        "{comma}\n    {address_space} {ty}{pointer} g_{name}{suffix}",
+    )?;
     // attribute
     attribute.indexed_fmt(attr_idx, f)?;
     write!(f, "{size}")
@@ -52,11 +59,7 @@ pub fn format_metal_builtin_binding_arg<D: Dialect>(
 ) -> core::fmt::Result {
     let ty = variable.item();
     let attribute = variable.attribute();
-    let comma = if comma {
-        ","
-    } else {
-        ""
-    };
+    let comma = if comma { "," } else { "" };
     write!(f, "{comma}\n    {ty} {variable} {attribute}",)?;
     Ok(())
 }

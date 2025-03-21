@@ -157,7 +157,10 @@ impl<D: Dialect> CppCompiler<D> {
             op_barrier: self.flags.op_barrier,
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
-            inst_fast_math: value.options.fp_math_mode.contains(FastMath::ReducedPrecision),
+            inst_fast_math: value
+                .options
+                .fp_math_mode
+                .contains(FastMath::ReducedPrecision),
         };
 
         let body = Body {
@@ -364,15 +367,13 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::NonSemantic::Print {
                     format_string,
                     args,
-                } => {
-                    instructions.push(Instruction::Printf {
-                        format_string,
-                        args: args
-                            .into_iter()
-                            .map(|arg| self.compile_variable(arg))
-                            .collect(),
-                    })
-                }
+                } => instructions.push(Instruction::Printf {
+                    format_string,
+                    args: args
+                        .into_iter()
+                        .map(|arg| self.compile_variable(arg))
+                        .collect(),
+                }),
                 gpu::NonSemantic::Comment { content } => {
                     instructions.push(Instruction::Comment { content })
                 }
@@ -1101,15 +1102,15 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeDimX => {
                     self.flags.var_cube_dim = true;
                     Variable::CubeDimX
-                },
+                }
                 gpu::Builtin::CubeDimY => {
                     self.flags.var_cube_dim = true;
                     Variable::CubeDimY
-                },
+                }
                 gpu::Builtin::CubeDimZ => {
                     self.flags.var_cube_dim = true;
                     Variable::CubeDimZ
-                },
+                }
                 gpu::Builtin::CubePos => {
                     self.flags.var_cube_pos_global = true;
                     Variable::CubePosGlobal
@@ -1117,15 +1118,15 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubePosX => {
                     self.flags.var_cube_pos = true;
                     Variable::CubePosX
-                },
+                }
                 gpu::Builtin::CubePosY => {
                     self.flags.var_cube_pos = true;
                     Variable::CubePosY
-                },
+                }
                 gpu::Builtin::CubePosZ => {
                     self.flags.var_cube_pos = true;
                     Variable::CubePosZ
-                },
+                }
                 gpu::Builtin::CubeCount => {
                     self.flags.var_cube_count_global = true;
                     Variable::CubeCountGlobal
@@ -1133,15 +1134,15 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeCountX => {
                     self.flags.var_cube_count = true;
                     Variable::CubeCountX
-                },
+                }
                 gpu::Builtin::CubeCountY => {
                     self.flags.var_cube_count = true;
                     Variable::CubeCountY
-                },
+                }
                 gpu::Builtin::CubeCountZ => {
                     self.flags.var_cube_count = true;
                     Variable::CubeCountZ
-                },
+                }
                 gpu::Builtin::UnitPos => {
                     self.flags.var_unit_pos_global = true;
                     Variable::UnitPosGlobal
@@ -1149,19 +1150,19 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::UnitPosX => {
                     self.flags.var_unit_pos = true;
                     Variable::UnitPosX
-                },
+                }
                 gpu::Builtin::UnitPosY => {
                     self.flags.var_unit_pos = true;
                     Variable::UnitPosY
-                },
+                }
                 gpu::Builtin::UnitPosZ => {
                     self.flags.var_unit_pos = true;
                     Variable::UnitPosZ
-                },
+                }
                 gpu::Builtin::PlaneDim => {
                     self.flags.var_plane_dim = true;
                     Variable::PlaneDim
-                },
+                }
                 gpu::Builtin::UnitPosPlane => {
                     self.flags.var_unit_pos_plane = true;
                     Variable::UnitPosPlane
@@ -1261,7 +1262,7 @@ impl<D: Dialect> CppCompiler<D> {
         let item = Item::new(
             self.compile_elem(item.elem),
             item.vectorization.map(NonZero::get).unwrap_or(1).into(),
-            false
+            false,
         );
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);
@@ -1354,4 +1355,3 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
         props.register_feature(Feature::Type(ty));
     }
 }
-

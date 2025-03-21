@@ -11,7 +11,7 @@ pub struct Item<D: Dialect> {
 
 impl<D: Dialect> Display for Item<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_item(f, &self)
+        D::compile_item(f, self)
     }
 }
 

@@ -6,9 +6,9 @@ use cubecl_core::{
     prelude::{CompiledKernel, KernelDefinition},
     server::ComputeServer,
 };
-use derive_more::derive::From;
 #[cfg(feature = "msl")]
 use cubecl_cpp::shared::MslComputeKernel;
+use derive_more::derive::From;
 
 use crate::{WgpuServer, WgslCompiler};
 

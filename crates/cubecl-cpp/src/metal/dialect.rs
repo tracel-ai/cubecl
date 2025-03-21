@@ -1,13 +1,17 @@
 use std::fmt::Display;
 
 use crate::{
-    shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
-    },
     Dialect,
+    shared::{
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
+        DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable,
+    },
 };
 
-use super::{arch::MetalArchitecture, format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, Extension};
+use super::{
+    Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
+    format_metal_builtin_binding_arg,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct MslDialect {}
@@ -32,11 +36,14 @@ using namespace metal;
         Ok(())
     }
 
-    fn compile_extensions(f: &mut std::fmt::Formatter<'_>, extensions: &Vec<Self::Extension>) -> std::fmt::Result {
+    fn compile_extensions(
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
+    ) -> std::fmt::Result {
         for extension in extensions {
             match extension {
                 Extension::Erf => format_erf::<Self>(f)?,
-                Extension::NoExtension => {},
+                Extension::NoExtension => {}
             }
         }
         Ok(())
@@ -48,10 +55,11 @@ using namespace metal;
                 extensions.push(extension);
             }
         };
+        #[allow(clippy::single_match)]
         match instruction {
             shared::Instruction::<Self>::Erf(_) => {
                 register_extension(Extension::Erf);
-            },
+            }
             _ => {}
         }
     }
@@ -60,33 +68,40 @@ using namespace metal;
 // Types
 
 impl DialectTypes<Self> for MslDialect {
-    fn compile_type_definitions(f: &mut std::fmt::Formatter<'_>, items: &std::collections::HashSet<crate::shared::Item<Self>>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        items: &std::collections::HashSet<crate::shared::Item<Self>>,
+        _flags: &Flags,
+    ) -> std::fmt::Result {
         for item in items.iter() {
-        let elem = item.elem;
-        let size = item.vectorization;
-        let alignment = elem.size() * size;
-        if size > 1 {
-            write!(
-                f,
-                "
-struct alignas({alignment}) {item} {{"
-            )?;
-
-            for i in 0..size {
+            let elem = item.elem;
+            let size = item.vectorization;
+            let alignment = elem.size() * size;
+            if size > 1 {
                 write!(
                     f,
                     "
-    {elem} i_{i};"
+struct alignas({alignment}) {item} {{"
                 )?;
-            }
 
-            f.write_str("\n};\n")?;
+                for i in 0..size {
+                    write!(
+                        f,
+                        "
+    {elem} i_{i};"
+                    )?;
+                }
+
+                f.write_str("\n};\n")?;
+            }
         }
-    }
         Ok(())
     }
 
-    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &shared::Elem<Self>)  -> std::fmt::Result {
+    fn compile_elem(
+        f: &mut std::fmt::Formatter<'_>,
+        elem: &shared::Elem<Self>,
+    ) -> std::fmt::Result {
         match elem {
             shared::Elem::F16 => f.write_str("half"),
             shared::Elem::F162 => panic!("type F162 not supported!"),
@@ -109,7 +124,7 @@ struct alignas({alignment}) {item} {{"
         }
     }
 
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>)  -> std::fmt::Result {
+    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
@@ -127,9 +142,9 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        inputs: &Vec<Binding<Self>>,
-        outputs: &Vec<Binding<Self>>,
-        named: &Vec<(String, Binding<Self>)>,
+        inputs: &[Binding<Self>],
+        outputs: &[Binding<Self>],
+        named: &[(String, Binding<Self>)],
         flags: &Flags,
     ) -> std::fmt::Result {
         write!(
@@ -164,7 +179,7 @@ void {}(",
             (flags.var_unit_pos_plane, Variable::UnitPosPlane),
             (flags.var_plane_dim, Variable::PlaneDim),
         ];
-        let comma = inputs.len() > 0 || outputs.len() > 0 || named.len() > 0;
+        let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
         builtins
             .iter()
             .filter(|(cond, _)| *cond)

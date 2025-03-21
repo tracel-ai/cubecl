@@ -1,7 +1,7 @@
 use cubecl_core::ir::{self as gpu, BarrierLevel, ConstantScalarValue, Id};
 use std::fmt::Display;
 
-use super::{Dialect, Elem, Fragment, FragmentIdent, Item, COUNTER_TMP_VAR};
+use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
 
 pub trait Component<D: Dialect>: Display + FmtLeft {
     fn item(&self) -> Item<D>;
@@ -25,27 +25,27 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
     AbsolutePosGlobal,
-    AbsolutePos,               // base name for XYZ
+    AbsolutePos, // base name for XYZ
     AbsolutePosX,
     AbsolutePosY,
     AbsolutePosZ,
     UnitPosGlobal,
-    UnitPos,                   // base name for XYZ
+    UnitPos, // base name for XYZ
     UnitPosX,
     UnitPosY,
     UnitPosZ,
     CubePosGlobal,
-    CubePos,                   // base name for XYZ
+    CubePos, // base name for XYZ
     CubePosX,
     CubePosY,
     CubePosZ,
     CubeDimGlobal,
-    CubeDim,                   // base name for XYZ
+    CubeDim, // base name for XYZ
     CubeDimX,
     CubeDimY,
     CubeDimZ,
     CubeCountGlobal,
-    CubeCount,                 // base name for XYZ
+    CubeCount, // base name for XYZ
     CubeCountX,
     CubeCountY,
     CubeCountZ,
@@ -101,17 +101,29 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos => Item {elem: Elem::U32, vectorization: 3, native: true},
+            Variable::AbsolutePos => Item {
+                elem: Elem::U32,
+                vectorization: 3,
+                native: true,
+            },
             Variable::AbsolutePosGlobal => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosX => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosY => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosZ => Item::scalar(Elem::U32, true),
-            Variable::CubeCount => Item {elem: Elem::U32, vectorization: 3, native: true},
+            Variable::CubeCount => Item {
+                elem: Elem::U32,
+                vectorization: 3,
+                native: true,
+            },
             Variable::CubeCountGlobal => Item::scalar(Elem::U32, true),
             Variable::CubeCountX => Item::scalar(Elem::U32, true),
             Variable::CubeCountY => Item::scalar(Elem::U32, true),
             Variable::CubeCountZ => Item::scalar(Elem::U32, true),
-            Variable::CubeDim => Item {elem: Elem::U32, vectorization: 3, native: true},
+            Variable::CubeDim => Item {
+                elem: Elem::U32,
+                vectorization: 3,
+                native: true,
+            },
             Variable::CubeDimGlobal => Item::scalar(Elem::U32, true),
             Variable::CubeDimX => Item::scalar(Elem::U32, true),
             Variable::CubeDimY => Item::scalar(Elem::U32, true),
@@ -151,7 +163,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
         matches!(self, Variable::LocalConst { .. })
     }
 }
-
 
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -387,11 +398,7 @@ impl<D: Dialect> Variable<D> {
     }
 
     pub fn const_qualifier(&self) -> &str {
-        if self.is_const() {
-            " const"
-        } else {
-            ""
-        }
+        if self.is_const() { " const" } else { "" }
     }
 
     pub fn id(&self) -> Option<Id> {
@@ -444,7 +451,6 @@ impl<D: Dialect> Component<D> for IndexedVariable<D> {
         matches!(self.var, Variable::LocalConst { .. })
     }
 }
-
 
 impl<D: Dialect> Display for IndexedVariable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

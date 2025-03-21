@@ -1,13 +1,14 @@
-use std::{collections::HashSet, marker::PhantomData};
 use std::fmt::Display;
+use std::{collections::HashSet, marker::PhantomData};
 
 use crate::shared::Instruction;
 use crate::{
+    Dialect,
     cuda::CudaDialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Item
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
+        DialectWarp, DialectWmmaCompiler, Flags, Item,
     },
-    Dialect,
 };
 
 use super::Extension;
@@ -41,24 +42,38 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         Ok(())
     }
 
-    fn compile_extensions(_f: &mut std::fmt::Formatter<'_>, _extensions: &Vec<Self::Extension>) -> std::fmt::Result {
+    fn compile_extensions(
+        _f: &mut std::fmt::Formatter<'_>,
+        _extensions: &[Self::Extension],
+    ) -> std::fmt::Result {
         Ok(())
     }
 
-    fn register_extension(_extensions: &mut Vec<Self::Extension>, _instruction: &Instruction<Self>) {}
+    fn register_extension(
+        _extensions: &mut Vec<Self::Extension>,
+        _instruction: &Instruction<Self>,
+    ) {
+    }
 }
 
 // Types
 
 impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
-    fn compile_type_definitions(f: &mut std::fmt::Formatter<'_>, items: &HashSet<Item<Self>>, _flags: &Flags) -> std::fmt::Result {
+    fn compile_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        items: &HashSet<Item<Self>>,
+        _flags: &Flags,
+    ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, &items)?;
+        shared::type_vectorized_definitions::<Self>(f, items)?;
         Self::compile_wmma_type_definitions(f)?;
         Ok(())
     }
 
-    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &shared::Elem<Self>)  -> std::fmt::Result {
+    fn compile_elem(
+        f: &mut std::fmt::Formatter<'_>,
+        elem: &shared::Elem<Self>,
+    ) -> std::fmt::Result {
         match elem {
             shared::Elem::F16 => f.write_str("__half"),
             shared::Elem::F162 => f.write_str("__half2"),
@@ -81,7 +96,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         }
     }
 
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>)  -> std::fmt::Result {
+    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
@@ -95,9 +110,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        inputs: &Vec<Binding<Self>>,
-        outputs: &Vec<Binding<Self>>,
-        named: &Vec<(String, Binding<Self>)>,
+        inputs: &[Binding<Self>],
+        outputs: &[Binding<Self>],
+        named: &[(String, Binding<Self>)],
         _flags: &Flags,
     ) -> std::fmt::Result {
         write!(
@@ -220,7 +235,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins for HipDialect<M> {
 // Warp
 
 impl<M: DialectWmmaCompiler<Self>> DialectWarp for HipDialect<M> {
-    fn compile_warp_shuffle(f: &mut std::fmt::Formatter<'_>, var: &str, source: &str) -> std::fmt::Result {
+    fn compile_warp_shuffle(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        source: &str,
+    ) -> std::fmt::Result {
         write!(f, "__shfl({var}, {source})")
     }
     fn compile_warp_shuffle_xor(
