@@ -33,7 +33,7 @@ impl<CS: MatmulPrecision, G: ConvGemmConfig> FullLoader<CS::EG, CS::ES, G>
         this.tensor_view.update_view(k_offset);
     }
 
-    fn as_stage_reader(this: &Self) -> Self::StageReader {
+    fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
     }
 }

@@ -179,8 +179,8 @@ where
             Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
             pipeline.producer_commit();
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             // Wait for load to finish for this thread, then sync to make sure all planes have finished
             pipeline.consumer_wait();
