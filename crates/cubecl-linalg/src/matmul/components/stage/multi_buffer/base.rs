@@ -18,7 +18,6 @@ use cubecl_reduce::instructions::MaxAbs;
 use cubecl_reduce::primitives::ReduceRange;
 use cubecl_reduce::primitives::reduce_slice_shared;
 use cubecl_reduce::primitives::reduce_tree;
-use cubecl_std::div_ceil;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::reader::{LhsReader, RhsReader};
