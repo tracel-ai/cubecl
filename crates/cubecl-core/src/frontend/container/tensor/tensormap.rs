@@ -128,14 +128,14 @@ impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.constant(ConstantInfo::TensorMap);
+        let tensor = builder.tensor_map(ConstantInfo::TensorMap);
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.constant(ConstantInfo::TensorMap);
+        let tensor = builder.tensor_map(ConstantInfo::TensorMap);
         tensor.into()
     }
 }

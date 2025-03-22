@@ -57,7 +57,7 @@ impl KernelBuilder {
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn constant(&mut self, info: ConstantInfo) -> ExpandElement {
+    pub fn tensor_map(&mut self, info: ConstantInfo) -> ExpandElement {
         self.constants.push(info);
         let variable = ExpandElement::Plain(Variable::new(
             VariableKind::TensorMap(self.num_constant),
