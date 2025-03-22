@@ -24,17 +24,40 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
     offset / tensor.line_size()
 }
 
+/// Returns the offset of the tensor corresponding to a contiguous layout.
+#[cube]
+pub fn index_offset_contiguous<N: CubePrimitive>(
+    tensor: &Tensor<Line<N>>,
+    offset_layout: u32,
+    #[comptime] rank: Option<u32>,
+) -> u32 {
+    let unroll = rank.is_some();
+    let rank = rank.unwrap_or_else(|| tensor.rank());
+
+    let offset_ref = offset_layout * tensor.line_size();
+    let mut offset = 0;
+    let mut remainder = offset_ref;
+
+    #[unroll(unroll)]
+    for i in 0..rank {
+        let dim = rank - i - 1;
+        let shape = tensor.shape(dim);
+        let ogwl = remainder % shape;
+        offset += ogwl * tensor.stride(dim);
+        remainder /= shape;
+    }
+
+    offset / tensor.line_size()
+}
+
 #[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<Line<N>>,
-    layout_ref: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
     #[comptime] rank: Option<u32>,
     #[comptime] elems_per_thread: u32,
     #[comptime] pitched: bool,
 ) {
-    let const_rank = rank.is_some();
-    let rank = rank.unwrap_or_else(|| output.rank());
     let mut offset_output = ABSOLUTE_POS * elems_per_thread;
     let line_size = input.line_size();
 
@@ -42,16 +65,11 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        let offset_input = index_offset_with_layout::<N, N>(
-            input,
-            layout_ref,
-            offset_output + i,
-            0,
-            rank,
-            const_rank,
-        );
+        let offset_input = index_offset_contiguous::<N>(input, offset_output + i, rank);
         registers[i] = input[offset_input];
     }
+
+    let rank = rank.unwrap_or_else(|| input.rank());
 
     if pitched {
         let offset_abs = offset_output * line_size;
@@ -166,24 +184,11 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
-    let out_handle = output.handle.handle.clone();
-    let layout_strides = compact_strides(output.shape());
-
-    let layout_ref = unsafe {
-        TensorArg::from_raw_parts::<E>(
-            &out_handle,
-            &layout_strides,
-            output.shape(),
-            vectorization_factor,
-        )
-    };
-
     into_contiguous_kernel::launch::<Line<E>, R>(
         client,
         cube_count,
         cube_dim,
         input.as_tensor_arg(vectorization_factor),
-        layout_ref,
         output.as_ref().as_tensor_arg(vectorization_factor),
         Some(rank as u32),
         elems_per_unit,
