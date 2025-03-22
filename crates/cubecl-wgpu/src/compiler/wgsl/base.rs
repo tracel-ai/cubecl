@@ -24,6 +24,7 @@ pub enum Variable {
         id: Id,
         item: Item,
     },
+    // TODO: Potential cleanup, seems that variable is not used at all
     LocalScalar {
         id: Id,
         elem: Elem,

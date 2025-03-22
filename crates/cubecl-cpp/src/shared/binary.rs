@@ -243,7 +243,7 @@ impl<D: Dialect> Binary<D> for IndexAssign {
             Ok(())
         } else if rhs.is_const() && item_rhs.vectorization > 1 {
             // Reinterpret cast in case rhs is optimized
-            write!(f, "reinterpret_cast<{item_out} const&>({rhs})")
+            write!(f, "reinterpret_cast<thread {item_out} const&>({rhs})")
         } else {
             write!(f, "{rhs}")
         }
