@@ -45,6 +45,10 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the maximum cube count on each dimension that can be launched.
     fn max_cube_count() -> (u32, u32, u32);
+
+    fn supports_pitched_read() -> bool {
+        false
+    }
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

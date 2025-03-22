@@ -60,6 +60,13 @@ where
         }
     }
 
+    pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+        let elem_size = E::size().expect("To be a native type");
+        let handle = client.empty_tensor(shape, elem_size);
+
+        Self::new(handle)
+    }
+
     /// Create a new tensor.
     pub fn from_ref(handle: &TensorHandleRef<'_, R>) -> Self {
         let handle = server::TensorHandle::new(
@@ -143,13 +150,6 @@ where
     R: Runtime,
     E: Numeric,
 {
-    pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
-        let elem_size = E::size().expect("To be a native type");
-        let handle = client.empty_tensor(shape, elem_size);
-
-        Self::new(handle)
-    }
-
     pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();

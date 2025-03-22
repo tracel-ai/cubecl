@@ -176,4 +176,8 @@ impl Runtime for CudaRuntime {
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
+
+    fn supports_pitched_read() -> bool {
+        true
+    }
 }
