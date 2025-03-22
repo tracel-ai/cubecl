@@ -21,6 +21,7 @@ use super::{
 /// * `weight` - The weights (filter) applied to each kernel
 /// * `bias` - The bias added to each channel
 /// * `options` - The options to use for the convolution
+#[allow(clippy::result_large_err)]
 pub fn launch_conv2d_nhwc<R: Runtime, SP: MatmulPrecision, Alg: Algorithm, S: ConvSelector<Alg>>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorArg<R>,

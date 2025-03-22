@@ -30,6 +30,7 @@ storage-bytes = []
 async-channel = { workspace = true }                                                       # Assume std
 async-lock = { version = "3.4.0" }
 cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.5.0", default-features = false }
 derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
@@ -37,13 +38,13 @@ variadics_please = { workspace = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-md5 = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true, features = ["std"] }
 cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features = false, features = [
     "cache",
     "serde",
 ] }
+md5 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }

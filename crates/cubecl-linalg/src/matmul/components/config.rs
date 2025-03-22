@@ -39,6 +39,7 @@ pub trait MatmulConfigFactory: Send + Sync + 'static {
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError>;
 
     /// Checks if the client can handle the features used in this computation
+    #[allow(clippy::result_large_err)]
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         _client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,

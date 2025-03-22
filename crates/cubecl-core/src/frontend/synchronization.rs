@@ -32,3 +32,15 @@ pub mod sync_storage {
         scope.register(Synchronization::SyncStorage)
     }
 }
+
+/// `sync_proxy` is a synchronization fence for the experimental SM 9.0+ CTA proxy functions
+/// (i.e. TMA tensor copy). Experimental and subject to change.
+pub fn sync_proxy() {}
+
+pub mod sync_proxy {
+    use super::*;
+
+    pub fn expand(scope: &mut Scope) {
+        scope.register(Synchronization::SyncProxy)
+    }
+}

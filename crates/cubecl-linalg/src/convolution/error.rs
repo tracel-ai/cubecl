@@ -4,6 +4,7 @@ use cubecl_core::tune::AutotuneError;
 
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
+#[allow(clippy::large_enum_variant)]
 pub enum ConvLaunchError {
     Matmul(MatmulLaunchError),
     Groups(usize),

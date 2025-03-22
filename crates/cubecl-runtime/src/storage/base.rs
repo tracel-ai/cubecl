@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::{server::Binding, storage_id_type};
 
 // This ID is used to map a handle to its actual data.
@@ -81,7 +83,7 @@ pub trait ComputeStorage: Send {
 }
 
 /// Access to the underlying resource for a given binding.
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct BindingResource<Resource: Send> {
     // This binding is here just to keep the underlying allocation alive.
     // If the underlying allocation becomes invalid, someone else might

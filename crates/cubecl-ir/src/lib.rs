@@ -21,6 +21,7 @@ mod processing;
 mod reflect;
 mod scope;
 mod synchronization;
+mod tma;
 mod type_hash;
 mod variable;
 
@@ -42,6 +43,7 @@ pub use plane::*;
 pub use reflect::*;
 pub use scope::*;
 pub use synchronization::*;
+pub use tma::*;
 pub use variable::*;
 
 pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};

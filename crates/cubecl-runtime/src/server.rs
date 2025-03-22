@@ -7,7 +7,11 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
+use cubecl_common::{
+    ExecutionMode, OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch,
+    TensorMapSwizzle, benchmark::TimestampsResult,
+};
+use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
 ///
@@ -32,6 +36,12 @@ where
         bindings: Vec<Binding>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
 
+    /// Given tensor handles, returns the owned resources as bytes.
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<TensorHandle>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
+
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
@@ -41,8 +51,14 @@ where
     /// Given a resource as bytes, stores it and returns the memory handle.
     fn create(&mut self, data: &[u8]) -> Handle;
 
+    /// Given a resource as bytes with `shape`, stores it and returns the tensor handle.
+    fn create_tensor(&mut self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle;
+
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn empty(&mut self, size: usize) -> Handle;
+
+    /// Reserves `shape` bytes in the storage, and returns a handle to it.
+    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> TensorHandle;
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -56,6 +72,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         kind: ExecutionMode,
     );
@@ -125,6 +142,27 @@ impl Handle {
     }
 }
 
+/// Tensor representation with an owned [server handle](Handle),
+/// the strides and the shape.
+#[derive(new, Debug, Clone)]
+pub struct TensorHandle {
+    /// The handle to the memory resource
+    pub handle: Handle,
+    /// The strides of this buffer
+    pub strides: Vec<usize>,
+    /// The shape of this buffer
+    pub shape: Vec<usize>,
+    /// The size of each element
+    pub elem_size: usize,
+}
+
+impl TensorHandle {
+    /// The total size of this tensor, excluding padding
+    pub fn size(&self) -> usize {
+        self.shape.iter().product()
+    }
+}
+
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
@@ -134,6 +172,43 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+}
+
+/// Binding of a grid constant to execute a kernel.
+#[derive(new, Debug, Clone)]
+pub enum ConstBinding {
+    /// A tensor map used for TMA loading ops
+    TensorMap {
+        /// The binding for the backing tensor
+        binding: Binding,
+        /// The tensormap metadata
+        map: TensorMap,
+    },
+}
+
+/// TensorMap metadata for the opaque proxy used in TMA copies
+#[derive(Debug, Clone)]
+pub struct TensorMap {
+    /// Tensormap format (tiled or im2col)
+    pub format: TensorMapFormat,
+    /// Rank of the backing tensor
+    pub rank: usize,
+    /// Shape of the backing tensor
+    pub shape: Vec<u64>,
+    /// Strides of the backing tensor
+    pub strides: Vec<u64>,
+    /// Element stride, usually 1 but may be 2 for complex tensors
+    pub elem_stride: Vec<u32>,
+    /// Interleave mode
+    pub interleave: TensorMapInterleave,
+    /// Swizzle mode
+    pub swizzle: TensorMapSwizzle,
+    /// Prefetch settings
+    pub prefetch: TensorMapPrefetch,
+    /// OOB fill value
+    pub oob_fill: OobFill,
+    /// Element type
+    pub elem: Elem,
 }
 
 impl Handle {
@@ -151,6 +226,20 @@ impl Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
         }
+    }
+}
+
+impl TensorHandle {
+    /// If the tensor handle can be reused inplace.
+    pub fn can_mut(&self) -> bool {
+        self.handle.memory.can_mut()
+    }
+}
+
+impl TensorHandle {
+    /// Convert the [handle](TensorHandle) into a [binding](Binding).
+    pub fn binding(self) -> Binding {
+        self.handle.binding()
     }
 }
 
@@ -178,6 +267,7 @@ impl Clone for Binding {
 /// Specifieds the number of cubes to be dispatched for a kernel.
 ///
 /// This translates to eg. a grid for CUDA, or to num_workgroups for wgsl.
+#[allow(clippy::large_enum_variant)]
 pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),

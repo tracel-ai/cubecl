@@ -71,7 +71,12 @@ pub fn cache_test_set(
     ) -> impl Fn(Vec<Binding>) {
         let kernel = Arc::new(kernel);
         move |_| {
-            client.execute(kernel.clone(), CubeCount::Static(1, 1, 1), bindings.clone());
+            client.execute(
+                kernel.clone(),
+                CubeCount::Static(1, 1, 1),
+                Vec::new(),
+                bindings.clone(),
+            );
         }
     }
     let mut set = TestSet::new(

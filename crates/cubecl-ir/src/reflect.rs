@@ -89,3 +89,31 @@ impl FromArgList for Vec<Variable> {
         self.iter().cloned()
     }
 }
+
+impl FromArgList for bool {
+    fn from_arg_list(args: &mut VecDeque<Variable>) -> Self {
+        args.pop_front()
+            .expect("Missing variable from arg list")
+            .as_const()
+            .unwrap()
+            .as_bool()
+    }
+
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        [(*self).into()]
+    }
+}
+
+impl FromArgList for u32 {
+    fn from_arg_list(args: &mut VecDeque<Variable>) -> Self {
+        args.pop_front()
+            .expect("Missing variable from arg list")
+            .as_const()
+            .unwrap()
+            .as_u32()
+    }
+
+    fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
+        [(*self).into()]
+    }
+}

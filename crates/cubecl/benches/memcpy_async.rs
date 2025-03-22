@@ -150,7 +150,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -180,7 +180,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -210,7 +210,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -244,7 +244,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -280,7 +280,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -317,7 +317,7 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -353,7 +353,7 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -391,7 +391,7 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -427,7 +427,7 @@ impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
     }
 
     fn wait<E: Float>(barrier: Self::Barrier<E>) {
-        barrier.wait();
+        barrier.arrive_and_wait();
     }
 }
 
@@ -737,7 +737,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     }
 
     fn execute(&self, args: Self::Args) {
-        let smem_size = args.1.shape[0] as u32;
+        let smem_size = args.1.shape()[0] as u32;
         launch_ref::<R, E>(
             self.strategy,
             &self.client,
@@ -804,8 +804,6 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
 fn main() {
     #[cfg(feature = "cuda")]
     {
-        use half::f16;
-
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::DummyCopy);
         run::<cubecl::cuda::CudaRuntime, f32>(Default::default(), CopyStrategyEnum::CoalescedCopy);
         run::<cubecl::cuda::CudaRuntime, f32>(

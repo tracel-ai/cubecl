@@ -91,9 +91,13 @@ impl<D: Dialect> Display for Body<D> {
         }
 
         for shared in self.shared_memories.iter() {
+            let align = match shared.align {
+                Some(alignment) => format!("alignas({alignment})"),
+                None => "".to_string(),
+            };
             writeln!(
                 f,
-                "__shared__ {} shared_memory_{}[{}];",
+                "__shared__ {align} {} shared_memory_{}[{}];",
                 shared.item, shared.index, shared.size
             )?;
         }

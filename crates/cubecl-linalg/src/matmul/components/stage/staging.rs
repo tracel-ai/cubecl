@@ -29,6 +29,23 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         Self::new_with_smem(smem)
     }
 
+    /// Instantiate a new stage for the given identifier
+    pub fn new_aligned<S: StageConfig>(
+        #[comptime] ident: Ident,
+        #[comptime] alignment: u32,
+        #[comptime] config: S,
+    ) -> Stage<ES, T> {
+        let line_size = config.line_size(ident);
+
+        let smem = SharedMemory::new_aligned(
+            comptime!(config.tiling_dimensions(ident).total_size() / line_size),
+            line_size,
+            alignment,
+        );
+
+        Self::new_with_smem(smem)
+    }
+
     /// Instantiate with a custom shared memory
     pub fn new_with_smem(smem: SharedMemory<Line<ES>>) -> Stage<ES, T> {
         Stage::<ES, T> {

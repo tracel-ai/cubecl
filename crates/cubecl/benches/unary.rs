@@ -35,7 +35,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
     }
 
     fn execute(&self, (lhs, rhs, out): Self::Args) {
-        let num_elems: usize = out.shape.iter().product();
+        let num_elems: usize = out.shape().iter().product();
 
         let cube_dim = CubeDim::new(16, 16, 1);
         let cube_count =

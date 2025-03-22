@@ -106,16 +106,16 @@ pub fn tensor_line_size_parallel(
         None => return 1,
     };
 
-    let next_stride = strides.iter().filter(|stride| **stride > 1).min();
-
-    if let Some(next_stride) = next_stride {
-        if next_stride != axis_shape {
-            return 1;
-        }
-    }
+    let next_stride = *strides
+        .iter()
+        .filter(|stride| **stride > 1)
+        .min()
+        .unwrap_or(&0);
 
     supported_line_sizes
-        .filter(|line_size| axis_shape % *line_size as usize == 0)
+        .filter(|line_size| {
+            axis_shape % *line_size as usize == 0 && next_stride % *line_size as usize == 0
+        })
         .max()
         .unwrap_or(1)
 }

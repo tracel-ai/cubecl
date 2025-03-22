@@ -1,5 +1,9 @@
 use super::{Body, Dialect, Item, Variable};
-use cubecl_core::{CubeDim, compute::Visibility, ir::Id};
+use cubecl_core::{
+    CubeDim,
+    compute::{ConstBinding, Visibility},
+    ir::Id,
+};
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -14,6 +18,7 @@ pub struct SharedMemory<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
     pub size: u32,
+    pub align: Option<u32>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -38,13 +43,19 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-        Self { index, item, size }
+    pub fn new(index: Id, item: Item<D>, size: u32, align: Option<u32>) -> Self {
+        Self {
+            index,
+            item,
+            size,
+            align,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
+    pub constants: Vec<ConstBinding>,
     pub inputs: Vec<Binding<D>>,
     pub outputs: Vec<Binding<D>>,
     pub named: Vec<(String, Binding<D>)>,
@@ -53,6 +64,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub wmma_activated: bool,
     pub pipeline: bool,
     pub barrier: bool,
+    pub tma: bool,
     pub bf16: bool,
     pub f16: bool,
     pub fast_math: bool,
@@ -76,6 +88,15 @@ impl<D: Dialect> ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut tma = self.tma;
+        if self
+            .constants
+            .iter()
+            .any(|c| matches!(c, ConstBinding::TensorMap))
+        {
+            tma = true;
+        }
+
         if self.bf16 {
             D::include_bf16(f)?;
         }
@@ -92,10 +113,17 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
         }
-        if self.barrier {
+        if self.barrier || tma {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
+        }
+        if tma {
+            f.write_str(
+                "typedef struct CUtensorMap_st {
+alignas(64) unsigned long long int opaque[16];
+} CUtensorMap;\n",
+            )?;
         }
 
         f.write_str("typedef unsigned char uint8;\n")?;
@@ -137,8 +165,20 @@ extern \"C\" __global__ void {}(
             self.kernel_name
         )?;
 
-        let num_bindings = self.inputs.len() + self.outputs.len() + self.named.len();
+        let num_bindings =
+            self.constants.len() + self.inputs.len() + self.outputs.len() + self.named.len();
         let mut binding_index = 0;
+        for (index, binding) in self.constants.iter().enumerate() {
+            binding_index += 1;
+            match binding {
+                ConstBinding::TensorMap => {
+                    write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
+                }
+            }
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
         for (index, binding) in self.inputs.iter().enumerate() {
             binding_index += 1;
             match binding.vis {

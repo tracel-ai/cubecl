@@ -75,6 +75,18 @@ mod metadata {
         {
             unexpanded!()
         }
+
+        /// Try to cast the slice to the given type and panic if the type isn't the same.
+        ///
+        /// This function should only be used to satisfy the Rust type system, when two generic
+        /// types are supposed to be the same.
+        pub fn try_cast_unchecked<T>(&self) -> SliceMut<T>
+        where
+            E: CubePrimitive,
+            T: CubePrimitive,
+        {
+            unexpanded!()
+        }
     }
 
     impl<C: CubeType> ExpandElementTyped<Slice<C>> {
@@ -134,6 +146,22 @@ mod metadata {
         where
             C: CubePrimitive,
         {
+            self.expand.into()
+        }
+
+        /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
+        pub fn __expand_try_cast_unchecked_method<T>(
+            self,
+            scope: &mut Scope,
+        ) -> ExpandElementTyped<SliceMut<T>>
+        where
+            C: CubePrimitive,
+            T: CubePrimitive,
+        {
+            if T::as_elem(scope) != C::as_elem(scope) {
+                panic!("Try cast unchecked should only be used to satisfy the rust type system.")
+            }
+
             self.expand.into()
         }
     }

@@ -22,8 +22,12 @@ impl Tunable for OneKernelAutotuneOperation {
     type Output = ();
 
     fn execute(&self, inputs: Vec<Binding>) -> Result<(), AutotuneError> {
-        self.client
-            .execute(self.kernel.clone(), CubeCount::Static(1, 1, 1), inputs);
+        self.client.execute(
+            self.kernel.clone(),
+            CubeCount::Static(1, 1, 1),
+            Vec::new(),
+            inputs,
+        );
 
         Ok(())
     }

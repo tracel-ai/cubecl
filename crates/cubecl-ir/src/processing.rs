@@ -360,6 +360,9 @@ impl ScopeProcessing {
                 Operation::Barrier(_) => {
                     // Nothing to do
                 }
+                Operation::Tma(_) => {
+                    // Nothing to do
+                }
             });
         self
     }

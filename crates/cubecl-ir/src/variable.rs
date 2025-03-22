@@ -49,6 +49,7 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
+    TensorMap(Id),
     LocalArray {
         id: Id,
         length: u32,
@@ -71,6 +72,7 @@ pub enum VariableKind {
     SharedMemory {
         id: Id,
         length: u32,
+        alignment: Option<u32>,
     },
     Matrix {
         id: Id,
@@ -89,6 +91,9 @@ pub enum VariableKind {
         id: Id,
         item: Item,
         level: BarrierLevel,
+    },
+    ArrivalToken {
+        id: Id,
     },
 }
 
@@ -125,6 +130,7 @@ impl Variable {
     pub fn is_immutable(&self) -> bool {
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
+            VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
@@ -139,6 +145,7 @@ impl Variable {
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
             VariableKind::Barrier { .. } => false,
+            VariableKind::ArrivalToken { .. } => false,
         }
     }
 
@@ -468,6 +475,7 @@ impl Display for Variable {
             VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
+            VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
             VariableKind::LocalMut { id } => write!(f, "local({id})"),
             VariableKind::Versioned { id, version } => {
@@ -482,6 +490,7 @@ impl Display for Variable {
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
             VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
+            VariableKind::ArrivalToken { id } => write!(f, "token({id})"),
         }
     }
 }

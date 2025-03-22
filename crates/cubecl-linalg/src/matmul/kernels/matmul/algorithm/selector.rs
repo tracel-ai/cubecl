@@ -15,6 +15,7 @@ const NUM_SM_APPROX: usize = 50;
 const NUM_TENSOR_CORES_APPROX: usize = 8;
 
 /// Select which kernel to launch for the given Algorithm.
+#[allow(clippy::result_large_err)]
 pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
@@ -117,7 +118,7 @@ pub(crate) fn find_stage_size_m_n(
     }
 }
 
-fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
+pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,

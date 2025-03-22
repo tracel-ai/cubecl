@@ -1,5 +1,6 @@
 use std::{marker::PhantomData, num::NonZero};
 
+use cubecl_runtime::server::TensorHandle;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -40,9 +41,19 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<R: Runtime> TensorHandleRef<'_, R> {
+impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
+    }
+
+    pub fn from_handle(handle: &'a TensorHandle) -> Self {
+        Self {
+            handle: &handle.handle,
+            strides: &handle.strides,
+            shape: &handle.shape,
+            elem_size: handle.elem_size,
+            runtime: PhantomData,
+        }
     }
 }
 
@@ -138,6 +149,21 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
                 ),
                 vectorization_factor: factor,
             }
+        }
+    }
+
+    /// Create a new tensor argument specified with its vectorization factor.
+    pub fn from_handle(handle: &'a TensorHandle, factor: u8) -> Self {
+        let handle = TensorHandleRef {
+            handle: &handle.handle,
+            strides: &handle.strides,
+            shape: &handle.shape,
+            elem_size: handle.elem_size,
+            runtime: PhantomData,
+        };
+        Self::Handle {
+            handle,
+            vectorization_factor: factor,
         }
     }
 

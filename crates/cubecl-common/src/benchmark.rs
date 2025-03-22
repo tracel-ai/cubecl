@@ -70,16 +70,14 @@ impl BenchmarkDurations {
 
     /// Returns the variance durations for the durations
     pub(crate) fn variance_duration(&self, mean: Duration) -> Duration {
-        let var = self
-            .durations
+        self.durations
             .iter()
             .map(|duration| {
                 let tmp = duration.as_secs_f64() - mean.as_secs_f64();
                 Duration::from_secs_f64(tmp * tmp)
             })
             .sum::<Duration>()
-            / self.durations.len() as u32;
-        var
+            / self.durations.len() as u32
     }
 }
 

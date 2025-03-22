@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 
 use cubecl_core::{
-    AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime,
+    AtomicFeature, CubeDim, DeviceId, Feature, MemoryConfiguration, Runtime, TmaFeature,
     ir::{Elem, FloatKind},
 };
 use cubecl_runtime::{
@@ -121,6 +121,12 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
+    }
+    if arch.version >= 90 {
+        device_props.register_feature(Feature::Tma(TmaFeature::Base));
+    }
+    if arch.version >= 100 {
+        device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
     }
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
     // if arch.version >= 80 {

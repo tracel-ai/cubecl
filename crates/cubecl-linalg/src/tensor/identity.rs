@@ -1,16 +1,18 @@
 use cubecl::frontend::TensorHandleRef;
 use cubecl::prelude::*;
-use cubecl::{calculate_cube_count_elemwise, tensor_line_size_parallel};
+use cubecl::tensor_line_size_parallel;
 use cubecl_core as cubecl;
 
 use super::TensorHandle;
 
 #[cube(launch_unchecked)]
 fn identity_kernel<C: Numeric>(output: &mut Tensor<Line<C>>, gap: u32) {
-    if ABSOLUTE_POS < output.len() {
+    let pos_x = ABSOLUTE_POS_X * output.line_size();
+    if ABSOLUTE_POS_Y < output.shape(0) && pos_x < output.shape(1) {
         let mut line = Line::empty(output.line_size()).fill(C::from_int(0));
+        let offs_y = ABSOLUTE_POS_Y * output.stride(0);
 
-        let start_pos = ABSOLUTE_POS * output.line_size();
+        let start_pos = offs_y + pos_x;
         let mut offset = 0;
         while offset < output.line_size() {
             let remainder = (start_pos + offset) % gap;
@@ -21,7 +23,7 @@ fn identity_kernel<C: Numeric>(output: &mut Tensor<Line<C>>, gap: u32) {
                 offset += gap - remainder;
             }
         }
-        output[ABSOLUTE_POS] = line;
+        output[start_pos / output.line_size()] = line;
     }
 }
 
@@ -48,19 +50,18 @@ pub fn launch_ref<R: Runtime, C: Numeric>(
         "input should be a square matrix"
     );
 
-    let num_elements: usize = output.shape.iter().product();
-    let rank = output.shape.len();
-
     let vectorization_factor = tensor_line_size_parallel(
         R::supported_line_sizes().iter().cloned(),
         output.shape,
         output.strides,
-        rank - 1,
+        1,
     );
 
     let cube_dim = CubeDim::default();
-    let cube_count =
-        calculate_cube_count_elemwise(num_elements / vectorization_factor as usize, cube_dim);
+    let lines_x = output.shape[1] as u32 / vectorization_factor as u32;
+    let cube_count_x = lines_x.div_ceil(cube_dim.x);
+    let cube_count_y = (output.shape[0] as u32).div_ceil(cube_dim.y);
+    let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 
     unsafe {
         identity_kernel::launch_unchecked::<C, R>(
@@ -73,7 +74,7 @@ pub fn launch_ref<R: Runtime, C: Numeric>(
                 output.shape,
                 vectorization_factor,
             ),
-            ScalarArg::new(output.shape[0] as u32 + 1),
+            ScalarArg::new(output.strides[0] as u32 + 1),
         );
     }
 }

@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::BarrierLevel;
+use crate::{BarrierLevel, Elem, IntKind};
 
 use super::{Item, Matrix, Variable, VariableKind};
 
@@ -114,6 +114,15 @@ impl Allocator {
     pub fn create_barrier(&self, item: Item, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
         let variable = Variable::new(VariableKind::Barrier { id, item, level }, item);
+        ExpandElement::Plain(variable)
+    }
+
+    pub fn create_arrival_token(&self) -> ExpandElement {
+        let id = self.new_local_index();
+        let variable = Variable::new(
+            VariableKind::ArrivalToken { id },
+            Item::new(Elem::Int(IntKind::I32)),
+        );
         ExpandElement::Plain(variable)
     }
 

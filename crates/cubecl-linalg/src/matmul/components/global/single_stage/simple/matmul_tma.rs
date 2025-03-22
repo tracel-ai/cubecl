@@ -1,66 +1,68 @@
+use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::single_stage::{
+    Config, FullLoader, loading::AsyncFullLoader,
+};
+use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
+use crate::matmul::components::stage::ContiguousTilingLayout;
+use crate::matmul::components::stage::RowMajorTilingOrder;
+use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
+};
+
+use barrier::Barrier;
+use cubecl_core::prelude::{barrier::BarrierLevel, *};
+use cubecl_core::{self as cubecl};
+use cubecl_core::{Feature, TmaFeature};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
+use std::marker::PhantomData;
+
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
+
 use crate::matmul::{
     components::{
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
-        global::{
-            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, IndexedQuantization,
-            ZeroAccumulatorLoader,
-            output_loader::Unloader,
-            single_stage::{
-                AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-                FullLoader,
-            },
-        },
+        InvalidConfigError, MatmulConfigFactory, MatmulProblem,
+        global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
-            self, StageMatmul,
-            multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+            self,
+            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
     },
     kernels::MatmulAvailabilityError,
 };
-use barrier::Barrier;
-use core::marker::PhantomData;
-use cubecl::Feature;
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 
-pub struct SimpleBarrierMatmulFamily<
-    SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
-> {
+pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
 }
 
-impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
+impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
+    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
+        SMM::Matmul<
+            MP::ES,
+            MP::EG,
+            MP::EA,
+            ContiguousTilingLayout<RowMajorTilingOrder>,
+            ContiguousTilingLayout<RowMajorTilingOrder>,
+        >,
     >;
 }
 
-impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
+impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
-        LL::check(config, Ident::Lhs)?;
-        RL::check(config, Ident::Rhs)?;
         SMM::check_config(&config.to_smm_config())
     }
 
@@ -70,8 +72,11 @@ where
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
-        if !client.properties().feature_enabled(Feature::Barrier) {
-            return Err(MatmulAvailabilityError::BarrierUnavailable);
+        if !client
+            .properties()
+            .feature_enabled(Feature::Tma(TmaFeature::Base))
+        {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
         Ok(())
@@ -105,34 +110,25 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleBarrierMatmul<
-    MP: MatmulPrecision,
-    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
-> {
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP::ES,
             MP::EG,
             MP::EA,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+            LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
         >,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = TmaLhsLoader<MP::EG, MP::ES, SMM::Config>;
+    type RhsLoader = TmaRhsLoader<MP::EG, MP::ES, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
@@ -146,11 +142,6 @@ where
         quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -158,21 +149,10 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier_level = LL::barrier_level();
-        comptime!(assert!(barrier_level == RL::barrier_level()));
-        let barrier = Barrier::<MP::ES>::new(barrier_level);
+        let barrier = Barrier::<MP::ES>::new(BarrierLevel::unit());
 
-        for loop_iter in 0..num_loops {
+        for _ in 0..num_loops {
             sync_units();
-
-            #[allow(clippy::collapsible_if)]
-            if comptime!(config.check_k_bounds()) {
-                if loop_iter == num_loops - 1 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
-                    sync_units();
-                }
-            }
 
             // Start loading
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
@@ -180,8 +160,6 @@ where
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
-
-            barrier.arrive_and_wait();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -210,22 +188,34 @@ where
         lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
-        _nth_batch: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(
+            lhs.as_tensor_map(),
+            x_offset,
+            y_offset,
+            nth_batch,
+            config,
+        )
     }
 
     fn init_rhs_loader(
         rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
-        _nth_batch: u32,
-        batch_offset: u32,
+        nth_batch: u32,
+        _batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs.as_tensor_map(),
+            x_offset,
+            y_offset,
+            nth_batch,
+            config,
+        )
     }
 
     fn init_unloader(

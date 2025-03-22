@@ -2,20 +2,38 @@
 
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Instruction};
 
 use crate::{
     ir::{BarrierOps, Item, Scope},
     unexpanded,
 };
 
-use super::{CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut};
+use super::{
+    CubeDebug, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Init, Line,
+    Slice, SliceMut, TensorMap,
+};
 
 /// A mechanism for awaiting on asynchronous data transfers
 /// Behaviour is defined by its [BarrierLevel](BarrierLevel).
 #[derive(Clone, Copy)]
 pub struct Barrier<C: CubePrimitive> {
     _c: PhantomData<C>,
+}
+
+#[derive(Clone, Copy)]
+pub struct ArrivalToken(PhantomData<()>);
+
+impl ArrivalToken {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+
+    pub fn __expand_new(scope: &mut Scope) -> ExpandElementTyped<Self> {
+        let token = scope.create_arrival_token();
+        token.into()
+    }
 }
 
 impl<C: CubePrimitive> CubeType for Barrier<C> {
@@ -32,6 +50,16 @@ impl<C: CubePrimitive> CubeDebug for BarrierExpand<C> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.elem, name);
     }
+}
+
+impl ExpandElementBaseInit for ArrivalToken {
+    fn init_elem(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
+        elem
+    }
+}
+
+impl CubeType for ArrivalToken {
+    type ExpandType = ExpandElementTyped<ArrivalToken>;
 }
 
 #[derive(Clone)]
@@ -133,6 +161,10 @@ impl<C: CubePrimitive> Barrier<C> {
         Self { _c: PhantomData }
     }
 
+    pub fn new_proxied(_level: BarrierLevel) -> Self {
+        Self { _c: PhantomData }
+    }
+
     /// Copy the source slice to destination
     ///
     /// # Safety
@@ -143,8 +175,70 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
+    pub fn memcpy_async_bulk_to_shared_2d(
+        &self,
+        _source: &TensorMap<C>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: i32,
+        _b: i32,
+    ) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_3d(
+        &self,
+        _source: &TensorMap<C>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: i32,
+        _b: i32,
+        _c: i32,
+    ) {
+        unexpanded!()
+    }
+
+    pub fn memcpy_async_bulk_to_shared_4d(
+        &self,
+        _source: &TensorMap<C>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: i32,
+        _b: i32,
+        _c: i32,
+        _d: i32,
+    ) {
+        unexpanded!()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn memcpy_async_bulk_to_shared_5d(
+        &self,
+        _source: &TensorMap<C>,
+        _destination: &mut SliceMut<Line<C>>,
+        _a: i32,
+        _b: i32,
+        _c: i32,
+        _d: i32,
+        _e: i32,
+    ) {
+        unexpanded!()
+    }
+
+    /// Arrive at the barrier, decrementing arrival count
+    pub fn arrive(&self, _token: &mut ArrivalToken) {
+        unexpanded!()
+    }
+
+    /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
+    pub fn arrive_tx(&self, _arrival_count: u32, _expected_count: u32, _token: &mut ArrivalToken) {
+        unexpanded!()
+    }
+
+    /// Wait at the barrier until all arrivals are done
+    pub fn wait(&self, _token: ArrivalToken) {
+        unexpanded!()
+    }
+
     /// Wait until all data is loaded
-    pub fn wait(&self) {
+    pub fn arrive_and_wait(&self) {
         unexpanded!()
     }
 
@@ -152,6 +246,24 @@ impl<C: CubePrimitive> Barrier<C> {
         let elem = C::as_elem(scope);
 
         let variable = scope.create_barrier(Item::new(elem), level.0.into());
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: false,
+        });
+        BarrierExpand {
+            elem: variable,
+            _c: PhantomData,
+        }
+    }
+
+    pub fn __expand_new_proxied(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
+        let elem = C::as_elem(scope);
+
+        let variable = scope.create_barrier(Item::new(elem), level.0.into());
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: true,
+        });
         BarrierExpand {
             elem: variable,
             _c: PhantomData,
@@ -167,8 +279,103 @@ impl<C: CubePrimitive> Barrier<C> {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
 
-    pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
-        expand.__expand_wait_method(scope);
+    pub fn __expand_memcpy_async_bulk_to_shared_2d(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+    ) {
+        expand.__expand_memcpy_async_bulk_to_shared_2d_method(scope, source, destination, a, b);
+    }
+
+    pub fn __expand_memcpy_async_bulk_to_shared_3d(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+    ) {
+        expand.__expand_memcpy_async_bulk_to_shared_3d_method(scope, source, destination, a, b, c);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn __expand_memcpy_async_bulk_to_shared_4d(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+        d: ExpandElementTyped<i32>,
+    ) {
+        expand.__expand_memcpy_async_bulk_to_shared_4d_method(
+            scope,
+            source,
+            destination,
+            a,
+            b,
+            c,
+            d,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn __expand_memcpy_async_bulk_to_shared_5d(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+        d: ExpandElementTyped<i32>,
+        e: ExpandElementTyped<i32>,
+    ) {
+        expand.__expand_memcpy_async_bulk_to_shared_5d_method(
+            scope,
+            source,
+            destination,
+            a,
+            b,
+            c,
+            d,
+            e,
+        );
+    }
+
+    pub fn __expand_arrive(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        token: ExpandElementTyped<ArrivalToken>,
+    ) {
+        expand.__expand_arrive_method(scope, token);
+    }
+
+    pub fn __expand_arrive_tx(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        arrival_count: ExpandElementTyped<u32>,
+        expected_count: ExpandElementTyped<u32>,
+        token: ExpandElementTyped<ArrivalToken>,
+    ) {
+        expand.__expand_arrive_tx_method(scope, arrival_count, expected_count, token);
+    }
+
+    pub fn __expand_wait(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        token: ExpandElementTyped<ArrivalToken>,
+    ) {
+        expand.__expand_wait_method(scope, token);
+    }
+
+    pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_arrive_and_wait_method(scope);
     }
 }
 
@@ -183,17 +390,142 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let source = *source.expand;
         let destination = *destination.expand;
 
-        let mem_copy = BarrierOps::MemCopyAsync {
-            barrier,
-            source,
-            destination,
-        };
+        let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
 
-        scope.register(mem_copy);
+        scope.register(Instruction::new(mem_copy, destination));
     }
 
-    pub fn __expand_wait_method(&self, scope: &mut Scope) {
+    pub fn __expand_memcpy_async_bulk_to_shared_2d_method(
+        &self,
+        scope: &mut Scope,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+    ) {
         let barrier = *self.elem;
-        scope.register(BarrierOps::Wait { barrier });
+        let source = *source.expand;
+        let destination = *destination.expand;
+
+        let mem_copy = BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            barrier,
+            tensor_map: source,
+            indices: vec![*a.expand, *b.expand],
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    pub fn __expand_memcpy_async_bulk_to_shared_3d_method(
+        &self,
+        scope: &mut Scope,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+    ) {
+        let barrier = *self.elem;
+        let source = *source.expand;
+        let destination = *destination.expand;
+
+        let mem_copy = BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            barrier,
+            tensor_map: source,
+            indices: vec![*a.expand, *b.expand, *c.expand],
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn __expand_memcpy_async_bulk_to_shared_4d_method(
+        &self,
+        scope: &mut Scope,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+        d: ExpandElementTyped<i32>,
+    ) {
+        let barrier = *self.elem;
+        let source = *source.expand;
+        let destination = *destination.expand;
+
+        let mem_copy = BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            barrier,
+            tensor_map: source,
+            indices: vec![*a.expand, *b.expand, *c.expand, *d.expand],
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn __expand_memcpy_async_bulk_to_shared_5d_method(
+        &self,
+        scope: &mut Scope,
+        source: ExpandElementTyped<TensorMap<C>>,
+        destination: ExpandElementTyped<SliceMut<Line<C>>>,
+        a: ExpandElementTyped<i32>,
+        b: ExpandElementTyped<i32>,
+        c: ExpandElementTyped<i32>,
+        d: ExpandElementTyped<i32>,
+        e: ExpandElementTyped<i32>,
+    ) {
+        let barrier = *self.elem;
+        let source = *source.expand;
+        let destination = *destination.expand;
+
+        let mem_copy = BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            barrier,
+            tensor_map: source,
+            indices: vec![*a.expand, *b.expand, *c.expand, *d.expand, *e.expand],
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    pub fn __expand_arrive_method(
+        &self,
+        scope: &mut Scope,
+        token: ExpandElementTyped<ArrivalToken>,
+    ) {
+        let barrier = *self.elem;
+        let token: ExpandElement = token.into();
+        scope.register(Instruction::new(BarrierOps::Arrive { barrier }, *token));
+    }
+
+    pub fn __expand_arrive_tx_method(
+        &self,
+        scope: &mut Scope,
+        arrival_count: ExpandElementTyped<u32>,
+        expected_count: ExpandElementTyped<u32>,
+        token: ExpandElementTyped<ArrivalToken>,
+    ) {
+        let barrier = *self.elem;
+        let arrival_count: ExpandElement = arrival_count.into();
+        let expected_count: ExpandElement = expected_count.into();
+        let token: ExpandElement = token.into();
+        scope.register(Instruction::new(
+            BarrierOps::ArriveTx {
+                barrier,
+                arrive_count_update: arrival_count.consume(),
+                transaction_count_update: expected_count.consume(),
+            },
+            *token,
+        ));
+    }
+
+    pub fn __expand_wait_method(&self, scope: &mut Scope, token: ExpandElementTyped<ArrivalToken>) {
+        let barrier = *self.elem;
+        let token = *token.expand;
+        scope.register(BarrierOps::Wait { barrier, token });
+    }
+
+    pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+        scope.register(BarrierOps::ArriveAndWait { barrier });
     }
 }

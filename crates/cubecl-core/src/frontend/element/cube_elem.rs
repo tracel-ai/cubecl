@@ -49,4 +49,12 @@ pub trait CubePrimitive:
         let elem = Self::as_elem_native_unchecked();
         client.properties().feature_enabled(Feature::Type(elem))
     }
+
+    fn elem_size() -> u32 {
+        Self::as_elem_native_unchecked().size() as u32
+    }
+
+    fn __expand_elem_size(context: &Scope) -> u32 {
+        Self::as_elem(context).size() as u32
+    }
 }

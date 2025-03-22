@@ -74,11 +74,12 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
             super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-                client, cube_count, cube_dim, input, output, config,
+                client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
     }
@@ -111,6 +112,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        _size_k: u32,
         quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
