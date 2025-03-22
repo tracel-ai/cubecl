@@ -6,9 +6,9 @@ use cubecl_core as cubecl;
 /// thus we only store the scaling.
 #[derive(CubeType, Clone, Copy)]
 pub struct Quantization<EG: Numeric> {
-    pub(crate) lhs: Slice<Line<EG>>,
-    pub(crate) rhs: Slice<Line<EG>>,
-    pub(crate) out: SliceMut<Line<EG>>,
+    pub lhs: Slice<Line<EG>>,
+    pub rhs: Slice<Line<EG>>,
+    pub out: SliceMut<Line<EG>>,
 }
 
 #[cube]
