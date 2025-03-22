@@ -30,6 +30,7 @@ pub enum MatmulAvailabilityError {
     },
     PipelineUnavailable,
     BarrierUnavailable,
+    TmaUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
@@ -175,6 +176,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::BarrierUnavailable => {
                 writeln!(f, "Barrier is not available.")
+            }
+            MatmulAvailabilityError::TmaUnavailable => {
+                writeln!(f, "TMA is not available.")
             }
         }
     }

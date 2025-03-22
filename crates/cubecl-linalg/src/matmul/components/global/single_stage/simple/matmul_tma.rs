@@ -14,9 +14,9 @@ use crate::matmul::components::{
 };
 
 use barrier::Barrier;
-use cubecl_core::Feature;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
+use cubecl_core::{Feature, TmaFeature};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
 use std::marker::PhantomData;
@@ -72,8 +72,11 @@ where
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
-        if !client.properties().feature_enabled(Feature::Barrier) {
-            return Err(MatmulAvailabilityError::BarrierUnavailable);
+        if !client
+            .properties()
+            .feature_enabled(Feature::Tma(TmaFeature::Base))
+        {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
         Ok(())
@@ -148,17 +151,8 @@ where
 
         let barrier = Barrier::<MP::ES>::new(BarrierLevel::unit());
 
-        for loop_iter in 0..num_loops {
+        for _ in 0..num_loops {
             sync_units();
-
-            #[allow(clippy::collapsible_if)]
-            if comptime!(config.check_k_bounds()) {
-                if loop_iter == num_loops - 1 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
-                    sync_units();
-                }
-            }
 
             // Start loading
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
