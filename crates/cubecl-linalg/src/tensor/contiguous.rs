@@ -50,7 +50,6 @@ fn into_contiguous_kernel<N: CubePrimitive>(
             rank,
             const_rank,
         );
-
         registers[i] = input[offset_input];
     }
 
@@ -59,6 +58,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
         let x = offset_abs % output.shape(rank - 1);
         let y = offset_abs / output.shape(rank - 1);
         offset_output = y * output.stride(rank - 2) + x;
+        offset_output /= line_size;
     }
 
     #[unroll]
@@ -169,17 +169,13 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     let out_handle = output.handle.handle.clone();
     let layout_strides = compact_strides(output.shape());
 
-    let layout_ref = if is_padded {
-        unsafe {
-            TensorArg::from_raw_parts::<E>(
-                &out_handle,
-                &layout_strides,
-                output.shape(),
-                vectorization_factor,
-            )
-        }
-    } else {
-        TensorArg::alias(2)
+    let layout_ref = unsafe {
+        TensorArg::from_raw_parts::<E>(
+            &out_handle,
+            &layout_strides,
+            output.shape(),
+            vectorization_factor,
+        )
     };
 
     into_contiguous_kernel::launch::<Line<E>, R>(
