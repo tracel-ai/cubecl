@@ -27,6 +27,7 @@ pub fn index_offset_with_layout<N: CubePrimitive, L: CubePrimitive>(
 #[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<Line<N>>,
+    layout_ref: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
     #[comptime] rank: Option<u32>,
     #[comptime] elems_per_thread: u32,
@@ -41,8 +42,14 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        let offset_input =
-            index_offset_with_layout::<N, N>(input, output, offset_output + i, 0, rank, const_rank);
+        let offset_input = index_offset_with_layout::<N, N>(
+            input,
+            layout_ref,
+            offset_output + i,
+            0,
+            rank,
+            const_rank,
+        );
 
         registers[i] = input[offset_input];
     }
@@ -159,11 +166,28 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
+    let out_handle = output.handle.handle.clone();
+    let layout_strides = compact_strides(output.shape());
+
+    let layout_ref = if is_padded {
+        unsafe {
+            TensorArg::from_raw_parts::<E>(
+                &out_handle,
+                &layout_strides,
+                output.shape(),
+                vectorization_factor,
+            )
+        }
+    } else {
+        TensorArg::alias(2)
+    };
+
     into_contiguous_kernel::launch::<Line<E>, R>(
         client,
         cube_count,
         cube_dim,
         input.as_tensor_arg(vectorization_factor),
+        layout_ref,
         output.as_ref().as_tensor_arg(vectorization_factor),
         Some(rank as u32),
         elems_per_unit,
@@ -171,4 +195,13 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     );
 
     output
+}
+
+pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }
