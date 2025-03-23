@@ -105,8 +105,8 @@ pub fn launch<R: Runtime, E: Numeric>(
     let dim1 = ndims - 1;
     let dim2 = ndims - 2;
 
-    let lhs_layout = matrix_layout(lhs.strides());
-    let rhs_layout = matrix_layout(rhs.strides());
+    let lhs_layout = matrix_layout(lhs.strides(), lhs.shape());
+    let rhs_layout = matrix_layout(rhs.strides(), rhs.shape());
 
     let lhs = if !matches!(lhs_layout, MatrixLayout::Contiguous) {
         into_contiguous::<R, E>(client, &lhs.as_ref())

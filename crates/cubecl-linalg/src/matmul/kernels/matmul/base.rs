@@ -55,14 +55,15 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         ));
     }
 
-    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixLayout::Contiguous => (false, false),
-        MatrixLayout::MildlyPermuted {
-            transposed,
-            batch_swap: _,
-        } => (false, transposed),
-        MatrixLayout::HighlyPermuted => (true, false),
-    };
+    let check_layout =
+        |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides, tensor.shape) {
+            MatrixLayout::Contiguous => (false, false),
+            MatrixLayout::MildlyPermuted {
+                transposed,
+                batch_swap: _,
+            } => (false, transposed),
+            MatrixLayout::HighlyPermuted => (true, false),
+        };
 
     let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs);
     let (rhs_make_contiguous, rhs_transposed) = check_layout(rhs);

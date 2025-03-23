@@ -59,8 +59,8 @@ impl MatmulAutotuneKey {
 
         let round = m % 64 == 0 && k % 64 == 0 && n % 64 == 0;
 
-        let matrix_layout_lhs = matrix_layout(lhs_strides);
-        let matrix_layout_rhs = matrix_layout(rhs_strides);
+        let matrix_layout_lhs = matrix_layout(lhs_strides, lhs_shape);
+        let matrix_layout_rhs = matrix_layout(rhs_strides, rhs_shape);
 
         Self::new(
             round,
