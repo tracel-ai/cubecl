@@ -89,8 +89,8 @@ mod tests {
         let lhs_shape = [4, 512, 512];
         let rhs_shape = [4, 512, 512];
         // Not useful for the test.
-        let lhs_strides = [1];
-        let rhs_strides = [1];
+        let lhs_strides = [1, 1, 1];
+        let rhs_strides = [1, 1, 1];
         let elem = Elem::Float(FloatKind::F32);
         let key = MatmulAutotuneKey::generate(
             &lhs_shape,
@@ -114,8 +114,8 @@ mod tests {
         let lhs_shape = [2, 3, 511, 512];
         let rhs_shape = [3, 2, 512, 513];
         // Not useful for the test.
-        let lhs_strides = [1];
-        let rhs_strides = [1];
+        let lhs_strides = [1, 1, 1, 1];
+        let rhs_strides = [1, 1, 1, 1];
         let elem = Elem::Float(FloatKind::F32);
         let key = MatmulAutotuneKey::generate(
             &lhs_shape,
@@ -140,8 +140,8 @@ mod tests {
         let lhs_shape = [128, 512, 511, 512];
         let rhs_shape = [200, 400, 512, 513];
         // Not useful for the test.
-        let lhs_strides = [1];
-        let rhs_strides = [1];
+        let lhs_strides = [1, 1, 1, 1];
+        let rhs_strides = [1, 1, 1, 1];
         let elem = Elem::Float(FloatKind::F32);
         let key = MatmulAutotuneKey::generate(
             &lhs_shape,

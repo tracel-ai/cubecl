@@ -21,8 +21,15 @@ pub enum MatrixLayout {
 pub fn matrix_layout(strides: &[usize], shape: &[usize]) -> MatrixLayout {
     let rank = shape.len();
     // TODO: Fix all the stride bugs in the kernels, then revert to the old behaviour.
-    if shape[rank - 2..rank].iter().product::<usize>() != strides[rank - 2] * shape[rank - 2] {
-        return MatrixLayout::HighlyPermuted;
+    if rank > 1 {
+        let transposed = strides[rank - 2] < strides[rank - 1];
+        let expected_size = match transposed {
+            true => shape[rank - 1] * strides[rank - 1],
+            false => shape[rank - 2] * strides[rank - 2],
+        };
+        if shape[rank - 2..rank].iter().product::<usize>() != expected_size {
+            return MatrixLayout::HighlyPermuted;
+        }
     }
 
     let rank = strides.len();
