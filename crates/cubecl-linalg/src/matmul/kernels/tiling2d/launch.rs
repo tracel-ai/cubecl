@@ -41,15 +41,14 @@ pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
                 .max_shared_memory_size,
         "Shared memory limit will be busted. "
     );
-    let check_layout =
-        |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides, tensor.shape) {
-            MatrixLayout::Contiguous => true,
-            MatrixLayout::MildlyPermuted {
-                transposed: _,
-                batch_swap: _,
-            } => true,
-            MatrixLayout::HighlyPermuted => false,
-        };
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+        MatrixLayout::Contiguous => true,
+        MatrixLayout::MildlyPermuted {
+            transposed: _,
+            batch_swap: _,
+        } => true,
+        MatrixLayout::HighlyPermuted => false,
+    };
     let lhs_correct_layout = check_layout(lhs);
     let rhs_correct_layout = check_layout(rhs);
 
@@ -93,7 +92,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
-    let check_layout = |strides: &[usize], shape: &[usize]| match matrix_layout(strides, shape) {
+    let check_layout = |strides: &[usize]| match matrix_layout(strides) {
         MatrixLayout::Contiguous => false,
         MatrixLayout::MildlyPermuted {
             transposed,
@@ -103,8 +102,8 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
             panic!("Can't run on highly permuted tensor")
         }
     };
-    let lhs_transposed = check_layout(lhs.strides, lhs.shape);
-    let rhs_transposed = check_layout(rhs.strides, rhs.shape);
+    let lhs_transposed = check_layout(lhs.strides);
+    let rhs_transposed = check_layout(rhs.strides);
 
     let vectorization = |shape: usize| {
         [4, 2]
