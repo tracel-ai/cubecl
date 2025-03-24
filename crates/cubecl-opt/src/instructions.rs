@@ -338,7 +338,7 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, source);
             }
-            BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,
                 tensor_map,
                 indices,
@@ -379,7 +379,7 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match tma_ops {
-            TmaOps::MemCopyAsyncBulkToGlobal {
+            TmaOps::MemCopyAsyncTensorToGlobal {
                 source,
                 coordinates,
             } => {

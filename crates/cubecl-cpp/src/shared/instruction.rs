@@ -218,7 +218,7 @@ pub enum Instruction<D: Dialect> {
     },
     Pipeline(PipelineOps<D>),
     Barrier(BarrierOps<D>),
-    MemCopyAsyncBulkSharedToGlobal {
+    MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
@@ -719,7 +719,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
-            Instruction::MemCopyAsyncBulkSharedToGlobal {
+            Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
                 tensor_map,
                 indices,

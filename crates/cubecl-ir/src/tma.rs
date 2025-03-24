@@ -11,7 +11,7 @@ use super::Variable;
 #[operation(opcode_name = TmaOpCode)]
 /// Operations available on a barrier
 pub enum TmaOps {
-    MemCopyAsyncBulkToGlobal {
+    MemCopyAsyncTensorToGlobal {
         source: Variable,
         coordinates: Vec<Variable>,
     },
@@ -27,7 +27,7 @@ pub enum TmaOps {
 impl Display for TmaOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TmaOps::MemCopyAsyncBulkToGlobal {
+            TmaOps::MemCopyAsyncTensorToGlobal {
                 source,
                 coordinates,
             } => {

@@ -17,7 +17,7 @@ pub enum BarrierOps<D: Dialect> {
         destination: Variable<D>,
         level: BarrierLevel,
     },
-    MemCopyAsyncBulkGlobalToShared {
+    MemCopyAsyncTensorGlobalToShared {
         barrier: Variable<D>,
         smem_buffer: Variable<D>,
         tensor_map: Variable<D>,
@@ -55,7 +55,7 @@ impl<D: Dialect> BarrierOps<D> {
             BarrierOps::Arrive { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ArriveTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
-            BarrierOps::MemCopyAsyncBulkGlobalToShared { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::MemCopyAsyncTensorGlobalToShared { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ExpectTx { barrier, .. } => barrier.id().unwrap(),
         }
     }
@@ -140,7 +140,7 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     ),
                 }
             }
-            BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,
                 smem_buffer,
                 tensor_map,

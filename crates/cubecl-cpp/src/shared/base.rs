@@ -431,13 +431,13 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
-                gpu::BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                gpu::BarrierOps::MemCopyAsyncTensorGlobalToShared {
                     barrier,
                     tensor_map,
                     indices,
                 } => {
                     instructions.push(Instruction::Barrier(
-                        super::barrier::BarrierOps::MemCopyAsyncBulkGlobalToShared {
+                        super::barrier::BarrierOps::MemCopyAsyncTensorGlobalToShared {
                             barrier: self.compile_variable(barrier),
                             smem_buffer: self.compile_variable(out.unwrap()),
                             tensor_map: self.compile_variable(tensor_map),
@@ -501,11 +501,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Tma(tma_ops) => {
                 self.tma = true;
                 match tma_ops {
-                    gpu::TmaOps::MemCopyAsyncBulkToGlobal {
+                    gpu::TmaOps::MemCopyAsyncTensorToGlobal {
                         source,
                         coordinates,
                     } => {
-                        instructions.push(Instruction::MemCopyAsyncBulkSharedToGlobal {
+                        instructions.push(Instruction::MemCopyAsyncTensorSharedToGlobal {
                             smem_buffer: self.compile_variable(source),
                             tensor_map: self.compile_variable(out.unwrap()),
                             indices: coordinates

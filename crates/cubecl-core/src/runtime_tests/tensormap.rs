@@ -15,7 +15,7 @@ pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     if UNIT_POS == 0 {
-        barrier.memcpy_async_bulk_to_shared_2d(input, &mut stage.to_slice_mut(), 0, 8);
+        barrier.memcpy_async_tensor_to_shared_2d(input, &mut stage.to_slice_mut(), 0, 8);
         barrier.arrive_tx(1, 32 * 16 * F::elem_size());
     } else {
         barrier.arrive();
@@ -37,7 +37,7 @@ pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<
     sync_units();
 
     if UNIT_POS == 0 {
-        memcpy_async_bulk_to_global_2d(&shared.to_slice(), output, 16, 8);
+        memcpy_async_tensor_to_global_2d(&shared.to_slice(), output, 16, 8);
         memcpy_async_tensor_commit();
         memcpy_async_tensor_wait_read(0u32);
     }

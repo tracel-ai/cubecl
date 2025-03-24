@@ -46,7 +46,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
     ) {
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.memcpy_async_bulk_to_shared_3d(
+            this.barrier.memcpy_async_tensor_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,
@@ -132,7 +132,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
     ) {
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.memcpy_async_bulk_to_shared_3d(
+            this.barrier.memcpy_async_tensor_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,

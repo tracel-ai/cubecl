@@ -29,7 +29,7 @@ pub enum BarrierOps {
         barrier: Variable,
         source: Variable,
     },
-    MemCopyAsyncBulkGlobalToShared {
+    MemCopyAsyncTensorGlobalToShared {
         barrier: Variable,
         tensor_map: Variable,
         indices: Vec<Variable>,
@@ -70,7 +70,7 @@ impl Display for BarrierOps {
                 write!(f, "mem_copy_async({barrier}, source: {source})",)
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
-            BarrierOps::MemCopyAsyncBulkGlobalToShared {
+            BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,
                 tensor_map,
                 indices,
