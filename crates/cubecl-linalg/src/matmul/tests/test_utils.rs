@@ -99,8 +99,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     let actual = client.read_one(output.binding());
     let actual = F::from_bytes(&actual);
 
-    println!("RESULT: {actual:?}");
-    println!("EXPECTED: {expected:?}");
+    // println!("RESULT: {actual:?}");
+    // println!("EXPECTED: {expected:?}");
 
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);

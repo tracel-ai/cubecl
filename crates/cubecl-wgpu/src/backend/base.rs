@@ -40,17 +40,7 @@ impl WgpuServer {
             #[cfg(feature = "msl")]
             Some(AutoRepresentation::Msl(repr)) => {
                 // TODO remove the panic once metal passthrough is available in wgpu
-                panic!("cubecl msl compiler not yet supported in wgpu");
-                // let source = &kernel.source;
-                // unsafe {
-                //     self.device
-                //         .create_shader_module_msl(&wgpu::ShaderModuleDescriptorMsl {
-                //             entry_point: kernel.entrypoint_name.clone(),
-                //             label: Some(&kernel.entrypoint_name),
-                //             source: Cow::Borrowed(source),
-                //             num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
-                //         })
-                // }
+                // panic!("cubecl msl compiler not yet supported in wgpu");
                 let source = &kernel.source;
                 unsafe {
                     self.device.create_shader_module_passthrough(
