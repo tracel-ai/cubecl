@@ -166,13 +166,13 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
         TensorHandle::empty(client, input.shape.to_vec())
     } else {
         let handle = client.empty(num_elems * size_of::<E>());
-        TensorHandle::new_contiguous(input.shape.to_vec(), size_of::<E>(), handle)
+        TensorHandle::new_contiguous(input.shape.to_vec(), handle)
     };
 
     let mut num_elems_per_unit = vectorization_factor as u32 * elems_per_unit;
 
-    let last_dim = output.shape()[rank - 1];
-    let is_padded = rank > 1 && last_dim != output.strides()[rank - 2];
+    let last_dim = output.shape[rank - 1];
+    let is_padded = rank > 1 && last_dim != output.strides[rank - 2];
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
     while is_padded && last_dim % num_elems_per_unit as usize != 0 {
@@ -196,13 +196,4 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     );
 
     output
-}
-
-pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
 }

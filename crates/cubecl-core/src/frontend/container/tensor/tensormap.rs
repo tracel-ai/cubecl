@@ -6,6 +6,7 @@ use cubecl_common::{
     OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
 };
 use cubecl_ir::Elem;
+use cubecl_runtime::server::TensorMapMeta;
 use serde::{Deserialize, Serialize};
 
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
@@ -13,20 +14,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// The tensormap is treated as an opaque type at runtime.
 ///
-/// # WARNING:
-/// Shapes, strides and indices are **innermost dimension first**. This is inverted from cubecl, but
-/// is kept this way for now for the sake of API consistency.
 pub struct TensorMapArg<'a, R: Runtime> {
-    pub format: TensorMapFormat,
-    pub tensor: TensorArg<'a, R>,
-    // The distance between elements in units of sizeof(element). A stride of 2
-    // can be used to load only the real component of a complex-valued tensor, for instance.
-    pub elem_stride: Vec<u32>,
-    pub interleave: TensorMapInterleave,
-    pub swizzle: TensorMapSwizzle,
-    pub prefetch: TensorMapPrefetch,
-    pub oob_fill: OobFill,
-    pub elem: Elem,
+    pub(crate) tensor: TensorArg<'a, R>,
+    pub(crate) metadata: TensorMapMeta,
 }
 
 impl<'a, R: Runtime> TensorMapArg<'a, R> {
@@ -36,39 +26,44 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
         };
         let rank = handle.shape.len();
         Self {
-            format,
+            metadata: TensorMapMeta {
+                format,
+                rank,
+                shape: handle.shape.to_vec(),
+                strides: handle.strides.to_vec(),
+                elem_stride: vec![1; rank],
+                interleave: TensorMapInterleave::None,
+                swizzle: TensorMapSwizzle::None,
+                prefetch: TensorMapPrefetch::None,
+                oob_fill: OobFill::Zero,
+                elem,
+            },
             tensor,
-            elem_stride: vec![1; rank],
-            interleave: TensorMapInterleave::None,
-            swizzle: TensorMapSwizzle::None,
-            prefetch: TensorMapPrefetch::None,
-            oob_fill: OobFill::Zero,
-            elem,
         }
     }
 
-    pub fn with_elem_stride(mut self, elem_stride: Vec<u32>) -> Self {
-        self.elem_stride = elem_stride;
+    pub fn with_elem_stride(mut self, elem_stride: Vec<usize>) -> Self {
+        self.metadata.elem_stride = elem_stride;
         self
     }
 
     pub fn with_interleave(mut self, interleave: TensorMapInterleave) -> Self {
-        self.interleave = interleave;
+        self.metadata.interleave = interleave;
         self
     }
 
     pub fn with_swizzle(mut self, swizzle: TensorMapSwizzle) -> Self {
-        self.swizzle = swizzle;
+        self.metadata.swizzle = swizzle;
         self
     }
 
     pub fn with_prefetch(mut self, prefetch: TensorMapPrefetch) -> Self {
-        self.prefetch = prefetch;
+        self.metadata.prefetch = prefetch;
         self
     }
 
     pub fn with_nan_fill(mut self) -> Self {
-        self.oob_fill = OobFill::NaN;
+        self.metadata.oob_fill = OobFill::NaN;
         self
     }
 }

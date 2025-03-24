@@ -5,7 +5,7 @@ use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 use super::ComputeChannel;
 use crate::{
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, ConstBinding, CubeCount, Handle, TensorHandle},
+    server::{Binding, BindingWithMeta, ComputeServer, ConstBinding, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
 };
 
@@ -35,15 +35,15 @@ where
     Server: ComputeServer,
 {
     Read(Vec<Binding>, Callback<Vec<Vec<u8>>>),
-    ReadTensor(Vec<TensorHandle>, Callback<Vec<Vec<u8>>>),
+    ReadTensor(Vec<BindingWithMeta>, Callback<Vec<Vec<u8>>>),
     GetResource(
         Binding,
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
     Create(Vec<u8>, Callback<Handle>),
-    CreateTensor(Vec<u8>, Vec<usize>, usize, Callback<TensorHandle>),
+    CreateTensor(Vec<u8>, Vec<usize>, usize, Callback<(Handle, Vec<usize>)>),
     Empty(usize, Callback<Handle>),
-    EmptyTensor(Vec<usize>, usize, Callback<TensorHandle>),
+    EmptyTensor(Vec<usize>, usize, Callback<(Handle, Vec<usize>)>),
     ExecuteKernel(
         (Server::Kernel, CubeCount, ExecutionMode),
         Vec<ConstBinding>,
@@ -89,7 +89,7 @@ where
                             callback.send(handle).await.unwrap();
                         }
                         Message::CreateTensor(data, shape, elem_size, callback) => {
-                            let handle = server.create_tensor(&data, shape, elem_size);
+                            let handle = server.create_tensor(&data, &shape, elem_size);
                             callback.send(handle).await.unwrap();
                         }
                         Message::Empty(size, callback) => {
@@ -97,7 +97,7 @@ where
                             callback.send(handle).await.unwrap();
                         }
                         Message::EmptyTensor(shape, elem_size, callback) => {
-                            let handle = server.empty_tensor(shape, elem_size);
+                            let handle = server.empty_tensor(&shape, elem_size);
                             callback.send(handle).await.unwrap();
                         }
                         Message::ExecuteKernel(kernel, constants, bindings) => unsafe {
@@ -159,7 +159,7 @@ where
         handle_response(response.recv().await)
     }
 
-    async fn read_tensor(&self, bindings: Vec<TensorHandle>) -> Vec<Vec<u8>> {
+    async fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
         let sender = self.state.sender.clone();
         let (callback, response) = async_channel::unbounded();
         sender
@@ -194,14 +194,19 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn create_tensor(&self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+    fn create_tensor(
+        &self,
+        data: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> (Handle, Vec<usize>) {
         let (callback, response) = async_channel::unbounded();
 
         self.state
             .sender
             .send_blocking(Message::CreateTensor(
                 data.to_vec(),
-                shape,
+                shape.to_vec(),
                 elem_size,
                 callback,
             ))
@@ -220,11 +225,11 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn empty_tensor(&self, shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+    fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::EmptyTensor(shape, elem_size, callback))
+            .send_blocking(Message::EmptyTensor(shape.to_vec(), elem_size, callback))
             .unwrap();
 
         handle_response(response.recv_blocking())

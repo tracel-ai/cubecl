@@ -43,9 +43,12 @@ pub enum BarrierOps {
         arrive_count_update: Variable,
         transaction_count_update: Variable,
     },
+    ExpectTx {
+        barrier: Variable,
+        transaction_count_update: Variable,
+    },
     Wait {
         barrier: Variable,
-        token: Variable,
     },
     /// Waits until data is loaded
     ArriveAndWait {
@@ -91,7 +94,11 @@ impl Display for BarrierOps {
                 f,
                 "arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update})"
             ),
-            BarrierOps::Wait { barrier, token } => write!(f, "wait({barrier}, {token})"),
+            BarrierOps::ExpectTx {
+                barrier,
+                transaction_count_update,
+            } => write!(f, "expect_tx({barrier}, {transaction_count_update})"),
+            BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
         }
     }
 }

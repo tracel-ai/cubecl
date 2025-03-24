@@ -10,8 +10,7 @@ use crate::{
 };
 
 use super::{
-    CubeDebug, CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped, Init, Line,
-    Slice, SliceMut, TensorMap,
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut, TensorMap,
 };
 
 /// A mechanism for awaiting on asynchronous data transfers
@@ -19,21 +18,6 @@ use super::{
 #[derive(Clone, Copy)]
 pub struct Barrier<C: CubePrimitive> {
     _c: PhantomData<C>,
-}
-
-#[derive(Clone, Copy)]
-pub struct ArrivalToken(PhantomData<()>);
-
-impl ArrivalToken {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self(PhantomData)
-    }
-
-    pub fn __expand_new(scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let token = scope.create_arrival_token();
-        token.into()
-    }
 }
 
 impl<C: CubePrimitive> CubeType for Barrier<C> {
@@ -50,16 +34,6 @@ impl<C: CubePrimitive> CubeDebug for BarrierExpand<C> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.elem, name);
     }
-}
-
-impl ExpandElementBaseInit for ArrivalToken {
-    fn init_elem(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
-        elem
-    }
-}
-
-impl CubeType for ArrivalToken {
-    type ExpandType = ExpandElementTyped<ArrivalToken>;
 }
 
 #[derive(Clone)]
@@ -223,17 +197,22 @@ impl<C: CubePrimitive> Barrier<C> {
     }
 
     /// Arrive at the barrier, decrementing arrival count
-    pub fn arrive(&self, _token: &mut ArrivalToken) {
+    pub fn arrive(&self) {
         unexpanded!()
     }
 
     /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
-    pub fn arrive_tx(&self, _arrival_count: u32, _expected_count: u32, _token: &mut ArrivalToken) {
+    pub fn arrive_tx(&self, _arrival_count: u32, _transaction_count: u32) {
+        unexpanded!()
+    }
+
+    /// Increments the expected count of the barrier.
+    pub fn expect_tx(&self, _expected_count: u32) {
         unexpanded!()
     }
 
     /// Wait at the barrier until all arrivals are done
-    pub fn wait(&self, _token: ArrivalToken) {
+    pub fn wait(&self) {
         unexpanded!()
     }
 
@@ -348,30 +327,29 @@ impl<C: CubePrimitive> Barrier<C> {
         );
     }
 
-    pub fn __expand_arrive(
-        scope: &mut Scope,
-        expand: BarrierExpand<C>,
-        token: ExpandElementTyped<ArrivalToken>,
-    ) {
-        expand.__expand_arrive_method(scope, token);
+    pub fn __expand_arrive(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_arrive_method(scope);
     }
 
     pub fn __expand_arrive_tx(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
         arrival_count: ExpandElementTyped<u32>,
-        expected_count: ExpandElementTyped<u32>,
-        token: ExpandElementTyped<ArrivalToken>,
+        transaction_count: ExpandElementTyped<u32>,
     ) {
-        expand.__expand_arrive_tx_method(scope, arrival_count, expected_count, token);
+        expand.__expand_arrive_tx_method(scope, arrival_count, transaction_count);
     }
 
-    pub fn __expand_wait(
+    pub fn __expand_expect_tx(
         scope: &mut Scope,
         expand: BarrierExpand<C>,
-        token: ExpandElementTyped<ArrivalToken>,
+        expected_count: ExpandElementTyped<u32>,
     ) {
-        expand.__expand_wait_method(scope, token);
+        expand.__expand_expect_tx_method(scope, expected_count);
+    }
+
+    pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_wait_method(scope);
     }
 
     pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
@@ -487,41 +465,43 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         scope.register(Instruction::new(mem_copy, destination));
     }
 
-    pub fn __expand_arrive_method(
-        &self,
-        scope: &mut Scope,
-        token: ExpandElementTyped<ArrivalToken>,
-    ) {
+    pub fn __expand_arrive_method(&self, scope: &mut Scope) {
         let barrier = *self.elem;
-        let token: ExpandElement = token.into();
-        scope.register(Instruction::new(BarrierOps::Arrive { barrier }, *token));
+        scope.register(BarrierOps::Arrive { barrier });
     }
 
     pub fn __expand_arrive_tx_method(
         &self,
         scope: &mut Scope,
         arrival_count: ExpandElementTyped<u32>,
-        expected_count: ExpandElementTyped<u32>,
-        token: ExpandElementTyped<ArrivalToken>,
+        transaction_count: ExpandElementTyped<u32>,
     ) {
         let barrier = *self.elem;
         let arrival_count: ExpandElement = arrival_count.into();
-        let expected_count: ExpandElement = expected_count.into();
-        let token: ExpandElement = token.into();
-        scope.register(Instruction::new(
-            BarrierOps::ArriveTx {
-                barrier,
-                arrive_count_update: arrival_count.consume(),
-                transaction_count_update: expected_count.consume(),
-            },
-            *token,
-        ));
+        let transaction_count: ExpandElement = transaction_count.into();
+        scope.register(BarrierOps::ArriveTx {
+            barrier,
+            arrive_count_update: arrival_count.consume(),
+            transaction_count_update: transaction_count.consume(),
+        });
     }
 
-    pub fn __expand_wait_method(&self, scope: &mut Scope, token: ExpandElementTyped<ArrivalToken>) {
+    pub fn __expand_expect_tx_method(
+        &self,
+        scope: &mut Scope,
+        transaction_count: ExpandElementTyped<u32>,
+    ) {
         let barrier = *self.elem;
-        let token = *token.expand;
-        scope.register(BarrierOps::Wait { barrier, token });
+        let transaction_count: ExpandElement = transaction_count.into();
+        scope.register(BarrierOps::ExpectTx {
+            barrier,
+            transaction_count_update: transaction_count.consume(),
+        });
+    }
+
+    pub fn __expand_wait_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+        scope.register(BarrierOps::Wait { barrier });
     }
 
     pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {

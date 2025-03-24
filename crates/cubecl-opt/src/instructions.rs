@@ -360,9 +360,15 @@ impl Optimizer {
                 visit_read(self, arrive_count_update);
                 visit_read(self, transaction_count_update);
             }
-            BarrierOps::Wait { barrier, token } => {
+            BarrierOps::ExpectTx {
+                barrier,
+                transaction_count_update,
+            } => {
                 visit_read(self, barrier);
-                visit_read(self, token);
+                visit_read(self, transaction_count_update);
+            }
+            BarrierOps::Wait { barrier } => {
+                visit_read(self, barrier);
             }
         }
     }

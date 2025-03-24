@@ -12,7 +12,9 @@ where
     E: CubePrimitive,
 {
     /// The buffer where the data are stored.
-    pub handle: server::TensorHandle,
+    pub handle: server::Handle,
+    pub shape: Vec<usize>,
+    pub strides: Vec<usize>,
     elem: PhantomData<E>,
     runtime: PhantomData<R>,
 }
@@ -25,8 +27,8 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
-            self.handle.shape,
-            self.handle.strides,
+            self.shape,
+            self.strides,
             core::any::type_name::<E>(),
         ))
     }
@@ -40,6 +42,8 @@ where
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
+            shape: self.shape.clone(),
+            strides: self.strides.clone(),
             elem: PhantomData,
             runtime: PhantomData,
         }
@@ -52,9 +56,11 @@ where
     E: CubePrimitive,
 {
     /// Create a new tensor.
-    pub fn new(handle: server::TensorHandle) -> Self {
+    pub fn new(handle: server::Handle, shape: Vec<usize>, strides: Vec<usize>) -> Self {
         Self {
             handle,
+            shape,
+            strides,
             elem: PhantomData,
             runtime: PhantomData,
         }
@@ -62,33 +68,30 @@ where
 
     pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
         let elem_size = E::size().expect("To be a native type");
-        let handle = client.empty_tensor(shape, elem_size);
+        let (handle, strides) = client.empty_tensor(&shape, elem_size);
 
-        Self::new(handle)
+        Self::new(handle, shape, strides)
     }
 
     /// Create a new tensor.
     pub fn from_ref(handle: &TensorHandleRef<'_, R>) -> Self {
-        let handle = server::TensorHandle::new(
-            handle.handle.clone(),
-            handle.strides.to_vec(),
-            handle.shape.to_vec(),
-            handle.elem_size,
-        );
         Self {
-            handle,
+            handle: handle.handle.clone(),
+            shape: handle.shape.to_vec(),
+            strides: handle.strides.to_vec(),
             elem: PhantomData,
             runtime: PhantomData,
         }
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: Vec<usize>, elem_size: usize, handle: Handle) -> Self {
+    pub fn new_contiguous(shape: Vec<usize>, handle: Handle) -> Self {
         let strides = Self::contiguous_strides(&shape);
-        let handle = server::TensorHandle::new(handle, strides, shape, elem_size);
 
         Self {
             handle,
+            shape,
+            strides,
             elem: PhantomData,
             runtime: PhantomData,
         }
@@ -100,7 +103,14 @@ where
     }
 
     pub fn as_ref(&self) -> TensorHandleRef<'_, R> {
-        TensorHandleRef::from_handle(&self.handle)
+        unsafe {
+            TensorHandleRef::from_raw_parts(
+                &self.handle,
+                &self.strides,
+                &self.shape,
+                size_of::<E>(),
+            )
+        }
     }
 
     /// Return the reference to a tensor argument.
@@ -128,22 +138,6 @@ where
         strides.reverse();
         strides
     }
-
-    pub fn shape(&self) -> &[usize] {
-        &self.handle.shape
-    }
-
-    pub fn strides(&self) -> &[usize] {
-        &self.handle.strides
-    }
-
-    pub fn shape_mut(&mut self) -> &mut Vec<usize> {
-        &mut self.handle.shape
-    }
-
-    pub fn strides_mut(&mut self) -> &mut Vec<usize> {
-        &mut self.handle.strides
-    }
 }
 impl<R, E> TensorHandle<R, E>
 where
@@ -157,15 +151,15 @@ where
 
         let vectorization_factor = tensor_line_size_parallel(
             R::supported_line_sizes().iter().cloned(),
-            &output.handle.shape,
-            &output.handle.strides,
+            &output.shape,
+            &output.strides,
             rank - 1,
         );
 
         let cube_dim = CubeDim::default();
         let cube_count =
             calculate_cube_count_elemwise(num_elements / vectorization_factor as usize, cube_dim);
-        let array_len = output.handle.handle.size();
+        let array_len = output.handle.size();
 
         unsafe {
             init::zeros_array::launch_unchecked::<E, R>(
@@ -173,7 +167,7 @@ where
                 cube_count,
                 cube_dim,
                 ArrayArg::from_raw_parts::<E>(
-                    &output.handle.handle,
+                    &output.handle,
                     array_len as usize,
                     vectorization_factor,
                 ),

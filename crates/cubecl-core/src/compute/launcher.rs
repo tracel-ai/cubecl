@@ -9,8 +9,8 @@ use crate::{
 };
 use crate::{compute::KernelTask, ir::UIntKind};
 use bytemuck::NoUninit;
+use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::server::{Binding, ConstBinding, CubeCount};
-use cubecl_runtime::{client::ComputeClient, server::TensorMap};
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
@@ -260,24 +260,7 @@ impl<R: Runtime> ConstantState<R> {
         };
 
         let binding = tensor.handle.clone().binding();
-        let map = TensorMap {
-            format: map.format.clone(),
-            rank: tensor.shape.len(),
-            shape: tensor.shape.iter().rev().map(|it| *it as u64).collect(),
-            strides: tensor
-                .strides
-                .iter()
-                .rev()
-                .skip(1)
-                .map(|it| *it as u64 * map.elem.size() as u64)
-                .collect(),
-            elem_stride: map.elem_stride.to_vec(),
-            interleave: map.interleave,
-            swizzle: map.swizzle,
-            prefetch: map.prefetch,
-            oob_fill: map.oob_fill,
-            elem: map.elem,
-        };
+        let map = map.metadata.clone();
         self.bindings.push(ConstBinding::TensorMap { binding, map });
     }
 

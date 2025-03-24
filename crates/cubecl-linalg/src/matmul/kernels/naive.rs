@@ -101,12 +101,12 @@ pub fn launch<R: Runtime, E: Numeric>(
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
-    let ndims = lhs.shape().len();
+    let ndims = lhs.shape.len();
     let dim1 = ndims - 1;
     let dim2 = ndims - 2;
 
-    let lhs_layout = matrix_layout(lhs.strides());
-    let rhs_layout = matrix_layout(rhs.strides());
+    let lhs_layout = matrix_layout(&lhs.strides);
+    let rhs_layout = matrix_layout(&rhs.strides);
 
     let lhs = if !matches!(lhs_layout, MatrixLayout::Contiguous) {
         into_contiguous::<R, E>(client, &lhs.as_ref())
@@ -118,9 +118,9 @@ pub fn launch<R: Runtime, E: Numeric>(
     // consecutive elements of a column in the original rhs tensor will now be stored
     // consecutively in memory, which allows to fetch them with fewer memory instructions
     let correct_rhs_layout = |mut rhs: TensorHandle<R, E>| {
-        let rhs_original_shape = rhs.shape().to_vec();
-        rhs.strides_mut().swap(dim1, dim2);
-        rhs.shape_mut().swap(dim1, dim2);
+        let rhs_original_shape = rhs.shape.to_vec();
+        rhs.strides.swap(dim1, dim2);
+        rhs.shape.swap(dim1, dim2);
 
         let rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
 
@@ -134,7 +134,7 @@ pub fn launch<R: Runtime, E: Numeric>(
             batch_swap,
         } => {
             if transposed && !batch_swap {
-                let rhs_original_shape = rhs.shape().to_vec();
+                let rhs_original_shape = rhs.shape.to_vec();
                 (rhs_original_shape, rhs)
             } else {
                 correct_rhs_layout(rhs)
@@ -144,14 +144,14 @@ pub fn launch<R: Runtime, E: Numeric>(
     };
 
     let cube_count = simple_cube_count(
-        lhs.shape(),
+        &lhs.shape,
         &rhs_original_shape,
         out.shape,
         cube_dim_x,
         cube_dim_y,
     )?;
 
-    let vectorization_factor = match lhs.shape()[ndims - 1] % 4 == 0 {
+    let vectorization_factor = match lhs.shape[ndims - 1] % 4 == 0 {
         true => 4,
         false => 1,
     };
@@ -163,8 +163,8 @@ pub fn launch<R: Runtime, E: Numeric>(
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
             lhs.as_arg(vectorization_factor),
             TensorArg::from_raw_parts::<E>(
-                &rhs.handle.handle,
-                rhs.strides(),
+                &rhs.handle,
+                &rhs.strides,
                 &rhs_original_shape, // We need the original shape.
                 vectorization_factor,
             ),

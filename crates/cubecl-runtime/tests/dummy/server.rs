@@ -1,7 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_runtime::{
     TimestampsError, TimestampsResult,
-    server::{ConstBinding, TensorHandle},
+    server::{BindingWithMeta, ConstBinding},
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -67,9 +67,9 @@ impl ComputeServer for DummyServer {
 
     fn read_tensor(
         &mut self,
-        bindings: Vec<TensorHandle>,
+        bindings: Vec<BindingWithMeta>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        let bindings = bindings.into_iter().map(|it| it.binding()).collect();
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read(bindings)
     }
 
@@ -89,7 +89,12 @@ impl ComputeServer for DummyServer {
         handle
     }
 
-    fn create_tensor(&mut self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: &[usize],
+        _elem_size: usize,
+    ) -> (Handle, Vec<usize>) {
         let rank = shape.len();
         let mut strides = vec![1; rank];
         for i in (0..rank - 1).rev() {
@@ -97,7 +102,7 @@ impl ComputeServer for DummyServer {
         }
         let handle = self.create(data);
 
-        TensorHandle::new(handle, strides, shape, elem_size)
+        (handle, strides)
     }
 
     fn empty(&mut self, size: usize) -> Handle {
@@ -109,7 +114,7 @@ impl ComputeServer for DummyServer {
         )
     }
 
-    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> TensorHandle {
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
         let rank = shape.len();
         let mut strides = vec![1; rank];
         for i in (0..rank - 1).rev() {
@@ -117,7 +122,7 @@ impl ComputeServer for DummyServer {
         }
         let size = (shape.iter().product::<usize>() * elem_size) as u64;
         let handle = Handle::new(self.memory_management.reserve(size, None), None, None, size);
-        TensorHandle::new(handle, strides, shape, elem_size)
+        (handle, strides)
     }
 
     unsafe fn execute(

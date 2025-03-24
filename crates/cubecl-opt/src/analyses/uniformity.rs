@@ -234,7 +234,6 @@ impl Uniformity {
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::ArrivalToken { .. } => false,
             VariableKind::TensorMap(_) => true,
         }
     }

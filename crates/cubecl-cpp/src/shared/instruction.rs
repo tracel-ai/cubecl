@@ -236,10 +236,6 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Break => f.write_str("break;"),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
-                Variable::ArrivalToken { id } => writeln!(
-                    f,
-                    "cuda::barrier<cuda::thread_scope_block>::arrival_token token_{id};"
-                ),
                 _ => {
                     let item = var.item();
                     writeln!(f, "{item} {var};")
@@ -729,7 +725,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 indices,
             } => {
                 let rank = indices.len();
-                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                let indices = indices.iter().rev().fold(String::new(), |mut s, it| {
                     let _ = write!(s, "{it}, ");
                     s
                 });

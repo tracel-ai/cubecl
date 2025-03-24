@@ -333,9 +333,6 @@ impl WgslCompiler {
             cube::VariableKind::Barrier { .. } => {
                 panic!("Barrier not supported.")
             }
-            cube::VariableKind::ArrivalToken { .. } => {
-                panic!("Arrival token not supported.")
-            }
             cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }

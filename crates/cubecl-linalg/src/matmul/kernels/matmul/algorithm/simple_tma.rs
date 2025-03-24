@@ -1,6 +1,6 @@
 use super::base;
+use core::marker::PhantomData;
 use cubecl_core::prelude::*;
-use std::marker::PhantomData;
 
 use crate::matmul::components::{
     MatmulProblem, MatmulSelection,

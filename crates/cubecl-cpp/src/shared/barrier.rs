@@ -2,8 +2,6 @@ use std::fmt::{Display, Write};
 
 use cubecl_core::ir::BarrierLevel;
 
-use crate::shared::FmtLeft;
-
 use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
@@ -28,17 +26,18 @@ pub enum BarrierOps<D: Dialect> {
     Arrive {
         barrier: Variable<D>,
         level: BarrierLevel,
-        out: Variable<D>,
     },
     ArriveTx {
         barrier: Variable<D>,
         arrive_count_update: Variable<D>,
         transaction_count_update: Variable<D>,
-        out: Variable<D>,
+    },
+    ExpectTx {
+        barrier: Variable<D>,
+        transaction_count_update: Variable<D>,
     },
     Wait {
         barrier: Variable<D>,
-        token: Variable<D>,
         level: BarrierLevel,
     },
     ArriveAndWait {
@@ -57,6 +56,7 @@ impl<D: Dialect> BarrierOps<D> {
             BarrierOps::ArriveTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::MemCopyAsyncBulkGlobalToShared { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::ExpectTx { barrier, .. } => barrier.id().unwrap(),
         }
     }
 }
@@ -70,15 +70,18 @@ impl<D: Dialect> Display for BarrierOps<D> {
                 with_cta_fence: with_proxy_fence,
             } => {
                 let proxy_fence = match with_proxy_fence {
-                    true => "\ncuda::device::experimental::fence_proxy_async_shared_cta();",
+                    true => "cuda::device::experimental::fence_proxy_async_shared_cta();",
                     false => "",
                 };
                 match level {
+                    // Note: Arrival token exists for cuda::thread_scope_thread, but is not public.
+                    // So skip creating the token for unit barriers.
                     BarrierLevel::Unit => write!(
                         f,
                         "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-init(&{barrier}, 1);{proxy_fence}
+init(&{barrier}, 1);
+{proxy_fence}
                 "
                     ),
                     BarrierLevel::CubeCoop(elected_unit) => write!(
@@ -86,8 +89,10 @@ init(&{barrier}, 1);{proxy_fence}
                         "
 cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
+cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
 if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);{proxy_fence}
+   init(&{barrier}, blockDimGlobal);
+   {proxy_fence}
 }}
 __syncthreads();
 "
@@ -96,8 +101,10 @@ __syncthreads();
                         f,
                         "
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
+cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
 if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);{proxy_fence}
+   init(&{barrier}, blockDimGlobal);
+   {proxy_fence}
 }}
 __syncthreads();
 "
@@ -140,7 +147,7 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                 indices,
             } => {
                 let rank = indices.len();
-                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                let indices = indices.iter().rev().fold(String::new(), |mut s, it| {
                     let _ = write!(s, "{it}, ");
                     s
                 });
@@ -149,24 +156,30 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                     "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});"
                 )
             }
-            BarrierOps::Arrive { barrier, out, .. } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {barrier}.arrive();")
+            BarrierOps::Arrive { barrier, .. } => {
+                writeln!(f, "{barrier}_token = {barrier}.arrive();")
             }
             BarrierOps::ArriveTx {
                 barrier,
-                out,
                 arrive_count_update,
                 transaction_count_update,
             } => {
-                let out = out.fmt_left();
                 writeln!(
                     f,
-                    "{out} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
+                    "{barrier}_token = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
                 )
             }
-            BarrierOps::Wait { barrier, token, .. } => {
-                writeln!(f, "{barrier}.wait(std::move({token}));")
+            BarrierOps::ExpectTx {
+                barrier,
+                transaction_count_update,
+            } => {
+                writeln!(
+                    f,
+                    "cuda::device::barrier_expect_tx({barrier}, {transaction_count_update});"
+                )
+            }
+            BarrierOps::Wait { barrier, .. } => {
+                writeln!(f, "{barrier}.wait(std::move({barrier}_token));")
             }
             BarrierOps::ArriveAndWait { barrier, .. } => {
                 writeln!(f, "{barrier}.arrive_and_wait();")

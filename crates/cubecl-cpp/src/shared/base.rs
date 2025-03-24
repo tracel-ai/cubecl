@@ -455,7 +455,6 @@ impl<D: Dialect> CppCompiler<D> {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Arrive {
                         barrier: self.compile_variable(barrier),
                         level,
-                        out: self.compile_variable(out.unwrap()),
                     }))
                 }
                 gpu::BarrierOps::ArriveTx {
@@ -467,16 +466,23 @@ impl<D: Dialect> CppCompiler<D> {
                         barrier: self.compile_variable(barrier),
                         arrive_count_update: self.compile_variable(arrive_count_update),
                         transaction_count_update: self.compile_variable(transaction_count_update),
-                        out: self.compile_variable(out.unwrap()),
                     }))
                 }
-                gpu::BarrierOps::Wait { barrier, token } => {
+                gpu::BarrierOps::ExpectTx {
+                    barrier,
+                    transaction_count_update,
+                } => {
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::ExpectTx {
+                        barrier: self.compile_variable(barrier),
+                        transaction_count_update: self.compile_variable(transaction_count_update),
+                    }))
+                }
+                gpu::BarrierOps::Wait { barrier } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
                     };
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
                         barrier: self.compile_variable(barrier),
-                        token: self.compile_variable(token),
                         level,
                     }))
                 }
@@ -1244,7 +1250,6 @@ impl<D: Dialect> CppCompiler<D> {
                     level,
                 }
             }
-            gpu::VariableKind::ArrivalToken { id } => Variable::ArrivalToken { id },
         }
     }
 

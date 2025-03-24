@@ -241,7 +241,7 @@ pub enum InputInfo {
     },
 }
 
-/// Information related to an input.
+/// Information related to a constant input.
 #[derive(Clone, Debug)]
 pub enum ConstantInfo {
     TensorMap,

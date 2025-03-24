@@ -1,6 +1,6 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
-use cubecl_core::prelude::barrier::{ArrivalToken, Barrier};
+use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
@@ -44,25 +44,23 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
         _mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        let mut token = ArrivalToken::new();
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
-                this.tensor_view.tile_x as i32,
-                this.tensor_view.tile_y as i32,
                 this.tensor_view.batch as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.tile_x as i32,
             );
             this.barrier.arrive_tx(
                 1,
                 config.tiling_dimensions(Ident::Lhs).total_size() * EG::elem_size(),
-                &mut token,
             );
         } else {
-            this.barrier.arrive(&mut token);
+            this.barrier.arrive();
         }
-        this.barrier.wait(token);
+        this.barrier.wait();
     }
 
     fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -132,25 +130,23 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig>
         _mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        let mut token = ArrivalToken::new();
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_bulk_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
-                this.tensor_view.tile_x as i32,
-                this.tensor_view.tile_y as i32,
                 this.tensor_view.batch as i32,
+                this.tensor_view.tile_y as i32,
+                this.tensor_view.tile_x as i32,
             );
             this.barrier.arrive_tx(
                 1,
                 config.tiling_dimensions(Ident::Rhs).total_size() * EG::elem_size(),
-                &mut token,
             );
         } else {
-            this.barrier.arrive(&mut token);
+            this.barrier.arrive();
         }
-        this.barrier.wait(token);
+        this.barrier.wait();
     }
 
     fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {

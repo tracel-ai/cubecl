@@ -39,7 +39,7 @@ where
     /// Given tensor handles, returns the owned resources as bytes.
     fn read_tensor(
         &mut self,
-        bindings: Vec<TensorHandle>,
+        bindings: Vec<BindingWithMeta>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static;
 
     /// Given a resource handle, returns the storage resource.
@@ -52,13 +52,22 @@ where
     fn create(&mut self, data: &[u8]) -> Handle;
 
     /// Given a resource as bytes with `shape`, stores it and returns the tensor handle.
-    fn create_tensor(&mut self, data: &[u8], shape: Vec<usize>, elem_size: usize) -> TensorHandle;
+    /// May or may not be contiguous, depending on what's best for the given runtime. Always use
+    /// strides to index.
+    /// For example, in CUDA, this will allocate a padded tensor where the last dimension is padded
+    /// to the cache lines, so row access is faster.
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> (Handle, Vec<usize>);
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn empty(&mut self, size: usize) -> Handle;
 
     /// Reserves `shape` bytes in the storage, and returns a handle to it.
-    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> TensorHandle;
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>);
 
     /// Executes the `kernel` over the given memory `handles`.
     ///
@@ -142,27 +151,6 @@ impl Handle {
     }
 }
 
-/// Tensor representation with an owned [server handle](Handle),
-/// the strides and the shape.
-#[derive(new, Debug, Clone)]
-pub struct TensorHandle {
-    /// The handle to the memory resource
-    pub handle: Handle,
-    /// The strides of this buffer
-    pub strides: Vec<usize>,
-    /// The shape of this buffer
-    pub shape: Vec<usize>,
-    /// The size of each element
-    pub elem_size: usize,
-}
-
-impl TensorHandle {
-    /// The total size of this tensor, excluding padding
-    pub fn size(&self) -> usize {
-        self.shape.iter().product()
-    }
-}
-
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
@@ -174,6 +162,19 @@ pub struct Binding {
     pub offset_end: Option<u64>,
 }
 
+/// A binding with shape and stride info for non-contiguous reading
+#[derive(new, Debug)]
+pub struct BindingWithMeta {
+    /// Binding for the memory resource
+    pub binding: Binding,
+    /// Shape of the resource
+    pub shape: Vec<usize>,
+    /// Strides of the resource
+    pub strides: Vec<usize>,
+    /// Size of each element in the resource
+    pub elem_size: usize,
+}
+
 /// Binding of a grid constant to execute a kernel.
 #[derive(new, Debug, Clone)]
 pub enum ConstBinding {
@@ -182,23 +183,23 @@ pub enum ConstBinding {
         /// The binding for the backing tensor
         binding: Binding,
         /// The tensormap metadata
-        map: TensorMap,
+        map: TensorMapMeta,
     },
 }
 
 /// TensorMap metadata for the opaque proxy used in TMA copies
 #[derive(Debug, Clone)]
-pub struct TensorMap {
+pub struct TensorMapMeta {
     /// Tensormap format (tiled or im2col)
     pub format: TensorMapFormat,
     /// Rank of the backing tensor
     pub rank: usize,
     /// Shape of the backing tensor
-    pub shape: Vec<u64>,
+    pub shape: Vec<usize>,
     /// Strides of the backing tensor
-    pub strides: Vec<u64>,
+    pub strides: Vec<usize>,
     /// Element stride, usually 1 but may be 2 for complex tensors
-    pub elem_stride: Vec<u32>,
+    pub elem_stride: Vec<usize>,
     /// Interleave mode
     pub interleave: TensorMapInterleave,
     /// Swizzle mode
@@ -227,19 +228,20 @@ impl Handle {
             offset_end: self.offset_end,
         }
     }
-}
 
-impl TensorHandle {
-    /// If the tensor handle can be reused inplace.
-    pub fn can_mut(&self) -> bool {
-        self.handle.memory.can_mut()
-    }
-}
-
-impl TensorHandle {
-    /// Convert the [handle](TensorHandle) into a [binding](Binding).
-    pub fn binding(self) -> Binding {
-        self.handle.binding()
+    /// Convert the [handle](Handle) into a [binding](Binding) with shape and stride metadata.
+    pub fn binding_with_meta(
+        self,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
+    ) -> BindingWithMeta {
+        BindingWithMeta {
+            shape,
+            strides,
+            elem_size,
+            binding: self.binding(),
+        }
     }
 }
 

@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 use super::fence::{Fence, SyncStream};
 use super::storage::CudaStorage;
 use super::{CudaResource, uninit_vec};
-use cubecl_core::{Feature, ir::FloatKind};
+use cubecl_core::{
+    Feature,
+    ir::FloatKind,
+    server::{BindingWithMeta, Handle},
+};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_core::{
     compute::DebugInformation,
@@ -150,13 +154,13 @@ impl CudaServer {
 
     fn read_tensor_async(
         &mut self,
-        handles: Vec<server::TensorHandle>,
+        handles: Vec<BindingWithMeta>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static + Send {
         let ctx = self.get_context();
         let mut result = Vec::with_capacity(handles.len());
 
         for handle in handles {
-            let binding = handle.handle.binding();
+            let binding = handle.binding;
             let resource = ctx
                 .memory_management
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
@@ -234,7 +238,7 @@ impl ComputeServer for CudaServer {
 
     fn read_tensor(
         &mut self,
-        bindings: Vec<server::TensorHandle>,
+        bindings: Vec<BindingWithMeta>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
         self.read_tensor_async(bindings)
     }
@@ -259,15 +263,15 @@ impl ComputeServer for CudaServer {
     fn create_tensor(
         &mut self,
         data: &[u8],
-        shape: Vec<usize>,
+        shape: &[usize],
         elem_size: usize,
-    ) -> server::TensorHandle {
+    ) -> (Handle, Vec<usize>) {
         let rank = shape.len();
         if rank <= 1 {
             let handle = self.create(data);
-            return server::TensorHandle::new(handle, vec![1], shape, elem_size);
+            return (handle, vec![1]);
         }
-        let handle = self.empty_tensor(shape, elem_size);
+        let (handle, strides) = self.empty_tensor(shape, elem_size);
         let ctx = self.get_context();
 
         let binding = handle.clone().binding();
@@ -276,10 +280,10 @@ impl ComputeServer for CudaServer {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .expect("Failed to find resource");
 
-        let dim_x = handle.shape[rank - 1];
+        let dim_x = shape[rank - 1];
         let width_bytes = dim_x * elem_size;
-        let dim_y: usize = handle.shape.iter().rev().skip(1).product();
-        let pitch = handle.strides[rank - 2] * elem_size;
+        let dim_y: usize = shape.iter().rev().skip(1).product();
+        let pitch = strides[rank - 2] * elem_size;
 
         let cpy = CUDA_MEMCPY2D_st {
             srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
@@ -298,7 +302,7 @@ impl ComputeServer for CudaServer {
             lib.cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
         }
 
-        handle
+        (handle, strides)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -307,7 +311,7 @@ impl ComputeServer for CudaServer {
         server::Handle::new(handle, None, None, size as u64)
     }
 
-    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> server::TensorHandle {
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
         let rank = shape.len();
         let ctx = self.get_context();
         let width = *shape.last().unwrap_or(&1);
@@ -329,7 +333,7 @@ impl ComputeServer for CudaServer {
             }
         }
         let mem_handle = server::Handle::new(handle, None, None, size as u64);
-        server::TensorHandle::new(mem_handle, strides, shape, elem_size)
+        (mem_handle, strides)
     }
 
     unsafe fn execute(
@@ -389,25 +393,39 @@ impl ComputeServer for CudaServer {
                         device_ptr as usize % 16 == 0,
                         "Tensor pointer must be 16 byte aligned"
                     );
-                    assert!(
-                        map.strides.iter().all(|it| it % 16 == 0),
-                        "Strides must be 16 byte aligned"
-                    );
                     let lib = unsafe { cudarc::driver::sys::lib() };
                     let mut map_ptr = MaybeUninit::zeroed();
+
+                    let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
+                    let strides: Vec<_> = map
+                        .strides
+                        .iter()
+                        .rev()
+                        .skip(1)
+                        .map(|s| *s as u64 * map.elem.size() as u64)
+                        .collect();
+                    let elem_stride: Vec<_> =
+                        map.elem_stride.iter().rev().map(|s| *s as u32).collect();
+
+                    assert!(
+                        strides.iter().all(|it| it % 16 == 0),
+                        "Strides must be 16 byte aligned"
+                    );
 
                     match &map.format {
                         TensorMapFormat::Tiled { tile_size } => unsafe {
                             assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
+                            let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+
                             lib.cuTensorMapEncodeTiled(
                                 map_ptr.as_mut_ptr(),
                                 elem_to_tmap_type(map.elem),
                                 map.rank as u32,
                                 device_ptr,
-                                map.shape.as_ptr(),
-                                map.strides.as_ptr(),
+                                shape.as_ptr(),
+                                strides.as_ptr(),
                                 tile_size.as_ptr(),
-                                map.elem_stride.as_ptr(),
+                                elem_stride.as_ptr(),
                                 interleave_to_cuda(map.interleave),
                                 swizzle_to_cuda(map.swizzle),
                                 prefetch_to_cuda(map.prefetch),
@@ -427,13 +445,13 @@ impl ComputeServer for CudaServer {
                                 elem_to_tmap_type(map.elem),
                                 map.rank as u32,
                                 resource.as_binding(),
-                                map.shape.as_ptr(),
-                                map.strides.as_ptr(),
+                                shape.as_ptr(),
+                                strides.as_ptr(),
                                 pixel_box_lower_corner.as_ptr(),
                                 pixel_box_upper_corner.as_ptr(),
                                 *channels_per_pixel,
                                 *pixels_per_column,
-                                map.elem_stride.as_ptr(),
+                                elem_stride.as_ptr(),
                                 interleave_to_cuda(map.interleave),
                                 swizzle_to_cuda(map.swizzle),
                                 prefetch_to_cuda(map.prefetch),

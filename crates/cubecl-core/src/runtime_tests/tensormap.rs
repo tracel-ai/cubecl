@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::{
     self as cubecl, Feature, TmaFeature,
-    prelude::barrier::{ArrivalToken, Barrier, BarrierLevel},
+    prelude::barrier::{Barrier, BarrierLevel},
 };
 
 use cubecl::prelude::*;
@@ -12,16 +12,15 @@ use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
 #[cube(launch)]
 pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::<F>::new_proxied(BarrierLevel::cube_coop(0u32));
-    let mut token = ArrivalToken::new();
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     if UNIT_POS == 0 {
-        barrier.memcpy_async_bulk_to_shared_2d(input, &mut stage.to_slice_mut(), 8, 0);
-        barrier.arrive_tx(1, 32 * 16 * F::elem_size(), &mut token);
+        barrier.memcpy_async_bulk_to_shared_2d(input, &mut stage.to_slice_mut(), 0, 8);
+        barrier.arrive_tx(1, 32 * 16 * F::elem_size());
     } else {
-        barrier.arrive(&mut token);
+        barrier.arrive();
     }
-    barrier.wait(token);
+    barrier.wait();
 
     let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     output[out_pos] = stage[out_pos];
@@ -38,7 +37,7 @@ pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<
     sync_units();
 
     if UNIT_POS == 0 {
-        memcpy_async_bulk_to_global_2d(&shared.to_slice(), output, 8, 16);
+        memcpy_async_bulk_to_global_2d(&shared.to_slice(), output, 16, 8);
         memcpy_async_bulk_commit();
         memcpy_async_bulk_wait_read(0u32);
     }
@@ -58,8 +57,9 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
     }
 
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let handle = client.create_tensor(F::as_bytes(&values), [64, 64], size_of::<F>());
-    let input = TensorArg::from_handle(&handle, 1);
+    let shape = vec![64, 64];
+    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
     tensormap_load::launch::<F, R>(
@@ -68,7 +68,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
         CubeDim::new_2d(32, 16),
         TensorMapArg::new(
             TensorMapFormat::Tiled {
-                tile_size: vec![32, 16],
+                tile_size: vec![16, 32],
             },
             input,
             F::as_elem_native_unchecked(),
@@ -101,9 +101,9 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let handle = client.create(F::as_bytes(&values));
-    let out = client.create_tensor(
+    let (out, out_strides) = client.create_tensor(
         &vec![0u8; 64 * 64 * size_of::<F>()],
-        [64, 64],
+        &[64, 64],
         size_of::<F>(),
     );
 
@@ -114,9 +114,9 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
         unsafe { ArrayArg::from_raw_parts::<F>(&handle, 32 * 16, 1) },
         TensorMapArg::new(
             TensorMapFormat::Tiled {
-                tile_size: vec![32, 16],
+                tile_size: vec![16, 32],
             },
-            TensorArg::from_handle(&out, 1),
+            unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &[64, 64], 1) },
             F::as_elem_native_unchecked(),
         ),
     );

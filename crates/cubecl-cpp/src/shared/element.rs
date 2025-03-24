@@ -167,7 +167,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { item, .. } => *item,
             Variable::Barrier { item, .. } => *item,
-            Variable::ArrivalToken { .. } => unreachable!(),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -237,9 +236,6 @@ pub enum Variable<D: Dialect> {
         id: Id,
         item: Item<D>,
         level: BarrierLevel,
-    },
-    ArrivalToken {
-        id: Id,
     },
     Tmp {
         id: Id,
@@ -330,7 +326,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
             Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
             Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
-            Variable::ArrivalToken { id } => write!(f, "token_{id}"),
         }
     }
 }
@@ -461,7 +456,6 @@ impl<D: Dialect> Variable<D> {
             Variable::Tmp { .. } => false,
             Variable::Pipeline { .. } => false,
             Variable::Barrier { .. } => false,
-            Variable::ArrivalToken { .. } => false,
             Variable::TensorMap(_) => false,
         }
     }

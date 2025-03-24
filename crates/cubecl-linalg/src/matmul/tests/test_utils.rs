@@ -37,7 +37,9 @@ pub trait TestPrecision {
         rhs: &[Self::EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: server::TensorHandle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     );
 }
 
@@ -61,7 +63,9 @@ where
         rhs: &[EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: server::TensorHandle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     ) {
         let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
             a: ES::as_elem_native().expect("To be a native type"),
@@ -83,7 +87,9 @@ where
             .map(|x| x.cast_into())
             .collect::<Vec<EG>>();
 
-        if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
+        if let Err(e) =
+            assert_equals_approx::<R, EG>(client, out, shape, strides, &expected, epsilon)
+        {
             panic!("{}", e);
         }
     }
@@ -92,11 +98,17 @@ where
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: server::TensorHandle,
+    output: server::Handle,
+    shape: &[usize],
+    strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one_tensor(output);
+    let actual = client.read_one_tensor(output.binding_with_meta(
+        shape.to_vec(),
+        strides.to_vec(),
+        size_of::<F>(),
+    ));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -157,9 +169,15 @@ impl TestPrecision for SymQ8 {
         rhs: &[u8],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: server::TensorHandle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     ) {
-        let out = client.read_one_tensor(out);
+        let out = client.read_one_tensor(out.binding_with_meta(
+            shape.to_vec(),
+            strides.to_vec(),
+            size_of::<Self::EG>(),
+        ));
         let out = u8::from_bytes(&out);
 
         let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
@@ -509,8 +527,16 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one_tensor(lhs.handle.clone());
-        let rhs_binding = &client.read_one_tensor(rhs.handle.clone());
+        let lhs_binding = &client.read_one_tensor(lhs.handle.clone().binding_with_meta(
+            lhs.shape.clone(),
+            lhs.strides.clone(),
+            size_of::<F>(),
+        ));
+        let rhs_binding = &client.read_one_tensor(rhs.handle.clone().binding_with_meta(
+            rhs.shape.clone(),
+            rhs.strides.clone(),
+            size_of::<F>(),
+        ));
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);
@@ -569,7 +595,8 @@ impl MatmulTestCase {
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
         let data = F::sample(shape.iter().product(), 999);
-        let handle = client.create_tensor(bytemuck::cast_slice(&data), shape, size_of::<F>());
-        TensorHandle::new(handle)
+        let (handle, strides) =
+            client.create_tensor(bytemuck::cast_slice(&data), &shape, size_of::<F>());
+        TensorHandle::new(handle, shape, strides)
     }
 }
