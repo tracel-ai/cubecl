@@ -23,7 +23,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.control_barrier(scope_exec, scope_mem, semantics)
                     .unwrap();
             }
-            Synchronization::SyncProxy => panic!("TMA proxy sync not supported in SPIR-V"),
+            Synchronization::SyncProxyShared => panic!("TMA proxy sync not supported in SPIR-V"),
         }
     }
 }

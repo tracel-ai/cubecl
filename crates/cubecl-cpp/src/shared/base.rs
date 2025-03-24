@@ -254,9 +254,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Synchronization(val) => match val {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
-                gpu::Synchronization::SyncProxy => {
+                gpu::Synchronization::SyncProxyShared => {
                     self.tma = true;
-                    instructions.push(Instruction::ProxyFence)
+                    instructions.push(Instruction::ProxySharedFence)
                 }
             },
             gpu::Operation::Plane(op) => {

@@ -95,7 +95,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
-        let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
+        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         TmaLhsLoader::<EG, ES, S> {
             tensor_view,
@@ -166,7 +166,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, ES, S> {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);
-        let barrier = Barrier::new_proxied(BarrierLevel::cube_coop(0u32));
+        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         TmaRhsLoader::<EG, ES, S> {
             tensor_view,

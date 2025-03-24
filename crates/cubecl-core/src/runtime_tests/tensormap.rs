@@ -11,7 +11,7 @@ use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
 
 #[cube(launch)]
 pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::<F>::new_proxied(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::<F>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     if UNIT_POS == 0 {
@@ -33,7 +33,7 @@ pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos] = input[in_pos];
 
-    sync_proxy();
+    sync_proxy_shared();
     sync_units();
 
     if UNIT_POS == 0 {

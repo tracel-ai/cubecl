@@ -162,7 +162,7 @@ pub enum Instruction<D: Dialect> {
     },
     SyncThreads,
     ThreadFence,
-    ProxyFence,
+    ProxySharedFence,
     BulkCommitGroup,
     BulkWaitGroup {
         max_pending: u32,
@@ -701,7 +701,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
-            Instruction::ProxyFence => {
+            Instruction::ProxySharedFence => {
                 writeln!(
                     f,
                     "cuda::device::experimental::fence_proxy_async_shared_cta();"

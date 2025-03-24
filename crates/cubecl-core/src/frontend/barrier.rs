@@ -135,7 +135,9 @@ impl<C: CubePrimitive> Barrier<C> {
         Self { _c: PhantomData }
     }
 
-    pub fn new_proxied(_level: BarrierLevel) -> Self {
+    /// Creates a new barrier for use with TMA instructions. Adds a shared memory proxy barrier to
+    /// the initialization.
+    pub fn new_with_tma_proxy(_level: BarrierLevel) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -235,7 +237,7 @@ impl<C: CubePrimitive> Barrier<C> {
         }
     }
 
-    pub fn __expand_new_proxied(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
+    pub fn __expand_new_with_tma_proxy(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
         let elem = C::as_elem(scope);
 
         let variable = scope.create_barrier(Item::new(elem), level.0.into());

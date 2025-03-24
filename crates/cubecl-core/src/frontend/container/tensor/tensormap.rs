@@ -68,6 +68,11 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
     }
 }
 
+/// A CUDA `CUtensorMap` object. Represents a tensor encoded with a lot of metadata, and is an
+/// opaque packed object at runtime. Does not support retrieving any shapes or strides, nor does
+/// it give access to the pointer. So these need to be passed separately in an aliased `Tensor` if needed.
+///
+/// Also see [cubecl_common::tma].
 #[derive(Clone)]
 pub struct TensorMap<E: CubePrimitive> {
     _ty: PhantomData<E>,
@@ -76,13 +81,14 @@ pub struct TensorMap<E: CubePrimitive> {
 impl<E: CubePrimitive> Copy for TensorMap<E> {}
 
 impl<E: CubePrimitive> TensorMap<E> {
+    /// Create a dummy tensor map to satisfy the type checker. Not actually valid, so the code should
+    /// panic if this is ever reached.
     pub fn dummy() -> Self {
-        TensorMap { _ty: PhantomData }
+        unreachable!("Dummy code")
     }
 
     pub fn __expand_dummy(_scope: &mut Scope) -> ExpandElementTyped<Self> {
-        let x: ExpandElement = 0.into();
-        x.into()
+        unreachable!("Dummy code")
     }
 }
 

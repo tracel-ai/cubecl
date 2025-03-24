@@ -537,7 +537,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
-            cube::Synchronization::SyncProxy => panic!("TMA is not supported in WGSL"),
+            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 
