@@ -262,13 +262,13 @@ impl ComputeServer for WgpuServer {
         shape: &[usize],
         _elem_size: usize,
     ) -> (Handle, Vec<usize>) {
-        let strides = compact_strides(shape);
+        let strides = contiguous_strides(shape);
         let handle = self.create(data);
         (handle, strides)
     }
 
     fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
-        let strides = compact_strides(shape);
+        let strides = contiguous_strides(shape);
         let size = shape.iter().product::<usize>() * elem_size;
         let handle = self.empty(size);
         (handle, strides)
@@ -283,7 +283,7 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     }
 }
 
-fn compact_strides(shape: &[usize]) -> Vec<usize> {
+fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {

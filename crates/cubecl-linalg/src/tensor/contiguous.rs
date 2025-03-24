@@ -113,7 +113,8 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
     into_contiguous_prefetch(client, input, elems_per_unit, false)
 }
 
-/// Make a jit tensor contiguous.
+/// Make a jit tensor contiguous, using the pitched allocator if available.
+/// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<'_, R>,

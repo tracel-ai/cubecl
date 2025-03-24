@@ -197,7 +197,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub constants: Vec<ConstBinding>,
+    pub consts: Vec<ConstBinding>,
     pub inputs: Vec<Binding>,
     pub outputs: Vec<Binding>,
     pub named: Vec<(String, Binding)>,

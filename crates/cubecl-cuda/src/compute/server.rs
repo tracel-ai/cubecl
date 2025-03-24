@@ -419,7 +419,7 @@ impl ComputeServer for CudaServer {
 
                             lib.cuTensorMapEncodeTiled(
                                 map_ptr.as_mut_ptr(),
-                                elem_to_tmap_type(map.elem),
+                                elem_to_tensor_map_type(map.elem),
                                 map.rank as u32,
                                 device_ptr,
                                 shape.as_ptr(),
@@ -442,7 +442,7 @@ impl ComputeServer for CudaServer {
                         } => unsafe {
                             lib.cuTensorMapEncodeIm2col(
                                 map_ptr.as_mut_ptr(),
-                                elem_to_tmap_type(map.elem),
+                                elem_to_tensor_map_type(map.elem),
                                 map.rank as u32,
                                 resource.as_binding(),
                                 shape.as_ptr(),
@@ -807,7 +807,7 @@ fn cuda_path() -> Option<PathBuf> {
     None
 }
 
-fn elem_to_tmap_type(elem: Elem) -> CUtensorMapDataType {
+fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match elem {
         Elem::Float(kind) => match kind {

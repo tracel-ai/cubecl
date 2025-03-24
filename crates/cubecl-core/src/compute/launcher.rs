@@ -164,6 +164,9 @@ impl<R: Runtime> KernelLauncher<R> {
     /// by the output tensors. Then the tensor metadata, and the scalars at the end. The scalars
     /// are registered in the same order they are added. This is why we store the scalar data type
     /// in the `scalar_order` vector, so that we can register them in the same order.
+    ///
+    /// Also returns an ordered list of constant bindings. The ordering between constants and tensors
+    /// is up to the runtime.
     fn into_bindings(
         mut self,
         client: &ComputeClient<R::Server, R::Channel>,

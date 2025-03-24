@@ -84,7 +84,7 @@ pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim:
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
 /// divisible by a candidate line size and that the smallest stride that is not 1
-/// is equal to the shape of the axis.
+/// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
     supported_line_sizes: impl Iterator<Item = u8>,

@@ -114,7 +114,7 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
-        let constants = value.constants;
+        let constants = value.consts;
         let inputs = value
             .inputs
             .into_iter()

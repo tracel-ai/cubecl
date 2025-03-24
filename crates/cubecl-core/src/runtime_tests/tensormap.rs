@@ -38,8 +38,8 @@ pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<
 
     if UNIT_POS == 0 {
         memcpy_async_bulk_to_global_2d(&shared.to_slice(), output, 16, 8);
-        memcpy_async_bulk_commit();
-        memcpy_async_bulk_wait_read(0u32);
+        memcpy_async_tensor_commit();
+        memcpy_async_tensor_wait_read(0u32);
     }
 }
 

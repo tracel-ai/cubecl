@@ -352,7 +352,7 @@ impl KernelIntegrator {
         }
 
         KernelDefinition {
-            constants,
+            consts: constants,
             inputs,
             outputs,
             named,

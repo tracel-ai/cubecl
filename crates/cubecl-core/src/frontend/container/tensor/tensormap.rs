@@ -116,7 +116,7 @@ impl<R: Runtime> ArgSettings<R> for TensorMapArg<'_, R> {
     }
 }
 
-/// Compilation argument for a [tensor](Tensor).
+/// Compilation argument for a [tensor map](TensorMap).
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorMapCompilationArg;
 
@@ -149,11 +149,13 @@ impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
     }
 }
 
-pub fn memcpy_async_bulk_commit() {
+/// Commit an async tensor operation. Not sure how this works, poor docs. But you need to call it
+/// after a write, but not after reads.
+pub fn memcpy_async_tensor_commit() {
     unexpanded!()
 }
 
-pub mod memcpy_async_bulk_commit {
+pub mod memcpy_async_tensor_commit {
     use cubecl_ir::TmaOps;
 
     use super::*;
@@ -163,11 +165,12 @@ pub mod memcpy_async_bulk_commit {
     }
 }
 
-pub fn memcpy_async_bulk_wait(_max_pending: u32) {
+/// Wait until at most `max_pending` TMA copy operations are in flight.
+pub fn memcpy_async_tensor_wait(_max_pending: u32) {
     unexpanded!()
 }
 
-pub mod memcpy_async_bulk_wait {
+pub mod memcpy_async_tensor_wait {
     use cubecl_ir::TmaOps;
 
     use super::*;
@@ -177,11 +180,26 @@ pub mod memcpy_async_bulk_wait {
     }
 }
 
-pub fn memcpy_async_bulk_wait_read(_max_pending: u32) {
+/// Wait TMA copy operations have finished reading from shared memory, with at most `max_pending`
+/// operations being unfinished.
+///
+/// # Example
+///
+/// I believe you may use `max_pending` like this.
+///
+/// ```ignore
+/// copy_data(smem1);
+/// copy_data(smem2);
+/// copy_data(smem3);
+/// copy_data(smem4);
+/// memcpy_async_tensor_wait_read(2);
+/// // reuse smem1 & smem2 while 3 and 4 are still pending
+/// ```
+pub fn memcpy_async_tensor_wait_read(_max_pending: u32) {
     unexpanded!()
 }
 
-pub mod memcpy_async_bulk_wait_read {
+pub mod memcpy_async_tensor_wait_read {
     use cubecl_ir::TmaOps;
 
     use super::*;

@@ -165,7 +165,7 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
         &self,
         _scope: &mut Scope,
     ) -> ExpandElementTyped<TensorMap<EG>> {
-        todo!()
+        unimplemented!("TensorOutputExpand can't be turned into a tensor map");
     }
 }
 
@@ -439,10 +439,14 @@ impl MatmulArgs for TensorArgs {
     }
 
     fn as_tensor_map_lhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
+        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
+        #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
     fn as_tensor_map_rhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
+        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
+        #[allow(unreachable_code)]
         TensorMap::dummy()
     }
 
@@ -558,27 +562,37 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn read_lhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
         Line::empty(1)
     }
 
     fn read_rhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
         Line::empty(1)
     }
 
+    #[allow(unused)]
     fn read_window_lhs<EG: Numeric>(
         state: &Self::State<EG>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EG>> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
         unsafe { &*state.2 }.slice(start, end)
     }
 
     /// Read the line of the rhs tensor using the state at the given coordinate.
+    #[allow(unused)]
     fn read_window_rhs<EG: Numeric>(
         state: &Self::State<EG>,
         start: u32,
         end: u32,
     ) -> Slice<Line<EG>> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
         unsafe { &*state.2 }.slice(start, end)
     }
 
@@ -591,10 +605,14 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn shape_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
     fn shape_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
@@ -603,10 +621,14 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn stride_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
     fn stride_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
@@ -619,10 +641,14 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn rank_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         3u32
     }
 
     fn rank_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         3u32
     }
 
@@ -631,10 +657,14 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
     fn len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
@@ -643,10 +673,14 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn buffer_len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 
     fn buffer_len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
         1u32
     }
 

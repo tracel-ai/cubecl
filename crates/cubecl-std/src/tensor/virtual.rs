@@ -429,7 +429,7 @@ mod __tensor {
             &self,
             _scope: &mut Scope,
         ) -> ExpandElementTyped<TensorMap<E>> {
-            todo!()
+            unimplemented!("Can't turn normal tensor into `TensorMap`");
         }
     }
 }
