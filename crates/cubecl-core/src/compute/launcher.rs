@@ -373,6 +373,8 @@ impl<R: Runtime> TensorState<R> {
 
             bindings_global.extend(bindings);
             bindings_global.push(client.create(bytemuck::cast_slice(&metadata)).binding());
+        } else {
+            bindings_global.push(client.create(&[0]).binding());
         }
     }
 }
