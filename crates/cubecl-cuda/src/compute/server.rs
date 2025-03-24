@@ -373,7 +373,7 @@ impl ComputeServer for CudaServer {
         }
 
         let tensor_maps: Vec<_> = constants
-            .iter()
+            .into_iter()
             .map(|it| match it {
                 server::ConstBinding::TensorMap { binding, map } => {
                     let resource = ctx
@@ -395,14 +395,13 @@ impl ComputeServer for CudaServer {
                     );
                     let lib = unsafe { cudarc::driver::sys::lib() };
                     let mut map_ptr = MaybeUninit::zeroed();
-                    let data_ty = elem_to_tmap_type(map.elem);
 
                     match &map.format {
                         TensorMapFormat::Tiled { tile_size } => unsafe {
                             assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                             lib.cuTensorMapEncodeTiled(
                                 map_ptr.as_mut_ptr(),
-                                data_ty,
+                                elem_to_tmap_type(map.elem),
                                 map.rank as u32,
                                 device_ptr,
                                 map.shape.as_ptr(),
@@ -425,7 +424,7 @@ impl ComputeServer for CudaServer {
                         } => unsafe {
                             lib.cuTensorMapEncodeIm2col(
                                 map_ptr.as_mut_ptr(),
-                                data_ty,
+                                elem_to_tmap_type(map.elem),
                                 map.rank as u32,
                                 resource.as_binding(),
                                 map.shape.as_ptr(),
@@ -460,10 +459,6 @@ impl ComputeServer for CudaServer {
                     .expect("Failed to find resource")
             })
             .collect::<Vec<_>>();
-
-        // Just to ensure the `Vec`s aren't accidentally consumed and dropped while the pointers
-        // are still needed.
-        let _ = constants.iter();
 
         if let Some(level) = profile_level {
             ctx.sync();
