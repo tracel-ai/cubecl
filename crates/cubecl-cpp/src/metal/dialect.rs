@@ -1,11 +1,9 @@
 use std::fmt::Display;
 
 use crate::{
-    Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable,
-    },
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstruction, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
+    }, Dialect
 };
 
 use super::{
@@ -316,6 +314,18 @@ impl DialectCubeBuiltins for MslDialect {
     fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Self::compile_unit_pos(f)?;
         write!(f, ".z")
+    }
+}
+
+// Instructions
+
+impl DialectInstruction for MslDialect {
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
+    }
+
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
     }
 }
 

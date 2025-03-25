@@ -2,11 +2,9 @@ use std::collections::HashSet;
 use std::fmt::Display;
 
 use crate::{
-    Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item,
-    },
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstruction, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item
+    }, Dialect
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -256,6 +254,18 @@ impl DialectCubeBuiltins for CudaDialect {
     fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Self::compile_unit_pos(f)?;
         write!(f, ".z")
+    }
+}
+
+// Instructions
+
+impl DialectInstruction for CudaDialect {
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "__syncthreads();\n")
+    }
+
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "__threadfence();")
     }
 }
 

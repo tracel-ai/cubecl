@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use crate::shared::Instruction;
+use crate::shared::{DialectInstruction, Instruction};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -237,6 +237,18 @@ impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins for HipDialect<M> {
 
     fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_unit_pos_z(f)
+    }
+}
+
+// Instructions
+
+impl<M: DialectWmmaCompiler<Self>> DialectInstruction for HipDialect<M> {
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        CudaDialect::compile_instruction_sync_threads(f)
+    }
+
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        CudaDialect::compile_instruction_thread_fence(f)
     }
 }
 
