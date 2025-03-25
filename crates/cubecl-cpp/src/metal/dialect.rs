@@ -2,9 +2,10 @@ use std::fmt::Display;
 
 use crate::{
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstruction, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstruction, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
     }, Dialect
 };
+use cubecl_core::ir::{self as gpu};
 
 use super::{
     AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
@@ -377,63 +378,102 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     type Architecture = MetalArchitecture;
 
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_wmma_includes] NOT YET IMPLEMENTED");
         Ok(())
     }
 
     fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_wmma_type_definitions] NOT YET IMPLEMENTED");
         Ok(())
     }
 
     fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_local_variables] NOT YET IMPLEMENTED");
         Ok(())
     }
 
     fn compile_fragment_ident(
-        _ident: &crate::shared::FragmentIdent<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        ident: &FragmentIdent<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment_ident] NOT YET IMPLEMENTED");
-        Ok(())
+        write!(f, "{}", match ident {
+            FragmentIdent::A => "A",
+            FragmentIdent::B => "B",
+            FragmentIdent::Accumulator => "C",
+            FragmentIdent::_Dialect(_) => unreachable!(),
+        })
     }
 
     fn compile_fragment_layout(
-        _layout: &crate::shared::FragmentLayout<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        layout: &FragmentLayout<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment_layout] NOT YET IMPLEMENTED");
-        Ok(())
+        write!(f, "{}", match layout {
+            FragmentLayout::ColMajor => "col_major",
+            FragmentLayout::RowMajor => "row_major",
+            FragmentLayout::_Dialect(_) => unreachable!(),
+        })
     }
 
     fn compile_fragment(
-        _fragment: &crate::shared::Fragment<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        fragment: &Fragment<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment] NOT YET IMPLEMENTED");
-        Ok(())
+        write!(
+            f,
+            "matrix<{}, {}, {}>",
+            fragment.elem,
+            fragment.m,
+            fragment.n
+        )
     }
 
     fn compile_instruction(
-        _instruction: &crate::shared::WmmaInstruction<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        instruction: &WmmaInstruction<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_instruction] NOT YET IMPLEMENTED");
-        Ok(())
+        match instruction {
+            WmmaInstruction::Fill { frag, value } => {
+                writeln!(f, "{frag} = {value};")
+            }
+            WmmaInstruction::Load { frag, value, .. } => {
+                writeln!(f, "{frag} = {value};")
+            }
+            WmmaInstruction::Execute { frag_a, frag_b, frag_c, frag_d, .. } => {
+                writeln!(
+                    f,
+                    "{frag_d} = simdgroup_multiply_accumulate({frag_a}, {frag_b}, {frag_c});"
+                )
+            }
+            WmmaInstruction::Store { output, frag, .. } => {
+                writeln!(f, "{output} = {frag};")
+            }
+            WmmaInstruction::Cast { input, output } => {
+                writeln!(f, "{output} = static_cast<decltype({output})>({input});")
+            }
+        }
     }
 
     fn supported_wmma_combinations(
         _arch: &Self::Architecture,
-    ) -> crate::shared::SupportedWmmaCombinations {
-        vec![]
+    ) -> SupportedWmmaCombinations {
+        vec![
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                vec![(8, 8, 8), (16, 16, 16)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                vec![(8, 8, 8), (16, 16, 16)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                vec![(8, 8, 8), (16, 16, 16)],
+            ),
+        ]
     }
 }
 
