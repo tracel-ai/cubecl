@@ -333,41 +333,41 @@ impl DialectInstruction for MslDialect {
 
 impl DialectWarp for MslDialect {
     fn compile_warp_shuffle(
-        _f: &mut std::fmt::Formatter<'_>,
-        _var: &str,
-        _source: &str,
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        source: &str,
     ) -> std::fmt::Result {
-        todo!()
+        write!(f, "simd_shuffle({var}, {source})")
     }
     fn compile_warp_shuffle_xor(
-        _f: &mut std::fmt::Formatter<'_>,
-        _var: &str,
-        _offset: &str,
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
     ) -> std::fmt::Result {
-        todo!()
+        write!(f, "simd_shuffle_xor({var}, {offset})")
     }
     fn compile_warp_shuffle_up(
-        _f: &mut std::fmt::Formatter<'_>,
-        _var: &str,
-        _offset: &str,
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
     ) -> std::fmt::Result {
-        todo!()
+        write!(f, "simd_shuffle_up({var}, {offset})")
     }
     fn compile_warp_shuffle_down(
-        _f: &mut std::fmt::Formatter<'_>,
-        _var: &str,
-        _offset: &str,
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
     ) -> std::fmt::Result {
-        todo!()
+        write!(f, "simd_shuffle_down({var}, {offset})")
     }
-    fn compile_warp_all(_f: &mut std::fmt::Formatter<'_>, _var: &str) -> std::fmt::Result {
-        todo!()
+    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
+        write!(f, "simd_all({var})")
     }
-    fn compile_warp_any(_f: &mut std::fmt::Formatter<'_>, _var: &str) -> std::fmt::Result {
-        todo!()
+    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
+        write!(f, "simd_any({var})")
     }
-    fn compile_warp_ballot(_f: &mut std::fmt::Formatter<'_>, _out: &str) -> std::fmt::Result {
-        todo!()
+    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
+        write!(f, "simd_ballot({out})")
     }
 }
 
@@ -377,43 +377,57 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     type Architecture = MetalArchitecture;
 
     fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_wmma_includes] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_wmma_type_definitions] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_local_variables] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_fragment_ident(
         _ident: &crate::shared::FragmentIdent<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_fragment_ident] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_fragment_layout(
         _layout: &crate::shared::FragmentLayout<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_fragment_layout] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_fragment(
         _fragment: &crate::shared::Fragment<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_fragment] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn compile_instruction(
         _instruction: &crate::shared::WmmaInstruction<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        todo!()
+        // TODO
+        println!("[compile_instruction] NOT YET IMPLEMENTED");
+        Ok(())
     }
 
     fn supported_wmma_combinations(
