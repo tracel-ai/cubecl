@@ -12,7 +12,7 @@ pub struct ReduceAutotuneKey {
     potential_line_size: u8,
     #[autotune(anchor(max = 2048))]
     reduce_axis_shape: usize,
-    #[autotune(anchor(max=1024))]
+    #[autotune(anchor(max = 1024))]
     reduce_count: usize,
 }
 
