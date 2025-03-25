@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use crate::{
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstruction, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item
+        self, compile_instruction_printf, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
     }, Dialect
 };
 
@@ -112,6 +112,7 @@ impl DialectTypes<Self> for CudaDialect {
     fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "__shared__")
     }
+
 }
 
 // Kernel argument bindings
@@ -259,13 +260,21 @@ impl DialectCubeBuiltins for CudaDialect {
 
 // Instructions
 
-impl DialectInstruction for CudaDialect {
+impl DialectInstructions<Self> for CudaDialect {
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__syncthreads();\n")
     }
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__threadfence();")
+    }
+
+    fn compile_instruction_printf(
+        f: &mut std::fmt::Formatter<'_>,
+        format_string: &String,
+        args: &Vec<Variable<Self>>,
+    ) -> std::fmt::Result {
+        compile_instruction_printf::<Self>(f, format_string, args)
     }
 }
 

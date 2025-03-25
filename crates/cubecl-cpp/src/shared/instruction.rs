@@ -671,13 +671,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 format_string,
                 args,
             } => {
-                let format_string = escape_string(format_string);
-                let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
-                let args = match args.is_empty() {
-                    true => "".to_string(),
-                    false => format!(", {}", args.join(",")),
-                };
-                writeln!(f, "printf(\"{format_string}\"{args});")
+                D::compile_instruction_printf(f, format_string, args)
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
@@ -691,13 +685,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
         }
     }
-}
-
-fn escape_string(format_string: &str) -> String {
-    format_string
-        .replace("\t", "\\t")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
 }
 
 struct Fma<D: Dialect> {
@@ -962,3 +949,21 @@ impl<V: Display, D: Dialect> Display for EnsureBoolArg<'_, V, D> {
         }
     }
 }
+
+pub fn compile_instruction_printf<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    format_string: &String,
+    args: &Vec<Variable<D>>,
+) -> std::fmt::Result {
+    let format_string = format_string
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r");
+    let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
+    let args = match args.is_empty() {
+        true => "".to_string(),
+        false => format!(", {}", args.join(",")),
+    };
+    writeln!(f, "printf(\"{format_string}\"{args});")
+}
+
