@@ -1,13 +1,18 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{GlobalMatmul, SyncInputLoader};
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::{
+    Ident, MatmulPrecision,
+    global::{
+        self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        multi_stage::{
+            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
+        },
+        output_loader::Unloader,
+    },
+    stage::{
+        StageMatmul,
+        single_buffer::{LhsBufferReader, RhsBufferReader},
+    },
+};
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
@@ -158,13 +163,20 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step; // equal to SMM::K
+        let k_step = num_buffers * buffer_step;
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
@@ -174,34 +186,55 @@ where
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        for _ in 0..num_loops {
-            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+        for _ in 0..num_loops {
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
             sync_units();
 
             if is_consumer {
                 SMM::execute(
-                    lhs_stage_reader,
-                    rhs_stage_reader,
+                    &lhs_buffer_reader_a,
+                    &rhs_buffer_reader_a,
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
+                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, buffer_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, buffer_step);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+
+            sync_units();
+
+            if is_consumer {
+                SMM::execute(
+                    &lhs_buffer_reader_b,
+                    &rhs_buffer_reader_b,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
+                    acc,
+                    CubeOption::new_None(),
+                    config.to_smm_config(),
+                );
+            }
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
         if is_consumer {
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
+                CubeOption::new_None(),
                 config.to_smm_config(),
                 config,
             );

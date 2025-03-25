@@ -15,7 +15,7 @@ pub mod rand;
 /// Stub module contains types for stubs for non-std environments and for std environments.
 pub mod stub;
 
-/// Cache module for an efficient in-memory and persistant database.
+/// Cache module for an efficient in-memory and persistent database.
 #[cfg(feature = "cache")]
 pub mod cache;
 

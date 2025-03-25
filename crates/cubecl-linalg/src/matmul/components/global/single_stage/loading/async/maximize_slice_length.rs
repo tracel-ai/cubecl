@@ -9,7 +9,7 @@ use crate::matmul::components::{
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use super::{AsyncLoadingStrategy, CopyMechanism};
+use super::{AsyncFullLoadingStrategy, CopyMechanism};
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
@@ -23,7 +23,7 @@ impl LoadingValidation for MaximizeSliceLengthLoading {
 }
 
 #[cube]
-impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
+impl AsyncFullLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
@@ -62,17 +62,6 @@ impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
                 }
             };
         }
-    }
-
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        _read_view: &TensorReader<EG>,
-        _stage: &mut Stage<ES, Self::TilingLayout>,
-        _buffer_index: u32,
-        _mechanism: &CM,
-        #[comptime] _ident: Ident,
-        #[comptime] _config: G,
-    ) {
-        // TODO
     }
 
     fn barrier_level() -> BarrierLevel {

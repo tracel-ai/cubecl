@@ -1,12 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
+use super::SyncBufferLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -87,7 +88,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let unit_position = unit_position_base + i * jump_length;
 
             // We assume unit_position < total_num_lines * line_size;
-            // This is catched by the loading validation
+            // This is caught by the loading validation
 
             let unit_pos_in_buffer = unit_position / tile_size;
             let pos_within_tile = unit_position % tile_size;

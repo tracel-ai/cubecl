@@ -1,28 +1,25 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::global::base::InputBufferLoader;
-use crate::matmul::components::global::base::SyncInputBufferLoader;
-use crate::matmul::components::global::loader::sync::SyncBufferLoadingStrategy;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::{self, CommonGlobalConfig};
-use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::{MatmulPrecision, stage};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use std::marker::PhantomData;
-
-use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
-
-use crate::matmul::components::InvalidConfigError;
-use crate::matmul::components::MatmulConfigFactory;
-use crate::matmul::components::MatmulProblem;
-use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::stage::single_buffer::{
-    LhsBufferReaderFamily, RhsBufferReaderFamily,
+use super::SyncLhsBufferLoader;
+use super::SyncRhsBufferLoader;
+use crate::matmul::components::{
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
+};
+use crate::matmul::components::{
+    global::{
+        self, CommonGlobalConfig, GlobalConfig, GlobalMatmulFamily, IndexedQuantization,
+        ZeroAccumulatorLoader,
+        multi_stage::{BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy},
+        output_loader::Unloader,
+    },
+    stage::single_buffer::{
+        LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily,
+    },
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -159,8 +156,15 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let num_buffers = 2;
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step;
@@ -174,10 +178,10 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
@@ -194,6 +198,7 @@ where
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -211,6 +216,7 @@ where
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
         }
@@ -220,6 +226,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );

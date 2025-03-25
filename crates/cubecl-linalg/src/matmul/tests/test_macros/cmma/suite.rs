@@ -46,9 +46,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_count: selection.tile_count,
     };
 
-    if P::should_run::<A>(layouts) {
-        test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
-    }
+    test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
 }
 
 #[allow(missing_docs)]
@@ -289,11 +287,10 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::components::global::loader::r#async::{
+        use $crate::matmul::components::global::single_stage::{
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-            WindowCooperativeLoading,
+            StridedCoalescedLoading, WindowCooperativeLoading,
         };
-        use $crate::matmul::components::global::loader::sync::StridedCoalescedLoading;
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
@@ -302,7 +299,7 @@ macro_rules! matmul_standard_tests {
         use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
 
         #[test]
-        pub fn simple() {
+        pub fn simple_coalesced() {
             cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
                 (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
                 $tile,

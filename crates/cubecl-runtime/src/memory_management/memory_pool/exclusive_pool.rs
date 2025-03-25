@@ -1,5 +1,5 @@
 use crate::{
-    memory_management::MemoryUsage,
+    memory_management::{MemoryUsage, StorageExclude},
     storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 
@@ -49,11 +49,19 @@ impl ExclusiveMemoryPool {
 
     /// Finds a free page that can contain the given size
     /// Returns a slice on that page if successful.
-    fn get_free_page(&mut self, size: u64) -> Option<&mut MemoryPage> {
+    fn get_free_page(
+        &mut self,
+        size: u64,
+        exclude: Option<&StorageExclude>,
+    ) -> Option<&mut MemoryPage> {
         // Return the smallest free page that fits.
         self.pages
             .iter_mut()
-            .filter(|page| page.alloc_size >= size && page.slice.is_free())
+            .filter(|page| {
+                page.alloc_size >= size
+                    && page.slice.is_free()
+                    && !exclude.is_some_and(|e| e.is_excluded(page.slice.storage.id))
+            })
             .min_by_key(|page| page.free_count)
     }
 
@@ -104,13 +112,13 @@ impl MemoryPool for ExclusiveMemoryPool {
     /// a handle to the reserved memory.
     ///
     /// Also clean ups, merging free slices together if permitted by the merging strategy
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    fn try_reserve(&mut self, size: u64, exclude: Option<&StorageExclude>) -> Option<SliceHandle> {
         self.cur_avg_size =
             self.cur_avg_size * (1.0 - SIZE_AVG_DECAY) + size as f64 * SIZE_AVG_DECAY;
 
         let padding = calculate_padding(size, self.alignment);
 
-        self.get_free_page(size).map(|page| {
+        self.get_free_page(size, exclude).map(|page| {
             // Return a smaller part of the slice. By construction, we only ever
             // get a page with a big enough size, so this is ok to do.
             page.slice.storage.utilization = StorageUtilization { offset: 0, size };

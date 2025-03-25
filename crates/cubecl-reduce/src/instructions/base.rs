@@ -15,6 +15,8 @@ pub trait Reduce: Send + Sync + 'static + std::fmt::Debug {
 /// together into a single accumulator that is converted to the expected output type.
 #[cube]
 pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debug {
+    /// If the instruction requires the coordinate to be passed as input.
+    const REQUIRES_COORDINATE: bool;
     /// The intermediate state into which we accumulate new input elements.
     /// This is most likely a `Line<T>` or a struct or tuple of lines.
     type AccumulatorItem: CubeType;
@@ -42,7 +44,7 @@ pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debu
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        coordinate: Line<u32>,
+        coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem;
 
@@ -60,6 +62,12 @@ pub trait ReduceInstruction<In: Numeric>: Send + Sync + 'static + std::fmt::Debu
         accumulator: Self::AccumulatorItem,
         shape_axis_reduce: u32,
     ) -> Line<Out>;
+}
+
+#[derive(CubeType)]
+pub enum ReduceCoordinate {
+    Required(Line<u32>),
+    NotRequired,
 }
 
 /// A simple trait that abstract over a single or multiple shared memory.
@@ -123,7 +131,7 @@ impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
 pub fn reduce_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::AccumulatorItem,
     item: Line<In>,
-    coordinate: Line<u32>,
+    coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
     let reduction = &R::reduce(accumulator, item, coordinate, use_planes);
@@ -135,7 +143,7 @@ pub fn reduce_shared_inplace<In: Numeric, R: ReduceInstruction<In>>(
     accumulator: &mut R::SharedAccumulator,
     index: u32,
     item: Line<In>,
-    coordinate: Line<u32>,
+    coordinate: ReduceCoordinate,
     #[comptime] use_planes: bool,
 ) {
     let acc_item = R::SharedAccumulator::read(accumulator, index);

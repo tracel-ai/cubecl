@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceInstruction, Sum};
+use super::{Reduce, ReduceCoordinate, ReduceInstruction, Sum};
 
 #[derive(Debug)]
 pub struct Mean;
@@ -12,6 +12,8 @@ impl Reduce for Mean {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Mean {
+    const REQUIRES_COORDINATE: bool = false;
+
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
 
@@ -30,7 +32,7 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
     fn reduce(
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
-        _coordinate: Line<u32>,
+        _coordinate: ReduceCoordinate,
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         Sum::reduce(accumulator, item, _coordinate, use_planes)
@@ -43,6 +45,8 @@ impl<In: Numeric> ReduceInstruction<In> for Mean {
         Sum::fuse_accumulators(lhs, rhs)
     }
 
+    // TODO Remove shape_axis_reduce when fusion-on-write is well supported for reduce instructions.
+    //      Then, an instruction like Mean can be implemented by fusing a Sum reduction and a element-wise division.
     fn merge_line<Out: Numeric>(accumulator: Self::AccumulatorItem, shape_axis_reduce: u32) -> Out {
         Sum::merge_line::<Out>(accumulator, shape_axis_reduce) / Out::cast_from(shape_axis_reduce)
     }

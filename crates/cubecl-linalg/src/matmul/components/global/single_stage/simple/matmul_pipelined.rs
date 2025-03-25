@@ -1,23 +1,26 @@
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::base::AsyncInputLoader;
-use crate::matmul::components::global::base::InputLoader;
-use crate::matmul::components::global::loader::r#async::AsyncLhsLoader;
-use crate::matmul::components::global::loader::r#async::AsyncLoadingStrategy;
-use crate::matmul::components::global::loader::r#async::AsyncRhsLoader;
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::{
+        GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        output_loader::Unloader,
+        single_stage::{
+            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
+            FullLoader,
+        },
+    },
+    stage::{
+        StageMatmul,
+        multi_buffer::{LhsReader, RhsReader},
+    },
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 use pipeline::Pipeline;
 use std::marker::PhantomData;
-
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
 use crate::matmul::{
     components::{
@@ -33,8 +36,8 @@ use crate::matmul::{
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -44,8 +47,8 @@ pub struct SimplePipelinedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = SimplePipelinedMatmul<
         MP,
@@ -58,8 +61,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -114,8 +117,8 @@ where
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -133,8 +136,8 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncLoadingStrategy,
-    RL: AsyncLoadingStrategy,
+    LL: AsyncFullLoadingStrategy,
+    RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
@@ -149,8 +152,14 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -179,8 +188,8 @@ where
             Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
             pipeline.producer_commit();
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             // Wait for load to finish for this thread, then sync to make sure all planes have finished
             pipeline.consumer_wait();
@@ -192,6 +201,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -204,6 +214,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );

@@ -36,28 +36,28 @@ impl<N: Numeric> MaybeQuantized for N {
     const QUANTIZED: bool = false;
 }
 
-/// Represent the quantization of a f32 into a u8.
-pub struct Q8;
+/// Represent the quantization of a f32 into an i8 using the symmetric scheme.
+pub struct SymQ8;
 
-impl MaybeQuantized for Q8 {
-    type Numeric = u8;
+impl MaybeQuantized for SymQ8 {
+    type Numeric = i8;
     const QUANTIZED: bool = true;
 }
 
-impl Q8 {
-    pub fn quantize(val: f32, scaling: f32, zero_offset: u8) -> u8 {
-        let min = -scaling * (zero_offset as f32);
+impl SymQ8 {
+    pub fn quantize(val: f32, scaling: f32) -> i8 {
+        let min = -scaling * (i8::MIN as f32);
         let max = min + 255.0 * scaling;
         if val < min {
-            0
+            i8::MIN
         } else if val > max {
-            255
+            i8::MAX
         } else {
-            ((val - min) / scaling).round() as u8
+            ((val - min) / scaling).round() as i8
         }
     }
 
-    pub fn dequantize(val: u8, scaling: f32, zero_offset: u8) -> f32 {
-        (val as i16 - zero_offset as i16) as f32 * scaling
+    pub fn dequantize(val: i8, scaling: f32) -> f32 {
+        val as f32 * scaling
     }
 }

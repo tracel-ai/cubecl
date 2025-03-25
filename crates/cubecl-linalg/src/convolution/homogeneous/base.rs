@@ -1,16 +1,19 @@
 use config::HomogeneousConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
-        self, AccumulatorLoader, GlobalConfig, InputLoader, SyncInputLoader,
-        loader::sync::{CyclicCoalescedLoading, SyncRhsLoader},
+        self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage,
+        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
@@ -70,7 +73,7 @@ where
     type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+        SyncFullRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<CS, SMM::Config>;
 
     type Out = Unloader<CS::EG>;
@@ -108,8 +111,8 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             sync_units();
 
@@ -119,6 +122,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -131,6 +135,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );

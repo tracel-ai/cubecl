@@ -7,6 +7,7 @@ pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
     InvalidProblem(MatmulInvalidProblem),
     InvalidConfig(InvalidConfigError),
+    Unimplemented(MatmulUnimplementedError),
 }
 
 pub enum MatmulAvailabilityError {
@@ -58,6 +59,12 @@ impl From<InvalidConfigError> for MatmulLaunchError {
     }
 }
 
+impl From<MatmulUnimplementedError> for MatmulLaunchError {
+    fn from(value: MatmulUnimplementedError) -> Self {
+        Self::Unimplemented(value)
+    }
+}
+
 impl Debug for MatmulLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -80,6 +87,13 @@ impl Debug for MatmulLaunchError {
                     f,
                     "Unable to launch matmul because the config is invalid: {:?}",
                     err.to_string()
+                )
+            }
+            MatmulLaunchError::Unimplemented(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because the feature is not ready: {:?}",
+                    err
                 )
             }
         }
@@ -161,6 +175,20 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::BarrierUnavailable => {
                 writeln!(f, "Barrier is not available.")
+            }
+        }
+    }
+}
+
+pub enum MatmulUnimplementedError {
+    Quantization,
+}
+
+impl Debug for MatmulUnimplementedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatmulUnimplementedError::Quantization => {
+                writeln!(f, "Quantization")
             }
         }
     }

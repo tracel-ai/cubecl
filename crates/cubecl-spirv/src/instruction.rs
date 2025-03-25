@@ -323,6 +323,26 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::ConditionalRead(op) => {
+                let cond = self.compile_variable(op.cond);
+                let slice = self.compile_variable(op.slice);
+                let index = self.compile_variable(op.index);
+                let fallback = self.compile_variable(op.fallback);
+                let out = self.compile_variable(out);
+
+                let out_ty = out.item();
+                let ty = out_ty.id(self);
+
+                let cond_id = self.read(&cond);
+                let then = self.read_indexed(&out, &slice, &index);
+                let or_else = self.read_as(&fallback, &out_ty);
+                let out_id = self.write_id(&out);
+
+                self.mark_uniformity(out_id, uniform);
+                self.select(ty, Some(out_id), cond_id, then, or_else)
+                    .unwrap();
+                self.write(&out, out_id);
+            }
         }
     }
 
