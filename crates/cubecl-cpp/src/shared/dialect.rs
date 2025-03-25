@@ -13,7 +13,7 @@ pub trait Dialect:
     + DialectTypes<Self>
     + DialectBindings<Self>
     + DialectCubeBuiltins
-    + DialectInstruction
+    + DialectInstructions<Self>
     + DialectWarp
     + DialectWmmaCompiler<Self>
     + Default
@@ -107,10 +107,16 @@ pub trait DialectCubeBuiltins {
 
 // Instructions
 
-pub trait DialectInstruction {
+pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    fn compile_instruction_printf(
+        f: &mut std::fmt::Formatter<'_>,
+        format_string: &String,
+        args: &Vec<Variable<D>>,
+    ) -> std::fmt::Result;
 }
 
 // Warp
