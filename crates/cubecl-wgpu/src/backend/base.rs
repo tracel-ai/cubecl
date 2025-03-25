@@ -9,11 +9,15 @@ use wgpu::{
 
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
+use super::wgsl;
+
 #[cfg(feature = "spirv")]
 use super::vulkan;
-use super::wgsl;
+
 #[cfg(feature = "msl")]
-use cubecl_cpp::metal;
+use super::metal;
+#[cfg(feature = "msl")]
+use cubecl_cpp::metal as cpp_metal;
 
 impl WgpuServer {
     pub fn create_pipeline(
@@ -89,7 +93,7 @@ impl WgpuServer {
         let bindings = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
             #[cfg(feature = "msl")]
-            Some(AutoRepresentation::Msl(repr)) => Some(metal::bindings(repr)),
+            Some(AutoRepresentation::Msl(repr)) => Some(cpp_metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
@@ -147,7 +151,7 @@ impl WgpuServer {
     }
 }
 
-#[cfg(not(feature = "spirv"))]
+#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     wgsl::request_device(adapter).await
 }
@@ -161,7 +165,18 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     }
 }
 
-#[cfg(not(feature = "spirv"))]
+#[cfg(feature = "msl")]
+pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+    use super::metal;
+
+    if is_metal(adapter) {
+        metal::request_metal_device(adapter).await
+    } else {
+        panic!("metal device not found!");
+    }
+}
+
+#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub fn register_features(
     _adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
@@ -183,7 +198,25 @@ pub fn register_features(
     }
 }
 
+#[cfg(feature = "msl")]
+pub fn register_features(
+    adapter: &Adapter,
+    props: &mut DeviceProperties<Feature>,
+    comp_options: &mut WgpuCompilationOptions,
+) {
+    if is_metal(adapter) {
+        metal::register_metal_features(adapter, props, comp_options);
+    } else {
+        panic!("metal device not found!");
+    }
+}
+
 #[cfg(feature = "spirv")]
 fn is_vulkan(adapter: &Adapter) -> bool {
     unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
+}
+
+#[cfg(feature = "msl")]
+fn is_metal(adapter: &Adapter) -> bool {
+    unsafe { adapter.as_hal::<wgpu::hal::api::Metal, _, _>(|adapter| adapter.is_some()) }
 }

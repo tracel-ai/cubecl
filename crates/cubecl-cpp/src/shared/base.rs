@@ -46,6 +46,7 @@ pub struct CubeBuiltinFlags {
     pub cube_pos_global: bool,
     pub plane_dim: bool,
     pub plane_dim_checked: bool,
+    pub plane_index: bool,
     pub unit_pos: bool,
     pub unit_pos_global: bool,
     pub unit_pos_plane: bool,
@@ -491,14 +492,18 @@ impl<D: Dialect> CppCompiler<D> {
                 mat,
                 stride,
                 layout,
-            } => Instruction::Wmma(WmmaInstruction::Store {
-                output: out,
-                frag: self.compile_variable(mat),
-                stride: self.compile_variable(stride),
-                layout: self
-                    .compile_matrix_layout(layout)
-                    .expect("Layout required for store instruction"),
-            }),
+            } => {
+                self.flags.builtins.unit_pos_global = true;
+                self.flags.builtins.plane_index = true;
+                Instruction::Wmma(WmmaInstruction::Store {
+                    output: out,
+                    frag: self.compile_variable(mat),
+                    stride: self.compile_variable(stride),
+                    layout: self
+                        .compile_matrix_layout(layout)
+                        .expect("Layout required for store instruction"),
+                })
+            },
             gpu::CoopMma::Cast { input } => Instruction::Wmma(WmmaInstruction::Cast {
                 input: self.compile_variable(input),
                 output: out,

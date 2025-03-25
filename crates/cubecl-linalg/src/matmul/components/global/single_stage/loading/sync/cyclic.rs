@@ -24,6 +24,12 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
+        println!("Number stage lines: {}", num_stage_lines);
+        println!("Total units: {}", total_units);
+
+        println!("Plane dim: {}", config.plane_dim());
+        println!("Number of Planes: {}", config.num_planes());
+        println!("Config: {:?}", config);
 
         if num_stage_lines % total_units != 0 {
             return Err(Box::new(

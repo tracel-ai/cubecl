@@ -7,7 +7,7 @@ use crate::{
     cuda::CudaDialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWarp, DialectWmmaCompiler, Flags, Item,
+        DialectWmmaCompiler, Flags, Item,
     },
 };
 
@@ -59,6 +59,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
 // Types
 
 impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
+    fn item_can_be_optimized() -> bool {
+        true
+    }
+
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
@@ -186,7 +190,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
         write!(f, "__any({out})")
     }
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, _output: &Variable<Self>) -> std::fmt::Result {
+    fn compile_warp_ballot(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        _output: &Variable<Self>,
+    ) -> std::fmt::Result {
         write!(f, "__ballot({input})")
     }
 }

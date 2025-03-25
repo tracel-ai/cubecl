@@ -10,6 +10,7 @@ impl<D: Dialect> Variable<D> {
             Self::CubeDim => BuiltInAttribute::ThreadsPerThreadgroup,
             Self::CubePos => BuiltInAttribute::ThreadgroupPositionInGrid,
             Self::PlaneDim => BuiltInAttribute::ThreadsPerSIMDgroup,
+            Self::PlaneIndex => BuiltInAttribute::SIMDgroupIndexInThreadgroup,
             Self::UnitPos => BuiltInAttribute::ThreadPositionInThreadgroup,
             Self::UnitPosGlobal => BuiltInAttribute::ThreadIndexInThreadgroup,
             Self::UnitPosPlane => BuiltInAttribute::ThreadIndexInSIMDgroup,

@@ -210,7 +210,10 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         let cube_count_y = Variable::<D>::CubeCountY;
         let cube_dim_x = Variable::<D>::CubeDimX;
         let cube_dim_y = Variable::<D>::CubeDimY;
-        writeln!(f, "{ty} {variable} = ({absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y}) + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x}) + {absolute_pos_x};")?;
+        writeln!(
+            f,
+            "{ty} {variable} = ({absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y}) + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x}) + {absolute_pos_x};"
+        )?;
     }
 
     if settings.builtins.cube_dim_global {
@@ -219,7 +222,10 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         let cube_dim_x = Variable::<D>::CubeDimX;
         let cube_dim_y = Variable::<D>::CubeDimY;
         let cube_dim_z = Variable::<D>::CubeDimZ;
-        writeln!(f, "{ty} {variable} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};")?;
+        writeln!(
+            f,
+            "{ty} {variable} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};"
+        )?;
     }
 
     if settings.builtins.cube_count_global {
@@ -228,7 +234,10 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         let cube_count_x = Variable::<D>::CubeCountX;
         let cube_count_y = Variable::<D>::CubeCountY;
         let cube_count_z = Variable::<D>::CubeCountZ;
-        writeln!(f, "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};")?;
+        writeln!(
+            f,
+            "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};"
+        )?;
     }
 
     if settings.builtins.cube_pos_global {
@@ -239,7 +248,10 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         let cube_pos_z = Variable::<D>::CubePosZ;
         let cube_count_x = Variable::<D>::CubeCountX;
         let cube_count_y = Variable::<D>::CubeCountY;
-        writeln!(f, "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};")?;
+        writeln!(
+            f,
+            "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};"
+        )?;
     }
 
     if settings.builtins.plane_dim_checked {
@@ -249,7 +261,10 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         let cube_dim_x = Variable::<D>::CubeDimX;
         let cube_dim_y = Variable::<D>::CubeDimY;
         let cube_dim_z = Variable::<D>::CubeDimZ;
-        writeln!(f, "{ty} {variable} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});")?;
+        writeln!(
+            f,
+            "{ty} {variable} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});"
+        )?;
     }
 
     Ok(())

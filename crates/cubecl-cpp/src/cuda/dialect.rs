@@ -2,10 +2,11 @@ use std::collections::HashSet;
 use std::fmt::Display;
 
 use crate::{
+    Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
         DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, Variable,
-    }, Dialect
+    },
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -62,6 +63,10 @@ impl DialectIncludes<Self> for CudaDialect {
 // Types
 
 impl DialectTypes<Self> for CudaDialect {
+    fn item_can_be_optimized() -> bool {
+        true
+    }
+
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
@@ -191,7 +196,11 @@ impl DialectInstructions<Self> for CudaDialect {
         write!(f, "__any_sync(-1, {var})")
     }
 
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, _output: &Variable<Self>) -> std::fmt::Result {
+    fn compile_warp_ballot(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        _output: &Variable<Self>,
+    ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
     }
 }

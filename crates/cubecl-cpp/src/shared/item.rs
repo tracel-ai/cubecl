@@ -20,14 +20,6 @@ impl<D: Dialect> Item<D> {
         &self.elem
     }
 
-    pub fn de_optimized(&self) -> Self {
-        match self.elem {
-            Elem::F162 => Item::new(Elem::F16, self.vectorization * 2, self.native),
-            Elem::BF162 => Item::new(Elem::BF16, self.vectorization * 2, self.native),
-            _ => *self,
-        }
-    }
-
     pub fn new(elem: Elem<D>, vectorization: usize, native: bool) -> Self {
         Self {
             elem,
@@ -43,16 +35,16 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    pub fn can_be_optimized(&self) -> bool {
+        D::item_can_be_optimized()
+    }
+
     pub fn is_optimized(&self) -> bool {
         matches!(self.elem, Elem::F162 | Elem::BF162)
     }
 
     pub fn optimized(&self) -> Item<D> {
-        if self.vectorization == 1 {
-            return *self;
-        }
-
-        if self.vectorization % 2 != 0 {
+        if !self.can_be_optimized() || self.vectorization % 2 != 0 {
             return *self;
         }
 
@@ -67,6 +59,14 @@ impl<D: Dialect> Item<D> {
                 vectorization: self.vectorization / 2,
                 native: self.native,
             },
+            _ => *self,
+        }
+    }
+
+    pub fn de_optimized(&self) -> Self {
+        match self.elem {
+            Elem::F162 => Item::new(Elem::F16, self.vectorization * 2, self.native),
+            Elem::BF162 => Item::new(Elem::BF16, self.vectorization * 2, self.native),
             _ => *self,
         }
     }

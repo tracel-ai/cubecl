@@ -17,9 +17,11 @@ default = [
     "cubecl-core/default",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+# 'msl' and 'spirv' features are exclusive
+# TODO find a way to have wgpu runtime auto-compiler to support several compilers at the same time
 msl = ["cubecl-cpp/metal"]
 spirv = ["cubecl-spirv", "ash"]
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 spirv-dump = ["sanitize-filename"]
 

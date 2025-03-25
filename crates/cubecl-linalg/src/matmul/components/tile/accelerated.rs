@@ -143,6 +143,7 @@ impl MatmulConfigFactory for Accelerated {
         };
 
         let size = config.size;
+        println!("PROPS: {:?}", client.properties());
         if !client.properties().feature_enabled(Feature::Cmma {
             a: i_elem,
             b: i_elem,

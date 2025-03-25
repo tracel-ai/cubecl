@@ -4,7 +4,9 @@ use std::{collections::HashSet, fmt::Debug};
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, CubeBuiltinFlags, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
+    Architecture, AtomicKind, Binding, Component, CubeBuiltinFlags, Elem, Flags, Fragment,
+    FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable,
+    WmmaInstruction,
 };
 
 // Base dialect
@@ -44,6 +46,7 @@ pub trait DialectIncludes<D: Dialect> {
 // Types
 
 pub trait DialectTypes<D: Dialect> {
+    fn item_can_be_optimized() -> bool;
     fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &Elem<D>) -> std::fmt::Result;
 
     fn compile_atomic_kind(
@@ -102,10 +105,12 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let unit_pos_plane = flags.unit_pos_plane;
         let plane_dim_checked = flags.plane_dim_checked;
         let plane_dim = flags.plane_dim || plane_dim_checked || unit_pos_plane;
+        let plane_index = flags.plane_index;
         let absolute_pos_global = flags.absolute_pos_global || unit_pos_plane;
         let absolute_pos = flags.absolute_pos || absolute_pos_global;
         let cube_dim_global = flags.cube_dim_global;
-        let cube_dim = flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
+        let cube_dim =
+            flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
         let unit_pos_global = flags.unit_pos_global;
         let unit_pos = flags.unit_pos || unit_pos_global;
         let cube_count_global = flags.cube_count_global;
@@ -123,6 +128,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
             cube_pos_global,
             plane_dim,
             plane_dim_checked,
+            plane_index,
             unit_pos,
             unit_pos_global,
             unit_pos_plane,
@@ -256,6 +262,11 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let absolute_pos_global = Variable::<D>::AbsolutePosGlobal;
         let plane_dim = Variable::<D>::PlaneDim;
         write!(f, "{absolute_pos_global} % {plane_dim}")
+    }
+
+    // this is not a cube builtin but we have this info in metal
+    fn compile_plane_index(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
     }
 }
 
@@ -410,7 +421,11 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     // unary
-    fn compile_instruction_leading_zeros_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, _output: Elem<D>) -> std::fmt::Result {
+    fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        _output: Elem<D>,
+    ) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
@@ -423,7 +438,11 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
-    fn compile_instruction_popcount_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, _output: Elem<D>) -> std::fmt::Result {
+    fn compile_instruction_popcount_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        _output: Elem<D>,
+    ) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
@@ -431,7 +450,11 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
-    fn compile_instruction_reverse_bits_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<D>) -> std::fmt::Result {
+    fn compile_instruction_reverse_bits_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<D>,
+    ) -> std::fmt::Result {
         match output {
             Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
@@ -467,7 +490,11 @@ pub trait DialectInstructions<D: Dialect> {
     ) -> std::fmt::Result;
     fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<D>, _output: &Variable<D>) -> std::fmt::Result;
+    fn compile_warp_ballot(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        _output: &Variable<D>,
+    ) -> std::fmt::Result;
 }
 
 // Coop Matrices dialect

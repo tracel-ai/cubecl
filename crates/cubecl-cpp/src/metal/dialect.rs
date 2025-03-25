@@ -1,10 +1,16 @@
+use core::panic;
 use std::fmt::Display;
 
 use crate::{
+    Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, CubeBuiltinFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
-    }, Dialect
+        self, AtomicKind, Binding, Component, CubeBuiltinFlags, DialectBindings,
+        DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes,
+        DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
+        Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction,
+    },
 };
+use cubecl_core::ir::{self as gpu};
 
 use super::{
     AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
@@ -66,6 +72,10 @@ using namespace metal;
 // Types
 
 impl DialectTypes<Self> for MslDialect {
+    fn item_can_be_optimized() -> bool {
+        false
+    }
+
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
@@ -205,6 +215,7 @@ void {}(",
             (flags.builtins.cube_pos, Variable::CubePos),
             (flags.builtins.unit_pos_plane, Variable::UnitPosPlane),
             (flags.builtins.plane_dim, Variable::PlaneDim),
+            (flags.builtins.plane_index, Variable::PlaneIndex),
         ];
         let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
         builtins
@@ -223,13 +234,15 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     /// For instance in metal we have a built-in for the Unit plane position
     /// so we don't rely on other builtins.
     fn builtin_rules(flags: &CubeBuiltinFlags) -> CubeBuiltinFlags {
-        let unit_pos_plane = flags.unit_pos_plane;
+        let plane_index = flags.plane_index;
+        let unit_pos_plane = flags.unit_pos_plane || plane_index;
         let plane_dim_checked = flags.plane_dim_checked;
-        let plane_dim = flags.plane_dim || plane_dim_checked;
+        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
         let absolute_pos_global = flags.absolute_pos_global;
         let absolute_pos = flags.absolute_pos || absolute_pos_global;
         let cube_dim_global = flags.cube_dim_global;
-        let cube_dim = flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
+        let cube_dim =
+            flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
         let unit_pos_global = flags.unit_pos_global;
         let unit_pos = flags.unit_pos || unit_pos_global;
         let cube_count_global = flags.cube_count_global;
@@ -247,6 +260,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
             cube_pos_global,
             plane_dim,
             plane_dim_checked,
+            plane_index,
             unit_pos,
             unit_pos_global,
             unit_pos_plane,
@@ -350,7 +364,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_index_in_threadgroup")
+        f.write_str("tid")
     }
 
     fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -369,7 +383,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_plane_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("threads_per_simdgroup")
+        f.write_str("simd_size")
     }
 
     fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -377,9 +391,12 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_index_in_simdgroup")
+        f.write_str("simd_lane_id")
     }
 
+    fn compile_plane_index(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("simd_group_id")
+    }
 }
 
 // Instructions
@@ -555,10 +572,16 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     // unary
-    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "({output})(clz({input}))"),
-            Elem::I64 | Elem::U64 => panic!("leading_zeros instruction does not support 64-bit int"),
+            Elem::I64 | Elem::U64 => {
+                panic!("leading_zeros instruction does not support 64-bit int")
+            }
             elem => write!(
                 f,
                 "({output})(clz({})) - {}",
@@ -568,15 +591,27 @@ impl DialectInstructions<Self> for MslDialect {
         }
     }
 
-    fn compile_instruction_popcount_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+    fn compile_instruction_popcount_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "({output})(popcount({input}))"),
             Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
-            _ => write!(f, "({output})(popcount({}))", shared::unary::zero_extend(input)),
+            _ => write!(
+                f,
+                "({output})(popcount({}))",
+                shared::unary::zero_extend(input)
+            ),
         }
     }
 
-    fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+    fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
         match output {
             Elem::I32 | Elem::U32 => write!(f, "reverse_bits({input})"),
             Elem::I64 | Elem::U64 => panic!("reverse_bits instruction does not support 64-bit int"),
@@ -625,12 +660,16 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "simd_all({var})")
     }
- 
+
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "simd_any({var})")
     }
 
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, output: &Variable<Self>) -> std::fmt::Result {
+    fn compile_warp_ballot(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        output: &Variable<Self>,
+    ) -> std::fmt::Result {
         // we need to be extra carreful here to be sure to replicate the exact same
         // semantic as CUDA __ballot_sync.
         // __ballot_sync returns a bitmaks of active threads that evaluated to true.
@@ -639,9 +678,11 @@ impl DialectInstructions<Self> for MslDialect {
         // true. On this class the all() method returns true if all the ACTIVE thread
         // evaluates to true.
         let out_elem = output.item().elem;
-        write!(f, "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))")
+        write!(
+            f,
+            "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))"
+        )
     }
-
 }
 
 // Coop Matrices dialect
@@ -649,64 +690,156 @@ impl DialectInstructions<Self> for MslDialect {
 impl DialectWmmaCompiler<Self> for MslDialect {
     type Architecture = MetalArchitecture;
 
-    fn compile_wmma_includes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_wmma_includes] NOT YET IMPLEMENTED");
-        Ok(())
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "#include <metal_simdgroup_matrix>")
     }
 
     fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_wmma_type_definitions] NOT YET IMPLEMENTED");
+        // not used
         Ok(())
     }
 
     fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO
-        println!("[compile_local_variables] NOT YET IMPLEMENTED");
+        // not used
         Ok(())
     }
 
     fn compile_fragment_ident(
-        _ident: &crate::shared::FragmentIdent<Self>,
+        _ident: &FragmentIdent<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment_ident] NOT YET IMPLEMENTED");
+        // not used
         Ok(())
     }
 
     fn compile_fragment_layout(
-        _layout: &crate::shared::FragmentLayout<Self>,
+        _layout: &FragmentLayout<Self>,
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment_layout] NOT YET IMPLEMENTED");
+        // not used
         Ok(())
     }
 
     fn compile_fragment(
-        _fragment: &crate::shared::Fragment<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        fragment: &Fragment<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_fragment] NOT YET IMPLEMENTED");
-        Ok(())
+        let ty = fragment.elem;
+        // currently as of Metal 3.2 only fragments of 8x8x8 are supported
+        let m = fragment.m;
+        let n = fragment.n;
+        let k = fragment.k;
+        if m != 8 || n != 8 || k != 8 {
+            panic!("{m}x{n}x{k} fragments not supported. Only 8x8x8 fragemts are supported.");
+        }
+        write!(f, "simdgroup_{ty}8x8")
     }
 
     fn compile_instruction(
-        _instruction: &crate::shared::WmmaInstruction<Self>,
-        _f: &mut std::fmt::Formatter<'_>,
+        instruction: &WmmaInstruction<Self>,
+        f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // TODO
-        println!("[compile_instruction] NOT YET IMPLEMENTED");
-        Ok(())
+        match instruction {
+            WmmaInstruction::Fill { frag, value } => {
+                match frag {
+                    Variable::WmmaFragment { .. } => {
+                        let ty = frag.elem();
+                        // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
+                        writeln!(
+                            f,
+                            "{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
+                        )
+                    }
+                    _ => panic!("should be a fragment"),
+                }
+            }
+            WmmaInstruction::Load {
+                frag,
+                value,
+                stride,
+                ..
+            } => {
+                let transpose = match frag {
+                    Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
+                        Some(FragmentLayout::RowMajor) => false,
+                        Some(FragmentLayout::ColMajor) => true,
+                        _ => panic!("unknown fragment layout!"),
+                    },
+                    _ => panic!("should be a fragment"),
+                };
+                writeln!(
+                    f,
+                    "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
+                )
+            }
+            WmmaInstruction::Execute {
+                frag_a: a,
+                frag_b: b,
+                frag_c: c,
+                frag_d: d,
+                ..
+            } => {
+                writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
+            }
+            WmmaInstruction::Store {
+                output,
+                frag,
+                stride,
+                ..
+            } => {
+                writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+            }
+            WmmaInstruction::Cast { input, output } => {
+                let ty = match output {
+                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                    _ => panic!("should be a fragment"),
+                };
+                match ty {
+                    Elem::BF16 => {
+                        let elem = Elem::<Self>::F16;
+                        // TODO: to test with benchmarks
+                        writeln!(
+                            f,
+                            "for(int e=0; e<8; e++) {{
+    {ty} elem = {ty}({input}.thread_elements()[e]);
+    {output}.thread_elements()[e] = *reinterpret_cast<{elem} *>(&elem);
+}}"
+                        )
+                    }
+                    _ => {
+                        writeln!(
+                            f,
+                            "for(int e=0; e<8; e++) {{
+    {output}.thread_elements()[e] = {ty}({input}.thread_elements()[e]);
+}}"
+                        )
+                    }
+                }
+            }
+        }
     }
 
-    fn supported_wmma_combinations(
-        _arch: &Self::Architecture,
-    ) -> crate::shared::SupportedWmmaCombinations {
-        vec![]
+    fn supported_wmma_combinations(_arch: &Self::Architecture) -> SupportedWmmaCombinations {
+        vec![
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                vec![(8, 8, 8)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                vec![(8, 8, 8)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                vec![(8, 8, 8)],
+            ),
+        ]
     }
 }
 
