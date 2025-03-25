@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Compiler;
 use crate::{
-    compute::{Binding, KernelDefinition, Location, Visibility},
+    compute::{Binding, ConstBinding, KernelDefinition, Location, Visibility},
     prelude::FastMath,
 };
 
@@ -17,6 +17,7 @@ use crate::{
 #[derive(Clone)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
+    const_bindings: Vec<ConstBinding>,
     input_bindings: Vec<Binding>,
     output_bindings: Vec<Binding>,
     named_bindings: Vec<(String, Binding)>,
@@ -25,6 +26,7 @@ pub struct KernelIntegrator {
 /// The information necessary to compile a [kernel definition](KernelDefinition).
 #[derive(Clone)]
 pub struct KernelExpansion {
+    pub constants: Vec<ConstantInfo>,
     pub inputs: Vec<InputInfo>,
     pub outputs: Vec<OutputInfo>,
     pub scope: Scope,
@@ -239,6 +241,12 @@ pub enum InputInfo {
     },
 }
 
+/// Information related to a constant input.
+#[derive(Clone, Debug)]
+pub enum ConstantInfo {
+    TensorMap,
+}
+
 impl InputInfo {
     /// The item type of the input.
     #[allow(dead_code)]
@@ -309,6 +317,7 @@ impl KernelIntegrator {
     pub fn new(info: KernelExpansion) -> Self {
         Self {
             expansion: info,
+            const_bindings: Default::default(),
             input_bindings: Default::default(),
             output_bindings: Default::default(),
             named_bindings: Default::default(),
@@ -317,9 +326,11 @@ impl KernelIntegrator {
 
     /// Performs the compilation with the provided [settings](KernelSettings).
     pub fn integrate(mut self, mut settings: KernelSettings) -> KernelDefinition {
+        self.register_constants();
         self.register_inputs(&settings);
         self.register_outputs(&mut settings);
 
+        let constants = self.const_bindings;
         let inputs = self.input_bindings;
         let outputs = self.output_bindings;
         let mut named = Vec::with_capacity(2);
@@ -341,12 +352,23 @@ impl KernelIntegrator {
         }
 
         KernelDefinition {
+            consts: constants,
             inputs,
             outputs,
             named,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
             options: settings.options,
+        }
+    }
+
+    fn register_constants(&mut self) {
+        for constant in self.expansion.constants.drain(..) {
+            match constant {
+                ConstantInfo::TensorMap => {
+                    self.const_bindings.push(ConstBinding::TensorMap);
+                }
+            }
         }
     }
 

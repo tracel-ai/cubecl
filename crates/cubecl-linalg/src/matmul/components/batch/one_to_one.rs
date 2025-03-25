@@ -67,11 +67,12 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
             super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-                client, cube_count, cube_dim, input, output, config,
+                client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
     }
@@ -98,6 +99,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         lhs: VirtualTensor<MP::EG>,
         rhs: VirtualTensor<MP::EG>,
         out: VirtualTensor<MP::EG, ReadWrite>,
+        size_k: u32,
         quantization: CubeOption<Quantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
@@ -105,8 +107,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         let x_offset = x_index * config.tiling_dimensions(Ident::Lhs).total_row();
         let y_offset = y_index * config.tiling_dimensions(Ident::Rhs).total_col();
         let nth_batch = C::batch_index();
-        let rank = lhs.rank();
-        let k_range = (0, lhs.shape(rank - 1));
+        let k_range = (0, size_k);
 
         let gmm_config = config.to_gmm_config();
 

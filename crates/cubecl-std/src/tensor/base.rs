@@ -11,3 +11,12 @@ pub fn is_contiguous(strides: &[usize]) -> bool {
 
     true
 }
+
+pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
+}

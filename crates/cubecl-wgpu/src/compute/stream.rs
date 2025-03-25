@@ -1,6 +1,6 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{Binding, Handle},
+    server::{Binding, ConstBinding, Handle},
 };
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
@@ -70,6 +70,7 @@ impl WgpuStream {
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         dispatch: &CubeCount,
     ) {
@@ -80,10 +81,19 @@ impl WgpuStream {
 
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources: Vec<_> = bindings
-            .into_iter()
-            .map(|b| self.mem_manage.get_resource(b))
+        let mut resources: Vec<_> = constants
+            .iter()
+            .map(|it| match it {
+                ConstBinding::TensorMap { .. } => {
+                    unimplemented!("Tensor map not supported on WGPU")
+                }
+            })
             .collect();
+        resources.extend(
+            bindings
+                .iter()
+                .map(|b| self.mem_manage.get_resource(b.clone())),
+        );
 
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must

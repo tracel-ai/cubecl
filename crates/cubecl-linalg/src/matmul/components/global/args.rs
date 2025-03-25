@@ -39,6 +39,11 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
         end: u32,
     ) -> Slice<Line<EG>>;
 
+    /// Reinterpret lhs as tensor map
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG>;
+    /// Reinterpret rhs as tensor map
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG>;
+
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>);
 
@@ -155,6 +160,13 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorOu
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorOutputExpand::__expand_buffer_len_method(self.clone(), scope)
     }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        _scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<EG>> {
+        unimplemented!("TensorOutputExpand can't be turned into a tensor map");
+    }
 }
 
 impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorInputExpand<EG, MA> {
@@ -209,6 +221,13 @@ impl<EG: Numeric, MA: MatmulArgs> VirtualTensorOperationsExpand<EG> for TensorIn
 
     fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         TensorInputExpand::__expand_buffer_len_method(self.clone(), scope)
+    }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<EG>> {
+        TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
 
@@ -311,6 +330,16 @@ impl<EG: Numeric, MA: MatmulArgs> TensorInput<EG, MA> {
             }
         }
     }
+
+    /// Get the buffer length of the tensor.
+    pub fn as_tensor_map(&self) -> TensorMap<EG> {
+        unsafe {
+            match comptime![&self.ident] {
+                TensorInputIdent::Lhs => MA::as_tensor_map_lhs(&(*self.state)),
+                TensorInputIdent::Rhs => MA::as_tensor_map_rhs(&(*self.state)),
+            }
+        }
+    }
 }
 
 #[cube]
@@ -409,6 +438,18 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.1).slice(start, end) }
     }
 
+    fn as_tensor_map_lhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
+        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
+        #[allow(unreachable_code)]
+        TensorMap::dummy()
+    }
+
+    fn as_tensor_map_rhs<EG: Numeric>(_state: &Self::State<EG>) -> TensorMap<EG> {
+        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
+        #[allow(unreachable_code)]
+        TensorMap::dummy()
+    }
+
     fn shape_lhs<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
         unsafe { (*state.0).shape(dim) }
     }
@@ -484,6 +525,182 @@ impl MatmulArgs for TensorArgs {
             // TODO Currently I assume that buffer_len = metadata_len + len.
             //      That is, all the data within the tensors are contiguous and there are no hole
             //      in the stride pattern.
+        }
+    }
+}
+
+#[derive(Clone)]
+/// Type implementing [MatmulArgs] where all inputs and the output are materialized tensor maps.
+///
+/// Other types might implement [MatmulArgs] for fused matrix multiplication kernels.
+pub struct TensorMapArgs;
+
+#[derive(CubeLaunch, CubeType)]
+/// Input representation for [TensorArgs] implementing [MatmulArgs].
+pub struct TensorMapInputs<EG: Numeric> {
+    /// The lhs tensor.
+    pub lhs: TensorMap<EG>,
+    /// The rhs tensor.
+    pub rhs: TensorMap<EG>,
+}
+
+#[cube]
+impl MatmulArgs for TensorMapArgs {
+    type Output<EG: Numeric> = Tensor<Line<EG>>;
+    type Input<EG: Numeric> = TensorMapInputs<EG>;
+    type State<EG: Numeric> = (
+        *const TensorMap<EG>,
+        *const TensorMap<EG>,
+        *mut Tensor<Line<EG>>,
+    );
+
+    fn init_state<EG: Numeric>(
+        input: &Self::Input<EG>,
+        output: &mut Self::Output<EG>,
+    ) -> Self::State<EG> {
+        (&input.lhs, &input.rhs, output)
+    }
+
+    fn read_lhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
+        Line::empty(1)
+    }
+
+    fn read_rhs<EG: Numeric>(_state: &Self::State<EG>, _coordinate: u32) -> Line<EG> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
+        Line::empty(1)
+    }
+
+    #[allow(unused)]
+    fn read_window_lhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
+        unsafe { &*state.2 }.slice(start, end)
+    }
+
+    /// Read the line of the rhs tensor using the state at the given coordinate.
+    #[allow(unused)]
+    fn read_window_rhs<EG: Numeric>(
+        state: &Self::State<EG>,
+        start: u32,
+        end: u32,
+    ) -> Slice<Line<EG>> {
+        comptime!(unimplemented!("Can't directly read from TensorMap"));
+        #[allow(unreachable_code)]
+        unsafe { &*state.2 }.slice(start, end)
+    }
+
+    fn as_tensor_map_lhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG> {
+        unsafe { *state.0 }
+    }
+
+    fn as_tensor_map_rhs<EG: Numeric>(state: &Self::State<EG>) -> TensorMap<EG> {
+        unsafe { *state.1 }
+    }
+
+    fn shape_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
+    }
+
+    fn shape_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
+    }
+
+    fn shape_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
+        unsafe { &*state.2 }.shape(dim)
+    }
+
+    fn stride_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
+    }
+
+    fn stride_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
+    }
+
+    fn stride_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
+        unsafe { &*state.2 }.stride(dim)
+    }
+
+    fn write_out<EG: Numeric>(state: &mut Self::State<EG>, coordinate: u32, value: Line<EG>) {
+        unsafe { (*state.2)[coordinate] = value }
+    }
+
+    fn rank_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        3u32
+    }
+
+    fn rank_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        3u32
+    }
+
+    fn rank_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).rank() }
+    }
+
+    fn len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        1u32
+    }
+
+    fn len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        1u32
+    }
+
+    fn len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).len() }
+    }
+
+    fn buffer_len_lhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        1u32
+    }
+
+    fn buffer_len_rhs<EG: Numeric>(_state: &Self::State<EG>) -> u32 {
+        comptime!(unimplemented!("Can't read metadata from TensorMap"));
+        #[allow(unreachable_code)]
+        1u32
+    }
+
+    fn buffer_len_out<EG: Numeric>(state: &Self::State<EG>) -> u32 {
+        unsafe { (*state.2).buffer_len() }
+    }
+
+    fn quantization<EG: Numeric>(_state: &Self::State<EG>) -> Quantization<EG> {
+        comptime!(todo!("Quantized TMA not yet supported"));
+        #[allow(unreachable_code)]
+        unsafe {
+            Quantization::<EG> {
+                lhs: (*_state.2).slice(Self::len_out(_state), Self::buffer_len_out(_state)),
+                rhs: (*_state.2).slice(Self::len_out(_state), Self::buffer_len_out(_state)),
+                out: (*_state.2).slice_mut(Self::len_out(_state), Self::buffer_len_out(_state)),
+            }
         }
     }
 }

@@ -17,7 +17,7 @@ use super::{
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
-            specialized::SpecializedAlgorithm,
+            simple_tma::SimpleTmaAlgorithm, specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -52,8 +52,10 @@ pub enum AsyncLoadingStrategy {
     Cyclic,
     MaximizeSliceLength,
     MaximizeUnitCount,
+    Tma,
 }
 
+#[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
@@ -70,6 +72,7 @@ pub fn launch<R: Runtime, EG: MaybeQuantized>(
     )
 }
 
+#[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
@@ -109,6 +112,11 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
                 EG,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,
             >(client, lhs, rhs, out),
+            AsyncLoadingStrategy::Tma => {
+                matmul::matmul_cmma_tma_ref_no_check::<R, EG, SimpleTmaAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out,
+                )
+            }
         },
         Strategy::SimplePipelined => {
             matmul::launch_ref::<R, EG, SimplePipelinedAlgorithm<Accelerated>>(

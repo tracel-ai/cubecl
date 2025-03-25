@@ -197,6 +197,7 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
+    pub consts: Vec<ConstBinding>,
     pub inputs: Vec<Binding>,
     pub outputs: Vec<Binding>,
     pub named: Vec<(String, Binding)>,
@@ -213,6 +214,12 @@ pub struct Binding {
     pub item: Item,
     pub size: Option<usize>,
     pub has_extended_meta: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[allow(missing_docs)]
+pub enum ConstBinding {
+    TensorMap,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
