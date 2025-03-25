@@ -6,6 +6,8 @@ use super::{
 };
 use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 
+const INFO_NAME: &str = "info";
+
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
     pub lhs: Variable<D>,
@@ -232,8 +234,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
+                let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
-                writeln!(f, "{item} *{out} = {input} + {start};")
+                writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
             Instruction::CheckedSlice {
                 input,
@@ -472,7 +475,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[{info_offset}];")
+                writeln!(f, "{out} = {INFO_NAME}[{info_offset}];")
             }
             Instruction::ExtendedMetadata {
                 info_offset,
@@ -480,7 +483,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 out,
             } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = info[info[{info_offset}] + {dim}];")
+                writeln!(f, "{out} = {INFO_NAME}[info[{info_offset}] + {dim}];")
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
@@ -510,7 +513,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 max_value,
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
-            Instruction::SyncThreads => f.write_str("__syncthreads();\n"),
+            Instruction::SyncThreads => D::compile_instruction_sync_threads(f),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
             Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),

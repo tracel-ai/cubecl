@@ -12,6 +12,8 @@ use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 #[cfg(feature = "spirv")]
 use super::vulkan;
 use super::wgsl;
+#[cfg(feature = "msl")]
+use cubecl_cpp::metal;
 
 impl WgpuServer {
     pub fn create_pipeline(
@@ -29,6 +31,24 @@ impl WgpuServer {
                             label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
+                }
+            }
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => {
+                // TODO remove the panic once metal passthrough is available in wgpu
+                // panic!("cubecl msl compiler not yet supported in wgpu");
+                let source = &kernel.source;
+                unsafe {
+                    self.device.create_shader_module_passthrough(
+                        &wgpu::ShaderModuleDescriptorPassthrough::Msl(
+                            &wgpu::ShaderModuleDescriptorMsl {
+                                entry_point: kernel.entrypoint_name.clone(),
+                                label: Some(&kernel.entrypoint_name),
+                                source: Cow::Borrowed(source),
+                                num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                            },
+                        ),
+                    )
                 }
             }
             _ => {
@@ -58,6 +78,8 @@ impl WgpuServer {
         };
         let bindings = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => Some(metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
@@ -98,20 +120,20 @@ impl WgpuServer {
                 })
         });
 
-        Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
+        let pipeline = Arc::new(self.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some(&kernel.entrypoint_name),
+                layout: layout.as_ref(),
+                module: &module,
+                entry_point: Some(&kernel.entrypoint_name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
+                cache: None,
+            },
+        ));
+        pipeline
     }
 }
 

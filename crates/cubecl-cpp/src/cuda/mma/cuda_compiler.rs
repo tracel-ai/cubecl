@@ -1,7 +1,7 @@
 use crate::{
     cuda::{CudaDialect, arch::CudaArchitecture},
     shared::{
-        Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler,
+        DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
         WmmaInstruction, wmma_api_base,
     },
 };
@@ -13,18 +13,18 @@ const WMMA_MINIMUM_VERSION: u32 = 70;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CudaWmmaCompiler {}
 
-impl WmmaCompiler<CudaDialect> for CudaWmmaCompiler {
+impl DialectWmmaCompiler<CudaDialect> for CudaWmmaCompiler {
     type Architecture = CudaArchitecture;
 
-    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <mma.h>\n")
     }
 
-    fn deftypes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
-    fn local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 

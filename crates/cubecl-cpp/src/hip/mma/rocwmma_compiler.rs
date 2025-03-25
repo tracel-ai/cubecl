@@ -1,7 +1,7 @@
 use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations, WmmaCompiler,
+        DialectWmmaCompiler, Fragment, FragmentIdent, FragmentLayout, SupportedWmmaCombinations,
         WmmaInstruction, wmma_api_base,
     },
 };
@@ -12,18 +12,18 @@ const ROCWMMA_NAMESPACE: &str = "rocwmma";
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RocWmmaCompiler {}
 
-impl WmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
+impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     type Architecture = AMDArchitecture;
 
-    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#include <rocwmma/rocwmma.hpp>\n")
     }
 
-    fn deftypes(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
-    fn local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
