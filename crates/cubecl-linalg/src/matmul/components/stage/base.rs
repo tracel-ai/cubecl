@@ -166,4 +166,12 @@ pub trait StageConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     fn tile_count(&self) -> &MatmulSize;
+
+    fn buffering(&self) -> Buffering;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Buffering {
+    Single,
+    Double,
 }
