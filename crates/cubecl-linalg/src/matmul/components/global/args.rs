@@ -605,15 +605,17 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn shape_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
     }
 
     fn shape_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
     }
 
     fn shape_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
@@ -621,15 +623,17 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn stride_lhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
     }
 
     fn stride_rhs<EG: Numeric>(_state: &Self::State<EG>, _dim: u32) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
+        // anyways. Eventually the API should change to only calculate batch offset when necessary.
+        // Set to 0 to allow CUDA to remove the calculation entirely.
+        0u32
     }
 
     fn stride_out<EG: Numeric>(state: &Self::State<EG>, dim: u32) -> u32 {
