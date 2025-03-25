@@ -67,7 +67,14 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
     let out: TensorHandle<R, F> = case.empty_out(&client);
     naive::launch::<R, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
 
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 10e-4) {
+    if let Err(e) = assert_equals_approx::<R, F>(
+        &client,
+        out.handle,
+        &out.shape,
+        &out.strides,
+        &expected,
+        10e-4,
+    ) {
         panic!("{}", e);
     }
 }

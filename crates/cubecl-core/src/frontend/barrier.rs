@@ -2,14 +2,17 @@
 
 use std::marker::PhantomData;
 
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, Instruction};
+use paste::paste;
 
 use crate::{
     ir::{BarrierOps, Item, Scope},
     unexpanded,
 };
 
-use super::{CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut};
+use super::{
+    CubeDebug, CubePrimitive, CubeType, ExpandElementTyped, Init, Line, Slice, SliceMut, TensorMap,
+};
 
 /// A mechanism for awaiting on asynchronous data transfers
 /// Behaviour is defined by its [BarrierLevel](BarrierLevel).
@@ -127,9 +130,74 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
     }
 }
 
+macro_rules! tensor_map_copy_to_shared {
+    ($dim: literal, $($arg: expr),*) => {
+        paste! {
+            impl<C: CubePrimitive> Barrier<C> {
+                /// Copy a tile from a global memory `source` to a shared memory `destination`, with
+                /// the provided offsets.
+                #[allow(unused, clippy::too_many_arguments)]
+                pub fn [<memcpy_async_tensor_to_shared_ $dim d>](
+                    &self,
+                    source: &TensorMap<C>,
+                    destination: &mut SliceMut<Line<C>>,
+                    $($arg: i32),*
+                ) {
+                    unexpanded!()
+                }
+
+                #[allow(clippy::too_many_arguments)]
+                pub fn [<__expand_memcpy_async_tensor_to_shared_ $dim d>](
+                    scope: &mut Scope,
+                    expand: BarrierExpand<C>,
+                    source: ExpandElementTyped<TensorMap<C>>,
+                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    $($arg: ExpandElementTyped<i32>),*
+                ) {
+                    expand.[<__expand_memcpy_async_tensor_to_shared_ $dim d_method>](scope, source, destination, $($arg),*);
+                }
+            }
+
+            impl<C: CubePrimitive> BarrierExpand<C> {
+                #[allow(clippy::too_many_arguments)]
+                pub fn [<__expand_memcpy_async_tensor_to_shared_ $dim d_method>](
+                    &self,
+                    scope: &mut Scope,
+                    source: ExpandElementTyped<TensorMap<C>>,
+                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    $($arg: ExpandElementTyped<i32>),*
+                ) {
+                    let barrier = *self.elem;
+                    let source = *source.expand;
+                    let destination = *destination.expand;
+
+                    let mem_copy = BarrierOps::MemCopyAsyncTensorGlobalToShared {
+                        barrier,
+                        tensor_map: source,
+                        indices: vec![$(*$arg.expand),*],
+                    };
+
+                    scope.register(Instruction::new(mem_copy, destination));
+                }
+            }
+        }
+    };
+}
+
+tensor_map_copy_to_shared!(2, y, x);
+tensor_map_copy_to_shared!(3, z, y, x);
+tensor_map_copy_to_shared!(4, w, z, y, x);
+tensor_map_copy_to_shared!(5, v, w, z, y, x);
+
 impl<C: CubePrimitive> Barrier<C> {
     /// Creates a barrier using a user defined comptime barrier level
     pub fn new(_level: BarrierLevel) -> Self {
+        Self { _c: PhantomData }
+    }
+
+    /// Creates a new barrier for use with TMA instructions. Adds a shared memory proxy barrier to
+    /// the initialization.
+    pub fn new_with_tma_proxy(_level: BarrierLevel) -> Self {
         Self { _c: PhantomData }
     }
 
@@ -143,8 +211,28 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
-    /// Wait until all data is loaded
+    /// Arrive at the barrier, decrementing arrival count
+    pub fn arrive(&self) {
+        unexpanded!()
+    }
+
+    /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
+    pub fn arrive_tx(&self, _arrival_count: u32, _transaction_count: u32) {
+        unexpanded!()
+    }
+
+    /// Increments the expected count of the barrier.
+    pub fn expect_tx(&self, _expected_count: u32) {
+        unexpanded!()
+    }
+
+    /// Wait at the barrier until all arrivals are done
     pub fn wait(&self) {
+        unexpanded!()
+    }
+
+    /// Wait until all data is loaded
+    pub fn arrive_and_wait(&self) {
         unexpanded!()
     }
 
@@ -152,6 +240,24 @@ impl<C: CubePrimitive> Barrier<C> {
         let elem = C::as_elem(scope);
 
         let variable = scope.create_barrier(Item::new(elem), level.0.into());
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: false,
+        });
+        BarrierExpand {
+            elem: variable,
+            _c: PhantomData,
+        }
+    }
+
+    pub fn __expand_new_with_tma_proxy(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
+        let elem = C::as_elem(scope);
+
+        let variable = scope.create_barrier(Item::new(elem), level.0.into());
+        scope.register(BarrierOps::Init {
+            barrier: *variable,
+            with_cta_fence: true,
+        });
         BarrierExpand {
             elem: variable,
             _c: PhantomData,
@@ -167,8 +273,33 @@ impl<C: CubePrimitive> Barrier<C> {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
 
+    pub fn __expand_arrive(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_arrive_method(scope);
+    }
+
+    pub fn __expand_arrive_tx(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        arrival_count: ExpandElementTyped<u32>,
+        transaction_count: ExpandElementTyped<u32>,
+    ) {
+        expand.__expand_arrive_tx_method(scope, arrival_count, transaction_count);
+    }
+
+    pub fn __expand_expect_tx(
+        scope: &mut Scope,
+        expand: BarrierExpand<C>,
+        expected_count: ExpandElementTyped<u32>,
+    ) {
+        expand.__expand_expect_tx_method(scope, expected_count);
+    }
+
     pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
         expand.__expand_wait_method(scope);
+    }
+
+    pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+        expand.__expand_arrive_and_wait_method(scope);
     }
 }
 
@@ -183,17 +314,52 @@ impl<C: CubePrimitive> BarrierExpand<C> {
         let source = *source.expand;
         let destination = *destination.expand;
 
-        let mem_copy = BarrierOps::MemCopyAsync {
-            barrier,
-            source,
-            destination,
-        };
+        let mem_copy = BarrierOps::MemCopyAsync { barrier, source };
 
-        scope.register(mem_copy);
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    pub fn __expand_arrive_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+        scope.register(BarrierOps::Arrive { barrier });
+    }
+
+    pub fn __expand_arrive_tx_method(
+        &self,
+        scope: &mut Scope,
+        arrival_count: ExpandElementTyped<u32>,
+        transaction_count: ExpandElementTyped<u32>,
+    ) {
+        let barrier = *self.elem;
+        let arrival_count: ExpandElement = arrival_count.into();
+        let transaction_count: ExpandElement = transaction_count.into();
+        scope.register(BarrierOps::ArriveTx {
+            barrier,
+            arrive_count_update: arrival_count.consume(),
+            transaction_count_update: transaction_count.consume(),
+        });
+    }
+
+    pub fn __expand_expect_tx_method(
+        &self,
+        scope: &mut Scope,
+        transaction_count: ExpandElementTyped<u32>,
+    ) {
+        let barrier = *self.elem;
+        let transaction_count: ExpandElement = transaction_count.into();
+        scope.register(BarrierOps::ExpectTx {
+            barrier,
+            transaction_count_update: transaction_count.consume(),
+        });
     }
 
     pub fn __expand_wait_method(&self, scope: &mut Scope) {
         let barrier = *self.elem;
         scope.register(BarrierOps::Wait { barrier });
+    }
+
+    pub fn __expand_arrive_and_wait_method(&self, scope: &mut Scope) {
+        let barrier = *self.elem;
+        scope.register(BarrierOps::ArriveAndWait { barrier });
     }
 }

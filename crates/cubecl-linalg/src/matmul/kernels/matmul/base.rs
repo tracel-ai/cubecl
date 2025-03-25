@@ -1,13 +1,13 @@
-use crate::matmul;
-use crate::matmul::components::global::args::TensorInputsLaunch;
-use crate::matmul::components::tile::TileMatmulFamily;
+use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
     OutputRuntimeArg, SingleMatmulSpec,
 };
+use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{
     MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
 };
+use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
 use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
@@ -16,12 +16,13 @@ use cubecl_core::{
 };
 use cubecl_std::MaybeQuantized;
 
-use super::{Algorithm, select_kernel};
+use super::{Algorithm, matmul_selection, select_kernel};
 
 /// Launch a matrix multiplication kernel.
 ///
 /// Cmma will be used if enabled
 /// Will fail if unavailable
+#[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, EG::Numeric>,
@@ -40,6 +41,7 @@ pub fn launch<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
 ///
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
+#[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -96,6 +98,7 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -192,6 +195,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     )
 }
 
+#[allow(clippy::result_large_err)]
 fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
@@ -280,6 +284,146 @@ fn matmul_launch_kernel<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
     }
 }
 
+#[allow(clippy::result_large_err)]
+pub fn matmul_cmma_tma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
+) -> Result<(), MatmulLaunchError> {
+    let rank = lhs.strides.len();
+    let eg_elem = EG::Numeric::as_elem_native().expect("To be a native type");
+
+    let m = lhs.shape[rank - 2] as u32;
+    let k = lhs.shape[rank - 1] as u32;
+    let n = rhs.shape[rank - 1] as u32;
+
+    let lhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&eg_elem),
+        lhs.shape,
+        lhs.strides,
+        rank - 1,
+    );
+    let rhs_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&eg_elem),
+        rhs.shape,
+        rhs.strides,
+        rank - 1,
+    );
+    let out_line_size = tensor_line_size_parallel(
+        R::line_size_elem(&eg_elem),
+        out.shape,
+        out.strides,
+        rank - 1,
+    );
+
+    let problem = MatmulProblem {
+        m: m as usize,
+        n: n as usize,
+        k: k as usize,
+        batches: (
+            lhs.shape[..lhs.shape.len() - 2].to_vec(),
+            rhs.shape[..rhs.shape.len() - 2].to_vec(),
+        ),
+        lhs_layout: matmul::components::MatrixLayout::RowMajor,
+        rhs_layout: matmul::components::MatrixLayout::RowMajor,
+        lhs_line_size,
+        rhs_line_size,
+        out_line_size,
+        // TODO consider a quantized field for MatmulProblem
+    };
+
+    let plane_size = client
+        .properties()
+        .hardware_properties()
+        .defined_plane_size();
+
+    let plane_dim = match plane_size {
+        Some(32) | Some(64) => plane_size.expect("32 or 64"),
+        Some(plane_dim) => {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
+            ));
+        }
+        None => {
+            return Err(MatmulLaunchError::Unavailable(
+                MatmulAvailabilityError::PlaneDimUnknown,
+            ));
+        }
+    };
+
+    matmul_launch_kernel_tma::<R, EG, A>(
+        client,
+        lhs,
+        rhs,
+        out,
+        (lhs_line_size, rhs_line_size, out_line_size),
+        problem,
+        plane_dim,
+    )
+}
+
+#[allow(clippy::result_large_err)]
+fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
+    (_, _, out_line_size): (u8, u8, u8),
+    problem: MatmulProblem,
+    plane_dim: u32,
+) -> Result<(), MatmulLaunchError> {
+    if TypeId::of::<EG::Numeric>() == TypeId::of::<half::f16>() {
+        let selection = matmul_selection::<
+            A::TileMatmul,
+            SingleMatmulSpec<EG::Numeric, half::f16, f32, TensorMapArgs>,
+            R,
+        >(client, &problem, plane_dim);
+        let stage_m = selection.tile_count.m * selection.tile_shape.m;
+        let stage_n = selection.tile_count.n * selection.tile_shape.n;
+        let stage_k = selection.tile_count.k * selection.tile_shape.k;
+        let stage_size_lhs = match problem.lhs_layout {
+            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
+            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+        };
+        let stage_size_rhs = match problem.rhs_layout {
+            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
+            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+        };
+        let lhs = TensorMapArg::new(
+            TensorMapFormat::Tiled {
+                tile_size: stage_size_lhs,
+            },
+            lhs.as_tensor_arg(1),
+            half::f16::as_elem_native_unchecked(),
+        );
+        let rhs = TensorMapArg::new(
+            TensorMapFormat::Tiled {
+                tile_size: stage_size_rhs,
+            },
+            rhs.as_tensor_arg(1),
+            half::f16::as_elem_native_unchecked(),
+        );
+        let config_input = CompleteStageTiling {
+            tile_shape: selection.tile_shape,
+            tile_count: selection.tile_count,
+        };
+
+        matmul_cube_preparation::<SingleMatmulSpec<EG::Numeric, half::f16, f32, TensorMapArgs>, R, A>(
+            client,
+            TensorMapInputsLaunch::new(lhs, rhs),
+            out.as_tensor_arg(out_line_size),
+            problem,
+            config_input,
+            selection,
+            false,
+        )
+    } else {
+        todo!()
+    }
+}
+
+#[allow(clippy::result_large_err)]
 pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
@@ -304,7 +448,7 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
 fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
@@ -320,7 +464,13 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(
-            client, cube_dim, cube_count, input, output, config,
+            client,
+            cube_dim,
+            cube_count,
+            input,
+            output,
+            ScalarArg::new(problem.k as u32),
+            config,
         );
     };
 

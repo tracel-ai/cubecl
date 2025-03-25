@@ -22,6 +22,16 @@ pub struct TensorReader<E: Numeric> {
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
+/// Uses a [`TensorMap`] to actually execute the load.
+pub struct MappedTensorReader<E: Numeric> {
+    pub tensor: TensorMap<E>,
+    pub tile_x: u32,
+    pub tile_y: u32,
+    pub batch: u32,
+}
+
+#[derive(CubeType)]
+/// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorWriter<E: Numeric> {
@@ -37,6 +47,8 @@ pub struct TensorWriter<E: Numeric> {
 
 unsafe impl<E: Numeric> Sync for TensorReader<E> {}
 unsafe impl<E: Numeric> Send for TensorReader<E> {}
+unsafe impl<E: Numeric> Sync for MappedTensorReader<E> {}
+unsafe impl<E: Numeric> Send for MappedTensorReader<E> {}
 unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
 unsafe impl<E: Numeric> Send for TensorWriter<E> {}
 
@@ -44,6 +56,31 @@ unsafe impl<E: Numeric> Send for TensorWriter<E> {}
 pub struct Window<EG: Numeric> {
     pub slice: Slice<Line<EG>>,
     pub size: u32,
+}
+
+#[cube]
+impl<EG: Numeric> MappedTensorReader<EG> {
+    /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
+    pub fn new(tensor: TensorMap<EG>, tile_x: u32, tile_y: u32, batch: u32) -> Self {
+        MappedTensorReader::<EG> {
+            tensor,
+            tile_x,
+            tile_y,
+            batch,
+        }
+    }
+
+    /// Advance the view along the k dimension by a specified offset, `k_offset`.
+    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
+        match ident.as_input() {
+            InputIdent::Lhs => {
+                self.tile_y += k_offset;
+            }
+            InputIdent::Rhs => {
+                self.tile_x += k_offset;
+            }
+        }
+    }
 }
 
 #[cube]

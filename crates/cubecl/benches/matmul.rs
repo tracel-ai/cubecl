@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::{self, SyncLoadingStrategy};
+use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -93,7 +93,7 @@ fn main() {
             Default::default(),
             matmul::Strategy::Tiling2D(Default::default()),
         );
-        run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
+        //run::<cubecl::wgpu::WgpuRuntime, f32>(Default::default(), matmul::Strategy::PlaneMma);
     }
 
     #[cfg(feature = "wgpu-spirv")]
@@ -101,13 +101,19 @@ fn main() {
         type R = cubecl::wgpu::WgpuRuntime;
         use half::f16;
 
-        run::<R, f16>(Default::default(), matmul::Strategy::Simple);
+        run::<R, f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         run::<R, f16>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f16>(Default::default(), matmul::Strategy::DoubleBuffering);
-        run::<R, flex32>(Default::default(), matmul::Strategy::Simple);
+        //run::<R, flex32>(Default::default(), matmul::Strategy::Simple);
         run::<R, flex32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, flex32>(Default::default(), matmul::Strategy::DoubleBuffering);
-        run::<R, f32>(Default::default(), matmul::Strategy::Simple);
+        run::<R, f32>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         run::<R, f32>(Default::default(), matmul::Strategy::Specialized);
         run::<R, f32>(Default::default(), matmul::Strategy::DoubleBuffering);
     }
@@ -126,7 +132,10 @@ fn main() {
         // CmmaOld
         // run::<cubecl::hip::HipRuntime,<cubecl::hip::HipDialect> f32>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, f32>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::hip::HipRuntime, f32>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
         // Half-precision ----------------------------------------------------
         // Tiling2D
         run::<cubecl::hip::HipRuntime, half::f16>(
@@ -138,7 +147,10 @@ fn main() {
         // CmmaOld: OOM
         // run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::CmmaOld(Default::default()));
         // Accelerated
-        run::<cubecl::hip::HipRuntime, half::f16>(Default::default(), matmul::Strategy::Simple);
+        run::<cubecl::hip::HipRuntime, half::f16>(
+            Default::default(),
+            matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+        );
     }
 
     #[cfg(feature = "cuda")]
@@ -153,21 +165,21 @@ fn main() {
             Default::default(),
             matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
         );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::DoubleBuffering,
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-        // );
-        // run::<cubecl::cuda::CudaRuntime, f16>(
-        //     Default::default(),
-        //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-        // );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::DoubleBuffering,
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+        );
+        run::<cubecl::cuda::CudaRuntime, f16>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+        );
     }
 }

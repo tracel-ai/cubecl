@@ -1,6 +1,6 @@
 #[cfg(feature = "wgpu")]
 mod device_sharing_wgpu {
-    use cubecl::wgpu::{WgpuDevice, WgpuSetup};
+    use cubecl::wgpu::{AutoGraphicsApi, GraphicsApi, WgpuDevice, WgpuSetup};
 
     pub fn create_wgpu_setup_from_raw() -> WgpuSetup {
         cubecl::future::block_on(create_wgpu_setup_from_raw_async())
@@ -30,6 +30,7 @@ mod device_sharing_wgpu {
             adapter,
             device,
             queue,
+            backend: AutoGraphicsApi::backend(),
         }
     }
 

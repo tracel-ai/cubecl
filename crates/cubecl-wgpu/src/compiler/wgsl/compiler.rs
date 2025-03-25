@@ -220,11 +220,15 @@ impl WgslCompiler {
             cube::VariableKind::ConstantScalar(value) => {
                 wgsl::Variable::ConstantScalar(value, Self::compile_elem(value.elem()))
             }
-            cube::VariableKind::SharedMemory { id, length } => {
+            cube::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
                 let item = Self::compile_item(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories
-                        .push(SharedMemory::new(id, item, length));
+                        .push(SharedMemory::new(id, item, length, alignment));
                 }
                 wgsl::Variable::SharedMemory(id, item, length)
             }
@@ -329,6 +333,7 @@ impl WgslCompiler {
             cube::VariableKind::Barrier { .. } => {
                 panic!("Barrier not supported.")
             }
+            cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -402,7 +407,6 @@ impl WgslCompiler {
             cube::Operation::NonSemantic(cube::NonSemantic::Comment { content }) => {
                 self.compile_comment(instructions, content)
             }
-            // No good way to attach debug info
             cube::Operation::NonSemantic(_) => {}
             cube::Operation::Pipeline(_) => {
                 panic!("Pipeline isn't supported on wgpu.")
@@ -410,6 +414,7 @@ impl WgslCompiler {
             cube::Operation::Barrier(_) => {
                 panic!("Barrier isn't supported on wgpu.")
             }
+            cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
         }
     }
 
@@ -532,6 +537,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
+            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 
