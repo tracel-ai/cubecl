@@ -16,11 +16,11 @@ pub struct Body<D: Dialect> {
 impl<D: Dialect> Display for Body<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for shared in self.shared_memories.iter() {
-            writeln!(
-                f,
-                "__shared__ {} shared_memory_{}[{}];",
-                shared.item, shared.index, shared.size
-            )?;
+            let item = &shared.item;
+            let index = &shared.index;
+            let size = &shared.size;
+            D::compile_shared_memory_qualifier(f)?;
+            writeln!(f, " {item} shared_memory_{index}[{size}];",)?;
         }
 
         for pipeline in self.pipelines.iter() {

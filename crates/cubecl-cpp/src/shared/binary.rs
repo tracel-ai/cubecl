@@ -70,14 +70,13 @@ pub trait Binary<D: Dialect> {
             write_op(&lhs, &rhs, out, item_out_optimized)
         } else {
             let out_tmp = Variable::tmp(item_out_optimized);
-
             write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
-
+            let addr_space = D::address_space_for_variable(out);
             let out = out.fmt_left();
 
             writeln!(
                 f,
-                "{out} = reinterpret_cast<{item_out_original}&>({out_tmp});\n"
+                "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
             )?;
 
             Ok(())
@@ -243,7 +242,15 @@ impl<D: Dialect> Binary<D> for IndexAssign {
             Ok(())
         } else if rhs.is_const() && item_rhs.vectorization > 1 {
             // Reinterpret cast in case rhs is optimized
-            write!(f, "reinterpret_cast<thread {item_out} const&>({rhs})")
+            write!(
+                f,
+                "reinterpret_cast<"
+            )?;
+            D::compile_local_memory_qualifier(f)?;
+            write!(
+                f,
+                " {item_out} const&>({rhs})"
+            )
         } else {
             write!(f, "{rhs}")
         }
@@ -382,24 +389,25 @@ impl<D: Dialect> IndexVector<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let index = match rhs {
-            Variable::ConstantScalar(value, _elem) => value.as_usize(),
+        match rhs {
+            Variable::ConstantScalar(value, _elem) => {
+                let index = value.as_usize();
+                let out = out.index(index);
+                let lhs = lhs.index(index);
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {lhs};")
+            },
             _ => {
                 let elem = out.elem();
                 let qualifier = out.const_qualifier();
+                let addr_space = D::address_space_for_variable(out);
                 let out = out.fmt_left();
-                return writeln!(
+                writeln!(
                     f,
-                    "{out} = reinterpret_cast<{elem}{qualifier}*>(&{lhs})[{rhs}];"
-                );
+                    "{out} = reinterpret_cast<{addr_space}{elem}{qualifier}*>(&{lhs})[{rhs}];"
+                )
             }
-        };
-
-        let out = out.index(index);
-        let lhs = lhs.index(index);
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {lhs};")
+        }
     }
 }
 

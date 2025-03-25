@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use super::{
     Architecture, Binding, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-    SupportedWmmaCombinations, WmmaInstruction,
+    SupportedWmmaCombinations, Variable, WmmaInstruction,
 };
 
 // Base dialect
@@ -50,6 +50,15 @@ pub trait DialectTypes<D: Dialect> {
         items: &HashSet<Item<D>>,
         flags: &Flags,
     ) -> std::fmt::Result;
+
+    fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    /// Address space (for Metal dialect only).
+    fn address_space_for_variable(_variable: &Variable<D>) -> String {
+        "".to_string()
+    }
 }
 
 // Kernel argument bindings

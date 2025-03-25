@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
+    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
     format_metal_builtin_binding_arg,
 };
 
@@ -133,6 +133,18 @@ struct alignas({alignment}) {item} {{"
         } else {
             write!(f, "{}_{}", item.elem, item.vectorization)
         }
+    }
+
+    fn address_space_for_variable(variable: &Variable<Self>) -> String {
+        format!("{} ", AddressSpace::from(variable))
+    }
+
+    fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "thread")
+    }
+
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "threadgroup")
     }
 }
 

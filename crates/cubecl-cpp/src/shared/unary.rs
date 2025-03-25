@@ -63,10 +63,11 @@ pub trait Unary<D: Dialect> {
 
                 write_op(index, elem, &input, &out_tmp)?;
                 let qualifier = out.const_qualifier();
+                let addr_space = D::address_space_for_variable(out);
                 let out_fmt = out.fmt_left();
                 writeln!(
                     f,
-                    "{out_fmt} = reinterpret_cast<{item_out_original}{qualifier}&>({out_tmp});\n"
+                    "{out_fmt} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
                 )
             } else {
                 write_op(index, elem, &input, &out_optimized)

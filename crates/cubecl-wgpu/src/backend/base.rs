@@ -47,6 +47,19 @@ impl WgpuServer {
                 //             num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
                 //         })
                 // }
+                let source = &kernel.source;
+                unsafe {
+                    self.device.create_shader_module_passthrough(
+                        &wgpu::ShaderModuleDescriptorPassthrough::Msl(
+                            &wgpu::ShaderModuleDescriptorMsl {
+                                entry_point: kernel.entrypoint_name.clone(),
+                                label: Some(&kernel.entrypoint_name),
+                                source: Cow::Borrowed(source),
+                                num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                            },
+                        ),
+                    )
+                }
             }
             _ => {
                 let source = &kernel.source;

@@ -106,6 +106,14 @@ impl DialectTypes<Self> for CudaDialect {
         }
         write!(f, "{}_{}", item.elem, item.vectorization)
     }
+
+    fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "__shared__")
+    }
 }
 
 // Kernel argument bindings

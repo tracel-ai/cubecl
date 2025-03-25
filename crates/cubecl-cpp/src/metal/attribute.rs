@@ -3,6 +3,7 @@ use std::fmt::Display;
 pub enum BufferAttribute {
     Buffer,
     ThreadGroup,
+    None,
 }
 
 impl BufferAttribute {
@@ -16,6 +17,7 @@ impl Display for BufferAttribute {
         match self {
             Self::Buffer => f.write_str("buffer"),
             Self::ThreadGroup => f.write_str("threadgroup"),
+            Self::None => Ok(()),
         }
     }
 }

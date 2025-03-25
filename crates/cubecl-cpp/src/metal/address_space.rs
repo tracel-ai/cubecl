@@ -1,6 +1,9 @@
 use cubecl_core::compute::{Location, Visibility};
 
-use crate::{Dialect, shared::Binding};
+use crate::{
+    Dialect,
+    shared::{Binding, Component, Variable},
+};
 
 use super::BufferAttribute;
 use std::fmt::Display;
@@ -9,7 +12,9 @@ use std::fmt::Display;
 pub enum AddressSpace {
     Constant,
     Device,
+    Thread,
     ThreadGroup,
+    None,
 }
 
 impl AddressSpace {
@@ -17,6 +22,7 @@ impl AddressSpace {
         match self {
             Self::Constant | Self::Device => BufferAttribute::Buffer,
             Self::ThreadGroup => BufferAttribute::ThreadGroup,
+            _ => BufferAttribute::None,
         }
     }
 }
@@ -27,6 +33,8 @@ impl Display for AddressSpace {
             Self::Constant => f.write_str("constant"),
             Self::Device => f.write_str("device"),
             Self::ThreadGroup => f.write_str("threadgroup"),
+            Self::Thread => f.write_str("thread"),
+            Self::None => Ok(()),
         }
     }
 }
@@ -35,8 +43,7 @@ impl From<AddressSpace> for Visibility {
     fn from(val: AddressSpace) -> Self {
         match val {
             AddressSpace::Constant => Visibility::Read,
-            AddressSpace::Device => Visibility::ReadWrite,
-            AddressSpace::ThreadGroup => Visibility::ReadWrite,
+            _ => Visibility::ReadWrite,
         }
     }
 }
@@ -49,6 +56,45 @@ impl<D: Dialect> From<&Binding<D>> for AddressSpace {
                 Location::Storage => AddressSpace::Device,
                 Location::Cube => AddressSpace::ThreadGroup,
             },
+        }
+    }
+}
+
+impl<D: Dialect> From<&Variable<D>> for AddressSpace {
+    fn from(value: &Variable<D>) -> Self {
+        match value {
+            Variable::AbsolutePos
+            | Variable::AbsolutePosX
+            | Variable::AbsolutePosY
+            | Variable::AbsolutePosZ
+            | Variable::UnitPos
+            | Variable::UnitPosX
+            | Variable::UnitPosY
+            | Variable::UnitPosZ
+            | Variable::CubePos
+            | Variable::CubePosX
+            | Variable::CubePosY
+            | Variable::CubePosZ
+            | Variable::CubeDim
+            | Variable::CubeDimX
+            | Variable::CubeDimY
+            | Variable::CubeDimZ
+            | Variable::CubeCount
+            | Variable::CubeCountX
+            | Variable::CubeCountY
+            | Variable::CubeCountZ
+            | Variable::PlaneDim
+            | Variable::UnitPosPlane => AddressSpace::None,
+            Variable::GlobalInputArray(..)
+            | Variable::GlobalOutputArray(..)
+            | Variable::GlobalScalar(..) => {
+                if value.is_const() {
+                    AddressSpace::Constant
+                } else {
+                    AddressSpace::Device
+                }
+            }
+            _ => AddressSpace::Thread,
         }
     }
 }

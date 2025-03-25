@@ -462,9 +462,10 @@ impl<D: Dialect> Display for IndexedVariable<D> {
         if self.var.item().vectorization > 1 {
             if self.optimized {
                 let item = self.var.item();
+                let addr_space = D::address_space_for_variable(&self.var);
                 write!(
                     f,
-                    "(reinterpret_cast<{item} {ref_}>({var})).i_{}",
+                    "(reinterpret_cast<{addr_space}{item} {ref_}>({var})).i_{}",
                     self.index
                 )
             } else {
@@ -472,7 +473,8 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             }
         } else if self.optimized {
             let item = self.var.item();
-            write!(f, "reinterpret_cast<{item} {ref_}>({var})")
+            let addr_space = D::address_space_for_variable(&self.var);
+            write!(f, "reinterpret_cast<{addr_space}{item} {ref_}>({var})")
         } else {
             write!(f, "{var}")
         }
