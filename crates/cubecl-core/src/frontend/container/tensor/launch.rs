@@ -40,7 +40,7 @@ pub struct TensorHandleRef<'a, R: Runtime> {
     pub runtime: PhantomData<R>,
 }
 
-impl<'a, R: Runtime> TensorHandleRef<'a, R> {
+impl<R: Runtime> TensorHandleRef<'_, R> {
     pub fn size(&self) -> usize {
         self.shape.iter().product()
     }
@@ -177,10 +177,6 @@ impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
     }
 }
 
-#[allow(
-    clippy::needless_lifetimes,
-    reason = "Seems to be glitched, the lifetimes are definitely not redundant and local clippy has no warning"
-)]
 impl<'a, R: Runtime> TensorHandleRef<'a, R> {
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn as_tensor_arg(&'a self, vectorisation: u8) -> TensorArg<'a, R> {
