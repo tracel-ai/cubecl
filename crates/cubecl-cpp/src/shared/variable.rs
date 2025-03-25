@@ -171,9 +171,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("g_in_{number}")),
+            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("in_{number}")),
 
-            Variable::GlobalOutputArray(number, _) => write!(f, "g_out_{number}"),
+            Variable::GlobalOutputArray(number, _) => write!(f, "out_{number}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
             Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),

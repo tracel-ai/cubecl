@@ -6,7 +6,7 @@ use super::{
 };
 use std::{borrow::Cow, fmt::Display, marker::PhantomData};
 
-const INFO_NAME: &str = "g_info";
+const INFO_NAME: &str = "info";
 
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
