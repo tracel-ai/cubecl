@@ -235,12 +235,12 @@ impl DialectCubeBuiltins for CudaDialect {
         write!(f, ".z")
     }
 
-    fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("threadIdx")
-    }
-
     fn compile_unit_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("threadIdxGlobal")
+    }
+
+    fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threadIdx")
     }
 
     fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
