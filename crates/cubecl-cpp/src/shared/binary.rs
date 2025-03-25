@@ -422,7 +422,8 @@ impl<D: Dialect> IndexAssignVector<D> {
             Variable::ConstantScalar(value, _) => value.as_usize(),
             _ => {
                 let elem = out.elem();
-                return writeln!(f, "*(({elem}*)&{out} + {lhs}) = {rhs};");
+                let addr_space = D::address_space_for_variable(out);
+                return writeln!(f, "*(({addr_space}{elem}*)&{out} + {lhs}) = {rhs};");
             }
         };
 
