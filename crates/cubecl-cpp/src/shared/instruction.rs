@@ -234,8 +234,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
+                let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
-                writeln!(f, "{item} *{out} = {input} + {start};")
+                writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
             Instruction::CheckedSlice {
                 input,

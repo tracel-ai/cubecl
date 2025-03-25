@@ -8,7 +8,7 @@ pub enum BufferAttribute {
 
 impl BufferAttribute {
     pub fn indexed_fmt(&self, index: usize, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "[[{self}({index})]]")
+        write!(f, " [[{self}({index})]]")
     }
 }
 

@@ -85,16 +85,18 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::CubeCountZ
             | Variable::PlaneDim
             | Variable::UnitPosPlane => AddressSpace::None,
-            Variable::GlobalInputArray(..)
-            | Variable::GlobalOutputArray(..)
-            | Variable::GlobalScalar(..) => {
+            Variable::GlobalInputArray(..) => AddressSpace::Constant,
+            Variable::GlobalOutputArray(..) => AddressSpace::Device,
+                Variable::GlobalScalar(..) => {
                 if value.is_const() {
                     AddressSpace::Constant
                 } else {
                     AddressSpace::Device
                 }
-            }
+            },
+            Variable::SharedMemory( .. ) => AddressSpace::ThreadGroup,
             _ => AddressSpace::Thread,
         }
     }
 }
+
