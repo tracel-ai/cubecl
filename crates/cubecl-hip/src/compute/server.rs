@@ -157,9 +157,9 @@ impl ComputeServer for HipServer {
 
     fn read_tensor(
         &mut self,
-        bindings: Vec<server::TensorHandle>,
+        bindings: Vec<server::BindingWithMeta>,
     ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
-        let bindings = bindings.into_iter().map(|it| it.binding()).collect();
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
         self.read_async(bindings)
     }
 
@@ -197,12 +197,12 @@ impl ComputeServer for HipServer {
     fn create_tensor(
         &mut self,
         data: &[u8],
-        shape: Vec<usize>,
-        elem_size: usize,
-    ) -> server::TensorHandle {
-        let strides = compact_strides(&shape);
+        shape: &[usize],
+        _elem_size: usize,
+    ) -> (server::Handle, Vec<usize>) {
+        let strides = contiguous_strides(shape);
         let handle = self.create(data);
-        server::TensorHandle::new(handle, strides, shape, elem_size)
+        (handle, strides)
     }
 
     fn empty(&mut self, size: usize) -> server::Handle {
@@ -211,11 +211,11 @@ impl ComputeServer for HipServer {
         server::Handle::new(handle, None, None, size as u64)
     }
 
-    fn empty_tensor(&mut self, shape: Vec<usize>, elem_size: usize) -> server::TensorHandle {
-        let strides = compact_strides(&shape);
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (server::Handle, Vec<usize>) {
+        let strides = contiguous_strides(shape);
         let size = shape.iter().product::<usize>() * elem_size;
         let handle = self.empty(size);
-        server::TensorHandle::new(handle, strides, shape, elem_size)
+        (handle, strides)
     }
 
     unsafe fn execute(
@@ -599,7 +599,7 @@ fn hip_path() -> Option<PathBuf> {
     Some(PathBuf::from("/opt/rocm"))
 }
 
-fn compact_strides(shape: &[usize]) -> Vec<usize> {
+fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
     let rank = shape.len();
     let mut strides = vec![1; rank];
     for i in (0..rank - 1).rev() {
