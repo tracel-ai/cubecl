@@ -242,11 +242,13 @@ impl WgpuStream {
                         Err(TimestampsError::Unavailable)
                     });
                 } else {
-                    let size = 2 * size_of::<u64>() as u64;
-                    let handle = self.mem_manage.reserve(size, false);
-                    let resource = self.mem_manage.get_resource(handle.clone().binding());
-                    self.encoder
-                        .resolve_query_set(query_set, 0..2, resource.buffer(), 0);
+                    let (handle, resource) = self.mem_manage.query();
+                    self.encoder.resolve_query_set(
+                        query_set,
+                        0..2,
+                        resource.buffer(),
+                        resource.offset(),
+                    );
                     *init = false;
                     TimestampMethod::Buffer(handle)
                 }

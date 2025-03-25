@@ -28,17 +28,29 @@ pub struct AutotuneKeyField {
 }
 
 #[derive(FromMeta)]
-pub enum Anchor {
-    #[darling(word)]
-    Unlimited,
-    Max(usize),
+pub struct Anchor {
+    max: Option<usize>,
+    min: Option<usize>,
+    base: Option<usize>,
 }
 
 impl Anchor {
     pub fn max(&self) -> TokenStream {
-        match self {
-            Anchor::Unlimited => quote![None],
-            Anchor::Max(value) => quote![Some(#value)],
+        match self.max {
+            Some(val) => quote![Some(#val)],
+            None => quote![None],
+        }
+    }
+    pub fn min(&self) -> TokenStream {
+        match self.min {
+            Some(val) => quote![Some(#val)],
+            None => quote![None],
+        }
+    }
+    pub fn base(&self) -> TokenStream {
+        match self.base {
+            Some(val) => quote![Some(#val)],
+            None => quote![None],
         }
     }
 }

@@ -8,19 +8,12 @@ use serde::{Deserialize, Serialize};
 pub struct ReduceAutotuneKey {
     elem_input: Elem,
     elem_output: Elem,
-    line_mode: LineMode,
     potential_line_size: u8,
-    #[autotune(anchor(max = 2048))]
+    axis_is_contiguous: bool,
+    #[autotune(anchor(min = 16, max = 4096))]
     reduce_axis_shape: usize,
-    #[autotune(anchor(max = 1024))]
+    #[autotune(anchor(max = 16384, base = 4))]
     reduce_count: usize,
-}
-
-#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub enum LineMode {
-    Parallel,
-    Perpendicular,
-    Unknown,
 }
 
 impl ReduceAutotuneKey {
@@ -28,7 +21,7 @@ impl ReduceAutotuneKey {
         elem_input: Elem,
         elem_output: Elem,
         input_shape: &[usize],
-        axis_stride: Option<usize>,
+        axis_is_contiguous: bool,
         axis: usize,
     ) -> Self {
         let rank = input_shape.len();
@@ -38,12 +31,6 @@ impl ReduceAutotuneKey {
         }
 
         let reduce_axis_shape = input_shape[axis];
-
-        let line_mode = match axis_stride {
-            Some(1) => LineMode::Parallel,
-            Some(n) if n > 1 => LineMode::Perpendicular,
-            _ => LineMode::Unknown,
-        };
 
         let reduce_count = input_shape
             .iter()
@@ -56,8 +43,8 @@ impl ReduceAutotuneKey {
         ReduceAutotuneKey::new(
             elem_input,
             elem_output,
-            line_mode,
             potential_line_size,
+            axis_is_contiguous,
             reduce_axis_shape,
             reduce_count,
         )
@@ -65,7 +52,8 @@ impl ReduceAutotuneKey {
 
     fn potential_line_size(elem_size: usize, mut shape: usize) -> u8 {
         let mut potential_line_size = 1;
-        let max_bytes_in_line = 32;
+        let max_bytes_in_line = 16; // 128 bits
+        //
         while shape % 2 == 0 && potential_line_size as usize * elem_size < max_bytes_in_line {
             potential_line_size *= 2;
             shape /= 2;

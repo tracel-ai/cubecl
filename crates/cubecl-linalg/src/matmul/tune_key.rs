@@ -12,11 +12,11 @@ use crate::tensor::{MatrixLayout, matrix_layout};
 pub struct MatmulAutotuneKey {
     round: bool,     // True when all matmul dims are multiples of 64
     broadcast: bool, // True when there are differences in batch size
-    #[autotune(anchor)]
+    #[autotune(anchor())]
     m: usize,
-    #[autotune(anchor)]
+    #[autotune(anchor())]
     k: usize,
-    #[autotune(anchor)]
+    #[autotune(anchor())]
     n: usize,
     #[autotune(anchor(max = 256))]
     batch: usize,
