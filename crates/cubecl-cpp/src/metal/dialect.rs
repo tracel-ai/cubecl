@@ -273,7 +273,7 @@ impl DialectCubeBuiltins for MslDialect {
     }
 
     fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_pos_in_grid")
+        f.write_str("threadgroup_pos_in_grid")
     }
 
     fn compile_cube_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -296,7 +296,7 @@ impl DialectCubeBuiltins for MslDialect {
     }
 
     fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_position_in_threadgroup")
+        f.write_str("thread_pos_in_threadgroup")
     }
 
     fn compile_unit_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -128,7 +128,11 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::CubeDimX => Item::scalar(Elem::U32, true),
             Variable::CubeDimY => Item::scalar(Elem::U32, true),
             Variable::CubeDimZ => Item::scalar(Elem::U32, true),
-            Variable::CubePos => Item::scalar(Elem::U32, true),
+            Variable::CubePos => Item {
+                elem: Elem::U32,
+                vectorization: 3,
+                native: true,
+            },
             Variable::CubePosGlobal => Item::scalar(Elem::U32, true),
             Variable::CubePosX => Item::scalar(Elem::U32, true),
             Variable::CubePosY => Item::scalar(Elem::U32, true),
