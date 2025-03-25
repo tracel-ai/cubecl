@@ -1,6 +1,3 @@
-use cubecl_common::{
-    OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
-};
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };

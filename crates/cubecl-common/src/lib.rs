@@ -38,8 +38,6 @@ extern crate alloc;
 mod float;
 /// Common kernel types
 mod kernel;
-mod tma;
 
 pub use float::*;
 pub use kernel::*;
-pub use tma::*;

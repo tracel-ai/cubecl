@@ -4,13 +4,11 @@ use crate::{
         memory_pool::{SliceBinding, SliceHandle},
     },
     storage::{BindingResource, ComputeStorage},
+    tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{
-    ExecutionMode, OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch,
-    TensorMapSwizzle, benchmark::TimestampsResult,
-};
+use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.

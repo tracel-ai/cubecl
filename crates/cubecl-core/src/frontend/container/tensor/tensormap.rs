@@ -2,13 +2,12 @@ use std::marker::PhantomData;
 
 use crate::{ConstantInfo, ir::ExpandElement};
 use crate::{prelude::*, unexpanded};
-use cubecl_common::{
-    OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle,
-};
 use cubecl_ir::Elem;
 use cubecl_runtime::server::TensorMapMeta;
 use paste::paste;
 use serde::{Deserialize, Serialize};
+
+pub use cubecl_runtime::tma::*;
 
 /// Grid constant tensor map, currently only maps to CUDA tensormap. May be interleaved or swizzled,
 /// but last dimension must be contiguous (since strides don't include the last dimension).

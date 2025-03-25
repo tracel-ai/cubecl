@@ -10,7 +10,6 @@ use crate::matmul::kernels::{
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
 use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
-use cubecl_common::TensorMapFormat;
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,

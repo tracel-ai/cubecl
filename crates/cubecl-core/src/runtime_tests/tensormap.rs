@@ -6,7 +6,6 @@ use crate::{
 };
 
 use cubecl::prelude::*;
-use cubecl_common::TensorMapFormat;
 use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
 
 #[cube(launch)]
