@@ -47,11 +47,15 @@ pub trait Dialect:
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub grid_constants: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
-        Self { warp_size: 32 }
+        Self {
+            warp_size: 32,
+            grid_constants: false,
+        }
     }
 }
 
@@ -114,7 +118,6 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
-        let constants = value.consts;
         let inputs = value
             .inputs
             .into_iter()
@@ -125,10 +128,10 @@ impl<D: Dialect> CppCompiler<D> {
             .into_iter()
             .map(|b| self.compile_binding(b))
             .collect();
-        let named = value
-            .named
+        let scalars = value
+            .scalars
             .into_iter()
-            .map(|(name, binding)| (name, self.compile_binding(binding)))
+            .map(|binding| (self.compile_elem(binding.elem), binding.count))
             .collect();
 
         let body = Body {
@@ -147,10 +150,10 @@ impl<D: Dialect> CppCompiler<D> {
             .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
-            constants,
+            num_tensor_maps: value.num_tensor_maps as usize,
             inputs,
             outputs,
-            named,
+            scalars,
             cube_dim: value.cube_dim,
             body,
             wmma_activated: self.wmma,
@@ -159,6 +162,7 @@ impl<D: Dialect> CppCompiler<D> {
             tma: self.tma,
             bf16: self.bf16,
             f16: self.f16,
+            grid_constant: self.compilation_options.grid_constants,
             fast_math,
             items: self.items,
             kernel_name: value.options.kernel_name,
@@ -1107,9 +1111,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalInputArray(id) => {
                 Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::VariableKind::GlobalScalar(id) => {
-                Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
-            }
+            gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
+                id,
+                elem: self.compile_elem(item.elem),
+                in_struct: self.compilation_options.grid_constants,
+            },
             gpu::VariableKind::TensorMap(id) => {
                 self.tma = true;
                 Variable::TensorMap(id)

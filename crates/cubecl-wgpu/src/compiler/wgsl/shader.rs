@@ -1,4 +1,4 @@
-use super::{Body, Extension, Item, Variable};
+use super::{Body, Elem, Extension, Item, Variable};
 use cubecl_core::{CubeDim, compute::Visibility, ir::Id};
 use std::fmt::Display;
 
@@ -62,7 +62,7 @@ impl LocalArray {
 pub struct ComputeShader {
     pub inputs: Vec<Binding>,
     pub outputs: Vec<Binding>,
-    pub named: Vec<(String, Binding)>,
+    pub scalars: Vec<(Elem, usize)>,
     pub shared_memories: Vec<SharedMemory>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
@@ -95,12 +95,21 @@ impl Display for ComputeShader {
         Self::format_bindings(f, "input", &self.inputs, 0)?;
         Self::format_bindings(f, "output", &self.outputs, self.inputs.len())?;
 
-        for (i, (name, binding)) in self.named.iter().enumerate() {
-            Self::format_binding(
+        Self::format_scalar_binding(
+            f,
+            "info",
+            Elem::U32,
+            None,
+            self.inputs.len() + self.outputs.len(),
+        )?;
+
+        for (i, (elem, len)) in self.scalars.iter().enumerate() {
+            Self::format_scalar_binding(
                 f,
-                name.as_str(),
-                binding,
-                self.inputs.len() + self.outputs.len() + i,
+                &format!("scalars_{elem}"),
+                *elem,
+                Some(*len),
+                self.inputs.len() + self.outputs.len() + 1 + i,
             )?;
         }
 
@@ -250,6 +259,34 @@ impl ComputeShader {
 var<{}, {}> {}: {};
 \n",
             num_entry, binding.location, visibility, name, ty
+        )?;
+
+        Ok(())
+    }
+
+    fn format_scalar_binding(
+        f: &mut core::fmt::Formatter<'_>,
+        name: &str,
+        elem: Elem,
+        len: Option<usize>,
+        num_entry: usize,
+    ) -> core::fmt::Result {
+        let ty = match len {
+            Some(size) => format!("array<{}, {}>", elem, size),
+            None => format!("array<{}>", elem),
+        };
+        let location = Location::Storage;
+        #[cfg(exclusive_memory_only)]
+        let visibility = "read";
+        #[cfg(not(exclusive_memory_only))]
+        let visibility = "read_write";
+
+        write!(
+            f,
+            "@group(0)
+@binding({num_entry})
+var<{location}, {visibility}> {name}: {ty};
+\n",
         )?;
 
         Ok(())

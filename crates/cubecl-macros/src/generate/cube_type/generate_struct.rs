@@ -110,20 +110,29 @@ impl CubeTypeStruct {
         let arg_settings = prelude_type("ArgSettings");
         let kernel_launcher = prelude_type("KernelLauncher");
         let name = &self.name_launch;
-        let register_body = self
+        let register_body_input = self
             .fields
             .iter()
             .filter(|f| !f.comptime.is_present())
             .map(TypeField::split)
-            .map(|(_, ident, _, _)| quote![self.#ident.register(launcher)]);
+            .map(|(_, ident, _, _)| quote![self.#ident.register_input(launcher)]);
+        let register_body_output = self
+            .fields
+            .iter()
+            .filter(|f| !f.comptime.is_present())
+            .map(TypeField::split)
+            .map(|(_, ident, _, _)| quote![self.#ident.register_output(launcher)]);
 
         let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = generics.split_for_impl();
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(&self, launcher: &mut #kernel_launcher<R>) {
-                    #(#register_body;)*
+                fn register_input(&self, launcher: &mut #kernel_launcher<R>) {
+                    #(#register_body_input;)*
+                }
+                fn register_output(&self, launcher: &mut #kernel_launcher<R>) {
+                    #(#register_body_output;)*
                 }
             }
         }

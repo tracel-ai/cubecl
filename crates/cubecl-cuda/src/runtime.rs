@@ -20,7 +20,7 @@ use cubecl_cpp::{
     CudaCompiler, WmmaCompiler,
     cuda::{arch::CudaArchitecture, mma::CudaWmmaCompiler},
     register_supported_types,
-    shared::register_wmma_features,
+    shared::{CompilationOptions, register_wmma_features},
 };
 
 /// Options configuring the CUDA runtime.
@@ -78,6 +78,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         alignment: CudaStorage::ALIGNMENT,
     };
 
+    let mut comp_opts = CompilationOptions::default();
+
     let hardware_props = unsafe {
         use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
         let warp_size = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_WARP_SIZE).unwrap() as u32;
@@ -96,6 +98,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let grid_dim_z = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z).unwrap();
         let max_cube_count =
             CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
+
+        comp_opts.warp_size = warp_size;
 
         HardwareProperties {
             plane_size_min: warp_size,
@@ -121,6 +125,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
+
+        comp_opts.grid_constants = true;
     }
     if arch.version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
@@ -138,7 +144,6 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
-    let comp_opts = Default::default();
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())

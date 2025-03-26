@@ -1,6 +1,6 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{Binding, ConstBinding, Handle},
+    server::{Binding, Bindings, Handle},
 };
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
@@ -70,8 +70,7 @@ impl WgpuStream {
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         dispatch: &CubeCount,
     ) {
         let dispatch_resource = match dispatch.clone() {
@@ -79,21 +78,36 @@ impl WgpuStream {
             CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
+        let info = self.create(bytemuck::cast_slice(&bindings.metadata));
+        let scalars = bindings
+            .scalars
+            .iter()
+            .map(|s| self.create(&s.data))
+            .collect::<Vec<_>>();
+
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources: Vec<_> = constants
+        let mut resources = bindings
+            .inputs
             .iter()
-            .map(|it| match it {
-                ConstBinding::TensorMap { .. } => {
-                    unimplemented!("Tensor map not supported on WGPU")
-                }
-            })
-            .collect();
+            .map(|b| self.mem_manage.get_resource(b.clone()))
+            .collect::<Vec<_>>();
         resources.extend(
             bindings
+                .outputs
                 .iter()
                 .map(|b| self.mem_manage.get_resource(b.clone())),
         );
+
+        resources.push(self.mem_manage.get_resource(info.binding()));
+
+        resources.extend(
+            scalars
+                .iter()
+                .map(|s| self.mem_manage.get_resource(s.clone().binding())),
+        );
+
+        println!("resources: {resources:#?}");
 
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
@@ -132,6 +146,7 @@ impl WgpuStream {
                 resource: r.as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
+        println!("entries: {entries:#?}");
 
         let group_layout = pipeline.get_bind_group_layout(0);
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

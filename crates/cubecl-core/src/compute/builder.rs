@@ -1,7 +1,6 @@
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
 use cubecl_runtime::debug::DebugLogger;
 
-use crate::ConstantInfo;
 use crate::KernelSettings;
 use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
@@ -14,13 +13,12 @@ use super::Visibility;
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
     pub context: Scope,
-    constants: Vec<ConstantInfo>,
     inputs: Vec<InputInfo>,
     outputs: Vec<OutputInfo>,
     indices: HashMap<Elem, usize>,
-    num_constant: Id,
     num_input: Id,
     num_output: Id,
+    num_tensor_map: Id,
 }
 
 impl KernelBuilder {
@@ -28,7 +26,10 @@ impl KernelBuilder {
     pub fn scalar(&mut self, elem: Elem) -> ExpandElement {
         let index = match self.indices.get_mut(&elem) {
             Some(index) => match self.inputs.get_mut(*index).unwrap() {
-                InputInfo::Scalar { elem: _, size } => {
+                InputInfo::Scalar {
+                    elem: _,
+                    count: size,
+                } => {
                     *size += 1;
                     *size as Id - 1
                 }
@@ -36,7 +37,7 @@ impl KernelBuilder {
             },
             None => {
                 self.indices.insert(elem, self.inputs.len());
-                self.inputs.push(InputInfo::Scalar { size: 1, elem });
+                self.inputs.push(InputInfo::Scalar { count: 1, elem });
                 0
             }
         };
@@ -57,13 +58,13 @@ impl KernelBuilder {
     }
 
     /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn tensor_map(&mut self, info: ConstantInfo) -> ExpandElement {
-        self.constants.push(info);
+    pub fn tensor_map(&mut self) -> ExpandElement {
         let variable = ExpandElement::Plain(Variable::new(
-            VariableKind::TensorMap(self.num_constant),
+            VariableKind::TensorMap(self.num_tensor_map),
             Item::new(Elem::Bool),
         ));
-        self.num_constant += 1;
+        self.num_tensor_map += 1;
+
         variable
     }
 
@@ -126,9 +127,9 @@ impl KernelBuilder {
     pub fn build(self, settings: KernelSettings) -> KernelDefinition {
         KernelIntegrator::new(KernelExpansion {
             scope: self.context,
-            constants: self.constants,
             inputs: self.inputs,
             outputs: self.outputs,
+            num_tensor_map: self.num_tensor_map,
         })
         .integrate(settings)
     }
@@ -136,13 +137,12 @@ impl KernelBuilder {
     pub fn new() -> Self {
         Self {
             context: Scope::root(DebugLogger::default().is_activated()),
-            constants: Vec::new(),
             inputs: Vec::new(),
             outputs: Vec::new(),
             indices: HashMap::new(),
             num_input: 0,
             num_output: 0,
-            num_constant: 0,
+            num_tensor_map: 0,
         }
     }
 }

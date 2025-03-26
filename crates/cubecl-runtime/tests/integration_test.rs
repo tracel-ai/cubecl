@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, client};
 
-use cubecl_runtime::ComputeRuntime;
 use cubecl_runtime::server::CubeCount;
+use cubecl_runtime::{ComputeRuntime, server::Bindings};
 use dummy::*;
 
 #[allow(unused)]
@@ -44,8 +44,9 @@ fn execute_elementwise_addition() {
     client.execute(
         Arc::new(DummyElementwiseAddition),
         CubeCount::Static(1, 1, 1),
-        Vec::new(),
-        vec![lhs.binding(), rhs.binding(), out.clone().binding()],
+        Bindings::new()
+            .with_inputs(vec![lhs.binding(), rhs.binding()])
+            .with_output(out.clone().binding()),
     );
 
     let obtained_resource = client.read_one(out.binding());

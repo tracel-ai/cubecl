@@ -152,8 +152,10 @@ pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
 
 /// Defines the argument settings used to launch a kernel.
 pub trait ArgSettings<R: Runtime>: Send + Sync {
-    /// Register the information to the [KernelLauncher].
-    fn register(&self, launcher: &mut KernelLauncher<R>);
+    /// Register the information of an input (immutable) variant to the [KernelLauncher].
+    fn register_input(&self, launcher: &mut KernelLauncher<R>);
+    /// Register the information of an output (mutable) variant to the [KernelLauncher].
+    fn register_output(&self, launcher: &mut KernelLauncher<R>);
 }
 
 /// Expand type associated with a type.
@@ -387,7 +389,11 @@ impl LaunchArg for () {
 }
 
 impl<R: Runtime> ArgSettings<R> for () {
-    fn register(&self, _launcher: &mut KernelLauncher<R>) {
+    fn register_input(&self, _launcher: &mut KernelLauncher<R>) {
+        // nothing to do
+    }
+
+    fn register_output(&self, _launcher: &mut KernelLauncher<R>) {
         // nothing to do
     }
 }

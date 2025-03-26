@@ -108,10 +108,10 @@ impl WgslCompiler {
                 .into_iter()
                 .map(Self::compile_binding)
                 .collect(),
-            named: value
-                .named
+            scalars: value
+                .scalars
                 .into_iter()
-                .map(|(name, binding)| (name, Self::compile_binding(binding)))
+                .map(|binding| (Self::compile_elem(binding.elem), binding.count))
                 .collect(),
             shared_memories: self.shared_memories.clone(),
             constant_arrays: self.const_arrays.clone(),

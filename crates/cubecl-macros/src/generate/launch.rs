@@ -114,12 +114,12 @@ impl Launch {
 
         let registers_in = self.runtime_inputs().map(|arg| {
             let name = &arg.name;
-            quote![#name.register(&mut launcher);]
+            quote![#name.register_input(&mut launcher);]
         });
 
         let registers_out = self.runtime_outputs().map(|arg| {
             let name = &arg.name;
-            quote![#name.register(&mut launcher);]
+            quote![#name.register_output(&mut launcher);]
         });
 
         let settings = self.configure_settings();

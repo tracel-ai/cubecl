@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Compiler;
 use crate::{
-    compute::{Binding, ConstBinding, KernelDefinition, Location, Visibility},
+    compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
     prelude::FastMath,
 };
 
@@ -17,18 +17,18 @@ use crate::{
 #[derive(Clone)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
-    const_bindings: Vec<ConstBinding>,
+    num_tensor_map: Id,
     input_bindings: Vec<Binding>,
     output_bindings: Vec<Binding>,
-    named_bindings: Vec<(String, Binding)>,
+    scalar_bindings: Vec<ScalarBinding>,
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
 #[derive(Clone)]
 pub struct KernelExpansion {
-    pub constants: Vec<ConstantInfo>,
     pub inputs: Vec<InputInfo>,
     pub outputs: Vec<OutputInfo>,
+    pub num_tensor_map: Id,
     pub scope: Scope,
 }
 
@@ -237,14 +237,8 @@ pub enum InputInfo {
     },
     Scalar {
         elem: Elem,
-        size: usize,
+        count: usize,
     },
-}
-
-/// Information related to a constant input.
-#[derive(Clone, Debug)]
-pub enum ConstantInfo {
-    TensorMap,
 }
 
 impl InputInfo {
@@ -253,7 +247,7 @@ impl InputInfo {
     pub fn item(&self) -> Item {
         match self {
             InputInfo::Array { item, .. } => *item,
-            InputInfo::Scalar { elem, size: _ } => Item::new(*elem),
+            InputInfo::Scalar { elem, count: _ } => Item::new(*elem),
         }
     }
 }
@@ -317,58 +311,29 @@ impl KernelIntegrator {
     pub fn new(info: KernelExpansion) -> Self {
         Self {
             expansion: info,
-            const_bindings: Default::default(),
+            num_tensor_map: 0,
             input_bindings: Default::default(),
             output_bindings: Default::default(),
-            named_bindings: Default::default(),
+            scalar_bindings: Default::default(),
         }
     }
 
     /// Performs the compilation with the provided [settings](KernelSettings).
     pub fn integrate(mut self, mut settings: KernelSettings) -> KernelDefinition {
-        self.register_constants();
         self.register_inputs(&settings);
         self.register_outputs(&mut settings);
 
-        let constants = self.const_bindings;
-        let inputs = self.input_bindings;
-        let outputs = self.output_bindings;
-        let mut named = Vec::with_capacity(2);
-
-        named.push((
-            "info".to_string(),
-            Binding {
-                item: Item::new(Elem::UInt(UIntKind::U32)),
-                visibility: Visibility::Read,
-                location: Location::Storage,
-                has_extended_meta: false,
-                size: None, // We avoid putting the length here since it will force a new kernel
-                            // for each tensor rank.
-            },
-        ));
-
-        for (name, binding) in self.named_bindings.into_iter() {
-            named.push((name, binding));
-        }
+        self.num_tensor_map = self.expansion.num_tensor_map;
+        self.scalar_bindings.sort_by_key(|binding| binding.elem);
 
         KernelDefinition {
-            consts: constants,
-            inputs,
-            outputs,
-            named,
+            inputs: self.input_bindings,
+            outputs: self.output_bindings,
+            num_tensor_maps: self.num_tensor_map,
+            scalars: self.scalar_bindings,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
             options: settings.options,
-        }
-    }
-
-    fn register_constants(&mut self) {
-        for constant in self.expansion.constants.drain(..) {
-            match constant {
-                ConstantInfo::TensorMap => {
-                    self.const_bindings.push(ConstBinding::TensorMap);
-                }
-            }
         }
     }
 
@@ -392,19 +357,9 @@ impl KernelIntegrator {
                         size: None,
                     });
                 }
-                InputInfo::Scalar { elem, size } => {
+                InputInfo::Scalar { elem, count } => {
                     let elem = bool_elem(elem);
-
-                    self.named_bindings.push((
-                        format!("scalars_{}", elem),
-                        Binding {
-                            item: Item::new(elem),
-                            visibility: Visibility::Read,
-                            location: Location::Storage,
-                            has_extended_meta: false,
-                            size: Some(size),
-                        },
-                    ));
+                    self.scalar_bindings.push(ScalarBinding { elem, count });
                 }
             }
         }

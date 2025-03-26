@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
+    compute::{Binding, Location, Visibility},
     ir::{self, Id, VariableKind},
     prelude::KernelDefinition,
 };
@@ -18,7 +19,8 @@ use crate::{
 pub struct LookupTables {
     pub inputs: Vec<Word>,
     pub outputs: Vec<Word>,
-    pub named: HashMap<String, Word>,
+    pub scalar_bindings: HashMap<ir::Elem, Word>,
+    pub info: Word,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
@@ -124,17 +126,36 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             })
             .collect();
         let offset = offset + self.state.outputs.len() as u32;
-        self.state.named = kernel
-            .named
+        self.state.scalar_bindings = kernel
+            .scalars
             .into_iter()
             .enumerate()
-            .map(|(i, (name, binding))| {
+            .map(|(i, binding)| {
+                let elem = binding.elem;
+                let binding = Binding {
+                    location: Location::Storage,
+                    visibility: Visibility::Read,
+                    item: ir::Item::new(elem),
+                    size: Some(binding.count),
+                    has_extended_meta: false,
+                };
+                let name = format!("scalars({elem})");
                 (
-                    name.clone(),
+                    elem,
                     target.generate_binding(self, binding, name, i as u32 + offset),
                 )
             })
             .collect();
+        let info_index = offset + self.state.scalar_bindings.len() as u32;
+        let info_binding = Binding {
+            location: Location::Storage,
+            visibility: Visibility::Read,
+            item: ir::Item::new(ir::Elem::UInt(ir::UIntKind::U32)),
+            size: None,
+            has_extended_meta: false,
+        };
+        self.state.info =
+            target.generate_binding(self, info_binding, "info".to_string(), info_index);
 
         let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
         self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
@@ -253,7 +274,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let current_block = self.selected_block();
             let setup = self.setup_block;
             self.select_block(Some(setup)).unwrap();
-            let arr_id = self.state.named[&format!("scalars_{elem}")];
+            let arr_id = self.state.scalar_bindings[&elem];
             let item = self.compile_item(ir::Item::new(elem));
             let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
             let const_id = self.const_u32(id);

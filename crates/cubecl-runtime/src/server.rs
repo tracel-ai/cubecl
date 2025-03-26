@@ -79,8 +79,7 @@ where
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         kind: ExecutionMode,
     );
 
@@ -149,6 +148,86 @@ impl Handle {
     }
 }
 
+/// Bindings to execute a kernel.
+#[derive(Debug, Default)]
+pub struct Bindings {
+    /// Input buffers
+    pub inputs: Vec<Binding>,
+    /// Output buffers
+    pub outputs: Vec<Binding>,
+    /// Packed metadata for tensor bindings (len, shape, stride, etc).
+    /// Ordered by inputs, then outputs, then tensormaps
+    pub metadata: Vec<u32>,
+    /// Scalar bindings
+    pub scalars: Vec<ScalarBinding>,
+    /// Tensor map bindings
+    pub tensor_maps: Vec<TensorMapBinding>,
+}
+
+impl Bindings {
+    /// Create a new bindings struct
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add an input
+    pub fn with_input(mut self, binding: Binding) -> Self {
+        self.inputs.push(binding);
+        self
+    }
+
+    /// Set the inputs to `bindings`
+    pub fn with_inputs(mut self, bindings: Vec<Binding>) -> Self {
+        self.inputs = bindings;
+        self
+    }
+
+    /// Add an output
+    pub fn with_output(mut self, binding: Binding) -> Self {
+        self.outputs.push(binding);
+        self
+    }
+
+    /// Set the outputs to `bindings`
+    pub fn with_outputs(mut self, bindings: Vec<Binding>) -> Self {
+        self.outputs = bindings;
+        self
+    }
+
+    /// Add a scalar parameter
+    pub fn with_scalar(mut self, elem: Elem, data: Vec<u8>) -> Self {
+        self.scalars.push(ScalarBinding::new(elem, data));
+        self
+    }
+
+    /// Set the scalars to `bindings`
+    pub fn with_scalars(mut self, bindings: Vec<ScalarBinding>) -> Self {
+        self.scalars = bindings;
+        self
+    }
+
+    /// Set the metadata to `meta`
+    pub fn with_metadata(mut self, meta: Vec<u32>) -> Self {
+        self.metadata = meta;
+        self
+    }
+
+    /// Set the tensor maps to `bindings`
+    pub fn with_tensor_maps(mut self, bindings: Vec<TensorMapBinding>) -> Self {
+        self.tensor_maps = bindings;
+        self
+    }
+}
+
+/// Binding of a set of scalars of the same type to execute a kernel.
+#[derive(new, Debug)]
+pub struct ScalarBinding {
+    /// Type of the scalars
+    pub elem: Elem,
+    /// Type-erased data of the scalars
+    pub data: Vec<u8>,
+}
+
 /// Binding of a [tensor handle](Handle) to execute a kernel.
 #[derive(new, Debug)]
 pub struct Binding {
@@ -173,16 +252,13 @@ pub struct BindingWithMeta {
     pub elem_size: usize,
 }
 
-/// Binding of a grid constant to execute a kernel.
+/// A tensor map used with TMA ops
 #[derive(new, Debug, Clone)]
-pub enum ConstBinding {
-    /// A tensor map used for TMA loading ops
-    TensorMap {
-        /// The binding for the backing tensor
-        binding: Binding,
-        /// The tensormap metadata
-        map: TensorMapMeta,
-    },
+pub struct TensorMapBinding {
+    /// The binding for the backing tensor
+    pub binding: Binding,
+    /// The tensormap metadata
+    pub map: TensorMapMeta,
 }
 
 /// TensorMap metadata for the opaque proxy used in TMA copies

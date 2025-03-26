@@ -78,8 +78,16 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
 }
 
 impl<R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'_, R, T> {
-    fn register(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
-        self.values.iter().for_each(|arg| arg.register(launcher));
+    fn register_input(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
+        self.values
+            .iter()
+            .for_each(|arg| arg.register_input(launcher));
+    }
+
+    fn register_output(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
+        self.values
+            .iter()
+            .for_each(|arg| arg.register_output(launcher));
     }
 }
 

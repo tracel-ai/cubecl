@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{ConstantInfo, ir::ExpandElement};
+use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::Elem;
 use cubecl_runtime::server::TensorMapMeta;
@@ -111,7 +111,11 @@ impl<E: CubePrimitive> CubeType for *mut TensorMap<E> {
 }
 
 impl<R: Runtime> ArgSettings<R> for TensorMapArg<'_, R> {
-    fn register(&self, launcher: &mut KernelLauncher<R>) {
+    fn register_input(&self, launcher: &mut KernelLauncher<R>) {
+        launcher.register_tensor_map(self)
+    }
+
+    fn register_output(&self, launcher: &mut KernelLauncher<R>) {
         launcher.register_tensor_map(self)
     }
 }
@@ -129,14 +133,14 @@ impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.tensor_map(ConstantInfo::TensorMap);
+        let tensor = builder.tensor_map();
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.tensor_map(ConstantInfo::TensorMap);
+        let tensor = builder.tensor_map();
         tensor.into()
     }
 }

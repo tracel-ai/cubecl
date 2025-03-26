@@ -3,7 +3,7 @@ use rand::{Rng, distr::Alphanumeric};
 use std::sync::Arc;
 
 use cubecl_runtime::{
-    server::{Binding, CubeCount},
+    server::{Binding, Bindings, CubeCount},
     tune::{AsFunctionTunable, TunableSet},
 };
 
@@ -74,8 +74,7 @@ pub fn cache_test_set(
             client.execute(
                 kernel.clone(),
                 CubeCount::Static(1, 1, 1),
-                Vec::new(),
-                bindings.clone(),
+                Bindings::new().with_inputs(bindings.clone()),
             );
         }
     }

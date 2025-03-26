@@ -9,7 +9,7 @@ use super::{CudaResource, uninit_vec};
 use cubecl_core::{
     Feature,
     ir::FloatKind,
-    server::{BindingWithMeta, Handle},
+    server::{BindingWithMeta, Bindings, Handle, TensorMapBinding},
 };
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_core::{
@@ -337,8 +337,7 @@ impl ComputeServer for CudaServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        constants: Vec<server::ConstBinding>,
-        bindings: Vec<server::Binding>,
+        bindings: Bindings,
         mode: ExecutionMode,
     ) {
         let mut kernel_id = kernel.id();
@@ -367,118 +366,146 @@ impl ComputeServer for CudaServer {
             }
         };
 
+        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata));
+        let (scalars, scalar_bindings) = if self.ctx.compilation_options.grid_constants {
+            let mut scalars = Vec::with_capacity(bindings.scalars.len());
+            // We need to sort by largest first to have proper packed alignment. Assumes device
+            // pointers are 64-bit aligned, which I believe is true on all cards that support grid
+            // constants regardless.
+            for size in [8, 4, 2, 1] {
+                for binding in bindings.scalars.iter().filter(|it| it.elem.size() == size) {
+                    scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
+                }
+            }
+            (scalars, Vec::new())
+        } else {
+            let bindings = bindings
+                .scalars
+                .iter()
+                .map(|scalar| self.create(&scalar.data))
+                .collect::<Vec<_>>();
+            (Vec::new(), bindings)
+        };
+
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let tensor_maps: Vec<_> = constants
+        let tensor_maps: Vec<_> = bindings
+            .tensor_maps
             .into_iter()
-            .map(|it| match it {
-                server::ConstBinding::TensorMap { binding, map } => {
-                    let resource = ctx
-                        .memory_management
-                        .get_resource(
-                            binding.memory.clone(),
-                            binding.offset_start,
-                            binding.offset_end,
+            .map(|TensorMapBinding { map, binding }| {
+                let resource = ctx
+                    .memory_management
+                    .get_resource(
+                        binding.memory.clone(),
+                        binding.offset_start,
+                        binding.offset_end,
+                    )
+                    .expect("Failed to find resource");
+                let device_ptr = resource.ptr as *mut c_void;
+                assert!(
+                    device_ptr as usize % 16 == 0,
+                    "Tensor pointer must be 16 byte aligned"
+                );
+                let lib = unsafe { cudarc::driver::sys::lib() };
+                let mut map_ptr = MaybeUninit::zeroed();
+
+                let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
+                let strides: Vec<_> = map
+                    .strides
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .map(|s| *s as u64 * map.elem.size() as u64)
+                    .collect();
+                let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
+
+                assert!(
+                    strides.iter().all(|it| it % 16 == 0),
+                    "Strides must be 16 byte aligned"
+                );
+
+                match &map.format {
+                    TensorMapFormat::Tiled { tile_size } => unsafe {
+                        assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
+                        let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+
+                        lib.cuTensorMapEncodeTiled(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.elem),
+                            map.rank as u32,
+                            device_ptr,
+                            shape.as_ptr(),
+                            strides.as_ptr(),
+                            tile_size.as_ptr(),
+                            elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
                         )
-                        .expect("Failed to find resource");
-                    let device_ptr = resource.ptr as *mut c_void;
-                    assert!(
-                        device_ptr as usize % 16 == 0,
-                        "Tensor pointer must be 16 byte aligned"
-                    );
-                    let lib = unsafe { cudarc::driver::sys::lib() };
-                    let mut map_ptr = MaybeUninit::zeroed();
-
-                    let shape: Vec<_> = map.shape.iter().rev().map(|s| *s as u64).collect();
-                    let strides: Vec<_> = map
-                        .strides
-                        .iter()
-                        .rev()
-                        .skip(1)
-                        .map(|s| *s as u64 * map.elem.size() as u64)
-                        .collect();
-                    let elem_stride: Vec<_> =
-                        map.elem_stride.iter().rev().map(|s| *s as u32).collect();
-
-                    assert!(
-                        strides.iter().all(|it| it % 16 == 0),
-                        "Strides must be 16 byte aligned"
-                    );
-
-                    match &map.format {
-                        TensorMapFormat::Tiled { tile_size } => unsafe {
-                            assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
-                            let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
-
-                            lib.cuTensorMapEncodeTiled(
-                                map_ptr.as_mut_ptr(),
-                                elem_to_tensor_map_type(map.elem),
-                                map.rank as u32,
-                                device_ptr,
-                                shape.as_ptr(),
-                                strides.as_ptr(),
-                                tile_size.as_ptr(),
-                                elem_stride.as_ptr(),
-                                interleave_to_cuda(map.interleave),
-                                swizzle_to_cuda(map.swizzle),
-                                prefetch_to_cuda(map.prefetch),
-                                oob_to_cuda(map.oob_fill),
-                            )
-                            .result()
-                            .unwrap()
-                        },
-                        TensorMapFormat::Im2col {
-                            pixel_box_lower_corner,
-                            pixel_box_upper_corner,
-                            channels_per_pixel,
-                            pixels_per_column,
-                        } => unsafe {
-                            lib.cuTensorMapEncodeIm2col(
-                                map_ptr.as_mut_ptr(),
-                                elem_to_tensor_map_type(map.elem),
-                                map.rank as u32,
-                                resource.as_binding(),
-                                shape.as_ptr(),
-                                strides.as_ptr(),
-                                pixel_box_lower_corner.as_ptr(),
-                                pixel_box_upper_corner.as_ptr(),
-                                *channels_per_pixel,
-                                *pixels_per_column,
-                                elem_stride.as_ptr(),
-                                interleave_to_cuda(map.interleave),
-                                swizzle_to_cuda(map.swizzle),
-                                prefetch_to_cuda(map.prefetch),
-                                oob_to_cuda(map.oob_fill),
-                            )
-                            .result()
-                            .unwrap()
-                        },
-                        TensorMapFormat::Im2colWide { .. } => {
-                            unimplemented!("Not yet implemented in cudarc")
-                        }
-                    };
-                    unsafe { map_ptr.assume_init() }
-                }
+                        .result()
+                        .unwrap()
+                    },
+                    TensorMapFormat::Im2col {
+                        pixel_box_lower_corner,
+                        pixel_box_upper_corner,
+                        channels_per_pixel,
+                        pixels_per_column,
+                    } => unsafe {
+                        lib.cuTensorMapEncodeIm2col(
+                            map_ptr.as_mut_ptr(),
+                            elem_to_tensor_map_type(map.elem),
+                            map.rank as u32,
+                            resource.as_binding(),
+                            shape.as_ptr(),
+                            strides.as_ptr(),
+                            pixel_box_lower_corner.as_ptr(),
+                            pixel_box_upper_corner.as_ptr(),
+                            *channels_per_pixel,
+                            *pixels_per_column,
+                            elem_stride.as_ptr(),
+                            interleave_to_cuda(map.interleave),
+                            swizzle_to_cuda(map.swizzle),
+                            prefetch_to_cuda(map.prefetch),
+                            oob_to_cuda(map.oob_fill),
+                        )
+                        .result()
+                        .unwrap()
+                    },
+                    TensorMapFormat::Im2colWide { .. } => {
+                        unimplemented!("Not yet implemented in cudarc")
+                    }
+                };
+                unsafe { map_ptr.assume_init() }
             })
             .collect::<_>();
 
-        let resources = bindings
+        let mut resources = bindings
+            .inputs
             .into_iter()
-            .map(|binding| {
-                ctx.memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource")
-            })
+            .map(|binding| find_resource(ctx, binding))
             .collect::<Vec<_>>();
+        resources.extend(
+            bindings
+                .outputs
+                .into_iter()
+                .map(|binding| find_resource(ctx, binding)),
+        );
+        resources.push(find_resource(ctx, metadata.binding()));
+        resources.extend(
+            scalar_bindings
+                .into_iter()
+                .map(|s| find_resource(ctx, s.binding())),
+        );
 
         if let Some(level) = profile_level {
             ctx.sync();
             let start = std::time::SystemTime::now();
-            ctx.execute_task(kernel_id, count, &tensor_maps, &resources);
+            ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
             ctx.sync();
 
             let (name, kernel_id) = profile_info.unwrap();
@@ -498,7 +525,7 @@ impl ComputeServer for CudaServer {
             self.logger
                 .register_profiled(info, start.elapsed().unwrap());
         } else {
-            ctx.execute_task(kernel_id, count, &tensor_maps, &resources);
+            ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
         }
     }
 
@@ -554,6 +581,12 @@ impl ComputeServer for CudaServer {
             self.ctx.timestamps.disable();
         }
     }
+}
+
+fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResource {
+    ctx.memory_management
+        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        .expect("Failed to find resource")
 }
 
 impl CudaContext {
@@ -718,12 +751,14 @@ impl CudaContext {
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[CudaResource],
+        scalars: &[*mut c_void],
     ) {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
         bindings.extend(resources.iter().map(|memory| memory.as_binding()));
+        bindings.extend(scalars);
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
