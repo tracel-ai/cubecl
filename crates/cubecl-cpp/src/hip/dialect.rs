@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use crate::shared::{DialectInstructions, Instruction};
+use crate::shared::{DialectInstructions, Instruction, Variable};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -250,11 +250,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_thread_fence(f)
     }
-}
 
-// Warp
-
-impl<M: DialectWmmaCompiler<Self>> DialectWarp for HipDialect<M> {
+    // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -289,8 +286,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectWarp for HipDialect<M> {
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
         write!(f, "__any({out})")
     }
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        write!(f, "__ballot({out})")
+    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, _output: &Variable<Self>) -> std::fmt::Result {
+        write!(f, "__ballot({input})")
     }
 }
 

@@ -15,7 +15,6 @@ pub trait Dialect:
     + DialectBindings<Self>
     + DialectCubeBuiltins
     + DialectInstructions<Self>
-    + DialectWarp
     + DialectWmmaCompiler<Self>
     + Default
     + Clone
@@ -306,11 +305,7 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
-}
-
-// Warp
-
-pub trait DialectWarp {
+    // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -333,7 +328,7 @@ pub trait DialectWarp {
     ) -> std::fmt::Result;
     fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
+    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<D>, _output: &Variable<D>) -> std::fmt::Result;
 }
 
 // Coop Matrices dialect
