@@ -375,7 +375,7 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        if data.len() < aligned_len as usize {
+        {
             let mut buffer_view = self
                 .queue
                 .write_buffer_with(
@@ -385,10 +385,8 @@ impl WgpuStream {
                 )
                 .unwrap();
             buffer_view[0..data.len()].copy_from_slice(data);
-        } else {
-            self.queue
-                .write_buffer(resource.buffer(), resource.offset(), data);
         }
+
         self.flush_if_needed();
 
         alloc
