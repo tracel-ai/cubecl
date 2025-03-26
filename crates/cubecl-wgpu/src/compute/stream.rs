@@ -9,7 +9,7 @@ use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimes
 use cubecl_runtime::{
     TimestampsError, TimestampsResult, memory_management::MemoryDeviceProperties,
 };
-use wgpu::ComputePipeline;
+use wgpu::{BufferSize, ComputePipeline};
 
 #[derive(Debug)]
 pub struct WgpuStream {
@@ -373,8 +373,20 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        self.queue
-            .write_buffer(resource.buffer(), resource.offset(), data);
+        if data.len() < aligned_len as usize {
+            let mut buffer_view = self
+                .queue
+                .write_buffer_with(
+                    resource.buffer(),
+                    resource.offset(),
+                    BufferSize::new(aligned_len).unwrap(),
+                )
+                .unwrap();
+            buffer_view[0..data.len()].copy_from_slice(data);
+        } else {
+            self.queue
+                .write_buffer(resource.buffer(), resource.offset(), data);
+        }
         self.flush_if_needed();
 
         alloc
