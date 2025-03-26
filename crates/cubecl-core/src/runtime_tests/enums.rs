@@ -72,7 +72,6 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 
 pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     let array = client.empty(std::mem::size_of::<f32>());
-    //let array = client.create(f32::as_bytes(&[2.0]));
 
     kernel_scalar_enum::launch::<R>(
         &client,
@@ -82,9 +81,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server, R::Channel>
         unsafe { ArrayArg::<R>::from_raw_parts::<f32>(&array, 1, 1) },
     );
     let bytes = client.read_one(array.binding());
-    println!("{bytes:?}");
     let actual = f32::from_bytes(&bytes);
-    println!("{actual:?}");
 
     assert_eq!(actual[0], 10.0);
 }

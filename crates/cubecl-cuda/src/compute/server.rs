@@ -382,7 +382,7 @@ impl ComputeServer for CudaServer {
             let bindings = bindings
                 .scalars
                 .iter()
-                .map(|scalar| self.create(&scalar.data))
+                .map(|scalar| self.create(scalar.data()))
                 .collect::<Vec<_>>();
             (Vec::new(), bindings)
         };

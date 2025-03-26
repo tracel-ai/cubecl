@@ -195,7 +195,7 @@ impl Bindings {
     }
 
     /// Add a scalar parameter
-    pub fn with_scalar(mut self, elem: Elem, data: Vec<u8>) -> Self {
+    pub fn with_scalar(mut self, elem: Elem, data: Vec<u64>) -> Self {
         self.scalars.push(ScalarBinding::new(elem, data));
         self
     }
@@ -224,8 +224,15 @@ impl Bindings {
 pub struct ScalarBinding {
     /// Type of the scalars
     pub elem: Elem,
-    /// Type-erased data of the scalars
-    pub data: Vec<u8>,
+    /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
+    pub data: Vec<u64>,
+}
+
+impl ScalarBinding {
+    /// Get data as byte slice
+    pub fn data(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.data)
+    }
 }
 
 /// Binding of a [tensor handle](Handle) to execute a kernel.

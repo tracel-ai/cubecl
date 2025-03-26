@@ -82,7 +82,7 @@ impl WgpuStream {
         let scalars = bindings
             .scalars
             .iter()
-            .map(|s| self.create(&s.data))
+            .map(|s| self.create(s.data()))
             .collect::<Vec<_>>();
 
         // Store all the resources we'll be using. This could be eliminated if

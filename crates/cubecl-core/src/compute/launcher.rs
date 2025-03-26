@@ -8,7 +8,7 @@ use crate::{
     ir::{Elem, FloatKind, IntKind},
 };
 use crate::{compute::KernelTask, ir::UIntKind};
-use bytemuck::NoUninit;
+use bytemuck::{AnyBitPattern, NoUninit};
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{client::ComputeClient, server::Bindings};
 
@@ -370,7 +370,7 @@ impl<R: Runtime> TensorState<R> {
     }
 }
 
-impl<T: NoUninit + CubePrimitive> ScalarState<T> {
+impl<T: NoUninit + AnyBitPattern + CubePrimitive> ScalarState<T> {
     /// Add a new scalar value to the state.
     pub fn push(&mut self, val: T) {
         match self {
@@ -379,15 +379,12 @@ impl<T: NoUninit + CubePrimitive> ScalarState<T> {
         }
     }
 
-    fn register(self, bindings: &mut Bindings) {
-        if let ScalarState::Some(mut values) = self {
-            // Can't use to_vec because it misaligns the pointer. We want to preserve the alignment
-            // of `T`
-            let bytes_len = values.len() * size_of::<T>();
-            let bytes_capacity = values.capacity() * size_of::<T>();
-            let ptr = values.as_mut_ptr() as *mut u8;
-            core::mem::forget(values);
-            let data = unsafe { Vec::from_raw_parts(ptr, bytes_len, bytes_capacity) };
+    fn register(&self, bindings: &mut Bindings) {
+        if let ScalarState::Some(values) = self {
+            let len_u64 = values.len().div_ceil(size_of::<u64>() / size_of::<T>());
+            let mut data = vec![0; len_u64];
+            let slice = bytemuck::cast_slice_mut::<u64, T>(&mut data);
+            slice[0..values.len()].copy_from_slice(values);
             let elem = T::as_elem_native_unchecked();
             bindings.scalars.push(ScalarBinding::new(elem, data));
         }

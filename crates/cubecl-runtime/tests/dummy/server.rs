@@ -144,7 +144,7 @@ impl ComputeServer for DummyServer {
         let scalars = bindings
             .scalars
             .into_iter()
-            .map(|s| self.create(&s.data))
+            .map(|s| self.create(s.data()))
             .collect::<Vec<_>>();
         resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
 
