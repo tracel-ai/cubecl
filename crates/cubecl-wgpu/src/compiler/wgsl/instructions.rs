@@ -1012,7 +1012,11 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let vf = usize::max(vf, vf_fallback);
 
                 let out = out.fmt_left();
-                if vf != vf_slice || vf != vf_fallback || vf != vf_cond || vf != vf_out {
+                if vf != vf_slice
+                    || vf != vf_out
+                    || (vf != vf_fallback && vf_fallback != 1)
+                    || (vf != vf_cond && vf_cond != 1)
+                {
                     writeln!(f, "{out} = vec{vf}(")?;
                     for i in 0..vf {
                         let fallbacki = fallback.index(i);
@@ -1020,12 +1024,21 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(
                             f,
-                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + i], {condi}),"
+                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + {i}], {condi}),"
                         )?;
                     }
 
                     writeln!(f, ");")
                 } else {
+                    let item = slice.item();
+                    let fallback = fallback.fmt_cast_to(item);
+                    let bool_item = match item {
+                        Item::Vec4(_) => Item::Vec4(Elem::Bool),
+                        Item::Vec3(_) => Item::Vec3(Elem::Bool),
+                        Item::Vec2(_) => Item::Vec2(Elem::Bool),
+                        Item::Scalar(_) => Item::Scalar(Elem::Bool),
+                    };
+                    let cond = cond.fmt_cast_to(bool_item);
                     writeln!(
                         f,
                         "{out} = select({fallback}, (*{slice}_ptr)[{index} + {slice}_offset], {cond});"
