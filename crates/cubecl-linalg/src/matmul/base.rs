@@ -15,7 +15,8 @@ use super::{
     kernels::{
         MatmulLaunchError,
         matmul::{
-            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
+            self, double_buffering::DoubleBufferingAlgorithm,
+            double_buffering_barrier::DoubleBufferingBarrierAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
             simple_tma::SimpleTmaAlgorithm, specialized::SpecializedAlgorithm,
         },
@@ -30,6 +31,7 @@ pub enum Strategy {
     SimpleBarrier(AsyncLoadingStrategy),
     SimplePipelined,
     DoubleBuffering,
+    DoubleBufferingBarrier,
     Specialized,
     #[cfg(any(test, feature = "export_tests"))]
     // Very slow, only use for testing.
@@ -125,6 +127,11 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
         }
         Strategy::DoubleBuffering => {
             matmul::launch_ref::<R, EG, DoubleBufferingAlgorithm<Accelerated>>(
+                client, lhs, rhs, out,
+            )
+        }
+        Strategy::DoubleBufferingBarrier => {
+            matmul::launch_ref::<R, EG, DoubleBufferingBarrierAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,
             )
         }

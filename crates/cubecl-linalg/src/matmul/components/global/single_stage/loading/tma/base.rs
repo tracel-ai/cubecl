@@ -4,11 +4,12 @@ use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
+use crate::matmul::components::global::CopyMechanism;
 use crate::matmul::components::{
     Ident,
     global::{
         self, GlobalConfig,
-        single_stage::{self, AsyncFullLoader, CopyMechanism, FullLoader},
+        single_stage::{self, AsyncFullLoader, FullLoader},
         tensor_view::MappedTensorReader,
     },
     stage::{

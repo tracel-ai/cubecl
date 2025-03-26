@@ -1,14 +1,20 @@
-use core::cmp::min;
-
-/// Anchor a number to a power of 2.
+/// Anchor a number to a power of the provided base.
 ///
 /// Useful when creating autotune keys.
-pub fn anchor(x: usize, max: Option<usize>) -> usize {
-    let exp = f32::ceil(f32::log2(x as f32)) as u32;
-    let power_of_2 = 2_u32.pow(exp) as usize;
-    if let Some(max) = max {
-        min(power_of_2, max)
+pub fn anchor(x: usize, max: Option<usize>, min: Option<usize>, base: Option<usize>) -> usize {
+    let base = base.unwrap_or(2);
+    let exp = usize::ilog(x, base);
+    let power = base.pow(exp);
+
+    let result = if let Some(max) = max {
+        core::cmp::min(power, max)
     } else {
-        power_of_2
+        power
+    };
+
+    if let Some(min) = min {
+        core::cmp::max(result, min)
+    } else {
+        result
     }
 }
