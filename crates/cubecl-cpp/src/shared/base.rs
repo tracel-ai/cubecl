@@ -49,6 +49,7 @@ pub struct Flags {
     pub var_cube_pos: bool,
     pub var_cube_pos_global: bool,
     pub var_plane_dim: bool,
+    pub var_plane_dim_checked: bool,
     pub var_unit_pos: bool,
     pub var_unit_pos_global: bool,
     pub var_unit_pos_plane: bool,
@@ -74,7 +75,6 @@ pub struct CppCompiler<D: Dialect> {
     shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
-    warp_size_checked: bool,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
@@ -127,17 +127,18 @@ impl<D: Dialect> CppCompiler<D> {
 
         // compilation flags
         // builtins inclusion rules
+        let plane_dim_checked = self.flags.var_plane_dim_checked;
+        let plane_dim = self.flags.var_plane_dim || plane_dim_checked;
         let absolute_pos_global = self.flags.var_absolute_pos_global;
         let absolute_pos = self.flags.var_absolute_pos || absolute_pos_global;
         let cube_dim_global = self.flags.var_cube_dim_global;
-        let cube_dim = self.flags.var_cube_dim || cube_dim_global || absolute_pos_global;
+        let cube_dim = self.flags.var_cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
         let unit_pos_global = self.flags.var_unit_pos_global;
         let unit_pos = self.flags.var_unit_pos || unit_pos_global;
         let cube_count_global = self.flags.var_cube_count_global;
         let cube_count = self.flags.var_cube_count || absolute_pos_global;
         let cube_pos_global = self.flags.var_cube_pos_global;
         let cube_pos = self.flags.var_cube_pos || cube_pos_global;
-        let plane_dim = self.flags.var_plane_dim;
         let unit_pos_plane = self.flags.var_unit_pos_plane;
         let flags = Flags {
             var_absolute_pos: absolute_pos,
@@ -149,6 +150,7 @@ impl<D: Dialect> CppCompiler<D> {
             var_cube_pos: cube_pos,
             var_cube_pos_global: cube_pos_global,
             var_plane_dim: plane_dim,
+            var_plane_dim_checked: self.flags.var_plane_dim_checked,
             var_unit_pos: unit_pos,
             var_unit_pos_global: unit_pos_global,
             var_unit_pos_plane: unit_pos_plane,
@@ -170,7 +172,6 @@ impl<D: Dialect> CppCompiler<D> {
             barriers: self.barriers,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
-            warp_size_checked: self.warp_size_checked,
         };
 
         ComputeKernel {
@@ -277,7 +278,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
             },
             gpu::Operation::Plane(op) => {
-                self.warp_size_checked = true;
+                self.flags.var_plane_dim_checked = true;
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {

@@ -245,10 +245,9 @@ fn reduce_with_loop<
 
     writeln!(f, "auto plane_{out} = [&]() -> {} {{", out.item())?;
     writeln!(f, "    {} {} = {};", acc_item, acc, cast(input, acc_item))?;
-    writeln!(
-        f,
-        "    for (int offset = 1; offset < warpSizeChecked; offset *=2 ) {{"
-    )?;
+    write!(f, "    for (uint offset = 1; offset < ")?;
+    D::compile_plane_dim_checked(f);
+    writeln!(f, "; offset *=2 ) {{")?;
     for k in 0..acc_item.vectorization {
         instruction(f, &acc, k)?;
     }
