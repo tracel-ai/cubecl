@@ -237,8 +237,7 @@ where
                 config.to_smm_config(),
             );
 
-            sync_units();
-            barrier.wait();
+            barrier.arrive_and_wait();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
