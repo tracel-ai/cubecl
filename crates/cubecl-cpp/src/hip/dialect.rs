@@ -138,7 +138,7 @@ extern \"C\" __global__ void {}(
 
 // Cube builtins dialect
 
-impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins for HipDialect<M> {}
+impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {}
 
 // Instructions
 

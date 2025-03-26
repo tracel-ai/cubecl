@@ -141,7 +141,7 @@ extern \"C\" __global__ void {}(
 
 // Cube builtins dialect
 
-impl DialectCubeBuiltins for CudaDialect {}
+impl DialectCubeBuiltins<Self> for CudaDialect {}
 
 // Instructions
 

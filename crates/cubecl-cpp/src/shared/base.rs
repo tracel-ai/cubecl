@@ -127,9 +127,10 @@ impl<D: Dialect> CppCompiler<D> {
 
         // compilation flags
         // builtins inclusion rules
+        let unit_pos_plane = self.flags.var_unit_pos_plane;
         let plane_dim_checked = self.flags.var_plane_dim_checked;
-        let plane_dim = self.flags.var_plane_dim || plane_dim_checked;
-        let absolute_pos_global = self.flags.var_absolute_pos_global;
+        let plane_dim = self.flags.var_plane_dim || plane_dim_checked || unit_pos_plane;
+        let absolute_pos_global = self.flags.var_absolute_pos_global || unit_pos_plane;
         let absolute_pos = self.flags.var_absolute_pos || absolute_pos_global;
         let cube_dim_global = self.flags.var_cube_dim_global;
         let cube_dim = self.flags.var_cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
@@ -139,7 +140,6 @@ impl<D: Dialect> CppCompiler<D> {
         let cube_count = self.flags.var_cube_count || absolute_pos_global;
         let cube_pos_global = self.flags.var_cube_pos_global;
         let cube_pos = self.flags.var_cube_pos || cube_pos_global;
-        let unit_pos_plane = self.flags.var_unit_pos_plane;
         let flags = Flags {
             var_absolute_pos: absolute_pos,
             var_absolute_pos_global: absolute_pos_global,
@@ -288,35 +288,35 @@ impl<D: Dialect> CppCompiler<D> {
                         }))
                     }
                     gpu::Plane::InclusiveSum(op) => {
-                        self.flags.var_absolute_pos = true;
+                        self.flags.var_unit_pos_plane = true;
                         instructions.push(Instruction::Warp(WarpInstruction::InclusiveSum {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
+                    gpu::Plane::InclusiveProd(op) => {
+                        self.flags.var_unit_pos_plane = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveProd {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
                     gpu::Plane::ExclusiveSum(op) => {
-                        self.flags.var_absolute_pos = true;
+                        self.flags.var_unit_pos_plane = true;
                         instructions.push(Instruction::Warp(WarpInstruction::ExclusiveSum {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ExclusiveProd(op) => {
+                        self.flags.var_unit_pos_plane = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Prod(op) => {
                         instructions.push(Instruction::Warp(WarpInstruction::ReduceProd {
-                            input: self.compile_variable(op.input),
-                            out,
-                        }))
-                    }
-                    gpu::Plane::InclusiveProd(op) => {
-                        self.flags.var_absolute_pos = true;
-                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveProd {
-                            input: self.compile_variable(op.input),
-                            out,
-                        }))
-                    }
-                    gpu::Plane::ExclusiveProd(op) => {
-                        self.flags.var_absolute_pos = true;
-                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
