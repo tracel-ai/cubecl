@@ -11,7 +11,8 @@ pub trait BufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 {
     type StageReader: CubeType;
 
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader;
+    // TODO maybe buffer cannot be comptime in the future
+    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader;
 
     fn advance_view(this: &mut Self, k_offset: u32);
 }

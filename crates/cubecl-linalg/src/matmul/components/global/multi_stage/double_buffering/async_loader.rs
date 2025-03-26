@@ -45,7 +45,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 {
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         LhsBufferReader::new(this.stage, buffer.to_u32())
     }
 
@@ -112,7 +112,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 {
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         RhsBufferReader::new(this.stage, buffer.to_u32())
     }
 

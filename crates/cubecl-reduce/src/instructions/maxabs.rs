@@ -3,22 +3,24 @@ use cubecl_core::prelude::*;
 
 use super::{Reduce, ReduceCoordinate, ReduceInstruction};
 
+// TODO Add to test framework.
+/// Return the item with the maximum absolute value.
 #[derive(Debug)]
-pub struct Prod;
+pub struct MaxAbs;
 
-impl Reduce for Prod {
+impl Reduce for MaxAbs {
     type Instruction<In: Numeric> = Self;
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for Prod {
+impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
     const REQUIRES_COORDINATE: bool = false;
 
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
 
     fn null_input(#[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::from_int(1))
+        Line::empty(line_size).fill(In::min_value())
     }
 
     fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
@@ -36,9 +38,15 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
-            *accumulator * plane_prod(item)
+            let candidate_item = plane_max(Line::abs(item));
+            select_many(
+                accumulator.greater_than(candidate_item),
+                *accumulator,
+                candidate_item,
+            )
         } else {
-            *accumulator * item
+            let item_abs = Line::abs(item);
+            select_many(accumulator.greater_than(item_abs), *accumulator, item_abs)
         }
     }
 
@@ -46,19 +54,19 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
-        lhs * rhs
+        lhs + rhs
     }
 
     fn merge_line<Out: Numeric>(
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut prod = In::from_int(1);
+        let mut sum = In::from_int(0);
         #[unroll]
         for k in 0..accumulator.size() {
-            prod *= accumulator[k];
+            sum += accumulator[k];
         }
-        Out::cast_from(prod)
+        Out::cast_from(sum)
     }
 
     fn to_output_perpendicular<Out: Numeric>(

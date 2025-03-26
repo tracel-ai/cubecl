@@ -9,12 +9,11 @@ use cubecl_core::{
     tf32,
 };
 
-pub use cubecl_std::Q8;
+pub use cubecl_std::SymQ8;
 
 use crate::{
     matmul::{
-        components::{Ident, MatmulProblem, MatrixLayout},
-        kernels::matmul::Algorithm,
+        components::{Ident, MatmulProblem},
         tests::cmma_matmul::matmul_test_launcher::strides,
     },
     tensor::TensorHandle,
@@ -40,11 +39,6 @@ pub trait TestPrecision {
         client: &ComputeClient<R::Server, R::Channel>,
         out: Handle,
     );
-
-    // TODO: This is a temporary hack to not run some quantized matmul test during development.
-    //       This avoids breaking the CI with incomplete implementations.
-    //       Remove when quantization is fully supported.
-    fn should_run<A: Algorithm>(layouts: (MatrixLayout, MatrixLayout)) -> bool;
 }
 
 impl<EG, ES> TestPrecision for (EG, ES)
@@ -93,10 +87,6 @@ where
             panic!("{}", e);
         }
     }
-
-    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
-        true
-    }
 }
 
 /// Compares the content of a handle to a given slice of f32.
@@ -135,8 +125,8 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
 // TODO:
 //   - Add different conversions from i32 to u8.
-//   - Add support for multipliers (zero_offsets).
-impl TestPrecision for Q8 {
+//   - Fix with proper types for precision
+impl TestPrecision for SymQ8 {
     type EG = u8;
     type ES = u16;
     type EA = i32;
@@ -190,10 +180,6 @@ impl TestPrecision for Q8 {
             approx_scaling,
         );
         assert_eq!(out, expected);
-    }
-
-    fn should_run<A: Algorithm>(_layouts: (MatrixLayout, MatrixLayout)) -> bool {
-        false
     }
 }
 

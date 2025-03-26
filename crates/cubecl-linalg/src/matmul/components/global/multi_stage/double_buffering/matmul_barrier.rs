@@ -1,4 +1,5 @@
 use crate::matmul::components::Ident;
+use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::global::multi_stage::AsyncBufferLoader;
 use crate::matmul::components::global::multi_stage::BufferLoader;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
@@ -14,6 +15,7 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use std::marker::PhantomData;
 
 use crate::matmul::components::InvalidConfigError;
@@ -153,6 +155,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        _quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
@@ -168,10 +171,10 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         let barrier_level = LL::barrier_level();
         comptime!(assert!(barrier_level == RL::barrier_level()));
@@ -230,6 +233,7 @@ where
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -267,6 +271,7 @@ where
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
         }
@@ -276,6 +281,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );

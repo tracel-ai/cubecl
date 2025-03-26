@@ -24,7 +24,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily},
+        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
@@ -32,6 +32,7 @@ use crate::matmul::{
     },
     kernels::MatmulAvailabilityError,
 };
+use cubecl_std::CubeOption;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -151,8 +152,14 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -180,8 +187,8 @@ where
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
             Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
 
-            let lhs_stage_reader = &Self::LhsLoader::as_stage_reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::as_stage_reader(&rhs_loader);
+            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
+            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
             barrier.wait();
 
@@ -191,6 +198,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
+                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -201,6 +209,7 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
+            quantization,
             config.to_smm_config(),
             config,
         );
