@@ -50,6 +50,7 @@ pub enum Variable<D: Dialect> {
     CubeCountY,
     CubeCountZ,
     PlaneDim,
+    PlaneDimChecked,
     UnitPosPlane,
 
     GlobalInputArray(Id, Item<D>),
@@ -147,6 +148,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::UnitPosY => Item::scalar(Elem::U32, true),
             Variable::UnitPosZ => Item::scalar(Elem::U32, true),
             Variable::PlaneDim => Item::scalar(Elem::U32, true),
+            Variable::PlaneDimChecked => Item::scalar(Elem::U32, true),
             Variable::UnitPosPlane => Item::scalar(Elem::U32, true),
 
             Variable::GlobalInputArray(_, e) => *e,
@@ -245,7 +247,8 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::UnitPosX => D::compile_unit_pos_x(f),
             Variable::UnitPosY => D::compile_unit_pos_y(f),
             Variable::UnitPosZ => D::compile_unit_pos_z(f),
-            Variable::PlaneDim => f.write_str("warpSize"),
+            Variable::PlaneDim => D::compile_plane_dim(f),
+            Variable::PlaneDimChecked => D::compile_plane_dim_checked(f),
             Variable::UnitPosPlane => f.write_str("threadIdxGlobal % warpSize"),
 
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
@@ -372,6 +375,7 @@ impl<D: Dialect> Variable<D> {
             Variable::CubePosY => true,
             Variable::CubePosZ => true,
             Variable::PlaneDim => true,
+            Variable::PlaneDimChecked => true,
             Variable::UnitPos => true,
             Variable::UnitPosGlobal => true,
             Variable::UnitPosPlane => true,

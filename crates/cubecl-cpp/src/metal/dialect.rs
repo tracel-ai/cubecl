@@ -332,6 +332,14 @@ impl DialectCubeBuiltins for MslDialect {
         Self::compile_unit_pos(f)?;
         write!(f, ".z")
     }
+
+    fn compile_plane_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threads_per_simdgroup")
+    }
+
+    fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threads_per_simdgroup_checked")
+    }
 }
 
 // Instructions
@@ -549,6 +557,7 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "simd_shuffle({var}, {source})")
     }
+
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -556,6 +565,7 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "simd_shuffle_xor({var}, {offset})")
     }
+
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -563,6 +573,7 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "simd_shuffle_up({var}, {offset})")
     }
+
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -570,12 +581,15 @@ impl DialectInstructions<Self> for MslDialect {
     ) -> std::fmt::Result {
         write!(f, "simd_shuffle_down({var}, {offset})")
     }
+
     fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "simd_all({var})")
     }
+ 
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "simd_any({var})")
     }
+
     fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, output: &Variable<Self>) -> std::fmt::Result {
         // we need to be extra carreful here to be sure to replicate the exact same
         // semantic as CUDA __ballot_sync.

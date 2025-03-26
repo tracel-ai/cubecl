@@ -93,31 +93,128 @@ pub trait DialectBindings<D: Dialect> {
 // Cube builtins dialect
 
 pub trait DialectCubeBuiltins {
-    fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_absolute_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_absolute_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_absolute_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_absolute_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_count(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_count_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_count_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_count_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_count_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_dim_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_dim_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_dim_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_dim_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_cube_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_unit_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_unit_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("absoluteIdx")
+    }
+
+    fn compile_absolute_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("idxGlobal")
+    }
+
+    fn compile_absolute_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_absolute_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_absolute_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_count(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("gridDim")
+    }
+
+    fn compile_cube_count_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("gridDimGlobal")
+    }
+
+    fn compile_cube_count_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_count_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_count_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("blockDim")
+    }
+
+    fn compile_cube_dim_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("blockDimGlobal")
+    }
+
+    fn compile_cube_dim_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_dim_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_dim_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("blockIdx")
+    }
+
+    fn compile_cube_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("blockIdxGlobal")
+    }
+
+    fn compile_cube_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_unit_pos_global(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threadIdxGlobal")
+    }
+
+    fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threadIdx")
+    }
+
+    fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_unit_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_plane_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("warpSize")
+    }
+
+    fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("warpSizeChecked")
+    }
 }
 
 // Instructions

@@ -10,7 +10,6 @@ pub struct Body<D: Dialect> {
     pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
-    pub warp_size_checked: bool,
 }
 
 impl<D: Dialect> Display for Body<D> {
