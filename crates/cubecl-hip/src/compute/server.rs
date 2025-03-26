@@ -6,8 +6,8 @@ use crate::runtime::HipCompiler;
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
-use cubecl_core::Feature;
 use cubecl_core::compute::DebugInformation;
+use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
@@ -222,8 +222,7 @@ impl ComputeServer for HipServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        constants: Vec<server::ConstBinding>,
-        bindings: Vec<server::Binding>,
+        bindings: Bindings,
         mode: ExecutionMode,
     ) {
         let mut kernel_id = kernel.id();
@@ -252,28 +251,28 @@ impl ComputeServer for HipServer {
             }
         };
 
+        let Bindings {
+            inputs,
+            outputs,
+            metadata,
+            scalars,
+            tensor_maps,
+        } = bindings;
+
+        debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
+        let info = self.create(bytemuck::cast_slice(&metadata));
+        let scalars: Vec<_> = scalars.iter().map(|s| self.create(s.data())).collect();
+
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let _ = constants
-            .iter()
-            .map(|it| match it {
-                server::ConstBinding::TensorMap { .. } => {
-                    panic!("TensorMap not supported in ROCm")
-                }
-            })
-            .collect::<Vec<()>>();
-        let resources = bindings
-            .into_iter()
-            .map(|binding| {
-                ctx.memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Couldn't find resource")
-            })
-            .collect::<Vec<_>>();
+        let mut resources: Vec<_> = inputs.into_iter().map(|i| find_resource(ctx, i)).collect();
+        resources.extend(outputs.into_iter().map(|o| find_resource(ctx, o)));
+        resources.push(find_resource(ctx, info.clone().binding()));
+        resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
         if let Some(level) = profile_level {
             ctx.sync();
@@ -346,6 +345,12 @@ impl ComputeServer for HipServer {
             self.ctx.timestamps.disable();
         }
     }
+}
+
+fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {
+    ctx.memory_management
+        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        .expect("Failed to find resource")
 }
 
 impl HipContext {
