@@ -44,7 +44,7 @@ pub struct BarrierExpand<C: CubePrimitive> {
     _c: PhantomData<C>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct BarrierLevel(InnerBarrierLevel);
 
 impl CubeType for BarrierLevel {
@@ -61,7 +61,7 @@ impl CubeDebug for BarrierLevel {
     fn set_debug_name(&self, _scope: &mut Scope, _name: &'static str) {}
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 /// Defines how many units must reach the barrier before execution can continue.
 /// This also determines how `memcpy_async` operations should be handled.
 enum InnerBarrierLevel {
