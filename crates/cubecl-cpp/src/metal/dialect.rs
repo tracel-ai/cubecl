@@ -1,13 +1,9 @@
 use std::fmt::Display;
 
 use crate::{
-    Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler,
-        Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        SupportedWmmaCombinations, Variable, WmmaInstruction,
-    },
+        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
+    }, Dialect
 };
 
 use super::{
@@ -483,15 +479,6 @@ impl DialectInstructions<Self> for MslDialect {
         )
     }
 
-    // sync
-    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
-    }
-
-    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
-    }
-
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
@@ -509,6 +496,25 @@ impl DialectInstructions<Self> for MslDialect {
         };
         writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
     }
+
+    // sync
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
+    }
+
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
+    }
+
+    // unary
+    fn compile_instruction_popcount_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "static_cast<{output}>(popcount({input}))"),
+            Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
+            _ => write!(f, "static_cast<{output}>(popcount({}))", shared::unary::zero_extend(input)),
+        }
+    }
+
 }
 
 // Warp
