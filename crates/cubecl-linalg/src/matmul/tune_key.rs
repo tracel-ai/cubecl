@@ -18,7 +18,7 @@ pub struct MatmulAutotuneKey {
     k: usize,
     #[autotune(anchor)]
     n: usize,
-    #[autotune(anchor(max = 256))]
+    #[autotune(anchor(exp(max = 256)))]
     batch: usize,
     elem_inputs: Elem,
     elem_stage: Elem,
@@ -129,10 +129,10 @@ mod tests {
 
         assert!(!key.round);
         assert!(key.broadcast);
-        assert_eq!(key.m, 512);
+        assert_eq!(key.m, 256);
         assert_eq!(key.k, 512);
-        assert_eq!(key.n, 1024);
-        assert_eq!(key.batch, 8);
+        assert_eq!(key.n, 512);
+        assert_eq!(key.batch, 4);
     }
 
     #[test]

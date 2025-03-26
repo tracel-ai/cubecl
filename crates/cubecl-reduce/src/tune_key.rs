@@ -8,19 +8,20 @@ use serde::{Deserialize, Serialize};
 pub struct ReduceAutotuneKey {
     elem_input: Elem,
     elem_output: Elem,
-    #[autotune(anchor)]
+    potential_line_size: u8,
+    axis_is_contiguous: bool,
+    #[autotune(anchor(exp(min = 16, max = 4096)))]
     reduce_axis_shape: usize,
-    #[autotune(anchor)]
-    reduce_axis_stride: usize,
-    #[autotune(anchor)]
-    outer_axes_product: usize, // The product of the shapes of all axes with greater strides.
+    #[autotune(anchor(exp(max = 16384, base = 4)))]
+    reduce_count: usize,
 }
 
 impl ReduceAutotuneKey {
-    pub fn generate_without_strides(
+    pub fn generate(
         elem_input: Elem,
         elem_output: Elem,
         input_shape: &[usize],
+        axis_is_contiguous: bool,
         axis: usize,
     ) -> Self {
         let rank = input_shape.len();
@@ -30,51 +31,33 @@ impl ReduceAutotuneKey {
         }
 
         let reduce_axis_shape = input_shape[axis];
-        let reduce_axis_stride = 0;
 
-        let outer_axes_product = input_shape
+        let reduce_count = input_shape
             .iter()
             .enumerate()
             .filter_map(|(i, shape)| (i != axis).then_some(shape))
             .product();
 
-        Self::new(
+        let potential_line_size = Self::potential_line_size(elem_input.size(), reduce_axis_shape);
+
+        ReduceAutotuneKey::new(
             elem_input,
             elem_output,
+            potential_line_size,
+            axis_is_contiguous,
             reduce_axis_shape,
-            reduce_axis_stride,
-            outer_axes_product,
+            reduce_count,
         )
     }
 
-    pub fn generate(
-        elem_input: Elem,
-        elem_output: Elem,
-        input_shape: &[usize],
-        input_strides: &[usize],
-        axis: usize,
-    ) -> Self {
-        let rank = input_shape.len();
-
-        if axis > rank {
-            panic!("axis {axis} is out-of-bound for a rank of {rank}");
+    fn potential_line_size(elem_size: usize, mut shape: usize) -> u8 {
+        let mut potential_line_size = 1;
+        let max_bytes_in_line = 16; // 128 bits
+        //
+        while shape % 2 == 0 && potential_line_size as usize * elem_size < max_bytes_in_line {
+            potential_line_size *= 2;
+            shape /= 2;
         }
-
-        let reduce_axis_shape = input_shape[axis];
-        let reduce_axis_stride = input_strides[axis];
-
-        let outer_axes_product = input_strides
-            .iter()
-            .zip(input_shape.iter())
-            .filter_map(|(stride, shape)| (*stride > reduce_axis_stride).then_some(shape))
-            .product();
-
-        Self::new(
-            elem_input,
-            elem_output,
-            reduce_axis_shape,
-            reduce_axis_stride,
-            outer_axes_product,
-        )
+        potential_line_size
     }
 }

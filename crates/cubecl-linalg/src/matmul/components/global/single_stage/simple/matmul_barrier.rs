@@ -1,29 +1,38 @@
+use std::marker::PhantomData;
+
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::single_stage::AsyncFullLoader;
+use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
+use crate::matmul::components::global::single_stage::AsyncLhsLoader;
+use crate::matmul::components::global::single_stage::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::single_stage::FullLoader;
+use crate::matmul::components::stage::StageMatmul;
+use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+
+use barrier::Barrier;
+use cubecl_core::Feature;
+use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+
 use crate::matmul::{
     components::{
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
-        global::{
-            GlobalConfig, GlobalMatmul, GlobalMatmulFamily, IndexedQuantization,
-            ZeroAccumulatorLoader,
-            output_loader::Unloader,
-            single_stage::{
-                AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-                FullLoader,
-            },
-        },
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
+        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
         stage::{
-            self, StageMatmul,
-            multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+            self,
+            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
         },
     },
     kernels::MatmulAvailabilityError,
 };
-use barrier::Barrier;
-use core::marker::PhantomData;
-use cubecl::Feature;
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
+use cubecl_std::CubeOption;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,

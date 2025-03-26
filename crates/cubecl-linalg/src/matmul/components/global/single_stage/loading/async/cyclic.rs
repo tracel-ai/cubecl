@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
-    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use super::{AsyncFullLoadingStrategy, CopyMechanism};
+use super::AsyncFullLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
