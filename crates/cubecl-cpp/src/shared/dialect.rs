@@ -13,7 +13,7 @@ pub trait Dialect:
     DialectIncludes<Self>
     + DialectTypes<Self>
     + DialectBindings<Self>
-    + DialectCubeBuiltins
+    + DialectCubeBuiltins<Self>
     + DialectInstructions<Self>
     + DialectWmmaCompiler<Self>
     + Default
@@ -92,7 +92,7 @@ pub trait DialectBindings<D: Dialect> {
 
 // Cube builtins dialect
 
-pub trait DialectCubeBuiltins {
+pub trait DialectCubeBuiltins<D: Dialect> {
     fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("absoluteIdx")
     }
@@ -214,6 +214,12 @@ pub trait DialectCubeBuiltins {
 
     fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("warpSizeChecked")
+    }
+
+    fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let absolute_pos_global = Variable::<D>::AbsolutePosGlobal;
+        let plane_dim = Variable::<D>::PlaneDim;
+        write!(f, "{absolute_pos_global} % {plane_dim}")
     }
 }
 

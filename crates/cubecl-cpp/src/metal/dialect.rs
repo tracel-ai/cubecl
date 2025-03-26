@@ -217,7 +217,7 @@ void {}(",
 
 // Cube builtins dialect
 
-impl DialectCubeBuiltins for MslDialect {
+impl DialectCubeBuiltins<Self> for MslDialect {
     fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("thread_pos_in_grid")
     }
@@ -340,6 +340,11 @@ impl DialectCubeBuiltins for MslDialect {
     fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("threads_per_simdgroup_checked")
     }
+
+    fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("thread_index_in_simdgroup")
+    }
+
 }
 
 // Instructions

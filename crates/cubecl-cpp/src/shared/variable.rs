@@ -249,7 +249,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::UnitPosZ => D::compile_unit_pos_z(f),
             Variable::PlaneDim => D::compile_plane_dim(f),
             Variable::PlaneDimChecked => D::compile_plane_dim_checked(f),
-            Variable::UnitPosPlane => f.write_str("threadIdxGlobal % warpSize"),
+            Variable::UnitPosPlane => D::compile_unit_pos_plane(f),
 
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::LocalArray(id, _, _) => {
