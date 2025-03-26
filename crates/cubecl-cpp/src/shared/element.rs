@@ -42,17 +42,7 @@ pub enum AtomicKind<D: Dialect> {
 
 impl<D: Dialect> Display for AtomicKind<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::I32 => Elem::<D>::I32.fmt(f),
-            Self::I64 => Elem::<D>::I64.fmt(f),
-            Self::U32 => Elem::<D>::U32.fmt(f),
-            Self::U64 => Elem::<D>::U64.fmt(f),
-            Self::F16 => Elem::<D>::F16.fmt(f),
-            Self::BF16 => Elem::<D>::BF16.fmt(f),
-            Self::F32 => Elem::<D>::F32.fmt(f),
-            Self::F64 => Elem::<D>::F64.fmt(f),
-            Self::_Dialect(_) => Ok(()),
-        }
+        D::compile_atomic_kind(f, self)
     }
 }
 

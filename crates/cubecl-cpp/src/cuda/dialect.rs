@@ -2,9 +2,11 @@ use std::collections::HashSet;
 use std::fmt::Display;
 
 use crate::{
+    Dialect,
     shared::{
-        self, compile_instruction_printf, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
-    }, Dialect
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
+        DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item,
+    },
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -112,7 +114,6 @@ impl DialectTypes<Self> for CudaDialect {
     fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "__shared__")
     }
-
 }
 
 // Kernel argument bindings
@@ -267,14 +268,6 @@ impl DialectInstructions<Self> for CudaDialect {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__threadfence();")
-    }
-
-    fn compile_instruction_printf(
-        f: &mut std::fmt::Formatter<'_>,
-        format_string: &String,
-        args: &Vec<Variable<Self>>,
-    ) -> std::fmt::Result {
-        compile_instruction_printf::<Self>(f, format_string, args)
     }
 }
 
