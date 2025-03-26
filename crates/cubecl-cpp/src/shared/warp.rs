@@ -222,7 +222,8 @@ fn reduce_broadcast<D: Dialect>(
     write!(f, "{out_fmt} = {{ ")?;
     for i in 0..input.item().vectorization {
         let comma = if i > 0 { ", " } else { "" };
-        D::compile_warp_shuffle(f, &format!("{comma}{}", input.index(i)), &format!("{id}"))?;
+        write!(f, "{comma}")?;
+        D::compile_warp_shuffle(f, &format!("{}", input.index(i)), &format!("{id}"))?;
     }
     writeln!(f, " }};")
 }
@@ -267,7 +268,8 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> s
     write!(f, "{out_fmt} = {{ ")?;
     for i in 0..input.item().vectorization {
         let comma = if i > 0 { ", " } else { "" };
-        quantifier(f, &format!("{comma}{}", input.index(i)))?;
+        write!(f, "{comma}")?;
+        quantifier(f, &format!("{}", input.index(i)))?;
     }
     writeln!(f, "}};")
 }
