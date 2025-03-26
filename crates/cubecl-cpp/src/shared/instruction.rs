@@ -246,8 +246,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 len,
             } => {
                 let item = out.item();
+                let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = min({len}, {end}) - {start};")?;
-                writeln!(f, "{item} *{out} = {input} + {start};")
+                writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),

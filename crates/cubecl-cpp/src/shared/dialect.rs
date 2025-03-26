@@ -4,8 +4,7 @@ use std::{collections::HashSet, fmt::Debug};
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, Elem, Flags, Fragment, FragmentIdent,
-    FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction,
+    Architecture, AtomicKind, Binding, Component, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
 };
 
 // Base dialect
@@ -250,9 +249,6 @@ pub trait DialectInstructions<D: Dialect> {
         writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
     }
 
-    // sync
-    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
@@ -270,6 +266,20 @@ pub trait DialectInstructions<D: Dialect> {
         };
         writeln!(f, "printf(\"{format_string}\"{args});")
     }
+
+    // sync
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    // unary
+    fn compile_instruction_popcount_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, _output: Elem<D>) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
+            _ => write!(f, "__popc({})", super::unary::zero_extend(input)),
+        }
+    }
+
 }
 
 // Warp
