@@ -1,3 +1,5 @@
+use cubecl_core::CubeDim;
+
 use super::{Dialect, Instruction, Variable, barrier::BarrierOps, pipeline::PipelineOps};
 use std::fmt::Display;
 
@@ -11,6 +13,7 @@ pub struct Body<D: Dialect> {
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
     pub warp_size_checked: bool,
+    pub cube_dim: CubeDim,
     pub settings: VariableSettings,
 }
 
@@ -83,11 +86,21 @@ impl<D: Dialect> Display for Body<D> {
         }
 
         if self.warp_size_checked {
-            f.write_str(
-                "
- int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
+            let min_warp_size = self.cube_dim.num_elems();
+            if min_warp_size < 32 {
+                writeln!(
+                    f,
+                    "
+ const int warpSizeChecked = {min_warp_size};
 ",
-            )?;
+                )?;
+            } else {
+                f.write_str(
+                    "
+ const int warpSizeChecked = warpSize;
+",
+                )?;
+            }
         }
 
         for shared in self.shared_memories.iter() {

@@ -132,6 +132,7 @@ impl<D: Dialect> CppCompiler<D> {
             .collect();
 
         let body = Body {
+            cube_dim: value.cube_dim,
             instructions,
             shared_memories: self.shared_memories,
             pipelines: self.pipelines,
