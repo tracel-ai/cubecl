@@ -30,6 +30,14 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         SharedMemory { _val: PhantomData }
     }
 
+    pub fn new_aligned<S: Index>(
+        _size: S,
+        _vectorization_factor: u32,
+        _alignment: u32,
+    ) -> SharedMemory<Line<T>> {
+        SharedMemory { _val: PhantomData }
+    }
+
     pub fn __expand_new_lined(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
@@ -42,9 +50,29 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         let var = scope.create_shared(
             Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
             size,
+            None,
         );
         ExpandElementTyped::new(var)
     }
+
+    pub fn __expand_new_aligned(
+        scope: &mut Scope,
+        size: ExpandElementTyped<u32>,
+        vectorization_factor: u32,
+        alignment: u32,
+    ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
+        let size = size
+            .constant()
+            .expect("Shared memory need constant initialization value")
+            .as_u32();
+        let var = scope.create_shared(
+            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
+            size,
+            Some(alignment),
+        );
+        ExpandElementTyped::new(var)
+    }
+
     pub fn vectorized<S: Index>(_size: S, _vectorization_factor: u32) -> Self {
         SharedMemory { _val: PhantomData }
     }
@@ -61,6 +89,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         let var = scope.create_shared(
             Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
             size,
+            None,
         );
         ExpandElementTyped::new(var)
     }
@@ -73,7 +102,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(Item::new(T::as_elem(scope)), size);
+        let var = scope.create_shared(Item::new(T::as_elem(scope)), size, None);
         ExpandElementTyped::new(var)
     }
 }

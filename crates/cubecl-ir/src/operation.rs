@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, Item, NonSemantic, PipelineOps, Plane, Synchronization, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator,
+    Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
     comparison::Comparison,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
@@ -52,6 +52,8 @@ pub enum Operation {
     Pipeline(PipelineOps),
     #[operation(nested)]
     Barrier(BarrierOps),
+    #[operation(nested)]
+    Tma(TmaOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
@@ -152,6 +154,7 @@ impl Display for Operation {
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
+            Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
         }
     }
 }

@@ -25,7 +25,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
 ) {
     let rank = out.rank();
 
-    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
+    let batch_out = nth_batch * out.stride(rank - 2) * out.shape(rank - 2);
     let mut batch_lhs = 0u32.runtime();
     let mut batch_rhs = 0u32.runtime();
     for axis in 0..rank - 2 {
@@ -111,9 +111,9 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     };
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, batch_rhs, config),
-        GMM::init_unloader(out, x_offset, y_offset, batch_out),
+        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, batch_lhs, config),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, config),
+        GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,
         indexed_quantization,

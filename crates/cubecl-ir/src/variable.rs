@@ -49,6 +49,7 @@ pub enum VariableKind {
     GlobalInputArray(Id),
     GlobalOutputArray(Id),
     GlobalScalar(Id),
+    TensorMap(Id),
     LocalArray {
         id: Id,
         length: u32,
@@ -71,6 +72,7 @@ pub enum VariableKind {
     SharedMemory {
         id: Id,
         length: u32,
+        alignment: Option<u32>,
     },
     Matrix {
         id: Id,
@@ -125,6 +127,7 @@ impl Variable {
     pub fn is_immutable(&self) -> bool {
         match self.kind {
             VariableKind::GlobalOutputArray { .. } => false,
+            VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::SharedMemory { .. } => false,
             VariableKind::Matrix { .. } => false,
@@ -468,6 +471,7 @@ impl Display for Variable {
             VariableKind::GlobalInputArray(id) => write!(f, "input({id})"),
             VariableKind::GlobalOutputArray(id) => write!(f, "output({id})"),
             VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
+            VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::ConstantScalar(constant) => write!(f, "{constant}"),
             VariableKind::LocalMut { id } => write!(f, "local({id})"),
             VariableKind::Versioned { id, version } => {
