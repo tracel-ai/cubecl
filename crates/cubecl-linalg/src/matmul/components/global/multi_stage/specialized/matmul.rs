@@ -8,7 +8,7 @@ use crate::matmul::components::{
         output_loader::Unloader,
     },
     stage::{
-        StageMatmul,
+        NoTask, StageMatmul,
         single_buffer::{LhsBufferReader, RhsBufferReader},
     },
 };
@@ -198,7 +198,7 @@ where
             sync_units();
 
             if is_consumer {
-                SMM::execute(
+                SMM::execute::<NoTask>(
                     &lhs_buffer_reader_a,
                     &rhs_buffer_reader_a,
                     &mut lhs_tile,
@@ -206,6 +206,7 @@ where
                     acc,
                     CubeOption::new_None(),
                     config.to_smm_config(),
+                    NoTask::new(),
                 );
             }
 
@@ -215,7 +216,7 @@ where
             sync_units();
 
             if is_consumer {
-                SMM::execute(
+                SMM::execute::<NoTask>(
                     &lhs_buffer_reader_b,
                     &rhs_buffer_reader_b,
                     &mut lhs_tile,
@@ -223,6 +224,7 @@ where
                     acc,
                     CubeOption::new_None(),
                     config.to_smm_config(),
+                    NoTask::new(),
                 );
             }
 

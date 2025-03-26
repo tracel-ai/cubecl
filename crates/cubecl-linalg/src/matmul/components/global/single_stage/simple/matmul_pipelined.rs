@@ -9,7 +9,7 @@ use crate::matmul::components::{
         },
     },
     stage::{
-        StageMatmul,
+        NoTask, StageMatmul,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
@@ -195,7 +195,7 @@ where
             pipeline.consumer_wait();
             sync_units();
 
-            SMM::execute(
+            SMM::execute::<NoTask>(
                 lhs_stage_reader,
                 rhs_stage_reader,
                 &mut lhs_tile,
@@ -203,6 +203,7 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
+                NoTask::new(),
             );
 
             pipeline.consumer_release();

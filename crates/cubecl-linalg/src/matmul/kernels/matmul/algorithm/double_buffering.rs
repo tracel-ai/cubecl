@@ -24,7 +24,7 @@ where
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        CyclicCoalescedBufferLoading<ColMajorTilingOrder>,
+        CyclicCoalescedBufferLoading<RowMajorTilingOrder>,
         CyclicCoalescedBufferLoading<RowMajorTilingOrder>,
     >;
 

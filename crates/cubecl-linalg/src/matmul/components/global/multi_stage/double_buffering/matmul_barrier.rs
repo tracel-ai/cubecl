@@ -7,6 +7,7 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::stage::NoTask;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
@@ -223,7 +224,7 @@ where
             barrier_b.arrive();
 
             barrier_a.wait();
-            SMM::execute(
+            SMM::execute::<NoTask>(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
                 &mut lhs_tile_a,
@@ -231,11 +232,12 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
+                NoTask::new(),
             );
             barrier_a.arrive();
 
             barrier_b.wait();
-            SMM::execute(
+            SMM::execute::<NoTask>(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
                 &mut lhs_tile_b,
@@ -243,6 +245,7 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
+                NoTask::new(),
             );
             barrier_b.arrive();
 
@@ -297,7 +300,7 @@ where
         barrier_b.arrive();
 
         barrier_a.wait();
-        SMM::execute(
+        SMM::execute::<NoTask>(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
             &mut lhs_tile_a,
@@ -305,11 +308,12 @@ where
             acc,
             CubeOption::new_None(),
             config.to_smm_config(),
+            NoTask::new(),
         );
         barrier_a.arrive();
 
         barrier_b.wait();
-        SMM::execute(
+        SMM::execute::<NoTask>(
             &lhs_buffer_reader_b,
             &rhs_buffer_reader_b,
             &mut lhs_tile_b,
@@ -317,6 +321,7 @@ where
             acc,
             CubeOption::new_None(),
             config.to_smm_config(),
+            NoTask::new(),
         );
         barrier_b.arrive();
 

@@ -71,7 +71,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     ///
     /// If scaling is provided, the matmul will be performed in a quantized version.
     /// This assumes that [read_accumulator] is called with some `quantization` provided.
-    fn execute(
+    fn execute<TK: AsyncTask>(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,
@@ -79,6 +79,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
+        task: TK,
     );
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);
@@ -110,6 +111,26 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
+}
+
+#[cube]
+pub trait AsyncTask: CubeType {
+    fn execute(this: &mut Self, #[comptime] task_id: u32);
+}
+
+#[derive(CubeType)]
+pub struct NoTask {}
+
+#[cube]
+impl AsyncTask for NoTask {
+    fn execute(_this: &mut Self, #[comptime] _task_id: u32) {}
+}
+
+#[cube]
+impl NoTask {
+    pub fn new() -> NoTask {
+        NoTask {}
+    }
 }
 
 #[cube]

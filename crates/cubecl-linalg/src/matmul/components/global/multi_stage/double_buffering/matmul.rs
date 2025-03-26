@@ -7,6 +7,9 @@ use crate::matmul::components::global::multi_stage::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::stage::AsyncTask;
+use crate::matmul::components::stage::NoTask;
+use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
@@ -173,13 +176,18 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        for _ in 0..num_loops {
+        for _ in 1..num_loops {
             sync_units();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            let task =
+                DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+                    BufferId::B,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                );
 
-            SMM::execute(
+            SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
                 &mut lhs_tile_a,
@@ -187,6 +195,7 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
+                task,
             );
 
             sync_units();
@@ -194,10 +203,15 @@ where
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+            let task =
+                DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+                    BufferId::A,
+                    &lhs_loader,
+                    &rhs_loader,
+                    config,
+                );
 
-            SMM::execute(
+            SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
                 &mut lhs_tile_b,
@@ -205,10 +219,42 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
+                task,
             );
         }
 
         sync_units();
+
+        let task = DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+            BufferId::B,
+            &lhs_loader,
+            &rhs_loader,
+            config,
+        );
+
+        SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
+            &lhs_buffer_reader_a,
+            &rhs_buffer_reader_a,
+            &mut lhs_tile_a,
+            &mut rhs_tile_a,
+            acc,
+            CubeOption::new_None(),
+            config.to_smm_config(),
+            task,
+        );
+
+        sync_units();
+
+        SMM::execute::<NoTask>(
+            &lhs_buffer_reader_b,
+            &rhs_buffer_reader_b,
+            &mut lhs_tile_b,
+            &mut rhs_tile_b,
+            acc,
+            CubeOption::new_None(),
+            config.to_smm_config(),
+            NoTask::new(),
+        );
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
@@ -257,5 +303,58 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
+    }
+}
+
+#[derive(CubeType)]
+struct DoubleBufferingAsyncTask<Lhs: CubeType, Rhs: CubeType, Config: Clone> {
+    #[cube(comptime)]
+    buffer_id: BufferId,
+    loader_lhs: Lhs,
+    loader_rhs: Rhs,
+    #[cube(comptime)]
+    config: Config,
+}
+
+#[cube]
+impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, Config: Clone>
+    DoubleBufferingAsyncTask<Lhs, Rhs, Config>
+{
+    pub fn new(
+        #[comptime] buffer_id: BufferId,
+        loader_lhs: &Lhs,
+        loader_rhs: &Rhs,
+        #[comptime] config: Config,
+    ) -> DoubleBufferingAsyncTask<Lhs, Rhs, Config> {
+        DoubleBufferingAsyncTask::<Lhs, Rhs, Config> {
+            buffer_id,
+            loader_lhs: comptime![loader_lhs.clone()],
+            loader_rhs: comptime![loader_rhs.clone()],
+            config,
+        }
+    }
+}
+
+#[cube]
+impl<
+    EG: Numeric,
+    ES: Numeric,
+    LL: SyncBufferLoadingStrategy,
+    RL: SyncBufferLoadingStrategy,
+    Config: StageConfig,
+> AsyncTask
+    for DoubleBufferingAsyncTask<
+        SyncLhsBufferLoader<EG, ES, Config, LL>,
+        SyncRhsBufferLoader<EG, ES, Config, RL>,
+        CommonGlobalConfig<Config>,
+    >
+{
+    fn execute(this: &mut Self, #[comptime] task_id: u32) {
+        if comptime![task_id == 2] {
+            SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
+        }
+        if comptime![task_id == 3] {
+            SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
+        }
     }
 }

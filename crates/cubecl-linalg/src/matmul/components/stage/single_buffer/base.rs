@@ -6,7 +6,7 @@ use cubecl_std::CubeOption;
 
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{StageMatmulFamily, TilingLayout};
+use crate::matmul::components::stage::{AsyncTask, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
@@ -120,7 +120,7 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
-    fn execute(
+    fn execute<TK: AsyncTask>(
         lhs_reader: &LhsBufferReader<ES, TL>,
         rhs_reader: &RhsBufferReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,
@@ -128,6 +128,7 @@ where
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
+        mut task: TK,
     ) {
         comptime! {
             if scaling.is_some() {
@@ -138,14 +139,18 @@ where
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
 
+        let mut task_id = comptime![0u32];
+
         #[unroll]
         for accumulator_iter in 0..acc.len() {
             let tile_rhs =
                 RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter, config);
             TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
+            TK::execute(&mut task, task_id);
 
             let accumulator = acc.index_mut(accumulator_iter);
             TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
+            comptime![task_id += 1];
         }
     }
 
