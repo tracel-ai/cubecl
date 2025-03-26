@@ -99,6 +99,7 @@ fn main() {
     #[cfg(feature = "wgpu-spirv")]
     {
         type R = cubecl::wgpu::WgpuRuntime;
+        use crate::matmul::SyncLoadingStrategy;
         use half::f16;
 
         run::<R, f16>(
@@ -120,6 +121,8 @@ fn main() {
 
     #[cfg(all(feature = "hip", target_os = "linux"))]
     {
+        use crate::matmul::SyncLoadingStrategy;
+
         // TODO: unless annotated OOM, all the benches can randomly hang
         // Full-precision ----------------------------------------------------
         // Tiling2D
@@ -155,6 +158,7 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
+        use crate::matmul::{AsyncLoadingStrategy, SyncLoadingStrategy};
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(

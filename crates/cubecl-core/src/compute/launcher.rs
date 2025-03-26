@@ -1,13 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::MetadataBuilder;
+use crate::compute::KernelTask;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
 use crate::{Kernel, Runtime};
 use crate::{KernelSettings, prelude::CubePrimitive};
-use crate::{
-    MetadataBuilder,
-    ir::{Elem, FloatKind, IntKind},
-};
-use crate::{compute::KernelTask, ir::UIntKind};
 use bytemuck::{AnyBitPattern, NoUninit};
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{client::ComputeClient, server::Bindings};
@@ -27,7 +24,6 @@ pub struct KernelLauncher<R: Runtime> {
     scalar_i32: ScalarState<i32>,
     scalar_i16: ScalarState<i16>,
     scalar_i8: ScalarState<i8>,
-    scalar_order: Vec<Elem>,
     pub settings: KernelSettings,
     runtime: PhantomData<R>,
 }
@@ -60,73 +56,61 @@ impl<R: Runtime> KernelLauncher<R> {
 
     /// Register a u8 scalar to be launched.
     pub fn register_u8(&mut self, scalar: u8) {
-        self.register_scalar(Elem::UInt(UIntKind::U8));
         self.scalar_u8.push(scalar);
     }
 
     /// Register a u16 scalar to be launched.
     pub fn register_u16(&mut self, scalar: u16) {
-        self.register_scalar(Elem::UInt(UIntKind::U16));
         self.scalar_u16.push(scalar);
     }
 
     /// Register a u32 scalar to be launched.
     pub fn register_u32(&mut self, scalar: u32) {
-        self.register_scalar(Elem::UInt(UIntKind::U32));
         self.scalar_u32.push(scalar);
     }
 
     /// Register a u64 scalar to be launched.
     pub fn register_u64(&mut self, scalar: u64) {
-        self.register_scalar(Elem::UInt(UIntKind::U64));
         self.scalar_u64.push(scalar);
     }
 
     /// Register a i8 scalar to be launched.
     pub fn register_i8(&mut self, scalar: i8) {
-        self.register_scalar(Elem::Int(IntKind::I8));
         self.scalar_i8.push(scalar);
     }
 
     /// Register a i16 scalar to be launched.
     pub fn register_i16(&mut self, scalar: i16) {
-        self.register_scalar(Elem::Int(IntKind::I16));
         self.scalar_i16.push(scalar);
     }
 
     /// Register a i32 scalar to be launched.
     pub fn register_i32(&mut self, scalar: i32) {
-        self.register_scalar(Elem::Int(IntKind::I32));
         self.scalar_i32.push(scalar);
     }
 
     /// Register a i64 scalar to be launched.
     pub fn register_i64(&mut self, scalar: i64) {
-        self.register_scalar(Elem::Int(IntKind::I64));
         self.scalar_i64.push(scalar);
     }
 
     /// Register a bf16 scalar to be launched.
     pub fn register_bf16(&mut self, scalar: half::bf16) {
-        self.register_scalar(Elem::Float(FloatKind::BF16));
         self.scalar_bf16.push(scalar);
     }
 
     /// Register a f16 scalar to be launched.
     pub fn register_f16(&mut self, scalar: half::f16) {
-        self.register_scalar(Elem::Float(FloatKind::F16));
         self.scalar_f16.push(scalar);
     }
 
     /// Register a f32 scalar to be launched.
     pub fn register_f32(&mut self, scalar: f32) {
-        self.register_scalar(Elem::Float(FloatKind::F32));
         self.scalar_f32.push(scalar);
     }
 
     /// Register a f64 scalar to be launched.
     pub fn register_f64(&mut self, scalar: f64) {
-        self.register_scalar(Elem::Float(FloatKind::F64));
         self.scalar_f64.push(scalar);
     }
 
@@ -195,12 +179,6 @@ impl<R: Runtime> KernelLauncher<R> {
         bindings.scalars.sort_by_key(|it| it.elem);
 
         bindings
-    }
-
-    fn register_scalar(&mut self, elem: Elem) {
-        if !self.scalar_order.contains(&elem) {
-            self.scalar_order.push(elem);
-        }
     }
 }
 
@@ -407,7 +385,6 @@ impl<R: Runtime> Default for KernelLauncher<R> {
             scalar_i32: ScalarState::Empty,
             scalar_i16: ScalarState::Empty,
             scalar_i8: ScalarState::Empty,
-            scalar_order: Vec::new(),
             settings: Default::default(),
             runtime: PhantomData,
         }
