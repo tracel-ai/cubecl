@@ -272,11 +272,37 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
     // unary
+    fn compile_instruction_leading_zeros_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, _output: Elem<D>) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            elem => write!(
+                f,
+                "__clz({}) - {}",
+                super::unary::zero_extend(input),
+                (size_of::<u32>() - elem.size()) * 8
+            ),
+        }
+    }
+
     fn compile_instruction_popcount_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, _output: Elem<D>) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "__popc({input})"),
             Elem::I64 | Elem::U64 => write!(f, "__popcll({input})"),
             _ => write!(f, "__popc({})", super::unary::zero_extend(input)),
+        }
+    }
+
+    fn compile_instruction_reverse_bits_scalar<T: Component<D>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<D>) -> std::fmt::Result {
+        match output {
+            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
+            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
+            _ => write!(
+                f,
+                "{output}(__brev({}) >> {})",
+                super::unary::zero_extend(input),
+                (size_of::<u32>() - output.size()) * 8
+            ),
         }
     }
 

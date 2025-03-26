@@ -507,11 +507,37 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     // unary
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "static_cast<{output}>(clz({input}))"),
+            Elem::I64 | Elem::U64 => panic!("leading_zeros instruction does not support 64-bit int"),
+            elem => write!(
+                f,
+                "static_cast<{output}>(clz({})) - {}",
+                shared::unary::zero_extend(input),
+                (size_of::<u32>() - elem.size()) * 8
+            ),
+        }
+    }
+
     fn compile_instruction_popcount_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
         match input.elem() {
             Elem::I32 | Elem::U32 => write!(f, "static_cast<{output}>(popcount({input}))"),
             Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
             _ => write!(f, "static_cast<{output}>(popcount({}))", shared::unary::zero_extend(input)),
+        }
+    }
+
+    fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
+        match output {
+            Elem::I32 | Elem::U32 => write!(f, "reverse_bits({input})"),
+            Elem::I64 | Elem::U64 => panic!("reverse_bits instruction does not support 64-bit int"),
+            _ => write!(
+                f,
+                "{output}(reverse_bits({}) >> {})",
+                shared::unary::zero_extend(input),
+                (size_of::<u32>() - output.size()) * 8
+            ),
         }
     }
 

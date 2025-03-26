@@ -191,16 +191,7 @@ impl<D: Dialect> Unary<D> for ReverseBits {
         input: Input,
         elem: Elem<D>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
-            _ => write!(
-                f,
-                "{elem}(__brev({}) >> {})",
-                zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        D::compile_instruction_reverse_bits_scalar(f, input, elem)
     }
 }
 
@@ -210,18 +201,9 @@ impl<D: Dialect> Unary<D> for LeadingZeros {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
-            elem => write!(
-                f,
-                "__clz({}) - {}",
-                zero_extend(input),
-                (size_of::<u32>() - elem.size()) * 8
-            ),
-        }
+        D::compile_instruction_leading_zeros_scalar(f, input, elem)
     }
 }
 
