@@ -238,7 +238,7 @@ where
             );
 
             sync_units();
-            // barrier.wait();
+            barrier.wait();
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
@@ -291,6 +291,7 @@ where
         lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
@@ -301,6 +302,7 @@ where
         rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
@@ -311,6 +313,7 @@ where
         out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)
