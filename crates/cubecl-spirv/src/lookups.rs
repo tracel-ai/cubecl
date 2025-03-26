@@ -113,6 +113,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 target.generate_binding(self, binding, name.into(), i as u32)
             })
             .collect();
+
         let offset = self.state.inputs.len() as u32;
         self.state.outputs = kernel
             .outputs
@@ -125,7 +126,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 target.generate_binding(self, binding, name.into(), i as u32 + offset)
             })
             .collect();
+
         let offset = offset + self.state.outputs.len() as u32;
+        let info_binding = Binding {
+            location: Location::Storage,
+            visibility: Visibility::Read,
+            item: ir::Item::new(ir::Elem::UInt(ir::UIntKind::U32)),
+            size: None,
+            has_extended_meta: false,
+        };
+        self.state.info = target.generate_binding(self, info_binding, "info".to_string(), offset);
+
+        let offset = offset + 1;
         self.state.scalar_bindings = kernel
             .scalars
             .into_iter()
@@ -146,16 +158,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 )
             })
             .collect();
-        let info_index = offset + self.state.scalar_bindings.len() as u32;
-        let info_binding = Binding {
-            location: Location::Storage,
-            visibility: Visibility::Read,
-            item: ir::Item::new(ir::Elem::UInt(ir::UIntKind::U32)),
-            size: None,
-            has_extended_meta: false,
-        };
-        self.state.info =
-            target.generate_binding(self, info_binding, "info".to_string(), info_index);
 
         let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
         self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();

@@ -107,8 +107,6 @@ impl WgpuStream {
                 .map(|s| self.mem_manage.get_resource(s.clone().binding())),
         );
 
-        println!("resources: {resources:#?}");
-
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
@@ -146,7 +144,6 @@ impl WgpuStream {
                 resource: r.as_wgpu_bind_resource(),
             })
             .collect::<Vec<_>>();
-        println!("entries: {entries:#?}");
 
         let group_layout = pipeline.get_bind_group_layout(0);
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

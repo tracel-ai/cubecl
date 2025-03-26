@@ -1,3 +1,5 @@
+use std::iter;
+
 use ash::{
     khr::cooperative_matrix,
     vk::{
@@ -32,8 +34,10 @@ pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
     repr.bindings
         .iter()
+        .map(|it| it.visibility)
+        .chain(iter::once(Visibility::Read)) // info
+        .chain(repr.scalars.iter().map(|_| Visibility::Read))
         .enumerate()
-        .map(|it| (it.0, it.1.visibility))
         .collect()
 }
 

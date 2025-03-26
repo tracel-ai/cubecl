@@ -64,8 +64,8 @@ impl SpirvTarget for GLCompute {
             .into_iter()
             .chain(b.state.inputs.iter().copied())
             .chain(b.state.outputs.iter().copied())
-            .chain(b.state.scalar_bindings.values().copied())
             .chain(iter::once(b.state.info))
+            .chain(b.state.scalar_bindings.values().copied())
             .chain(b.state.shared_memories.values().map(|it| it.id))
             .collect();
 
