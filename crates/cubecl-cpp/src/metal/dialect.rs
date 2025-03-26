@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     shared::{
-        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
+        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
     }, Dialect
 };
 
@@ -509,11 +509,11 @@ impl DialectInstructions<Self> for MslDialect {
     // unary
     fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "static_cast<{output}>(clz({input}))"),
+            Elem::I32 | Elem::U32 => write!(f, "({output})(clz({input}))"),
             Elem::I64 | Elem::U64 => panic!("leading_zeros instruction does not support 64-bit int"),
             elem => write!(
                 f,
-                "static_cast<{output}>(clz({})) - {}",
+                "({output})(clz({})) - {}",
                 shared::unary::zero_extend(input),
                 (size_of::<u32>() - elem.size()) * 8
             ),
@@ -522,9 +522,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_instruction_popcount_scalar<T: Component<Self>>(f: &mut std::fmt::Formatter<'_>, input: T, output: Elem<Self>) -> std::fmt::Result {
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "static_cast<{output}>(popcount({input}))"),
+            Elem::I32 | Elem::U32 => write!(f, "({output})(popcount({input}))"),
             Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
-            _ => write!(f, "static_cast<{output}>(popcount({}))", shared::unary::zero_extend(input)),
+            _ => write!(f, "({output})(popcount({}))", shared::unary::zero_extend(input)),
         }
     }
 
@@ -541,11 +541,7 @@ impl DialectInstructions<Self> for MslDialect {
         }
     }
 
-}
-
-// Warp
-
-impl DialectWarp for MslDialect {
+    // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -580,9 +576,18 @@ impl DialectWarp for MslDialect {
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "simd_any({var})")
     }
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        write!(f, "simd_ballot({out})")
+    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, output: &Variable<Self>) -> std::fmt::Result {
+        // we need to be extra carreful here to be sure to replicate the exact same
+        // semantic as CUDA __ballot_sync.
+        // __ballot_sync returns a bitmaks of active threads that evaluated to true.
+        // simd_ballot returns a simd_vote class which contains the bits that represent
+        // all the thread as a private member, the bit is true if the thread evaluated to
+        // true. On this class the all() method returns true if all the ACTIVE thread
+        // evaluates to true.
+        let out_elem = output.item().elem;
+        write!(f, "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))")
     }
+
 }
 
 // Coop Matrices dialect

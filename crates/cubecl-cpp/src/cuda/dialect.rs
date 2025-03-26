@@ -2,11 +2,10 @@ use std::collections::HashSet;
 use std::fmt::Display;
 
 use crate::{
-    Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
-        DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item,
-    },
+        DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable,
+    }, Dialect
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -262,6 +261,7 @@ impl DialectCubeBuiltins for CudaDialect {
 // Instructions
 
 impl DialectInstructions<Self> for CudaDialect {
+    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__syncthreads();\n")
     }
@@ -269,11 +269,8 @@ impl DialectInstructions<Self> for CudaDialect {
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__threadfence();")
     }
-}
 
-// Warp
-
-impl DialectWarp for CudaDialect {
+    // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
@@ -308,8 +305,9 @@ impl DialectWarp for CudaDialect {
     fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
         write!(f, "__any_sync(-1, {var})")
     }
-    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        write!(f, "__ballot_sync(-1, {out})")
+
+    fn compile_warp_ballot(f: &mut std::fmt::Formatter<'_>, input: &Variable<Self>, _output: &Variable<Self>) -> std::fmt::Result {
+        write!(f, "__ballot_sync(-1, {input})")
     }
 }
 

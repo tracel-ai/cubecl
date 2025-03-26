@@ -85,7 +85,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     "
 {out_fmt} = {{ "
                 )?;
-                D::compile_warp_ballot(f, &format!("{input}"))?;
+                D::compile_warp_ballot(f, input, out)?;
                 writeln!(f, ", 0, 0, 0 }};")
             }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
