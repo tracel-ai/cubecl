@@ -4,7 +4,11 @@ use super::{
     Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
     barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
 };
-use std::{borrow::Cow, fmt::Display, marker::PhantomData};
+use std::{
+    borrow::Cow,
+    fmt::{Display, Write},
+    marker::PhantomData,
+};
 
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -158,6 +162,14 @@ pub enum Instruction<D: Dialect> {
     },
     SyncThreads,
     ThreadFence,
+    ProxySharedFence,
+    BulkCommitGroup,
+    BulkWaitGroup {
+        max_pending: u32,
+    },
+    BulkWaitGroupRead {
+        max_pending: u32,
+    },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
@@ -206,6 +218,11 @@ pub enum Instruction<D: Dialect> {
     },
     Pipeline(PipelineOps<D>),
     Barrier(BarrierOps<D>),
+    MemCopyAsyncTensorSharedToGlobal {
+        smem_buffer: Variable<D>,
+        tensor_map: Variable<D>,
+        indices: Vec<Variable<D>>,
+    },
     Line {
         file: Cow<'static, str>,
         line: u32,
@@ -372,7 +389,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
 
                 f.write_str("}\n")
             }
-
             Instruction::Loop { instructions } => {
                 writeln!(f, "while (true) {{")?;
                 for i in instructions {
@@ -523,7 +539,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {length};")
             }
-
             Instruction::Warp(it) => write!(f, "{it}"),
             Instruction::Fma { a, b, c, out } => Fma::format(f, a, b, c, out),
             Instruction::Wmma(it) => write!(f, "{it}"),
@@ -686,6 +701,39 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
+            Instruction::ProxySharedFence => {
+                writeln!(
+                    f,
+                    "cuda::device::experimental::fence_proxy_async_shared_cta();"
+                )
+            }
+            Instruction::BulkCommitGroup => writeln!(
+                f,
+                "cuda::device::experimental::cp_async_bulk_commit_group();"
+            ),
+            Instruction::BulkWaitGroup { max_pending } => writeln!(
+                f,
+                "cuda::device::experimental::cp_async_bulk_wait_group<{max_pending}>();"
+            ),
+            Instruction::BulkWaitGroupRead { max_pending } => writeln!(
+                f,
+                "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
+            ),
+            Instruction::MemCopyAsyncTensorSharedToGlobal {
+                smem_buffer,
+                tensor_map,
+                indices,
+            } => {
+                let rank = indices.len();
+                let indices = indices.iter().rev().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
+                writeln!(
+                    f,
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} &{smem_buffer});"
+                )
+            }
         }
     }
 }

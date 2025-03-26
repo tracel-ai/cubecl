@@ -4,7 +4,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
-    server::{Binding, ComputeServer, CubeCount, Handle},
+    server::{Binding, BindingWithMeta, ComputeServer, ConstBinding, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
@@ -89,6 +89,42 @@ where
         cubecl_common::reader::read_sync(self.channel.read([binding].into())).remove(0)
     }
 
+    /// Given bindings, returns owned resources as bytes.
+    pub async fn read_tensor_async(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+        self.channel.read_tensor(bindings).await
+    }
+
+    /// Given bindings, returns owned resources as bytes.
+    ///
+    /// # Remarks
+    ///
+    /// Panics if the read operation fails.
+    ///
+    /// The tensor must be in the same layout as created by the runtime, or more strict.
+    /// Contiguous tensors are always fine, strided tensors are only ok if the stride is similar to
+    /// the one created by the runtime (i.e. padded on only the last dimension). A way to check
+    /// stride compatiblity on the runtime will be added in the future.
+    ///
+    /// Also see [ComputeClient::create_tensor].
+    pub fn read_tensor(&self, bindings: Vec<BindingWithMeta>) -> Vec<Vec<u8>> {
+        cubecl_common::reader::read_sync(self.channel.read_tensor(bindings))
+    }
+
+    /// Given a binding, returns owned resource as bytes.
+    /// See [ComputeClient::read_tensor]
+    pub async fn read_one_tensor_async(&self, binding: BindingWithMeta) -> Vec<u8> {
+        self.channel.read_tensor([binding].into()).await.remove(0)
+    }
+
+    /// Given a binding, returns owned resource as bytes.
+    ///
+    /// # Remarks
+    /// Panics if the read operation fails.
+    /// See [ComputeClient::read_tensor]
+    pub fn read_one_tensor(&self, binding: BindingWithMeta) -> Vec<u8> {
+        cubecl_common::reader::read_sync(self.channel.read_tensor([binding].into())).remove(0)
+    }
+
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
@@ -102,16 +138,50 @@ where
         self.channel.create(data)
     }
 
+    /// Given a resource and shape, stores it and returns the tensor handle and strides.
+    /// This may or may not return contiguous strides. The layout is up to the runtime, and care
+    /// should be taken when indexing.
+    ///
+    /// Currently the tensor may either be contiguous (most runtimes), or "pitched", to use the CUDA
+    /// terminology. This means the last (contiguous) dimension is padded to fit a certain alignment,
+    /// and the strides are adjusted accordingly. This can make memory accesses significantly faster
+    /// since all rows are aligned to at least 16 bytes (the maximum load width), meaning the GPU
+    /// can load as much data as possible in a single instruction. It may be aligned even more to
+    /// also take cache lines into account.
+    ///
+    /// However, the stride must be taken into account when indexing and reading the tensor
+    /// (also see [ComputeClient::read_tensor]).
+    pub fn create_tensor(
+        &self,
+        data: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> (Handle, Vec<usize>) {
+        self.channel.create_tensor(data, shape, elem_size)
+    }
+
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     pub fn empty(&self, size: usize) -> Handle {
         self.channel.empty(size)
     }
 
+    /// Reserves `shape` in the storage, and returns a tensor handle for it.
+    /// See [ComputeClient::create_tensor]
+    pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+        self.channel.empty_tensor(shape, elem_size)
+    }
+
     /// Executes the `kernel` over the given `bindings`.
-    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Vec<Binding>) {
+    pub fn execute(
+        &self,
+        kernel: Server::Kernel,
+        count: CubeCount,
+        constants: Vec<ConstBinding>,
+        bindings: Vec<Binding>,
+    ) {
         unsafe {
             self.channel
-                .execute(kernel, count, bindings, ExecutionMode::Checked)
+                .execute(kernel, count, constants, bindings, ExecutionMode::Checked)
         }
     }
 
@@ -124,11 +194,12 @@ where
         &self,
         kernel: Server::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
     ) {
         unsafe {
             self.channel
-                .execute(kernel, count, bindings, ExecutionMode::Unchecked)
+                .execute(kernel, count, constants, bindings, ExecutionMode::Unchecked)
         }
     }
 

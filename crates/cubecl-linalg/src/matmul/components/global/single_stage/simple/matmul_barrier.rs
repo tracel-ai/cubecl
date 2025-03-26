@@ -190,7 +190,7 @@ where
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-            barrier.wait();
+            barrier.arrive_and_wait();
 
             SMM::execute(
                 lhs_stage_reader,
@@ -219,6 +219,7 @@ where
         lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
@@ -229,6 +230,7 @@ where
         rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
@@ -239,6 +241,7 @@ where
         out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)

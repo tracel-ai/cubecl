@@ -206,8 +206,11 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 ///
 /// # Helper
 ///
-/// Use the `#[autotune]` helper attribute to anchor fields to the next power of two, or rename
-/// the fields for the display implementation.
+/// Use the `#[autotune(anchor)]` helper attribute to anchor a numerical value.
+/// This groups multiple numerical values into the same bucket.
+///
+/// For now, only an exponential function is supported, and it can be modified with `exp`.
+/// By default, the base is '2' and there are no `min` or `max` provided.
 ///
 /// # Example
 /// ```ignore
@@ -216,7 +219,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 ///     #[autotune(name = "Batch Size")]
 ///     batch_size: usize,
 ///     channels: usize,
-///     #[autotune(anchor(max = 1024))]
+///     #[autotune(anchor(exp(min = 16, max = 1024, base = 2)))]
 ///     height: usize,
 ///     #[autotune(anchor)]
 ///     width: usize,

@@ -16,7 +16,7 @@ pub trait Algorithm {
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::result_large_err)]
     fn make_config(
         input: <Self::BatchMatmul as MatmulConfigFactory>::Input,
         problem: &MatmulProblem,
@@ -31,6 +31,7 @@ pub trait Algorithm {
         Ok(config)
     }
 
+    #[allow(clippy::result_large_err)]
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &<Self::BatchMatmul as MatmulConfigFactory>::Config,
