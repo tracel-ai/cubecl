@@ -53,8 +53,11 @@ unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
 unsafe impl<E: Numeric> Send for TensorWriter<E> {}
 
 #[derive(CubeType)]
+/// Contiguous slice wrapper for memcpy_async loading
 pub struct Window<EG: Numeric> {
+    /// Contiguous slice containing all and only data of window
     pub slice: Slice<Line<EG>>,
+    /// Number of lines
     pub size: u32,
 }
 
