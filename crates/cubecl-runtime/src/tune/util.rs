@@ -12,11 +12,9 @@ pub fn anchor(x: usize, max: Option<usize>, min: Option<usize>, base: Option<usi
         power
     };
 
-    let result = if let Some(min) = min {
+    if let Some(min) = min {
         core::cmp::max(result, min)
     } else {
         result
-    };
-
-    result
+    }
 }

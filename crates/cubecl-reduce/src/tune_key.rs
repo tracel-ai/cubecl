@@ -10,9 +10,9 @@ pub struct ReduceAutotuneKey {
     elem_output: Elem,
     potential_line_size: u8,
     axis_is_contiguous: bool,
-    #[autotune(anchor(min = 16, max = 4096))]
+    #[autotune(anchor(exp(min = 16, max = 4096)))]
     reduce_axis_shape: usize,
-    #[autotune(anchor(max = 16384, base = 4))]
+    #[autotune(anchor(exp(max = 16384, base = 4)))]
     reduce_count: usize,
 }
 
