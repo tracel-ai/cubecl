@@ -320,9 +320,6 @@ where
         );
         barrier_b.arrive();
 
-        // TODO can we remove
-        sync_units();
-
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
