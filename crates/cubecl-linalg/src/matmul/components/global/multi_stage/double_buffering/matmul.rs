@@ -176,9 +176,9 @@ where
         Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
         Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
 
-        for _ in 1..num_loops {
-            sync_units();
+        sync_units();
 
+        for _ in 1..num_loops {
             let task =
                 DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
                     BufferId::B,
@@ -221,9 +221,8 @@ where
                 config.to_smm_config(),
                 task,
             );
+            sync_units();
         }
-
-        sync_units();
 
         let task = DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
             BufferId::B,
