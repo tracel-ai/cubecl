@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use crate::shared::{compile_instruction_printf, DialectInstructions, Instruction, Variable};
+use crate::shared::{DialectInstructions, Instruction};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -103,7 +103,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         write!(f, "{}_{}", item.elem, item.vectorization)
     }
 
-    fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 
@@ -249,14 +249,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         CudaDialect::compile_instruction_thread_fence(f)
-    }
-
-    fn compile_instruction_printf(
-        f: &mut std::fmt::Formatter<'_>,
-        format_string: &String,
-        args: &Vec<Variable<Self>>,
-    ) -> std::fmt::Result {
-        compile_instruction_printf::<Self>(f, format_string, args)
     }
 }
 

@@ -1,9 +1,13 @@
 use std::fmt::Display;
 
 use crate::{
+    Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler, Flags, Instruction, Item, Variable
-    }, Dialect
+        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectTypes, DialectWarp, DialectWmmaCompiler,
+        Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
+        SupportedWmmaCombinations, Variable, WmmaInstruction,
+    },
 };
 
 use super::{
@@ -130,6 +134,23 @@ struct alignas({alignment}) {item} {{"
             write!(f, "{}{}", item.elem, item.vectorization)
         } else {
             write!(f, "{}_{}", item.elem, item.vectorization)
+        }
+    }
+
+    fn compile_atomic_kind(
+        f: &mut std::fmt::Formatter<'_>,
+        kind: &AtomicKind<Self>,
+    ) -> std::fmt::Result {
+        match kind {
+            AtomicKind::I32 => write!(f, "atomic_int"),
+            AtomicKind::I64 => panic!("I64 atomic kind no supported."),
+            AtomicKind::U32 => write!(f, "atomic_uint"),
+            AtomicKind::U64 => write!(f, "atomic_ulong"),
+            AtomicKind::F16 => panic!("F16 atomic kind no supported."),
+            AtomicKind::BF16 => panic!("BF16 atomic kind no supported."),
+            AtomicKind::F32 => write!(f, "atomic_float"), // needs metal 3
+            AtomicKind::F64 => panic!("F64 atomic kind no supported."),
+            AtomicKind::_Dialect(_) => Ok(()),
         }
     }
 
@@ -320,6 +341,149 @@ impl DialectCubeBuiltins for MslDialect {
 // Instructions
 
 impl DialectInstructions<Self> for MslDialect {
+    // atomics
+    fn compile_atomic_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_add_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_and(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_and_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_cas(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        cmp: &Variable<Self>,
+        val: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_compare_exchange_weak_explicit({input}, &{cmp}, {val}, memory_order_relaxed, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_load(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_load_explicit({input}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_max(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_max_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_min(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_min_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_or(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_or_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_store(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        writeln!(
+            f,
+            "atomic_store_explicit({out}, {input}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_sub_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_swap(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_exchange_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_xor(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_xor_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
     }
@@ -328,6 +492,7 @@ impl DialectInstructions<Self> for MslDialect {
         writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
     }
 
+    // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
         format_string: &String,
