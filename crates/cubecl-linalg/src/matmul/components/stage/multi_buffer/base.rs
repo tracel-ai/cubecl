@@ -4,7 +4,7 @@ use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
-use crate::matmul::components::stage::{Buffering, LazyTask};
+use crate::matmul::components::stage::{Buffering, StageEventListener};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
@@ -154,7 +154,7 @@ where
         }
     }
 
-    fn execute_with_task<TK: LazyTask>(
+    fn execute_with_task<TK: StageEventListener>(
         _lhs_reader: &LhsReader<I, TL>,
         _rhs_reader: &RhsReader<I, TR>,
         _lhs_fragment: &mut Self::LhsTile,

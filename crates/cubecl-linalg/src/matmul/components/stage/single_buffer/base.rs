@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, LazyTask, NoTask, StageEvent, StageMatmul, StageMatmulFamily, TilingLayout,
+    Buffering, NoTask, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily, TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
@@ -142,7 +142,7 @@ where
         );
     }
 
-    fn execute_with_task<TK: LazyTask>(
+    fn execute_with_task<TK: StageEventListener>(
         lhs_reader: &Self::LhsReader,
         rhs_reader: &Self::RhsReader,
         lhs_fragment: &mut Self::LhsTile,
@@ -273,7 +273,7 @@ where
     TR: TilingLayout,
 {
     // Execute stage matmul with a single buffer for rhs.
-    fn execute_single_buffer<TK: LazyTask>(
+    fn execute_single_buffer<TK: StageEventListener>(
         lhs_reader: &LhsBufferReader<I, TL>,
         rhs_reader: &RhsBufferReader<I, TR>,
         lhs_fragment: &mut TMM::Lhs,
@@ -282,23 +282,31 @@ where
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
         mut task: TK,
     ) {
+        let mut current = comptime![0u32];
+        let total = acc.len();
         TK::on_event(&mut task, StageEvent::Begin);
 
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
-        TK::on_event(&mut task, StageEvent::LhsLoaded);
-
-        let mut acc_iter = comptime![0u32];
-        let acc_len = acc.len();
+        TK::on_event(
+            &mut task,
+            comptime![StageEvent::LhsLoaded {
+                current: 0u32,
+                total: 1u32
+            }],
+        );
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 0..acc_len {
-            let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);
+        for _ in 0..total {
+            let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current, config);
             TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
-            TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(acc_iter)));
+            TK::on_event(
+                &mut task,
+                comptime![StageEvent::RhsLoaded { current, total }],
+            );
 
-            let accumulator = acc.index_mut(acc_iter);
+            let accumulator = acc.index_mut(current);
 
             TMM::execute(
                 lhs_fragment,
@@ -306,16 +314,19 @@ where
                 accumulator,
                 config.to_tmm_config(),
             );
-            TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_iter)));
+            TK::on_event(
+                &mut task,
+                comptime![StageEvent::TmmCompleted { current, total }],
+            );
 
-            comptime![acc_iter += 1];
+            comptime![current += 1];
         }
 
         TK::on_event(&mut task, comptime!(StageEvent::Finish));
     }
 
     // Execute stage matmul with two alternating buffers for rhs.
-    fn execute_double_buffer<TK: LazyTask>(
+    fn execute_double_buffer<TK: StageEventListener>(
         lhs_reader: &LhsBufferReader<I, TL>,
         rhs_reader: &RhsBufferReader<I, TR>,
         lhs_fragment: &mut TMM::Lhs,
@@ -324,28 +335,39 @@ where
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
         mut task: TK,
     ) {
+        let mut current_event = comptime![0u32];
+        let total = acc.len();
         TK::on_event(&mut task, StageEvent::Begin);
 
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
-        TK::on_event(&mut task, StageEvent::LhsLoaded);
-
-        let mut acc_iter = comptime![0];
-        let acc_len = acc.len();
+        TK::on_event(
+            &mut task,
+            comptime![StageEvent::LhsLoaded {
+                current: 0u32,
+                total: 1u32
+            }],
+        );
 
         let rhs_tile_first =
-            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);
+            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current_event, config);
         TMM::fill_rhs(
             &rhs_tile_first,
             &mut rhs_fragments.0,
             config.to_tmm_config(),
         );
-        TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(0)));
+        TK::on_event(
+            &mut task,
+            comptime!(StageEvent::RhsLoaded {
+                current: current_event,
+                total
+            }),
+        );
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 1..acc_len {
-            let (current, next) = if comptime! {acc_iter % 2 == 0} {
+        for _ in 1..total {
+            let (current, next) = if comptime! {current_event % 2 == 0} {
                 (&mut rhs_fragments.0, &mut rhs_fragments.1)
             } else {
                 (&mut rhs_fragments.1, &mut rhs_fragments.0)
@@ -353,28 +375,46 @@ where
 
             let rhs_tile_next = RhsBufferReader::read_tile::<TMM::Config>(
                 rhs_reader,
-                comptime![acc_iter + 1],
+                comptime![current_event + 1],
                 config,
             );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
-            TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(acc_iter + 1)));
+            TK::on_event(
+                &mut task,
+                comptime!(StageEvent::RhsLoaded {
+                    current: current_event + 1,
+                    total
+                }),
+            );
 
-            let accumulator = acc.index_mut(acc_iter);
+            let accumulator = acc.index_mut(current_event);
             TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
-            TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_iter)));
+            TK::on_event(
+                &mut task,
+                comptime!(StageEvent::TmmCompleted {
+                    current: current_event,
+                    total
+                }),
+            );
 
-            comptime![acc_iter += 1];
+            comptime![current_event += 1];
         }
 
-        let last = if comptime! {acc_iter % 2 == 0} {
+        let last = if comptime! {current_event % 2 == 0} {
             &mut rhs_fragments.0
         } else {
             &mut rhs_fragments.1
         };
 
-        let accumulator = acc.index_mut(acc_iter);
+        let accumulator = acc.index_mut(current_event);
         TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
-        TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_len)));
+        TK::on_event(
+            &mut task,
+            comptime!(StageEvent::TmmCompleted {
+                current: current_event,
+                total
+            }),
+        );
         TK::on_event(&mut task, comptime!(StageEvent::Finish));
     }
 }

@@ -7,9 +7,9 @@ use crate::matmul::components::global::multi_stage::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::LazyTask;
 use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::StageEvent;
+use crate::matmul::components::stage::StageEventListener;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
@@ -23,7 +23,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use std::cmp::max;
 use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
@@ -53,9 +52,6 @@ where
     >;
 }
 
-const EVENT_LHS: u32 = 0;
-const EVENT_RHS: u32 = 1;
-
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
@@ -71,15 +67,6 @@ where
 
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
-        }
-
-        let num_event_opportunities = config.tiling_dimensions(Ident::Rhs).tile_count_col() - 1;
-        let latest_event = max(EVENT_LHS, EVENT_RHS);
-        if num_event_opportunities < latest_event {
-            return Err(Box::new(format!(
-                "Some events will never happen because `num_event_opportunities` ({}) is less than `latest_event` ({}). This occurs due to Lazy Task on_event.",
-                num_event_opportunities, latest_event
-            )));
         }
 
         SMM::check_config(&config.to_smm_config())
@@ -352,6 +339,10 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
     }
 }
 
+fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
+    current_event == expected_event || (total < expected_event && current_event + 1 == total)
+}
+
 #[cube]
 impl<
     EG: Numeric,
@@ -359,7 +350,7 @@ impl<
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
     S: StageConfig,
-> LazyTask
+> StageEventListener
     for DoubleBufferingLazyTask<
         SyncLhsBufferLoader<EG, ES, S, LL>,
         SyncRhsBufferLoader<EG, ES, S, RL>,
@@ -367,11 +358,14 @@ impl<
     >
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
-        if let StageEvent::RhsLoaded(EVENT_LHS) = event {
-            SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
-        };
-        if let StageEvent::RhsLoaded(EVENT_RHS) = event {
-            SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
+        if let StageEvent::TmmCompleted { current, total } = event {
+            if comptime![should_handle_event(1, current, total)] {
+                SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
+            }
+
+            if comptime![should_handle_event(3, current, total)] {
+                SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
+            }
         };
     }
 }

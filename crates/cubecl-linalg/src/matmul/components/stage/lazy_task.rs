@@ -6,17 +6,17 @@ pub enum StageEvent {
     /// Before any step
     Begin,
     /// After loading LHS
-    LhsLoaded,
+    LhsLoaded { current: u32, total: u32 },
     /// After X RHS loads are completed
-    RhsLoaded(u32),
+    RhsLoaded { current: u32, total: u32 },
     /// After X tile matmul operations are completed
-    TmmCompleted(u32),
+    TmmCompleted { current: u32, total: u32 },
     /// After the last step
     Finish,
 }
 
 #[cube]
-pub trait LazyTask: CubeType {
+pub trait StageEventListener: CubeType {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent);
 }
 
@@ -24,7 +24,7 @@ pub trait LazyTask: CubeType {
 pub struct NoTask {}
 
 #[cube]
-impl LazyTask for NoTask {
+impl StageEventListener for NoTask {
     fn on_event(_this: &mut Self, #[comptime] _event: StageEvent) {
         // Nothing to do
     }

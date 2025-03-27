@@ -9,7 +9,7 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::{LazyTask, TilingLayout};
+use super::{StageEventListener, TilingLayout};
 
 pub trait ReaderFamily {
     type Reader<I: Numeric, T: TilingLayout>: CubeType;
@@ -84,7 +84,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     );
 
     /// Executes the matrix multiplication of LHS and RHS, with the addition of injected lazy tasks
-    fn execute_with_task<TK: LazyTask>(
+    fn execute_with_task<TK: StageEventListener>(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,
