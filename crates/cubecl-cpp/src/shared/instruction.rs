@@ -330,7 +330,7 @@ impl<D: Dialect> Display for Instruction<D> {
                             elem: &elem_cond,
                         };
 
-                        writeln!(f, "({condi}) ? {slice}[{index} + i] : {fallbacki},")?;
+                        writeln!(f, "({condi}) ? {slice}[{index}][{i}] : {fallbacki},")?;
                     }
 
                     writeln!(f, "}};")

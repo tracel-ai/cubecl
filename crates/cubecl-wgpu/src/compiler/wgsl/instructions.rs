@@ -1020,7 +1020,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(
                             f,
-                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + i], {condi}),"
+                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset][{i}], {condi}),"
                         )?;
                     }
 
