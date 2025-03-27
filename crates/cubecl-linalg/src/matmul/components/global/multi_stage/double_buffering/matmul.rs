@@ -320,6 +320,10 @@ fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> b
     current_event == expected_event || (total < expected_event && current_event + 1 == total)
 }
 
+fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
+    should_handle_event(f32::ceil(ratio * total as f32) as u32, current_event, total)
+}
+
 #[cube]
 impl<
     EG: Numeric,
@@ -336,11 +340,11 @@ impl<
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::TmmCompleted { current, total } = event {
-            if comptime![should_handle_event(1, current, total)] {
+            if comptime![should_handle_event_ratio(0.25, current, total)] {
                 SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
             }
 
-            if comptime![should_handle_event(3, current, total)] {
+            if comptime![should_handle_event_ratio(0.5, current, total)] {
                 SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
             }
         };

@@ -90,10 +90,10 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
 #[allow(unused)]
 fn run_benches<R: Runtime, E: Float>() {
     run::<R, E>(Default::default(), matmul::Strategy::DoubleBuffering);
-    run::<R, E>(
-        Default::default(),
-        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    );
+    // run::<R, E>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    // );
     // run::<R, E>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
