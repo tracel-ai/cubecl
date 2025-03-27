@@ -313,7 +313,7 @@ where
         scaling: CubeOption<f32>,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
     ) {
-        #[unroll]
+        comptime!(panic!("MULTI SINGLE BUFFER"));
         for buffer_iter in 0..config.tile_count().k {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
@@ -351,7 +351,7 @@ where
         scaling: CubeOption<f32>,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
     ) {
-        #[unroll]
+        comptime!(panic!("MULTI DOUBLE BUFFER"));
         for buffer_iter in 0..config.tile_count().k {
             let tile_lhs =
                 LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);

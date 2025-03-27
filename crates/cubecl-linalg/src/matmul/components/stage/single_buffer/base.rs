@@ -159,6 +159,7 @@ where
                 config,
             ),
         }
+        comptime!(panic!("SINGLE EXECUTE"));
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
@@ -262,13 +263,15 @@ where
         acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
     ) {
+        // comptime!(panic!("SINGLE SINGLE BUFFER"));
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
 
+        #[unroll]
         for accumulator_iter in 0..acc.len() {
-            let rhs_tile_next =
+            let rhs_tile =
                 RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter, config);
-            TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
+            TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
 
             let accumulator = acc.index_mut(accumulator_iter);
             TMM::execute(
@@ -289,6 +292,7 @@ where
         acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
     ) {
+        // comptime!(panic!("SINGLE DOUBLE BUFFER"));
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
 
