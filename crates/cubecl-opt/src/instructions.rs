@@ -1,6 +1,7 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, Operation, Operator, PipelineOps, Plane, TmaOps, UnaryOperator, Variable,
+    Metadata, NonSemantic, Operation, Operator, PipelineOps, Plane, TmaOps, UnaryOperator,
+    Variable,
 };
 
 use super::Optimizer;
@@ -45,13 +46,16 @@ impl Optimizer {
             Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
-            Operation::Synchronization(_) | Operation::NonSemantic(_) => {}
+            Operation::Synchronization(_) => {}
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),
             Operation::Pipeline(pipeline_ops) => self.visit_pipeline(pipeline_ops, visit_read),
             Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
+            Operation::NonSemantic(non_semantic) => {
+                self.visit_nonsemantic(non_semantic, visit_read)
+            }
         }
     }
 
@@ -389,6 +393,23 @@ impl Optimizer {
                 }
             }
             TmaOps::CommitGroup | TmaOps::WaitGroup { .. } | TmaOps::WaitGroupRead { .. } => {}
+        }
+    }
+
+    fn visit_nonsemantic(
+        &mut self,
+        non_semantic: &mut NonSemantic,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match non_semantic {
+            NonSemantic::Comment { .. }
+            | NonSemantic::EnterDebugScope
+            | NonSemantic::ExitDebugScope => {}
+            NonSemantic::Print { args, .. } => {
+                for arg in args {
+                    visit_read(self, arg);
+                }
+            }
         }
     }
 
