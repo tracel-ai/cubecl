@@ -4,7 +4,7 @@ use std::{collections::HashSet, fmt::Debug};
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
+    Architecture, AtomicKind, Binding, Component, CubeBuiltinFlags, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
 };
 
 // Base dialect
@@ -93,6 +93,42 @@ pub trait DialectBindings<D: Dialect> {
 // Cube builtins dialect
 
 pub trait DialectCubeBuiltins<D: Dialect> {
+    /// Depending on the dialect available built-in variables the
+    /// inclusion rules might change.
+    /// For instance in metal we have a built-in for the Unit plane position
+    /// but in other dialects there is none so we have to compute it using
+    /// other built-ins.
+    fn builtin_rules(flags: &CubeBuiltinFlags) -> CubeBuiltinFlags {
+        let unit_pos_plane = flags.unit_pos_plane;
+        let plane_dim_checked = flags.plane_dim_checked;
+        let plane_dim = flags.plane_dim || plane_dim_checked || unit_pos_plane;
+        let absolute_pos_global = flags.absolute_pos_global || unit_pos_plane;
+        let absolute_pos = flags.absolute_pos || absolute_pos_global;
+        let cube_dim_global = flags.cube_dim_global;
+        let cube_dim = flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
+        let unit_pos_global = flags.unit_pos_global;
+        let unit_pos = flags.unit_pos || unit_pos_global;
+        let cube_count_global = flags.cube_count_global;
+        let cube_count = flags.cube_count || absolute_pos_global;
+        let cube_pos_global = flags.cube_pos_global;
+        let cube_pos = flags.cube_pos || cube_pos_global;
+        CubeBuiltinFlags {
+            absolute_pos,
+            absolute_pos_global,
+            cube_count,
+            cube_count_global,
+            cube_dim,
+            cube_dim_global,
+            cube_pos,
+            cube_pos_global,
+            plane_dim,
+            plane_dim_checked,
+            unit_pos,
+            unit_pos_global,
+            unit_pos_plane,
+        }
+    }
+
     fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("absoluteIdx")
     }

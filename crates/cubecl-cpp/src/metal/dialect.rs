@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     shared::{
-        self, AtomicKind, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
+        self, AtomicKind, Binding, Component, CubeBuiltinFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction
     }, Dialect
 };
 
@@ -197,14 +197,14 @@ void {}(",
         }
         // Global metal builtins args
         let builtins = vec![
-            (flags.var_absolute_pos, Variable::<Self>::AbsolutePos),
-            (flags.var_cube_dim, Variable::CubeDim),
-            (flags.var_cube_count, Variable::CubeCount),
-            (flags.var_unit_pos_global, Variable::UnitPosGlobal),
-            (flags.var_unit_pos, Variable::UnitPos),
-            (flags.var_cube_pos, Variable::CubePos),
-            (flags.var_unit_pos_plane, Variable::UnitPosPlane),
-            (flags.var_plane_dim, Variable::PlaneDim),
+            (flags.builtins.absolute_pos, Variable::<Self>::AbsolutePos),
+            (flags.builtins.cube_dim, Variable::CubeDim),
+            (flags.builtins.cube_count, Variable::CubeCount),
+            (flags.builtins.unit_pos_global, Variable::UnitPosGlobal),
+            (flags.builtins.unit_pos, Variable::UnitPos),
+            (flags.builtins.cube_pos, Variable::CubePos),
+            (flags.builtins.unit_pos_plane, Variable::UnitPosPlane),
+            (flags.builtins.plane_dim, Variable::PlaneDim),
         ];
         let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
         builtins
@@ -218,6 +218,41 @@ void {}(",
 // Cube builtins dialect
 
 impl DialectCubeBuiltins<Self> for MslDialect {
+    /// Depending on the dialect available built-in variables the
+    /// inclusion rules might change.
+    /// For instance in metal we have a built-in for the Unit plane position
+    /// so we don't rely on other builtins.
+    fn builtin_rules(flags: &CubeBuiltinFlags) -> CubeBuiltinFlags {
+        let unit_pos_plane = flags.unit_pos_plane;
+        let plane_dim_checked = flags.plane_dim_checked;
+        let plane_dim = flags.plane_dim || plane_dim_checked;
+        let absolute_pos_global = flags.absolute_pos_global;
+        let absolute_pos = flags.absolute_pos || absolute_pos_global;
+        let cube_dim_global = flags.cube_dim_global;
+        let cube_dim = flags.cube_dim || cube_dim_global || absolute_pos_global || plane_dim_checked;
+        let unit_pos_global = flags.unit_pos_global;
+        let unit_pos = flags.unit_pos || unit_pos_global;
+        let cube_count_global = flags.cube_count_global;
+        let cube_count = flags.cube_count || absolute_pos_global;
+        let cube_pos_global = flags.cube_pos_global;
+        let cube_pos = flags.cube_pos || cube_pos_global;
+        CubeBuiltinFlags {
+            absolute_pos,
+            absolute_pos_global,
+            cube_count,
+            cube_count_global,
+            cube_dim,
+            cube_dim_global,
+            cube_pos,
+            cube_pos_global,
+            plane_dim,
+            plane_dim_checked,
+            unit_pos,
+            unit_pos_global,
+            unit_pos_plane,
+        }
+    }
+
     fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("thread_pos_in_grid")
     }

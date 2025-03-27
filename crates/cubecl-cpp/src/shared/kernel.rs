@@ -200,7 +200,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     settings: &Flags,
 ) -> core::fmt::Result {
-    if settings.var_absolute_pos_global {
+    if settings.builtins.absolute_pos_global {
         let variable = Variable::<D>::AbsolutePosGlobal;
         let ty = variable.item();
         let absolute_pos_x = Variable::<D>::AbsolutePosX;
@@ -213,7 +213,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(f, "{ty} {variable} = ({absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y}) + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x}) + {absolute_pos_x};")?;
     }
 
-    if settings.var_cube_dim_global {
+    if settings.builtins.cube_dim_global {
         let variable = Variable::<D>::CubeDimGlobal;
         let ty = variable.item();
         let cube_dim_x = Variable::<D>::CubeDimX;
@@ -222,7 +222,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(f, "{ty} {variable} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};")?;
     }
 
-    if settings.var_cube_count_global {
+    if settings.builtins.cube_count_global {
         let variable = Variable::<D>::CubeCountGlobal;
         let ty = variable.item();
         let cube_count_x = Variable::<D>::CubeCountX;
@@ -231,7 +231,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(f, "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};")?;
     }
 
-    if settings.var_cube_pos_global {
+    if settings.builtins.cube_pos_global {
         let variable = Variable::<D>::CubePosGlobal;
         let ty = variable.item();
         let cube_pos_x = Variable::<D>::CubePosX;
@@ -242,7 +242,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(f, "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};")?;
     }
 
-    if settings.var_plane_dim_checked {
+    if settings.builtins.plane_dim_checked {
         let plane_dim = Variable::<D>::PlaneDim;
         let variable = Variable::<D>::PlaneDimChecked;
         let ty = variable.item();
