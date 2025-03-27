@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(key.m, 256);
         assert_eq!(key.k, 512);
         assert_eq!(key.n, 512);
-        assert_eq!(key.batch, 4);
+        assert_eq!(key.batch, 8);
     }
 
     #[test]
