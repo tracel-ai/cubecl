@@ -7,6 +7,7 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
@@ -18,10 +19,6 @@ use crate::matmul::components::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
         multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
     },
-};
-use crate::matmul::components::{
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::NoTask,
 };
 use crate::{
     convolution::{
@@ -119,8 +116,7 @@ where
 
             sync_units();
 
-            let task = NoTask::new();
-            SMM::execute::<NoTask>(
+            SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
                 &mut lhs_tile,
@@ -128,7 +124,6 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                task,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

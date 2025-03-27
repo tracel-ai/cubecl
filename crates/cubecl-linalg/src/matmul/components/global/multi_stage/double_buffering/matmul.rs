@@ -8,7 +8,6 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::LazyTask;
-use crate::matmul::components::stage::NoTask;
 use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -188,7 +187,9 @@ where
                     config,
                 );
 
-            SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
+            SMM::execute_with_task::<
+                DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+            >(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
                 &mut lhs_tile_a,
@@ -212,7 +213,9 @@ where
                     config,
                 );
 
-            SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
+            SMM::execute_with_task::<
+                DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+            >(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
                 &mut lhs_tile_b,
@@ -232,7 +235,9 @@ where
             config,
         );
 
-        SMM::execute::<DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>>(
+        SMM::execute_with_task::<
+            DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+        >(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
             &mut lhs_tile_a,
@@ -245,7 +250,7 @@ where
 
         sync_units();
 
-        SMM::execute::<NoTask>(
+        SMM::execute(
             &lhs_buffer_reader_b,
             &rhs_buffer_reader_b,
             &mut lhs_tile_b,
@@ -253,7 +258,6 @@ where
             acc,
             CubeOption::new_None(),
             config.to_smm_config(),
-            NoTask::new(),
         );
 
         SMM::read_accumulator::<Self::Out, Self::Config>(

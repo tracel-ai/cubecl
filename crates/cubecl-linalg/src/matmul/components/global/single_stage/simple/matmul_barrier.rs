@@ -10,7 +10,6 @@ use crate::matmul::components::global::single_stage::AsyncLhsLoader;
 use crate::matmul::components::global::single_stage::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::single_stage::FullLoader;
-use crate::matmul::components::stage::NoTask;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 
@@ -193,7 +192,7 @@ where
 
             barrier.arrive_and_wait();
 
-            SMM::execute::<NoTask>(
+            SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
                 &mut lhs_tile,
@@ -201,7 +200,6 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                NoTask::new(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

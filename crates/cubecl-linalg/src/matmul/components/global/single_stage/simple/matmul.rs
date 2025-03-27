@@ -9,7 +9,7 @@ use crate::matmul::components::{
         },
     },
     stage::{
-        NoTask, StageMatmul,
+        StageMatmul,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
@@ -173,7 +173,7 @@ where
                 CubeOption::None => CubeOption::new_None(),
             };
 
-            SMM::execute::<NoTask>(
+            SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
                 &mut lhs_tile,
@@ -181,7 +181,6 @@ where
                 acc,
                 scaling,
                 config.to_smm_config(),
-                NoTask::new(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);

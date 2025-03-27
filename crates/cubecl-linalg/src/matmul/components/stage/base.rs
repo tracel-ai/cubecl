@@ -67,11 +67,24 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
+    /// Equivalent to execute_with_task with TK:=NoTask
+    ///
     /// # Quantization
     ///
     /// If scaling is provided, the matmul will be performed in a quantized version.
     /// This assumes that [read_accumulator] is called with some `quantization` provided.
-    fn execute<TK: LazyTask>(
+    fn execute(
+        lhs: &Self::LhsReader,
+        rhs: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
+        acc: &mut Self::Accumulator,
+        scaling: CubeOption<f32>,
+        #[comptime] config: Self::Config,
+    );
+
+    /// Executes the matrix multiplication of LHS and RHS, with the addition of injected lazy tasks
+    fn execute_with_task<TK: LazyTask>(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,

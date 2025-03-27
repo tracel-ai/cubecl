@@ -123,7 +123,7 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
-    fn execute<TK: LazyTask>(
+    fn execute(
         lhs_reader: &LhsReader<ES, TL>,
         rhs_reader: &RhsReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,
@@ -131,7 +131,6 @@ where
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
-        task: TK,
     ) {
         #[unroll]
         for buffer_iter in 0..config.tile_count().k {
@@ -154,6 +153,20 @@ where
             }
         }
         acc.accumulate_dequantized_if_quantized(scaling, config);
+    }
+
+    fn execute_with_task<TK: LazyTask>(
+        _lhs_reader: &LhsReader<ES, TL>,
+        _rhs_reader: &RhsReader<ES, TR>,
+        _lhs_tile: &mut Self::LhsTile,
+        _rhs_tile: &mut Self::RhsTile,
+        _acc: &mut Self::Accumulator,
+        _scaling: CubeOption<f32>,
+        #[comptime] _config: Self::Config,
+        _task: TK,
+    ) {
+        // Should be merged with single_buffer soon
+        comptime!(unimplemented!());
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {

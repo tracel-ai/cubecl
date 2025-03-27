@@ -6,7 +6,9 @@ use cubecl_std::CubeOption;
 
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{LazyTask, StageEvent, StageMatmulFamily, TilingLayout};
+use crate::matmul::components::stage::{
+    LazyTask, NoTask, StageEvent, StageMatmulFamily, TilingLayout,
+};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
@@ -120,7 +122,28 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
-    fn execute<TK: LazyTask>(
+    fn execute(
+        lhs_reader: &Self::LhsReader,
+        rhs_reader: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
+        acc: &mut Self::Accumulator,
+        scaling: CubeOption<f32>,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::execute_with_task::<NoTask>(
+            lhs_reader,
+            rhs_reader,
+            instruction_lhs,
+            instruction_rhs,
+            acc,
+            scaling,
+            config,
+            NoTask::new(),
+        );
+    }
+
+    fn execute_with_task<TK: LazyTask>(
         lhs_reader: &LhsBufferReader<ES, TL>,
         rhs_reader: &RhsBufferReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,

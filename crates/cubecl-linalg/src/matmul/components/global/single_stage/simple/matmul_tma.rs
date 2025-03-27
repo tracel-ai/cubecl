@@ -4,10 +4,10 @@ use crate::matmul::components::global::single_stage::{
     Config, FullLoader, loading::AsyncFullLoader,
 };
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
+use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{ContiguousTilingLayout, NoTask};
 use crate::matmul::components::{
     MatmulPrecision,
     global::single_stage::{TmaLhsLoader, TmaRhsLoader},
@@ -161,7 +161,7 @@ where
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
 
-            SMM::execute::<NoTask>(
+            SMM::execute(
                 lhs_stage_reader,
                 rhs_stage_reader,
                 &mut lhs_tile,
@@ -169,7 +169,6 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                NoTask::new(),
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
