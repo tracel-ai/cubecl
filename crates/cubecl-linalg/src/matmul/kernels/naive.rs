@@ -159,10 +159,6 @@ pub fn launch<R: Runtime, E: Numeric>(
         false => 1,
     };
 
-    println!("lhs handle: {:?}", lhs);
-    println!("rhs handle: {:?}", rhs);
-    println!("out handle: {:?}", out);
-
     unsafe {
         matmul_kernel::launch_unchecked::<E, R>(
             client,
