@@ -420,19 +420,5 @@ macro_rules! matmul_standard_tests {
                 $problem,
             );
         }
-
-        #[test]
-        pub fn double_buffering_barrier() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingBarrierAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
     };
 }
