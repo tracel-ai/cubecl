@@ -4,7 +4,7 @@ use std::{collections::HashSet, fmt::Debug, num::NonZero};
 use cubecl_common::ExecutionMode;
 use cubecl_core::io::read_checked;
 use cubecl_core::ir::{ExpandElement, VariableKind};
-use cubecl_core::prelude::FloatExpand;
+use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Compiler, Feature,
     ir::{self as gpu},
@@ -988,17 +988,21 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Operator::Index(op) => {
-                if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = ExpandElement::Plain(op.lhs);
-                    let rhs = ExpandElement::Plain(op.rhs);
+                if matches!(self.strategy, ExecutionMode::Checked)
+                    && op.lhs.has_length()
+                    && !out.elem().is_atomic()
+                {
+                    let list = ExpandElement::Plain(op.lhs);
+                    let index = ExpandElement::Plain(op.rhs);
                     scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
 
                     let mut child_scope = scope.child();
-                    let input = read_checked::expand::<FloatExpand<0>>(
+                    let input = read_checked::expand::<Line<FloatExpand<0>>>(
                         &mut child_scope,
-                        lhs.into(),
-                        rhs.into(),
+                        list.into(),
+                        index.into(),
                     );
+
                     for inst in self.compile_scope(&mut child_scope) {
                         instructions.push(inst);
                     }
