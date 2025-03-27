@@ -330,6 +330,7 @@ where
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
         TK::on_event(&mut task, StageEvent::LhsLoaded);
 
+        #[allow(clippy::explicit_counter_loop)]
         let mut acc_iter = comptime![0];
         let acc_len = acc.len();
 
