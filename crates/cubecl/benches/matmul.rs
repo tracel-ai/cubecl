@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
+use cubecl_linalg::matmul::{self};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
@@ -155,6 +155,7 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
+        use cubecl_linalg::matmul::{AsyncLoadingStrategy, SyncLoadingStrategy};
         use half::f16;
 
         run::<cubecl::cuda::CudaRuntime, f16>(
