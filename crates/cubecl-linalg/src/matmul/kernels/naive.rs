@@ -55,7 +55,7 @@ fn matmul_kernel<N: Numeric>(
 
     for i in 0..k {
         let lhs_index = row * lhs.stride(rank - 2) / line_size + i + offset_lhs;
-        let rhs_index = col * rhs.stride(rank - 2) / line_size + i + offset_rhs;
+        let rhs_index = col * rhs.stride(rank - 1) / line_size + i + offset_rhs;
 
         sum += lhs[lhs_index] * rhs[rhs_index];
     }
@@ -122,7 +122,10 @@ pub fn launch<R: Runtime, E: Numeric>(
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        let rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+        let mut rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+
+        rhs.strides.swap(dim1, dim2);
+        rhs.shape.swap(dim1, dim2);
 
         (rhs_original_shape, rhs)
     };
@@ -156,18 +159,17 @@ pub fn launch<R: Runtime, E: Numeric>(
         false => 1,
     };
 
+    println!("lhs handle: {:?}", lhs);
+    println!("rhs handle: {:?}", rhs);
+    println!("out handle: {:?}", out);
+
     unsafe {
         matmul_kernel::launch_unchecked::<E, R>(
             client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
             lhs.as_arg(vectorization_factor),
-            TensorArg::from_raw_parts::<E>(
-                &rhs.handle,
-                &rhs.strides,
-                &rhs_original_shape, // We need the original shape.
-                vectorization_factor,
-            ),
+            rhs.as_arg(vectorization_factor),
             out.as_tensor_arg(1),
             Some(ndims as u32 - 2),
         );
