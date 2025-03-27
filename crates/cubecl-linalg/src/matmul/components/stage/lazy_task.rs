@@ -11,10 +11,6 @@ pub enum StageEvent {
     RhsLoaded(u32),
     /// After X tile matmul operations are completed
     TmmCompleted(u32),
-    /// When X RHS loads are still pending
-    RhsRemaining(u32),
-    /// When X tile matmul operations are still pending
-    TmmRemaining(u32),
     /// After the last step
     Finish,
 }

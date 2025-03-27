@@ -294,16 +294,12 @@ where
 
         #[unroll]
         for _ in 0..acc_len {
-            let remaining = comptime! {acc_len - acc_iter};
-
-            TK::on_event(&mut task, comptime!(StageEvent::RhsRemaining(remaining)));
             let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);
             TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
             TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(acc_iter)));
 
             let accumulator = acc.index_mut(acc_iter);
 
-            TK::on_event(&mut task, comptime!(StageEvent::TmmRemaining(remaining)));
             TMM::execute(
                 lhs_fragment,
                 rhs_fragment,
@@ -326,24 +322,29 @@ where
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
-        mut _task: TK,
+        mut task: TK,
     ) {
+        TK::on_event(&mut task, StageEvent::Begin);
+
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
+        TK::on_event(&mut task, StageEvent::LhsLoaded);
 
-        let mut accumulator_iter = comptime![0];
+        let mut acc_iter = comptime![0];
+        let acc_len = acc.len();
 
         let rhs_tile_first =
-            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter, config);
+            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);
         TMM::fill_rhs(
             &rhs_tile_first,
             &mut rhs_fragments.0,
             config.to_tmm_config(),
         );
+        TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(0)));
 
         #[unroll]
-        for _ in 1..acc.len() {
-            let (current, next) = if comptime! {accumulator_iter % 2 == 0} {
+        for _ in 1..acc_len {
+            let (current, next) = if comptime! {acc_iter % 2 == 0} {
                 (&mut rhs_fragments.0, &mut rhs_fragments.1)
             } else {
                 (&mut rhs_fragments.1, &mut rhs_fragments.0)
@@ -351,24 +352,28 @@ where
 
             let rhs_tile_next = RhsBufferReader::read_tile::<TMM::Config>(
                 rhs_reader,
-                comptime![accumulator_iter + 1],
+                comptime![acc_iter + 1],
                 config,
             );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
+            TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(acc_iter + 1)));
 
-            let accumulator = acc.index_mut(accumulator_iter);
+            let accumulator = acc.index_mut(acc_iter);
             TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
+            TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_iter)));
 
-            comptime![accumulator_iter += 1];
+            comptime![acc_iter += 1];
         }
 
-        let last = if comptime! {accumulator_iter % 2 == 0} {
+        let last = if comptime! {acc_iter % 2 == 0} {
             &mut rhs_fragments.0
         } else {
             &mut rhs_fragments.1
         };
 
-        let accumulator = acc.index_mut(accumulator_iter);
+        let accumulator = acc.index_mut(acc_iter);
         TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
+        TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_len)));
+        TK::on_event(&mut task, comptime!(StageEvent::Finish));
     }
 }
