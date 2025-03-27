@@ -24,6 +24,7 @@ use super::{
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
+    + Clone
     + Abs
     + Max
     + Min

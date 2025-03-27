@@ -41,12 +41,8 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
-        MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
@@ -106,7 +102,7 @@ where
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: stage::StageMatmul<MP>,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 > {
@@ -121,9 +117,7 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL>
 where
     SMM: stage::StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,

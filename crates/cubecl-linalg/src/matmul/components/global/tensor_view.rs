@@ -9,8 +9,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<E: Numeric> {
-    pub tensor: VirtualTensor<E>,
+pub struct TensorReader<EG: Numeric> {
+    pub tensor: VirtualTensor<EG>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -23,8 +23,8 @@ pub struct TensorReader<E: Numeric> {
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Uses a [`TensorMap`] to actually execute the load.
-pub struct MappedTensorReader<E: Numeric> {
-    pub tensor: TensorMap<E>,
+pub struct MappedTensorReader<EG: Numeric> {
+    pub tensor: TensorMap<EG>,
     pub tile_x: u32,
     pub tile_y: u32,
     pub batch: u32,
@@ -34,8 +34,8 @@ pub struct MappedTensorReader<E: Numeric> {
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<E: Numeric> {
-    pub tensor: VirtualTensor<E, ReadWrite>,
+pub struct TensorWriter<EG: Numeric> {
+    pub tensor: VirtualTensor<EG, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -45,12 +45,12 @@ pub struct TensorWriter<E: Numeric> {
     pub batch_offset: u32,
 }
 
-unsafe impl<E: Numeric> Sync for TensorReader<E> {}
-unsafe impl<E: Numeric> Send for TensorReader<E> {}
-unsafe impl<E: Numeric> Sync for MappedTensorReader<E> {}
-unsafe impl<E: Numeric> Send for MappedTensorReader<E> {}
-unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
-unsafe impl<E: Numeric> Send for TensorWriter<E> {}
+unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
+unsafe impl<EG: Numeric> Send for TensorReader<EG> {}
+unsafe impl<EG: Numeric> Sync for MappedTensorReader<EG> {}
+unsafe impl<EG: Numeric> Send for MappedTensorReader<EG> {}
+unsafe impl<EG: Numeric> Sync for TensorWriter<EG> {}
+unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 
 #[derive(CubeType)]
 /// Contiguous slice wrapper for memcpy_async loading

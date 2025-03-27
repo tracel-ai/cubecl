@@ -42,41 +42,34 @@ impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
 {
-    type Convolution<CS: MatmulPrecision> = ImplicitGemmConvolution<
-        CS,
-        SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
-    >;
+    type Convolution<MP: MatmulPrecision> =
+        ImplicitGemmConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
 }
 
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct ImplicitGemmConvolution<
-    CS: MatmulPrecision,
-    SMM: stage::StageMatmul<CS::ES, CS::EG, CS::EA>,
-> {
-    _cs: PhantomData<CS>,
+pub struct ImplicitGemmConvolution<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>> {
+    _cs: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<CS: MatmulPrecision, SMM> Convolution<CS, SMM> for ImplicitGemmConvolution<CS, SMM>
+impl<MP: MatmulPrecision, SMM> Convolution<MP, SMM> for ImplicitGemmConvolution<MP, SMM>
 where
     SMM: stage::StageMatmul<
-            CS::ES,
-            CS::EG,
-            CS::EA,
-            LhsReader = LhsReader<CS::ES, ConvTilingLayout>,
-            RhsReader = RhsReader<CS::ES, ConvTilingLayout>,
+            MP,
+            LhsReader = LhsReader<MP::ES, ConvTilingLayout>,
+            RhsReader = RhsReader<MP::ES, ConvTilingLayout>,
         >,
 {
-    type LhsLoader = SimpleIm2colLoader<CS, Self::Config>;
+    type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
-        SyncFullRhsLoader<CS::EG, CS::ES, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
-    type AccumulatorLoader = BiasLoader<CS, SMM::Config>;
+        SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
-    type Out = Unloader<CS::EG>;
+    type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -142,7 +135,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<CS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
@@ -158,7 +151,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<CS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
@@ -167,7 +160,7 @@ where
     }
 
     fn init_bias_loader(
-        bias: VirtualTensor<CS::EG>,
+        bias: VirtualTensor<MP::EG>,
         n_offset: u32,
         #[comptime] config: Self::Config,
         #[comptime] has_bias: bool,
@@ -176,7 +169,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<CS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
     ) -> Self::Out {

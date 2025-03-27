@@ -459,7 +459,7 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let config = D::make_config(config_input, &problem, &cube_dim, &cube_count, quantized)?;
-    D::check_availability::<R, (MS::EG, MS::ES, MS::EA)>(client, &config)?;
+    D::check_availability::<R, MS::Precision>(client, &config)?;
 
     unsafe {
         D::BatchMatmul::launch_unchecked::<MS, R>(

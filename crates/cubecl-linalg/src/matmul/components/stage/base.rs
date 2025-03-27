@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulSize, MatrixLayout, TilingDimensions,
+    Ident, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout, TilingDimensions,
     config::MatmulConfig,
     global::{self, AccumulatorLoader, IndexedQuantization},
     tile::TileConfig,
@@ -27,14 +27,12 @@ pub trait StageMatmulFamily:
     /// Returns the number of tiles in each axis of the stage.
     fn tile_count(config: &Self::Config) -> MatmulSize;
 
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
-        I,
-        O,
-        Acc,
-        Config = Self::Config,
-        LhsReader = <Self::LhsReader as ReaderFamily>::Reader<I, TL>,
-        RhsReader = <Self::RhsReader as ReaderFamily>::Reader<I, TR>,
-    >;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout>: StageMatmul<
+            MP,
+            Config = Self::Config,
+            LhsReader = <Self::LhsReader as ReaderFamily>::Reader<MP::ES, TL>,
+            RhsReader = <Self::RhsReader as ReaderFamily>::Reader<MP::ES, TR>,
+        >;
 }
 
 #[cube]
@@ -52,7 +50,7 @@ pub trait StageMatmulFamily:
 ///  - Data given as inputs by stage readers must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough planes are launched to perform the whole computation
-pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + Sync {
+pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: StageConfig;
 
     /// Contains the matrix multiplication output, that can be shared across the different planes of the cube.
@@ -90,10 +88,10 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     /// If some `quantization` is provided, the read will also requantize the stage in the output
     /// and update the scaling of the output tensor. This assumes that [execute] is called
     /// with some `scaling` provided.
-    fn read_accumulator<Out: StageWriter<EG>, G: global::GlobalConfig>(
+    fn read_accumulator<Out: StageWriter<MP::EG>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        quantization: CubeOption<IndexedQuantization<EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EG>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
@@ -105,7 +103,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator<L: AccumulatorLoader<EG, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP::EG, MP::EA, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,

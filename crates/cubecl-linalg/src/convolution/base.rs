@@ -15,23 +15,17 @@ use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
 pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
-    type Convolution<CS: MatmulPrecision>: Convolution<
-            CS,
-            SMM::Matmul<CS::ES, CS::EG, CS::EA, ConvTilingLayout, ConvTilingLayout>,
-            Config = Self::Config,
-        >;
+    type Convolution<MP: MatmulPrecision>: Convolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>, Config = Self::Config>;
 }
 
 #[cube]
-pub trait Convolution<CS: MatmulPrecision, SMM: StageMatmul<CS::ES, CS::EG, CS::EA>>:
-    'static + Send + Sync
-{
+pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<CS::EG, CS::EA, SMM::Config>;
+    type AccumulatorLoader: AccumulatorLoader<MP::EG, MP::EA, SMM::Config>;
 
-    type Out: OutputLoader<CS::EG>;
+    type Out: OutputLoader<MP::EG>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
@@ -51,28 +45,28 @@ pub trait Convolution<CS: MatmulPrecision, SMM: StageMatmul<CS::ES, CS::EG, CS::
     );
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<CS::EG>,
+        lhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<CS::EG>,
+        rhs: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
     fn init_bias_loader(
-        bias: VirtualTensor<CS::EG>,
+        bias: VirtualTensor<MP::EG>,
         n_offset: u32,
         #[comptime] config: Self::Config,
         #[comptime] has_bias: bool,
     ) -> Self::AccumulatorLoader;
 
     fn init_unloader(
-        out: VirtualTensor<CS::EG, ReadWrite>,
+        out: VirtualTensor<MP::EG, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
     ) -> Self::Out;
