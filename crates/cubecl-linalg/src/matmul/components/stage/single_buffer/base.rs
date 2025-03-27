@@ -171,7 +171,7 @@ where
 
         #[unroll]
         for _ in 0..acc_len {
-            let remaining = comptime!(acc_iter - acc_len);
+            let remaining = comptime! {acc_len - acc_iter};
 
             TK::on_event(&mut task, comptime!(StageEvent::RhsRemaining(remaining)));
             let tile_rhs = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);

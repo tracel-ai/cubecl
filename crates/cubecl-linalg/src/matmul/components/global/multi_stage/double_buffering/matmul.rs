@@ -180,7 +180,7 @@ where
 
         for _ in 1..num_loops {
             let task =
-                DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+                DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
                     BufferId::B,
                     &lhs_loader,
                     &rhs_loader,
@@ -188,7 +188,7 @@ where
                 );
 
             SMM::execute_with_task::<
-                DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
             >(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -206,7 +206,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
             let task =
-                DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+                DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
                     BufferId::A,
                     &lhs_loader,
                     &rhs_loader,
@@ -214,7 +214,7 @@ where
                 );
 
             SMM::execute_with_task::<
-                DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+                DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
             >(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -228,7 +228,7 @@ where
             sync_units();
         }
 
-        let task = DoubleBufferingAsyncTask::<Self::LhsLoader, Self::RhsLoader, Self::Config>::new(
+        let task = DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
             BufferId::B,
             &lhs_loader,
             &rhs_loader,
@@ -236,7 +236,7 @@ where
         );
 
         SMM::execute_with_task::<
-            DoubleBufferingAsyncTask<Self::LhsLoader, Self::RhsLoader, Self::Config>,
+            DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
         >(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
@@ -311,26 +311,32 @@ where
 }
 
 #[derive(CubeType)]
-struct DoubleBufferingAsyncTask<Lhs: CubeType, Rhs: CubeType, Config: Clone> {
+struct DoubleBufferingLazyTask<Lhs: CubeType, Rhs: CubeType, S: StageConfig> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
-    config: Config,
+    config: CommonGlobalConfig<S>,
 }
 
 #[cube]
-impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, Config: Clone>
-    DoubleBufferingAsyncTask<Lhs, Rhs, Config>
+impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
+    DoubleBufferingLazyTask<Lhs, Rhs, S>
 {
     pub fn new(
         #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
-        #[comptime] config: Config,
-    ) -> DoubleBufferingAsyncTask<Lhs, Rhs, Config> {
-        DoubleBufferingAsyncTask::<Lhs, Rhs, Config> {
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) -> DoubleBufferingLazyTask<Lhs, Rhs, S> {
+        comptime! {
+            if config.tiling_dimensions(Ident::Rhs).tile_count_row()< 3 {
+                panic!("Some fill stage events will never happen");
+            }
+        }
+
+        DoubleBufferingLazyTask::<Lhs, Rhs, S> {
             buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
@@ -345,12 +351,12 @@ impl<
     ES: Numeric,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
-    Config: StageConfig,
+    S: StageConfig,
 > LazyTask
-    for DoubleBufferingAsyncTask<
-        SyncLhsBufferLoader<EG, ES, Config, LL>,
-        SyncRhsBufferLoader<EG, ES, Config, RL>,
-        CommonGlobalConfig<Config>,
+    for DoubleBufferingLazyTask<
+        SyncLhsBufferLoader<EG, ES, S, LL>,
+        SyncRhsBufferLoader<EG, ES, S, RL>,
+        S,
     >
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {

@@ -29,7 +29,9 @@ pub struct NoTask {}
 
 #[cube]
 impl LazyTask for NoTask {
-    fn on_event(_this: &mut Self, #[comptime] _event: StageEvent) {}
+    fn on_event(_this: &mut Self, #[comptime] _event: StageEvent) {
+        // Nothing to do
+    }
 }
 
 #[cube]
