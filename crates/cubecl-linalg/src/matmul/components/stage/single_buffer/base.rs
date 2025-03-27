@@ -14,7 +14,7 @@ use crate::matmul::components::{
 use crate::matmul::components::{
     Ident, MatmulConfigFactory, MatmulProblem,
     global::{self, AccumulatorLoader},
-    stage::{self, StageConfig as _, StageWriter},
+    stage::{StageConfig as _, StageWriter},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 
@@ -43,7 +43,7 @@ impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
 where
     TMM: TileMatmulFamily,
 {
-    type Input = CompleteStageTiling;
+    type Input = (CompleteStageTiling, Buffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -64,8 +64,8 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = input.tile_shape;
-        let tile_count = input.tile_count;
+        let tile_shape = input.0.tile_shape;
+        let tile_count = input.0.tile_count;
 
         let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
@@ -74,14 +74,7 @@ where
             tile_shape,
         };
 
-        // TODO Support double buffering
-        CommonStageConfig::new(
-            tmm_config,
-            tiling,
-            tile_count.m,
-            quantized,
-            stage::Buffering::Single,
-        )
+        CommonStageConfig::new(tmm_config, tiling, tile_count.m, quantized, input.1)
     }
 }
 

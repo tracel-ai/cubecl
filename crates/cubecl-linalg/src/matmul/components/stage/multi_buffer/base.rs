@@ -44,7 +44,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
-    type Input = CompleteStageTiling;
+    type Input = (CompleteStageTiling, Buffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -69,8 +69,8 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = input.tile_shape;
-        let tile_count = input.tile_count;
+        let tile_shape = input.0.tile_shape;
+        let tile_count = input.0.tile_count;
 
         let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
@@ -84,7 +84,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             tiling,
             cube_dim.y,
             quantized,
-            crate::matmul::components::stage::Buffering::Single,
+            input.1,
         )
     }
 }
