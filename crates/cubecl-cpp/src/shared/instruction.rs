@@ -59,19 +59,6 @@ pub enum Instruction<D: Dialect> {
     Sub(BinaryInstruction<D>),
     Index(BinaryInstruction<D>),
     IndexAssign(BinaryInstruction<D>),
-    CheckedIndex {
-        len: Variable<D>,
-        lhs: Variable<D>,
-        rhs: Variable<D>,
-        out: Variable<D>,
-    },
-    ConditionalRead {
-        cond: Variable<D>,
-        slice: Variable<D>,
-        index: Variable<D>,
-        fallback: Variable<D>,
-        out: Variable<D>,
-    },
     Assign(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -278,71 +265,6 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => Index::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::IndexAssign(it) => IndexAssign::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::CheckedIndex { len, lhs, rhs, out } => {
-                let item_out = out.item();
-                if let Elem::Atomic(inner) = item_out.elem {
-                    write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
-                } else {
-                    let out = out.fmt_left();
-                    write!(f, "{out} = ({rhs} < {len}) ? ")?;
-                    Index::format_scalar(f, *lhs, *rhs, item_out)?;
-                    if item_out.vectorization == 1 {
-                        writeln!(f, " : {item_out}(0);")
-                    } else {
-                        writeln!(f, " : {item_out}{{}};")
-                    }
-                }
-            }
-            Instruction::ConditionalRead {
-                cond,
-                slice,
-                index,
-                fallback,
-                out,
-            } => {
-                let item_fallback = fallback.item();
-                let item_slice = slice.item();
-                let item_out = out.item();
-
-                let same_items = item_out == item_fallback || item_out == item_slice;
-                if !same_items {
-                    panic!(
-                        "condition read expects same type for input elements, fallback and ouput"
-                    );
-                }
-
-                let cond = EnsureBoolArg {
-                    var: &cond,
-                    elem: &cond.item().elem,
-                };
-
-                if out.is_const() {
-                    let out_decl = out.fmt_left();
-                    write!(
-                        f,
-                        "
-auto cond_read_{out} = [&]() {{
-    if ({cond}) {{
-        return {slice}[{index}];
-    }} else {{
-        return {fallback};
-    }}
-}};
-{out_decl} = cond_read_{out}();
-"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "
-{out} = {fallback};
-if ({cond}) {{
-    return {slice}[{index}];
-}}
-"
-                    )
-                }
-            }
             Instruction::Copy {
                 input,
                 in_index,
