@@ -79,13 +79,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             tile_count,
         };
 
-        CommonStageConfig::new(
-            tmm_config,
-            tiling,
-            cube_dim.y,
-            quantized,
-            input.1,
-        )
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
     }
 }
 

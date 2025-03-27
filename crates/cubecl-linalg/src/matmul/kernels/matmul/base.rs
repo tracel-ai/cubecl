@@ -1,6 +1,7 @@
 use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
-    stage, InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, SingleMatmulSpec
+    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
+    OutputRuntimeArg, SingleMatmulSpec, stage,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{

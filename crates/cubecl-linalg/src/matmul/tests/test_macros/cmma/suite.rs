@@ -1,4 +1,4 @@
-use crate::matmul::components::{stage, CompleteStageTiling, MatmulProblem, MatrixLayout};
+use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout, stage};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;

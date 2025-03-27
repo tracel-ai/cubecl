@@ -1,10 +1,10 @@
+use super::{Buffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions,
     tile::TileConfig,
 };
-use super::{Buffering, StageConfig};
-use cubecl_core as cubecl;
 use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
