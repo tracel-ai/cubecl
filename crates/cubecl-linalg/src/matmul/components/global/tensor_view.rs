@@ -2,6 +2,7 @@ use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
+use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
@@ -334,23 +335,23 @@ impl<EG: Numeric> TensorReader<EG> {
             config.check_row_bounds(ident),
             config.check_col_bounds(ident)
         )) {
-            (true, true) => conditional_read::<Line<EG>, u32>(
+            (true, true) => read_masked::<Line<EG>>(
                 view_x < self.shape_x && view_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
-            (true, false) => conditional_read::<Line<EG>, u32>(
+            (true, false) => read_masked::<Line<EG>>(
                 view_x < self.shape_x,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
-            (false, true) => conditional_read::<Line<EG>, u32>(
+            (false, true) => read_masked::<Line<EG>>(
                 view_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
             (false, false) => self.tensor.read(read_pos),
         }

@@ -2,7 +2,9 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::VariableKind;
+use cubecl_core::io::read_checked;
+use cubecl_core::ir::{ExpandElement, VariableKind};
+use cubecl_core::prelude::FloatExpand;
 use cubecl_core::{
     Compiler, Feature,
     ir::{self as gpu},
@@ -987,25 +989,24 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
+                    let lhs = ExpandElement::Plain(op.lhs);
+                    let rhs = ExpandElement::Plain(op.rhs);
+                    scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
 
-                    let array_len =
-                        *scope.create_local(gpu::Item::new(gpu::Elem::UInt(gpu::UIntKind::U32)));
+                    let mut child_scope = scope.child();
+                    let input = read_checked::expand::<FloatExpand<0>>(
+                        &mut child_scope,
+                        lhs.into(),
+                        rhs.into(),
+                    );
+                    for inst in self.compile_scope(&mut child_scope) {
+                        instructions.push(inst);
+                    }
 
-                    instructions.extend(self.compile_scope(scope));
-
-                    let length = match lhs.has_buffer_length() {
-                        true => gpu::Metadata::BufferLength { var: lhs },
-                        false => gpu::Metadata::Length { var: lhs },
-                    };
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
+                    instructions.push(Instruction::Assign(UnaryInstruction {
+                        input: self.compile_variable(input.into_variable()),
                         out: self.compile_variable(out),
-                    });
+                    }))
                 } else {
                     instructions.push(Instruction::Index(self.compile_binary(op, out)));
                 }
@@ -1068,13 +1069,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Bitcast(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
-            gpu::Operator::ConditionalRead(op) => instructions.push(Instruction::ConditionalRead {
-                cond: self.compile_variable(op.cond),
-                slice: self.compile_variable(op.slice),
-                index: self.compile_variable(op.index),
-                fallback: self.compile_variable(op.fallback),
-                out: self.compile_variable(out),
-            }),
         };
     }
 

@@ -187,12 +187,6 @@ impl Optimizer {
                 visit_read(self, &mut select.then);
                 visit_read(self, &mut select.or_else);
             }
-            Operator::ConditionalRead(conditional_read) => {
-                visit_read(self, &mut conditional_read.cond);
-                visit_read(self, &mut conditional_read.slice);
-                visit_read(self, &mut conditional_read.index);
-                visit_read(self, &mut conditional_read.fallback);
-            }
         }
     }
 

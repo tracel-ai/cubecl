@@ -4,6 +4,9 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
+use cubecl_core::io::read_checked;
+use cubecl_core::ir::ExpandElement;
+use cubecl_core::prelude::FloatExpand;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
@@ -875,24 +878,24 @@ impl WgslCompiler {
             }),
             cube::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked) && op.lhs.has_length() {
-                    let lhs = op.lhs;
-                    let rhs = op.rhs;
-                    let array_len =
-                        *scope.create_local(cube::Item::new(cube::Elem::UInt(cube::UIntKind::U32)));
+                    let lhs = ExpandElement::Plain(op.lhs);
+                    let rhs = ExpandElement::Plain(op.rhs);
+                    scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
 
-                    instructions.extend(self.compile_scope(scope));
+                    let mut child_scope = scope.child();
+                    let input = read_checked::expand::<FloatExpand<0>>(
+                        &mut child_scope,
+                        lhs.into(),
+                        rhs.into(),
+                    );
+                    for inst in self.compile_scope(&mut child_scope) {
+                        instructions.push(inst);
+                    }
 
-                    let length = match lhs.has_buffer_length() {
-                        true => cube::Metadata::BufferLength { var: lhs },
-                        false => cube::Metadata::Length { var: lhs },
-                    };
-                    instructions.push(self.compile_metadata(length, Some(array_len)));
-                    instructions.push(wgsl::Instruction::CheckedIndex {
-                        len: self.compile_variable(array_len),
-                        lhs: self.compile_variable(lhs),
-                        rhs: self.compile_variable(rhs),
+                    instructions.push(wgsl::Instruction::Assign {
+                        input: self.compile_variable(input.into_variable()),
                         out: self.compile_variable(out),
-                    });
+                    })
                 } else {
                     instructions.push(wgsl::Instruction::Index {
                         lhs: self.compile_variable(op.lhs),
@@ -1001,15 +1004,6 @@ impl WgslCompiler {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::ConditionalRead(op) => {
-                instructions.push(wgsl::Instruction::ConditionalRead {
-                    cond: self.compile_variable(op.cond),
-                    slice: self.compile_variable(op.slice),
-                    index: self.compile_variable(op.index),
-                    fallback: self.compile_variable(op.fallback),
-                    out: self.compile_variable(out),
-                })
-            }
         }
     }
 
