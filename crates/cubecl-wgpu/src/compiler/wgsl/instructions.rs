@@ -781,7 +781,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(f, "select({or_elsei}, {theni}, {condi}),")?;
                     }
-
                     writeln!(f, ");")
                 } else {
                     writeln!(f, "{out} = select({or_else}, {then}, {cond});")
@@ -1003,34 +1002,27 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 fallback,
                 out,
             } => {
-                let vf_slice = slice.item().vectorization_factor();
-                let vf_fallback = fallback.item().vectorization_factor();
-                let vf_out = out.item().vectorization_factor();
-                let vf_cond = cond.item().vectorization_factor();
-                let vf = usize::max(vf_cond, vf_out);
-                let vf = usize::max(vf, vf_slice);
-                let vf = usize::max(vf, vf_fallback);
+                let item_fallback = fallback.item();
+                let item_slice = slice.item();
+                let item_out = out.item();
 
-                let out = out.fmt_left();
-                if vf != vf_slice || vf != vf_fallback || vf != vf_cond || vf != vf_out {
-                    writeln!(f, "{out} = vec{vf}(")?;
-                    for i in 0..vf {
-                        let fallbacki = fallback.index(i);
-                        let condi = cond.index(i);
-
-                        writeln!(
-                            f,
-                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset][{i}], {condi}),"
-                        )?;
-                    }
-
-                    writeln!(f, ");")
-                } else {
-                    writeln!(
-                        f,
-                        "{out} = select({fallback}, (*{slice}_ptr)[{index} + {slice}_offset], {cond});"
-                    )
+                let same_items = item_out == item_fallback || item_out == item_slice;
+                if !same_items {
+                    panic!(
+                        "condition read expects same type for input elements, fallback and ouput"
+                    );
                 }
+
+                let decl_out = out.fmt_left();
+                writeln!(
+                    f,
+                    "var tmp_{out} = {fallback};
+if {cond} {{
+  tmp_{out} = (*{slice}_ptr)[{index} + {slice}_offset];
+}}
+{decl_out} = tmp_{out};
+"
+                )
             }
         }
     }
