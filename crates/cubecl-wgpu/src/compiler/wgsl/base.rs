@@ -359,6 +359,10 @@ impl Variable {
             var => format!("{}", var),
         }
     }
+
+    pub fn is_const(&self) -> bool {
+        matches!(self, Variable::LocalConst { .. })
+    }
 }
 
 impl IndexedVariable {
