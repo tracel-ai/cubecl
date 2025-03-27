@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::io::read_checked;
+use cubecl_core::io::read_tensor_checked;
 use cubecl_core::ir::{ExpandElement, VariableKind};
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
@@ -997,7 +997,7 @@ impl<D: Dialect> CppCompiler<D> {
                     scope.register_elem::<FloatExpand<0>>(op.lhs.elem());
 
                     let mut child_scope = scope.child();
-                    let input = read_checked::expand::<Line<FloatExpand<0>>>(
+                    let input = read_tensor_checked::expand::<Line<FloatExpand<0>>>(
                         &mut child_scope,
                         list.into(),
                         index.into(),
