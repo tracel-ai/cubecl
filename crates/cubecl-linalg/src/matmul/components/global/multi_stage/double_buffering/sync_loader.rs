@@ -14,7 +14,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-#[derive(CubeType)]
+#[derive(Clone, CubeType)]
 pub struct SyncLhsBufferLoader<
     EG: Numeric,
     ES: Numeric,
@@ -27,7 +27,7 @@ pub struct SyncLhsBufferLoader<
     _config: PhantomData<S>,
 }
 
-#[derive(CubeType)]
+#[derive(Clone, CubeType)]
 pub struct SyncRhsBufferLoader<
     EG: Numeric,
     ES: Numeric,

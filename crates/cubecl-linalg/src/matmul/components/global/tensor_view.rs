@@ -6,7 +6,7 @@ use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-#[derive(CubeType)]
+#[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.

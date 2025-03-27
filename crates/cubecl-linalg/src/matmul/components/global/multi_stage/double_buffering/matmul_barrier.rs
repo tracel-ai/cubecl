@@ -164,7 +164,7 @@ where
 
         let range = k_range.1 - k_range.0;
         let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages;
+        let num_loops = num_stages - 1;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
 
@@ -178,55 +178,51 @@ where
 
         let barrier_level = LL::barrier_level();
         comptime!(assert!(barrier_level == RL::barrier_level()));
-        let barrier = Barrier::<MP::ES>::new(barrier_level);
+        let barrier_a = Barrier::<MP::ES>::new(barrier_level);
+        let barrier_b = Barrier::<MP::ES>::new(barrier_level);
 
         #[allow(clippy::collapsible_if)]
         if comptime!(config.check_k_bounds()) {
-            if num_loops <= 1 {
+            if num_loops == 0 {
                 Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
                 Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
                 sync_units();
             }
         }
-
         Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
             &mut lhs_loader,
-            &barrier,
+            &barrier_a,
             BufferId::A,
             config,
         );
         Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
             &mut rhs_loader,
-            &barrier,
+            &barrier_a,
             BufferId::A,
             config,
         );
+        barrier_a.arrive();
+
+        // So it can do the first iteration
+        barrier_b.arrive();
 
         for loop_iter in 0..num_loops {
-            sync_units();
-
-            #[allow(clippy::collapsible_if)]
-            if comptime!(config.check_k_bounds()) {
-                if loop_iter == num_loops - 1 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::B, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::B, config);
-                    sync_units();
-                }
-            }
-
+            barrier_b.wait();
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
                 &mut lhs_loader,
-                &barrier,
+                &barrier_b,
                 BufferId::B,
                 config,
             );
             Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
                 &mut rhs_loader,
-                &barrier,
+                &barrier_b,
                 BufferId::B,
                 config,
             );
+            barrier_b.arrive();
 
+            barrier_a.wait();
             SMM::execute(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -236,35 +232,9 @@ where
                 CubeOption::new_None(),
                 config.to_smm_config(),
             );
+            barrier_a.arrive();
 
-            sync_units();
-            barrier.wait();
-
-            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
-
-            #[allow(clippy::collapsible_if)]
-            if comptime!(config.check_k_bounds()) {
-                if loop_iter == num_loops - 2 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
-                    sync_units();
-                }
-            }
-
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut lhs_loader,
-                &barrier,
-                BufferId::A,
-                config,
-            );
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut rhs_loader,
-                &barrier,
-                BufferId::A,
-                config,
-            );
-
+            barrier_b.wait();
             SMM::execute(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -274,9 +244,81 @@ where
                 CubeOption::new_None(),
                 config.to_smm_config(),
             );
+            barrier_b.arrive();
+
+            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+
+            barrier_a.wait();
+            #[allow(clippy::collapsible_if)]
+            if comptime!(config.check_k_bounds()) {
+                if loop_iter == num_loops - 1 {
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
+                    // TODO can we remove
+                    sync_units();
+                }
+            }
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
+                &mut lhs_loader,
+                &barrier_a,
+                BufferId::A,
+                config,
+            );
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
+                &mut rhs_loader,
+                &barrier_a,
+                BufferId::A,
+                config,
+            );
+            barrier_a.arrive();
         }
 
-        sync_units();
+        barrier_b.wait();
+        #[allow(clippy::collapsible_if)]
+        if comptime!(config.check_k_bounds()) {
+            Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::B, config);
+            Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::B, config);
+            // TODO can we remove
+            sync_units();
+        }
+        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
+            &mut lhs_loader,
+            &barrier_b,
+            BufferId::B,
+            config,
+        );
+        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
+            &mut rhs_loader,
+            &barrier_b,
+            BufferId::B,
+            config,
+        );
+        barrier_b.arrive();
+
+        barrier_a.wait();
+        SMM::execute(
+            &lhs_buffer_reader_a,
+            &rhs_buffer_reader_a,
+            &mut lhs_tile_a,
+            &mut rhs_tile_a,
+            acc,
+            CubeOption::new_None(),
+            config.to_smm_config(),
+        );
+        barrier_a.arrive();
+
+        barrier_b.wait();
+        SMM::execute(
+            &lhs_buffer_reader_b,
+            &rhs_buffer_reader_b,
+            &mut lhs_tile_b,
+            &mut rhs_tile_b,
+            acc,
+            CubeOption::new_None(),
+            config.to_smm_config(),
+        );
+        barrier_b.arrive();
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
