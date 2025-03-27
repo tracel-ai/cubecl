@@ -10,7 +10,7 @@ pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: u32, val
     select(mask, *input, value)
 }
 
-/// Returns the value at `index` in `list` if `condition` is `true`, otherwise returns `value`.
+/// Returns the value at `index` in tensor within bounds.
 #[cube]
 pub fn read_tensor_checked<C: CubePrimitive>(tensor: Tensor<C>, index: u32) -> C {
     let mask = index < tensor.buffer_len();
