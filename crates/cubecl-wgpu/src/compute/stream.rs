@@ -78,7 +78,8 @@ impl WgpuStream {
             CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
-        let info = self.create(bytemuck::cast_slice(&bindings.metadata));
+        let info = (!bindings.metadata.data.is_empty())
+            .then(|| self.create(bytemuck::cast_slice(&bindings.metadata.data)));
         let scalars = bindings
             .scalars
             .iter()
@@ -99,7 +100,9 @@ impl WgpuStream {
                 .map(|b| self.mem_manage.get_resource(b.clone())),
         );
 
-        resources.push(self.mem_manage.get_resource(info.binding()));
+        if let Some(info) = info {
+            resources.push(self.mem_manage.get_resource(info.binding()));
+        }
 
         resources.extend(
             scalars

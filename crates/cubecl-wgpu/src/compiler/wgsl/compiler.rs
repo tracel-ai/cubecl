@@ -116,6 +116,7 @@ impl WgslCompiler {
             shared_memories: self.shared_memories.clone(),
             constant_arrays: self.const_arrays.clone(),
             local_arrays: self.local_arrays.clone(),
+            has_metadata: self.metadata.static_len() > 0,
             workgroup_size: value.cube_dim,
             global_invocation_id: self.global_invocation_id || self.id,
             local_invocation_index: self.local_invocation_index,

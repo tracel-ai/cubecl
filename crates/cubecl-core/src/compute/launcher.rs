@@ -359,12 +359,13 @@ impl<T: NoUninit + AnyBitPattern + CubePrimitive> ScalarState<T> {
 
     fn register(&self, bindings: &mut Bindings) {
         if let ScalarState::Some(values) = self {
-            let len_u64 = values.len().div_ceil(size_of::<u64>() / size_of::<T>());
+            let len = values.len();
+            let len_u64 = len.div_ceil(size_of::<u64>() / size_of::<T>());
             let mut data = vec![0; len_u64];
             let slice = bytemuck::cast_slice_mut::<u64, T>(&mut data);
             slice[0..values.len()].copy_from_slice(values);
             let elem = T::as_elem_native_unchecked();
-            bindings.scalars.push(ScalarBinding::new(elem, data));
+            bindings.scalars.push(ScalarBinding::new(elem, len, data));
         }
     }
 }

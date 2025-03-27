@@ -135,7 +135,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             size: None,
             has_extended_meta: false,
         };
-        self.state.info = target.generate_binding(self, info_binding, "info".to_string(), offset);
+        if self.metadata.static_len() > 0 {
+            self.state.info =
+                target.generate_binding(self, info_binding, "info".to_string(), offset);
+        }
 
         let offset = offset + 1;
         self.state.scalar_bindings = kernel

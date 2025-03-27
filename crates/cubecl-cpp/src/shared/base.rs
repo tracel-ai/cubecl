@@ -154,6 +154,7 @@ impl<D: Dialect> CppCompiler<D> {
             inputs,
             outputs,
             scalars,
+            meta_static_len: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             body,
             wmma_activated: self.wmma,
@@ -191,6 +192,7 @@ impl<D: Dialect> CppCompiler<D> {
         let pos = match var.kind {
             gpu::VariableKind::GlobalInputArray(id) => id as usize,
             gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            gpu::VariableKind::TensorMap(id) => self.num_inputs + self.num_outputs + id as usize,
             other => panic!("Only global arrays have metadata, got {other:?}"),
         };
         self.ext_meta_positions[pos]
@@ -611,6 +613,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -620,6 +624,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -629,6 +635,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
+                    split_meta: self.compilation_options.grid_constants,
                     out,
                 }
             }
@@ -645,11 +652,15 @@ impl<D: Dialect> CppCompiler<D> {
                         let id = match input {
                             Variable::GlobalInputArray(id, _) => id,
                             Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
+                            Variable::TensorMap(id) => {
+                                self.num_inputs as u32 + self.num_outputs as u32 + id
+                            }
                             _ => panic!("Can only get length of global array"),
                         };
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }
@@ -665,11 +676,15 @@ impl<D: Dialect> CppCompiler<D> {
                         let id = match input {
                             Variable::GlobalInputArray(id, _) => id,
                             Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
+                            Variable::TensorMap(id) => {
+                                self.num_inputs as u32 + self.num_outputs as u32 + id
+                            }
                             _ => panic!("Can only get buffer length of global array"),
                         };
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }

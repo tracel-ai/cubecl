@@ -157,7 +157,7 @@ pub struct Bindings {
     pub outputs: Vec<Binding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
-    pub metadata: Vec<u32>,
+    pub metadata: MetadataBinding,
     /// Scalar bindings
     pub scalars: Vec<ScalarBinding>,
     /// Tensor map bindings
@@ -195,8 +195,8 @@ impl Bindings {
     }
 
     /// Add a scalar parameter
-    pub fn with_scalar(mut self, elem: Elem, data: Vec<u64>) -> Self {
-        self.scalars.push(ScalarBinding::new(elem, data));
+    pub fn with_scalar(mut self, elem: Elem, length: usize, data: Vec<u64>) -> Self {
+        self.scalars.push(ScalarBinding::new(elem, length, data));
         self
     }
 
@@ -207,7 +207,7 @@ impl Bindings {
     }
 
     /// Set the metadata to `meta`
-    pub fn with_metadata(mut self, meta: Vec<u32>) -> Self {
+    pub fn with_metadata(mut self, meta: MetadataBinding) -> Self {
         self.metadata = meta;
         self
     }
@@ -220,10 +220,21 @@ impl Bindings {
 }
 
 /// Binding of a set of scalars of the same type to execute a kernel.
+#[derive(new, Debug, Default)]
+pub struct MetadataBinding {
+    /// Metadata values
+    pub data: Vec<u32>,
+    /// Length of the static portion (rank, len, buffer_len, shape_offsets, stride_offsets).
+    pub static_len: usize,
+}
+
+/// Binding of a set of scalars of the same type to execute a kernel.
 #[derive(new, Debug)]
 pub struct ScalarBinding {
     /// Type of the scalars
     pub elem: Elem,
+    /// Unpadded length of the underlying data
+    pub length: usize,
     /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
     pub data: Vec<u64>,
 }

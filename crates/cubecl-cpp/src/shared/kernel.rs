@@ -55,6 +55,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub inputs: Vec<Binding<D>>,
     pub outputs: Vec<Binding<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
+    pub meta_static_len: usize,
     pub cube_dim: CubeDim,
     pub body: Body<D>,
     pub wmma_activated: bool,
@@ -139,6 +140,18 @@ struct scalars_{elem}_st {{
             }
         }
 
+        if self.grid_constant && self.meta_static_len > 0 {
+            write!(
+                f,
+                "
+struct metadata_st {{
+uint x[{}];
+}};
+",
+                self.meta_static_len
+            )?;
+        }
+
         for item in self.items.iter() {
             let elem = item.elem;
             let size = item.vectorization;
@@ -171,8 +184,17 @@ extern \"C\" __global__ void {}(
             self.kernel_name
         )?;
 
-        let num_bindings =
-            self.num_tensor_maps + self.inputs.len() + self.outputs.len() + self.scalars.len() + 1;
+        let meta_len = match (self.grid_constant, self.meta_static_len > 0) {
+            (true, true) => 2,
+            (false, true) => 1,
+            _ => 0,
+        };
+
+        let num_bindings = self.num_tensor_maps
+            + self.inputs.len()
+            + self.outputs.len()
+            + self.scalars.len()
+            + meta_len;
         let mut binding_index = 0;
         for index in 0..self.num_tensor_maps {
             binding_index += 1;
@@ -207,25 +229,46 @@ extern \"C\" __global__ void {}(
             }
         }
 
-        binding_index += 1;
-        write!(f, "const uint* __restrict__ info")?;
-        if binding_index < num_bindings {
-            f.write_str(",")?;
+        if self.meta_static_len > 0 {
+            binding_index += 1;
+            write!(f, "const uint* __restrict__ info")?;
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
         }
+
         if self.grid_constant {
             // Need to sort elements because of alignment when packing
-            for size in [8, 4, 2, 1] {
+            // Metadata is align 4 so it needs to be spliced in the middle.
+            let scalars_of_size = |f: &mut core::fmt::Formatter<'_>,
+                                   size: usize,
+                                   binding_index: &mut usize|
+             -> core::fmt::Result {
                 for (elem, _) in self.scalars.iter().filter(|it| it.0.size() == size) {
-                    binding_index += 1;
+                    *binding_index += 1;
                     write!(
                         f,
                         "const __grid_constant__ scalars_{elem}_st scalars_{elem}"
                     )?;
-
-                    if binding_index < num_bindings {
+                    if *binding_index < num_bindings {
                         f.write_str(",")?;
                     }
                 }
+                Ok(())
+            };
+
+            scalars_of_size(f, 8, &mut binding_index)?;
+
+            if self.meta_static_len > 0 {
+                binding_index += 1;
+                write!(f, "const __grid_constant__ metadata_st static_info")?;
+                if binding_index < num_bindings {
+                    f.write_str(",")?;
+                }
+            }
+
+            for size in [4, 2, 1] {
+                scalars_of_size(f, size, &mut binding_index)?;
             }
         } else {
             for (elem, _) in self.scalars.iter() {

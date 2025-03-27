@@ -66,6 +66,7 @@ pub struct ComputeShader {
     pub shared_memories: Vec<SharedMemory>,
     pub constant_arrays: Vec<ConstantArray>,
     pub local_arrays: Vec<LocalArray>,
+    pub has_metadata: bool,
     pub workgroup_size: CubeDim,
     pub global_invocation_id: bool,
     pub local_invocation_index: bool,
@@ -95,13 +96,15 @@ impl Display for ComputeShader {
         Self::format_bindings(f, "input", &self.inputs, 0)?;
         Self::format_bindings(f, "output", &self.outputs, self.inputs.len())?;
 
-        Self::format_scalar_binding(
-            f,
-            "info",
-            Elem::U32,
-            None,
-            self.inputs.len() + self.outputs.len(),
-        )?;
+        if self.has_metadata {
+            Self::format_scalar_binding(
+                f,
+                "info",
+                Elem::U32,
+                None,
+                self.inputs.len() + self.outputs.len(),
+            )?;
+        }
 
         for (i, (elem, len)) in self.scalars.iter().enumerate() {
             Self::format_scalar_binding(

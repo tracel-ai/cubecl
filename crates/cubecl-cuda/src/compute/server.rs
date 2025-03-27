@@ -366,25 +366,43 @@ impl ComputeServer for CudaServer {
             }
         };
 
-        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata));
         let (scalars, scalar_bindings) = if self.ctx.compilation_options.grid_constants {
-            let mut scalars = Vec::with_capacity(bindings.scalars.len());
+            let mut scalars = Vec::with_capacity(bindings.scalars.len() + 1);
             // We need to sort by largest first to have proper packed alignment. Assumes device
             // pointers are 64-bit aligned, which I believe is true on all cards that support grid
-            // constants regardless.
-            for size in [8, 4, 2, 1] {
+            // constants regardless. Metadata is inserted after the 8-aligned scalars to ensure proper
+            // packing
+            for binding in bindings.scalars.iter().filter(|it| it.elem.size() == 8) {
+                scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
+            }
+            if bindings.metadata.static_len > 0 {
+                scalars.push(bindings.metadata.data.as_ptr() as *const _ as *mut c_void);
+            }
+            for size in [4, 2, 1] {
                 for binding in bindings.scalars.iter().filter(|it| it.elem.size() == size) {
                     scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
                 }
             }
-            (scalars, Vec::new())
+
+            let mut handles = Vec::new();
+            if bindings.metadata.static_len > 0 {
+                let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
+                handles.push(self.create(bytemuck::cast_slice(dyn_meta)));
+            }
+
+            (scalars, handles)
         } else {
-            let bindings = bindings
-                .scalars
-                .iter()
-                .map(|scalar| self.create(scalar.data()))
-                .collect::<Vec<_>>();
-            (Vec::new(), bindings)
+            let mut handles = Vec::new();
+            if !bindings.metadata.data.is_empty() {
+                handles.push(self.create(bytemuck::cast_slice(&bindings.metadata.data)))
+            }
+            handles.extend(
+                bindings
+                    .scalars
+                    .iter()
+                    .map(|scalar| self.create(scalar.data())),
+            );
+            (Vec::new(), handles)
         };
 
         let (ctx, logger) = self.get_context_with_logger();
@@ -495,7 +513,6 @@ impl ComputeServer for CudaServer {
                 .into_iter()
                 .map(|binding| find_resource(ctx, binding)),
         );
-        resources.push(find_resource(ctx, metadata.binding()));
         resources.extend(
             scalar_bindings
                 .into_iter()
