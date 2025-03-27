@@ -7,7 +7,7 @@ use crate::matmul::components::global::multi_stage::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::AsyncTask;
+use crate::matmul::components::stage::LazyTask;
 use crate::matmul::components::stage::NoTask;
 use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
@@ -341,7 +341,7 @@ impl<
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
     Config: StageConfig,
-> AsyncTask
+> LazyTask
     for DoubleBufferingAsyncTask<
         SyncLhsBufferLoader<EG, ES, Config, LL>,
         SyncRhsBufferLoader<EG, ES, Config, RL>,

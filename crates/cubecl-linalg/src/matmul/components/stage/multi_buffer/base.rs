@@ -1,6 +1,6 @@
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::stage::AsyncTask;
+use crate::matmul::components::stage::LazyTask;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
@@ -123,7 +123,7 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
-    fn execute<TK: AsyncTask>(
+    fn execute<TK: LazyTask>(
         lhs_reader: &LhsReader<ES, TL>,
         rhs_reader: &RhsReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,

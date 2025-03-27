@@ -6,7 +6,7 @@ use cubecl_std::CubeOption;
 
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{AsyncTask, StageMatmulFamily, TilingLayout};
+use crate::matmul::components::stage::{LazyTask, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
@@ -120,7 +120,7 @@ where
     type LhsTile = TMM::Lhs;
     type RhsTile = TMM::Rhs;
 
-    fn execute<TK: AsyncTask>(
+    fn execute<TK: LazyTask>(
         lhs_reader: &LhsBufferReader<ES, TL>,
         rhs_reader: &RhsBufferReader<ES, TR>,
         lhs_tile: &mut Self::LhsTile,

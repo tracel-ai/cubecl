@@ -7,9 +7,7 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        single_stage::{
-            CyclicCoalescedLoading, CyclicCoalescedTwoBuffersLoading, SyncFullLoadingStrategy,
-        },
+        single_stage::{CyclicCoalescedLoading, SyncFullLoadingStrategy},
     },
     stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
     tile,
