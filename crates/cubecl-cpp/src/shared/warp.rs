@@ -173,6 +173,8 @@ fn reduce_exclusive<D: Dialect>(
     writeln!(f, "{} = {{", shfl.fmt_left())?;
     for k in 0..acc_item.vectorization {
         let inclusive_indexed = maybe_index(&inclusive, k);
+        let comma = if k > 0 { ", " } else { "" };
+        write!(f, "{comma}")?;
         D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
     }
     writeln!(f, "}};")?;
