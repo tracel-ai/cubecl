@@ -83,8 +83,9 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         #[comptime] config: Self::Config,
     );
 
-    /// Executes the matrix multiplication of LHS and RHS, with the addition of injected lazy tasks
-    fn execute_with_task<TK: StageEventListener>(
+    /// Executes the matrix multiplication of LHS and RHS, with the addition of injected
+    /// [event listener](StageEventListener).
+    fn execute_with_listener<SEL: StageEventListener>(
         lhs: &Self::LhsReader,
         rhs: &Self::RhsReader,
         instruction_lhs: &mut Self::LhsTile,
@@ -92,7 +93,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
-        task: TK,
+        listener: SEL,
     );
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);

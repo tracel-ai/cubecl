@@ -154,7 +154,7 @@ where
         }
     }
 
-    fn execute_with_task<TK: StageEventListener>(
+    fn execute_with_listener<TK: StageEventListener>(
         _lhs_reader: &LhsReader<I, TL>,
         _rhs_reader: &RhsReader<I, TR>,
         _lhs_fragment: &mut Self::LhsTile,

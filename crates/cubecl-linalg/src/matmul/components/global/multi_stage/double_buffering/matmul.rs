@@ -179,16 +179,8 @@ where
         sync_units();
 
         for _ in 1..num_loops {
-            let task =
-                DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
-                    BufferId::B,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                );
-
-            SMM::execute_with_task::<
-                DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+            SMM::execute_with_listener::<
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
             >(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -197,7 +189,7 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                task,
+                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
 
             sync_units();
@@ -205,16 +197,8 @@ where
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
-            let task =
-                DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
-                    BufferId::A,
-                    &lhs_loader,
-                    &rhs_loader,
-                    config,
-                );
-
-            SMM::execute_with_task::<
-                DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+            SMM::execute_with_listener::<
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
             >(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -223,20 +207,13 @@ where
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                task,
+                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
             sync_units();
         }
 
-        let task = DoubleBufferingLazyTask::<Self::LhsLoader, Self::RhsLoader, SMM::Config>::new(
-            BufferId::B,
-            &lhs_loader,
-            &rhs_loader,
-            config,
-        );
-
-        SMM::execute_with_task::<
-            DoubleBufferingLazyTask<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+        SMM::execute_with_listener::<
+            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
         >(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
@@ -245,7 +222,7 @@ where
             acc,
             CubeOption::new_None(),
             config.to_smm_config(),
-            task,
+            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
 
         sync_units();
@@ -311,7 +288,7 @@ where
 }
 
 #[derive(CubeType)]
-struct DoubleBufferingLazyTask<Lhs: CubeType, Rhs: CubeType, S: StageConfig> {
+struct DoubleBufferingEventListener<Lhs: CubeType, Rhs: CubeType, S: StageConfig> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
@@ -322,15 +299,15 @@ struct DoubleBufferingLazyTask<Lhs: CubeType, Rhs: CubeType, S: StageConfig> {
 
 #[cube]
 impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
-    DoubleBufferingLazyTask<Lhs, Rhs, S>
+    DoubleBufferingEventListener<Lhs, Rhs, S>
 {
     pub fn new(
         #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: CommonGlobalConfig<S>,
-    ) -> DoubleBufferingLazyTask<Lhs, Rhs, S> {
-        DoubleBufferingLazyTask::<Lhs, Rhs, S> {
+    ) -> DoubleBufferingEventListener<Lhs, Rhs, S> {
+        DoubleBufferingEventListener::<Lhs, Rhs, S> {
             buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
@@ -351,7 +328,7 @@ impl<
     RL: SyncBufferLoadingStrategy,
     S: StageConfig,
 > StageEventListener
-    for DoubleBufferingLazyTask<
+    for DoubleBufferingEventListener<
         SyncLhsBufferLoader<EG, ES, S, LL>,
         SyncRhsBufferLoader<EG, ES, S, RL>,
         S,

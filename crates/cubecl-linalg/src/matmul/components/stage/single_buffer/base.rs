@@ -130,7 +130,7 @@ where
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
-        Self::execute_with_task::<NoTask>(
+        Self::execute_with_listener::<NoTask>(
             lhs_reader,
             rhs_reader,
             lhs_fragment,
@@ -142,7 +142,7 @@ where
         );
     }
 
-    fn execute_with_task<TK: StageEventListener>(
+    fn execute_with_listener<SEL: StageEventListener>(
         lhs_reader: &Self::LhsReader,
         rhs_reader: &Self::RhsReader,
         lhs_fragment: &mut Self::LhsTile,
@@ -150,7 +150,7 @@ where
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
-        task: TK,
+        listener: SEL,
     ) {
         comptime! {
             if scaling.is_some() {
@@ -159,23 +159,23 @@ where
         }
 
         match rhs_fragments {
-            RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<TK>(
+            RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
                 rhs_fragment,
                 acc,
                 config,
-                task,
+                listener,
             ),
-            RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<TK>(
+            RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<SEL>(
                 lhs_reader,
                 rhs_reader,
                 lhs_fragment,
                 rhs_fragments,
                 acc,
                 config,
-                task,
+                listener,
             ),
         }
     }
@@ -326,23 +326,23 @@ where
     }
 
     // Execute stage matmul with two alternating buffers for rhs.
-    fn execute_double_buffer<TK: StageEventListener>(
+    fn execute_double_buffer<SEL: StageEventListener>(
         lhs_reader: &LhsBufferReader<I, TL>,
         rhs_reader: &RhsBufferReader<I, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
-        mut task: TK,
+        mut listener: SEL,
     ) {
         let mut current_event = comptime![0u32];
         let total = acc.len();
-        TK::on_event(&mut task, StageEvent::Begin);
+        SEL::on_event(&mut listener, StageEvent::Begin);
 
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
-        TK::on_event(
-            &mut task,
+        SEL::on_event(
+            &mut listener,
             comptime![StageEvent::LhsLoaded {
                 current: 0u32,
                 total: 1u32
@@ -356,8 +356,8 @@ where
             &mut rhs_fragments.0,
             config.to_tmm_config(),
         );
-        TK::on_event(
-            &mut task,
+        SEL::on_event(
+            &mut listener,
             comptime!(StageEvent::RhsLoaded {
                 current: current_event,
                 total
@@ -379,8 +379,8 @@ where
                 config,
             );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
-            TK::on_event(
-                &mut task,
+            SEL::on_event(
+                &mut listener,
                 comptime!(StageEvent::RhsLoaded {
                     current: current_event + 1,
                     total
@@ -389,8 +389,8 @@ where
 
             let accumulator = acc.index_mut(current_event);
             TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
-            TK::on_event(
-                &mut task,
+            SEL::on_event(
+                &mut listener,
                 comptime!(StageEvent::TmmCompleted {
                     current: current_event,
                     total
@@ -408,13 +408,13 @@ where
 
         let accumulator = acc.index_mut(current_event);
         TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
-        TK::on_event(
-            &mut task,
+        SEL::on_event(
+            &mut listener,
             comptime!(StageEvent::TmmCompleted {
                 current: current_event,
                 total
             }),
         );
-        TK::on_event(&mut task, comptime!(StageEvent::Finish));
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 }
