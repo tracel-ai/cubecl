@@ -1,7 +1,7 @@
 use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulProblem, MatmulSelection, MatmulSpec,
-    OutputRuntimeArg, SingleMatmulSpec,
+    OutputRuntimeArg, SingleMatmulSpec, stage,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{
@@ -330,7 +330,6 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, EG: MaybeQuantized, A: Algorithm
         lhs_line_size,
         rhs_line_size,
         out_line_size,
-        // TODO consider a quantized field for MatmulProblem
     };
 
     let plane_size = client
@@ -414,7 +413,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),
             problem,
-            config_input,
+            (config_input, stage::Buffering::Single), // TODO support selecting double buffering
             selection,
             false,
         )

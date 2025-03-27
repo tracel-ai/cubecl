@@ -1,9 +1,10 @@
+use super::{Buffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions,
     tile::TileConfig,
 };
-
-use super::StageConfig;
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the single buffer matmul
@@ -12,6 +13,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tiling: CompleteStageTiling,
     pub num_planes: u32,
     pub quantized: bool,
+    pub buffering: Buffering,
 }
 
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
@@ -44,6 +46,10 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
     fn tile_count(&self) -> &MatmulSize {
         &self.tiling.tile_count
     }
+
+    fn buffering(&self) -> Buffering {
+        self.buffering
+    }
 }
 
 impl<T: TileConfig> MatmulConfig for CommonStageConfig<T> {}
@@ -55,12 +61,20 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tiling: CompleteStageTiling,
         num_planes: u32,
         quantized: bool,
+        buffering: Buffering,
     ) -> Self {
         Self {
             tmm_config,
             tiling,
             num_planes,
             quantized,
+            buffering,
         }
     }
+}
+
+#[derive(CubeType)]
+pub enum RhsTile<Rhs: CubeType> {
+    Single(Rhs),
+    Double((Rhs, Rhs)),
 }

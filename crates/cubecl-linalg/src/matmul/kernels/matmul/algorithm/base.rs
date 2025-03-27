@@ -6,12 +6,14 @@ use crate::matmul::components::{
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
+type StageInput = (CompleteStageTiling, stage::Buffering);
+
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
     type TileMatmul: tile::TileMatmulFamily;
-    type StageMatmul: stage::StageMatmulFamily<Input = CompleteStageTiling>;
+    type StageMatmul: stage::StageMatmulFamily<Input = StageInput>;
     type GlobalMatmul: global::GlobalMatmulFamily;
-    type BatchMatmul: batch::BatchMatmulFamily<Input = CompleteStageTiling>;
+    type BatchMatmul: batch::BatchMatmulFamily<Input = StageInput>;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
