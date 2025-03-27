@@ -4,7 +4,7 @@ use cubecl_runtime::DeviceProperties;
 use crate::matmul::{
     components::{
         CompleteStageTiling, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
-        MatmulSpec, OutputRuntimeArg, tile::TileMatmulFamily,
+        MatmulSpec, OutputRuntimeArg, stage, tile::TileMatmulFamily,
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
@@ -35,7 +35,7 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
-        config_input,
+        (config_input, stage::Buffering::Double), // TODO support double buffering
         selection,
         quantized,
     )

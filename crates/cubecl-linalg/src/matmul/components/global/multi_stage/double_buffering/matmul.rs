@@ -53,8 +53,8 @@ where
     >;
 }
 
-const EVENT_LHS: u32 = 2;
-const EVENT_RHS: u32 = 3;
+const EVENT_LHS: u32 = 0;
+const EVENT_RHS: u32 = 1;
 
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
@@ -73,7 +73,7 @@ where
             return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
         }
 
-        let num_event_opportunities = config.tiling_dimensions(Ident::Rhs).tile_count_col();
+        let num_event_opportunities = config.tiling_dimensions(Ident::Rhs).tile_count_col() - 1;
         let latest_event = max(EVENT_LHS, EVENT_RHS);
         if num_event_opportunities < latest_event {
             return Err(Box::new(format!(

@@ -303,43 +303,44 @@ impl<D: Dialect> Display for Instruction<D> {
                 let item_fallback = fallback.item();
                 let item_slice = slice.item();
                 let item_out = out.item();
-                let item_cond = cond.item();
-                let elem_cond = item_cond.elem;
 
-                let vf_slice = item_slice.vectorization;
-                let vf_fallback = item_fallback.vectorization;
-                let vf_out = item_out.vectorization;
-                let vf_cond = item_cond.vectorization;
+                let same_items = item_out == item_fallback || item_out == item_slice;
+                if !same_items {
+                    panic!(
+                        "condition read expects same type for input elements, fallback and ouput"
+                    );
+                }
 
-                let out = out.fmt_left();
+                let cond = EnsureBoolArg {
+                    var: &cond,
+                    elem: &cond.item().elem,
+                };
 
-                let should_broadcast =
-                    vf_cond > 1 || item_out != item_fallback || item_out != item_slice;
-
-                if should_broadcast {
-                    let vf = usize::max(vf_cond, vf_out);
-                    let vf = usize::max(vf, vf_slice);
-                    let vf = usize::max(vf, vf_fallback);
-
-                    writeln!(f, "{out} = {item_out} {{")?;
-                    for i in 0..vf {
-                        let fallbacki = fallback.index(i);
-                        let condi = cond.index(i);
-                        let condi = EnsureBoolArg {
-                            var: &condi,
-                            elem: &elem_cond,
-                        };
-
-                        writeln!(f, "({condi}) ? {slice}[{index} + i] : {fallbacki},")?;
-                    }
-
-                    writeln!(f, "}};")
+                if out.is_const() {
+                    let out_decl = out.fmt_left();
+                    write!(
+                        f,
+                        "
+auto cond_read_{out} = [&]() {{
+    if ({cond}) {{
+        return {slice}[{index}];
+    }} else {{
+        return {fallback};
+    }}
+}};
+{out_decl} = cond_read_{out}();
+"
+                    )
                 } else {
-                    let cond = EnsureBoolArg {
-                        var: &cond,
-                        elem: &elem_cond,
-                    };
-                    writeln!(f, "{out} = ({cond}) ? {slice}[{index}] : {fallback};")
+                    write!(
+                        f,
+                        "
+{out} = {fallback};
+if ({cond}) {{
+    return {slice}[{index}];
+}}
+"
+                    )
                 }
             }
             Instruction::Copy {

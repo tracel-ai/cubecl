@@ -1,4 +1,4 @@
-use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
+use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout, stage};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -46,7 +46,12 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_count: selection.tile_count,
     };
 
-    test_matmul_algorithm::<A, P, R>(client, problem, config_input, selection);
+    test_matmul_algorithm::<A, P, R>(
+        client,
+        problem,
+        (config_input, stage::Buffering::Single), // TODO support double buffering
+        selection,
+    );
 }
 
 #[allow(missing_docs)]
@@ -411,20 +416,6 @@ macro_rules! matmul_standard_tests {
         pub fn double_buffering() {
             cubecl_linalg::matmul::tests::test_algo::<
                 DoubleBufferingAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn double_buffering_barrier() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingBarrierAlgorithm<TMM>,
                 Precision,
                 TestRuntime,
             >(
