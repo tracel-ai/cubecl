@@ -30,6 +30,12 @@ impl LazyTask for NoTask {
     }
 }
 
+impl Default for NoTask {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cube]
 impl NoTask {
     pub fn new() -> NoTask {
