@@ -23,6 +23,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use std::cmp::max;
 use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
@@ -52,6 +53,9 @@ where
     >;
 }
 
+const EVENT_LHS: u32 = 2;
+const EVENT_RHS: u32 = 3;
+
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
@@ -67,6 +71,15 @@ where
 
         if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
             return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
+        }
+
+        let num_event_opportunities = config.tiling_dimensions(Ident::Rhs).tile_count_col();
+        let latest_event = max(EVENT_LHS, EVENT_RHS);
+        if num_event_opportunities < latest_event {
+            return Err(Box::new(format!(
+                "Some events will never happen because `num_event_opportunities` ({}) is less than `latest_event` ({}). This occurs due to Lazy Task on_event.",
+                num_event_opportunities, latest_event
+            )));
         }
 
         SMM::check_config(&config.to_smm_config())
@@ -330,12 +343,6 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
         loader_rhs: &Rhs,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> DoubleBufferingLazyTask<Lhs, Rhs, S> {
-        comptime! {
-            if config.tiling_dimensions(Ident::Rhs).tile_count_row()< 3 {
-                panic!("Some fill stage events will never happen");
-            }
-        }
-
         DoubleBufferingLazyTask::<Lhs, Rhs, S> {
             buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
@@ -360,10 +367,10 @@ impl<
     >
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
-        if let StageEvent::RhsLoaded(2) = event {
+        if let StageEvent::RhsLoaded(EVENT_LHS) = event {
             SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
         };
-        if let StageEvent::RhsLoaded(3) = event {
+        if let StageEvent::RhsLoaded(EVENT_RHS) = event {
             SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
         };
     }
