@@ -6,7 +6,7 @@ use cubecl_std::CubeOption;
 
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
-use crate::matmul::components::stage::{LazyTask, StageMatmulFamily, TilingLayout};
+use crate::matmul::components::stage::{LazyTask, StageEvent, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSize,
@@ -136,22 +136,35 @@ where
             }
         }
 
+        TK::on_event(&mut task, StageEvent::Begin);
+
         let tile_lhs = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
+        TK::on_event(&mut task, StageEvent::LhsLoaded);
 
-        let mut task_id = comptime![0u32];
+        // Comptime iterator
+        let mut acc_iter = comptime![0u32];
+        let acc_len = acc.len();
 
         #[unroll]
-        for accumulator_iter in 0..acc.len() {
-            let tile_rhs =
-                RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, accumulator_iter, config);
-            TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
-            TK::execute(&mut task, task_id);
+        for _ in 0..acc_len {
+            let remaining = comptime!(acc_iter - acc_len);
 
-            let accumulator = acc.index_mut(accumulator_iter);
+            TK::on_event(&mut task, comptime!(StageEvent::RhsRemaining(remaining)));
+            let tile_rhs = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, acc_iter, config);
+            TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
+            TK::on_event(&mut task, comptime!(StageEvent::RhsLoaded(acc_iter)));
+
+            let accumulator = acc.index_mut(acc_iter);
+
+            TK::on_event(&mut task, comptime!(StageEvent::TmmRemaining(remaining)));
             TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
-            comptime![task_id += 1];
+            TK::on_event(&mut task, comptime!(StageEvent::TmmCompleted(acc_iter)));
+
+            comptime![acc_iter += 1];
         }
+
+        TK::on_event(&mut task, comptime!(StageEvent::Finish));
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {

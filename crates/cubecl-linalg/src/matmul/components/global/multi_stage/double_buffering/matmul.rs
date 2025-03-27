@@ -10,6 +10,7 @@ use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::LazyTask;
 use crate::matmul::components::stage::NoTask;
 use crate::matmul::components::stage::StageConfig;
+use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
@@ -348,12 +349,12 @@ impl<
         CommonGlobalConfig<Config>,
     >
 {
-    fn execute(this: &mut Self, #[comptime] task_id: u32) {
-        if comptime![task_id == 2] {
+    fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
+        if let StageEvent::RhsLoaded(2) = event {
             SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
-        }
-        if comptime![task_id == 3] {
+        };
+        if let StageEvent::RhsLoaded(3) = event {
             SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
-        }
+        };
     }
 }
