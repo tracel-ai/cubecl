@@ -1013,16 +1013,29 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     );
                 }
 
-                let decl_out = out.fmt_left();
-                writeln!(
-                    f,
-                    "var tmp_{out} = {fallback};
+                if out.is_const() {
+                    let decl_out = out.fmt_left();
+                    write!(
+                        f,
+                        "
+var tmp_{out} = {fallback};
 if {cond} {{
   tmp_{out} = (*{slice}_ptr)[{index} + {slice}_offset];
 }}
 {decl_out} = tmp_{out};
 "
-                )
+                    )
+                } else {
+                    write!(
+                        f,
+                        "
+{out} = {fallback};
+if {cond} {{
+  tmp_{out} = (*{slice}_ptr)[{index} + {slice}_offset];
+}}
+"
+                    )
+                }
             }
         }
     }

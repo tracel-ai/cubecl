@@ -316,10 +316,11 @@ impl<D: Dialect> Display for Instruction<D> {
                     elem: &cond.item().elem,
                 };
 
-                let out_decl = out.fmt_left();
-                write!(
-                    f,
-                    "
+                if out.is_const() {
+                    let out_decl = out.fmt_left();
+                    write!(
+                        f,
+                        "
 auto cond_read_{out} = [&]() {{
     if ({cond}) {{
         return {slice}[{index}];
@@ -329,7 +330,18 @@ auto cond_read_{out} = [&]() {{
 }};
 {out_decl} = cond_read_{out}();
 "
-                )
+                    )
+                } else {
+                    write!(
+                        f,
+                        "
+{out} = {fallback};
+if ({cond}) {{
+    return {slice}[{index}];
+}}
+"
+                    )
+                }
             }
             Instruction::Copy {
                 input,
