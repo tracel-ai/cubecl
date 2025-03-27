@@ -7,7 +7,8 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily, TilingLayout,
+    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
+    TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
