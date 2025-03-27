@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, NoTask, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily, TilingLayout,
+    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily, TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
 use crate::matmul::components::{
@@ -130,7 +130,7 @@ where
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
-        Self::execute_with_listener::<NoTask>(
+        Self::execute_with_listener::<NoEvent>(
             lhs_reader,
             rhs_reader,
             lhs_fragment,
@@ -138,7 +138,7 @@ where
             acc,
             scaling,
             config,
-            NoTask::new(),
+            NoEvent::new(),
         );
     }
 
@@ -273,22 +273,22 @@ where
     TR: TilingLayout,
 {
     // Execute stage matmul with a single buffer for rhs.
-    fn execute_single_buffer<TK: StageEventListener>(
+    fn execute_single_buffer<SEL: StageEventListener>(
         lhs_reader: &LhsBufferReader<I, TL>,
         rhs_reader: &RhsBufferReader<I, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragment: &mut TMM::Rhs,
         acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
-        mut task: TK,
+        mut task: SEL,
     ) {
         let mut current = comptime![0u32];
         let total = acc.len();
-        TK::on_event(&mut task, StageEvent::Begin);
+        SEL::on_event(&mut task, StageEvent::Begin);
 
         let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
-        TK::on_event(
+        SEL::on_event(
             &mut task,
             comptime![StageEvent::LhsLoaded {
                 current: 0u32,
@@ -301,7 +301,7 @@ where
         for _ in 0..total {
             let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current, config);
             TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
-            TK::on_event(
+            SEL::on_event(
                 &mut task,
                 comptime![StageEvent::RhsLoaded { current, total }],
             );
@@ -314,7 +314,7 @@ where
                 accumulator,
                 config.to_tmm_config(),
             );
-            TK::on_event(
+            SEL::on_event(
                 &mut task,
                 comptime![StageEvent::TmmCompleted { current, total }],
             );
@@ -322,7 +322,7 @@ where
             comptime![current += 1];
         }
 
-        TK::on_event(&mut task, comptime!(StageEvent::Finish));
+        SEL::on_event(&mut task, comptime!(StageEvent::Finish));
     }
 
     // Execute stage matmul with two alternating buffers for rhs.

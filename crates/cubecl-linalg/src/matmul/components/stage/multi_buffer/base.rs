@@ -154,7 +154,7 @@ where
         }
     }
 
-    fn execute_with_listener<TK: StageEventListener>(
+    fn execute_with_listener<SEL: StageEventListener>(
         _lhs_reader: &LhsReader<I, TL>,
         _rhs_reader: &RhsReader<I, TR>,
         _lhs_fragment: &mut Self::LhsTile,
@@ -162,7 +162,7 @@ where
         _acc: &mut Self::Accumulator,
         _scaling: CubeOption<f32>,
         #[comptime] _config: Self::Config,
-        _task: TK,
+        _task: SEL,
     ) {
         // Should be merged with single_buffer soon
         comptime!(unimplemented!());

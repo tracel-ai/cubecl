@@ -21,24 +21,24 @@ pub trait StageEventListener: CubeType {
 }
 
 #[derive(CubeType)]
-pub struct NoTask {}
+pub struct NoEvent {}
 
 #[cube]
-impl StageEventListener for NoTask {
+impl StageEventListener for NoEvent {
     fn on_event(_this: &mut Self, #[comptime] _event: StageEvent) {
         // Nothing to do
     }
 }
 
-impl Default for NoTask {
+impl Default for NoEvent {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[cube]
-impl NoTask {
-    pub fn new() -> NoTask {
-        NoTask {}
+impl NoEvent {
+    pub fn new() -> NoEvent {
+        NoEvent {}
     }
 }

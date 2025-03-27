@@ -67,7 +67,7 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
-    /// Equivalent to execute_with_task with TK:=NoTask
+    /// Equivalent to execute_with_listener with SEL:=NoEvent
     ///
     /// # Quantization
     ///
