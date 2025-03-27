@@ -166,7 +166,6 @@ fn main() {
         );
         run::<cubecl::cuda::CudaRuntime, f16>(
             Default::default(),
-<<<<<<< HEAD
             matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
         );
         // run::<cubecl::cuda::CudaRuntime, f16>(
@@ -182,14 +181,6 @@ fn main() {
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
         // );
-=======
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
-        );
-        run::<cubecl::cuda::CudaRuntime, f16>(
-            Default::default(),
-            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-        );
->>>>>>> main
         // run::<cubecl::cuda::CudaRuntime, f16>(
         //     Default::default(),
         //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
