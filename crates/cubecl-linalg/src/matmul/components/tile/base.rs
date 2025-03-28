@@ -25,7 +25,7 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-#[cube] // I = ES, Acc = EA
+#[cube]
 pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units

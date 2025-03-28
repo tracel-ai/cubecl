@@ -78,7 +78,6 @@ impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
     type EA = MP::EA;
 }
 
-// TODO Delete
 impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
     const QUANTIZED: bool = false;
     type EG = EG;
