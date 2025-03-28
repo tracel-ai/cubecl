@@ -334,9 +334,8 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if TypeId::of::<MP::EG>() == TypeId::of::<half::f16>() {
-        let selection = matmul_selection::<A::TileMatmul, (MP, TensorMapArgs), R>(
-            client, &problem, plane_dim,
-        );
+        let selection =
+            matmul_selection::<A::TileMatmul, (MP, TensorMapArgs), R>(client, &problem, plane_dim);
         let stage_m = selection.tile_count.m * selection.tile_shape.m;
         let stage_n = selection.tile_count.n * selection.tile_shape.n;
         let stage_k = selection.tile_count.k * selection.tile_shape.k;
