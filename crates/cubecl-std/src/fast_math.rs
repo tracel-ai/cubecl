@@ -5,6 +5,9 @@ use cubecl_core::prelude::*;
 /// This precalculates certain values on the host, in exchange for making division and modulo
 /// operations on the GPU much faster. Only supports u32 right now to allow for a simpler algorithm.
 /// It's mostly used for indices regardless.
+///
+/// Implementation based on ONNX:
+/// <https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/providers/cuda/shared_inc/fast_divmod.h>
 #[derive(CubeType, CubeLaunch)]
 pub enum FastDivmod {
     Fast {
