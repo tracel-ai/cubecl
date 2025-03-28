@@ -1,7 +1,6 @@
 use cubecl_ir::ExpandElement;
 
 use crate::Runtime;
-use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
@@ -11,12 +10,13 @@ use crate::{
     prelude::{CountOnes, ReverseBits},
 };
 
+use super::{
+    __expand_new, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
+    LaunchArgExpand, ScalarArgSettings, init_expand_element,
+};
+
 mod typemap;
 pub use typemap::*;
-
-use super::{
-    __expand_new, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, init_expand_element,
-};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
