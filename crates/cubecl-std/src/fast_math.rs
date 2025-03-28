@@ -15,7 +15,7 @@ pub enum FastDivmod<I: Int + MulHi> {
     },
 }
 
-impl<'a, I: Int + MulHi, R: Runtime> FastDivmodArgs<'a, I, R> {
+impl<I: Int + MulHi, R: Runtime> FastDivmodArgs<'_, I, R> {
     pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: I) -> Self {
         if !u64::is_supported(client) {
             return FastDivmodArgs::Fallback {
