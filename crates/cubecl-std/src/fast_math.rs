@@ -2,17 +2,26 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType, CubeLaunch)]
-pub struct FastDivmod<I: Int> {
-    divisor: I,
-    #[allow(unused)]
-    multiplier: u32,
-    #[allow(unused)]
-    shift_right: u32,
+pub enum FastDivmod<I: Int + MulHi> {
+    Fast {
+        divisor: I,
+        #[allow(unused)]
+        multiplier: u32,
+        #[allow(unused)]
+        shift_right: u32,
+    },
+    Fallback {
+        divisor: I,
+    },
 }
 
-impl<I: Int> FastDivmod<I> {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new<'a, R: Runtime>(divisor: I) -> FastDivmodLaunch<'a, I, R> {
+impl<'a, I: Int + MulHi, R: Runtime> FastDivmodArgs<'a, I, R> {
+    pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: I) -> Self {
+        if !u64::is_supported(client) {
+            return FastDivmodArgs::Fallback {
+                divisor: ScalarArg::new(divisor),
+            };
+        }
         let div_int = divisor.to_i64().unwrap();
         assert!(div_int != 0);
 
@@ -25,15 +34,15 @@ impl<I: Int> FastDivmod<I> {
             shift_right = p - 32;
         }
 
-        FastDivmodLaunch::new(
-            ScalarArg::new(divisor),
-            ScalarArg::new(multiplier as u32),
-            ScalarArg::new(shift_right as u32),
-        )
+        FastDivmodArgs::Fast {
+            divisor: ScalarArg::new(divisor),
+            multiplier: ScalarArg::new(multiplier as u32),
+            shift_right: ScalarArg::new(shift_right as u32),
+        }
     }
 }
 
-impl<I: Int> FastDivmod<I> {
+impl<I: Int + MulHi> FastDivmod<I> {
     pub fn div(&self, dividend: I) -> I {
         self.div_mod(dividend).0
     }
@@ -43,7 +52,11 @@ impl<I: Int> FastDivmod<I> {
     }
 
     pub fn div_mod(&self, dividend: I) -> (I, I) {
-        (dividend / self.divisor, dividend % self.divisor)
+        let divisor = match self {
+            FastDivmod::Fast { divisor, .. } => *divisor,
+            FastDivmod::Fallback { divisor } => *divisor,
+        };
+        (dividend / divisor, dividend % divisor)
     }
 
     pub fn __expand_div(
@@ -71,7 +84,7 @@ impl<I: Int> FastDivmod<I> {
     }
 }
 
-impl<I: Int> FastDivmodExpand<I> {
+impl<I: Int + MulHi> FastDivmodExpand<I> {
     pub fn __expand_div_method(
         self,
         context: &mut Scope,
@@ -93,13 +106,16 @@ impl<I: Int> FastDivmodExpand<I> {
         context: &mut Scope,
         dividend: ExpandElementTyped<I>,
     ) -> (ExpandElementTyped<I>, ExpandElementTyped<I>) {
-        fast_divmod::expand::<I>(
-            context,
-            dividend,
-            self.divisor,
-            self.multiplier,
-            self.shift_right,
-        )
+        match self {
+            FastDivmodExpand::Fast {
+                divisor,
+                multiplier,
+                shift_right,
+            } => fast_divmod::expand::<I>(context, dividend, divisor, multiplier, shift_right),
+            FastDivmodExpand::Fallback { divisor } => {
+                divmod::expand::<I>(context, dividend, divisor)
+            }
+        }
     }
 }
 
@@ -112,6 +128,13 @@ pub fn fast_divmod<I: Int>(dividend: I, divisor: I, multiplier: u32, shift_right
     };
 
     let remainder = dividend - (quotient * divisor);
+    (quotient, remainder)
+}
+
+#[cube]
+pub fn divmod<I: Int>(dividend: I, divisor: I) -> (I, I) {
+    let quotient = dividend / divisor;
+    let remainder = dividend % divisor;
     (quotient, remainder)
 }
 
