@@ -196,7 +196,7 @@ pub mod wmma_api_base {
                     format!("{}", fragment.elem)
                 }
             }
-            Elem::I8 => "unsigned char".to_string(),
+            Elem::I8 => "int8".to_string(),
             elem => format!("{elem}"),
         };
         match fragment.layout {
@@ -232,13 +232,9 @@ pub mod wmma_api_base {
                 let item = value.item();
                 if item.vectorization > 1 {
                     let elem = item.elem;
-                    let elem_str = match elem {
-                        Elem::I8 => "unsigned char".to_string(),
-                        _ => elem.to_string(),
-                    };
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem_str} *>({value}), {stride});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value}), {stride});"
                     )
                 } else {
                     writeln!(
