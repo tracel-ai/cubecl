@@ -60,17 +60,20 @@ pub enum StridedIndex {
 }
 
 impl<R: Runtime> StridedIndexArgs<'_, R> {
+    /// Last dimension is contiguous in second last dimension
     pub fn none() -> Self {
         Self::None
     }
 
-    pub fn pitched(client: &ComputeClient<R::Server, R::Channel>, shape: u32) -> Self {
+    /// Last dimension is strided with the last dimension having the shape `shape`
+    pub fn strided(client: &ComputeClient<R::Server, R::Channel>, shape: u32) -> Self {
         Self::Pitched(FastDivmodArgs::new(client, shape))
     }
 }
 
 #[cube]
 impl StridedIndex {
+    /// Translates absolute index to strided index if applicable
     pub fn index<T: CubePrimitive>(this: &Self, tensor: &Tensor<Line<T>>, index: u32) -> u32 {
         match this {
             StridedIndex::Pitched(divmod) => {
@@ -208,7 +211,7 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
     }
 
     let pitch = match is_padded {
-        true => StridedIndexArgs::pitched(client, last_dim as u32),
+        true => StridedIndexArgs::strided(client, last_dim as u32),
         false => StridedIndexArgs::none(),
     };
 
