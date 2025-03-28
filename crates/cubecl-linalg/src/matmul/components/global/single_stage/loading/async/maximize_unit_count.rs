@@ -4,7 +4,7 @@ use crate::matmul::components::{
         CopyMechanism, GlobalConfig, LoadingValidation,
         tensor_view::{TensorReader, Window},
     },
-    stage::{Stage, StridedTilingLayout},
+    stage::{MonoStage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -55,7 +55,7 @@ impl AsyncFullLoadingStrategy for MaximizeUnitCountLoading {
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut MonoStage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -82,7 +82,7 @@ impl AsyncFullLoadingStrategy for MaximizeUnitCountLoading {
 
         let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-            stage,
+            &mut stage.as_slice_mut(),
             nth_slice,
             ident,
             config.to_smm_config(),

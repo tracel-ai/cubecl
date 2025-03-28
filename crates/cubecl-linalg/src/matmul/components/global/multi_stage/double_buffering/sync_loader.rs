@@ -9,7 +9,7 @@ use crate::matmul::components::global::multi_stage::{
 };
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::{self, DualStage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -22,7 +22,7 @@ pub struct SyncLhsBufferLoader<
     L: SyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: DualStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -35,7 +35,7 @@ pub struct SyncRhsBufferLoader<
     L: SyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: DualStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -47,7 +47,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
 
     fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        LhsBufferReader::new(this.stage, buffer.to_u32())
+        LhsBufferReader::new(this.stage, buffer)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -85,7 +85,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         batch_offset: u32,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
-        let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
+        let stage = DualStage::new::<S>(L::dual_stage_format(), Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncLhsBufferLoader::<EG, ES, S, L> {
@@ -103,7 +103,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
 
     fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        RhsBufferReader::new(this.stage, buffer.to_u32())
+        RhsBufferReader::new(this.stage, buffer)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -141,7 +141,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
         batch_offset: u32,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
-        let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
+        let stage = DualStage::new::<S>(L::dual_stage_format(), Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncRhsBufferLoader::<EG, ES, S, L> {

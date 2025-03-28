@@ -4,7 +4,7 @@ use crate::matmul::components::global::single_stage::{self, AsyncFullLoader, Ful
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, DualStage, DualStageFormat, MonoStage, TilingLayout};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -19,7 +19,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut MonoStage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -37,7 +37,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut DualStage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
@@ -46,6 +46,9 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
+
+    /// The format of the dual stage this strategy assumes
+    fn dual_stage_format() -> DualStageFormat;
 }
 
 #[derive(CubeType)]
@@ -56,7 +59,7 @@ pub struct AsyncLhsLoader<
     L: AsyncFullLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: MonoStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -71,7 +74,7 @@ pub struct AsyncRhsLoader<
     L: AsyncFullLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: MonoStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -127,7 +130,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let mut stage = MonoStage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
 
         #[allow(clippy::collapsible_if)]
         if config.check_row_bounds(Ident::Lhs) {
@@ -198,7 +201,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncFullLoadingStrateg
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let mut stage = MonoStage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
 
         #[allow(clippy::collapsible_if)]
         if config.check_row_bounds(Ident::Lhs) {

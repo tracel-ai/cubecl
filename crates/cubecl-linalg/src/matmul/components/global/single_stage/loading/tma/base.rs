@@ -13,7 +13,7 @@ use crate::matmul::components::{
         tensor_view::MappedTensorReader,
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
+        self, ContiguousTilingLayout, RowMajorTilingOrder, MonoStage,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
@@ -22,7 +22,7 @@ use crate::matmul::components::{
 pub struct TmaLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
-    pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: MonoStage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -31,7 +31,7 @@ pub struct TmaLhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
 pub struct TmaRhsLoader<EG: Numeric, ES: Numeric, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<EG>,
     pub barrier: Barrier<EG>,
-    pub stage: Stage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: MonoStage<ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -93,7 +93,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaLhsLoader<EG, ES, S> {
         batch: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
+        let stage = MonoStage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
@@ -164,7 +164,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig> TmaRhsLoader<EG, ES, S> {
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
+        let stage = MonoStage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));

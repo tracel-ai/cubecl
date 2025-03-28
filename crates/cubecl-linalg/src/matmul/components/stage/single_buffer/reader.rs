@@ -1,22 +1,25 @@
 use crate::matmul::components::{
-    stage::{ReaderFamily, TilingLayout, shared::CommonStageConfig},
+    global::multi_stage::double_buffering::BufferId,
+    stage::{DualStage, ReaderFamily, TilingLayout, shared::CommonStageConfig},
     tile::{Tile, TileConfig},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{Ident, stage::Stage};
+use crate::matmul::components::Ident;
 
 #[derive(CubeType)]
 pub struct LhsBufferReader<ES: Numeric, T: TilingLayout> {
-    pub stage: Stage<ES, T>,
-    pub buffer_idx: u32,
+    pub stage: DualStage<ES, T>,
+    #[cube(comptime)]
+    pub buffer_id: BufferId,
 }
 
 #[derive(CubeType)]
 pub struct RhsBufferReader<ES: Numeric, T: TilingLayout> {
-    pub stage: Stage<ES, T>,
-    pub buffer_idx: u32,
+    pub stage: DualStage<ES, T>,
+    #[cube(comptime)]
+    pub buffer_id: BufferId,
 }
 
 pub struct LhsBufferReaderFamily;
@@ -32,8 +35,8 @@ impl ReaderFamily for RhsBufferReaderFamily {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>, buffer_idx: u32) -> LhsBufferReader<ES, T> {
-        LhsBufferReader::<ES, T> { stage, buffer_idx }
+    pub fn new(stage: DualStage<ES, T>, #[comptime] buffer_id: BufferId) -> LhsBufferReader<ES, T> {
+        LhsBufferReader::<ES, T> { stage, buffer_id }
     }
 
     pub fn read_tile<TC: TileConfig>(
@@ -43,7 +46,7 @@ impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
             compute_plane_offset,
-            this.buffer_idx,
+            this.buffer_id,
             Ident::Lhs,
             config,
         )
@@ -52,8 +55,8 @@ impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> RhsBufferReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>, buffer_idx: u32) -> RhsBufferReader<ES, T> {
-        RhsBufferReader::<ES, T> { stage, buffer_idx }
+    pub fn new(stage: DualStage<ES, T>, #[comptime] buffer_id: BufferId) -> RhsBufferReader<ES, T> {
+        RhsBufferReader::<ES, T> { stage, buffer_id }
     }
 
     pub fn read_tile<TC: TileConfig>(
@@ -62,8 +65,8 @@ impl<ES: Numeric, T: TilingLayout> RhsBufferReader<ES, T> {
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
-            this.buffer_idx,
             accumulator_offset,
+            this.buffer_id,
             Ident::Rhs,
             config,
         )

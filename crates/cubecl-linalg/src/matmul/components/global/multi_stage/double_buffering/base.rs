@@ -1,5 +1,5 @@
 use cubecl_core as cubecl;
-use cubecl_core::prelude::CubeType;
+use cubecl_core::prelude::*;
 
 #[derive(Copy, Clone, CubeType)]
 pub enum BufferId {

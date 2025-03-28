@@ -5,7 +5,7 @@ use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, MonoStage, TilingLayout};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -19,7 +19,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
     /// Load the full stage
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut MonoStage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );
@@ -33,7 +33,7 @@ pub struct SyncFullLhsLoader<
     L: SyncFullLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: MonoStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -48,7 +48,7 @@ pub struct SyncFullRhsLoader<
     L: SyncFullLoadingStrategy,
 > {
     pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub stage: MonoStage<ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -95,7 +95,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let stage = MonoStage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncFullLhsLoader::<EG, ES, S, L> {
@@ -147,7 +147,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         batch_offset: u32,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+        let stage = MonoStage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncFullRhsLoader::<EG, ES, S, L> {

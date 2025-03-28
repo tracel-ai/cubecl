@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-    stage::{ContiguousTilingLayout, Stage, TilingOrder},
+    stage::{ContiguousTilingLayout, MonoStage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -40,7 +40,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for CyclicWindowLoading<T> {
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut MonoStage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
         #[comptime] config: G,

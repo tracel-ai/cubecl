@@ -10,4 +10,4 @@ mod staging;
 pub use base::*;
 pub use event_listener::*;
 pub use layout::*;
-pub use staging::Stage;
+pub use staging::*;

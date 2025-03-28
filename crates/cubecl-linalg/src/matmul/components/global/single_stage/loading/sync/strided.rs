@@ -1,6 +1,6 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{Stage, StridedTilingLayout};
+use crate::matmul::components::stage::{MonoStage, StridedTilingLayout};
 use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -37,7 +37,7 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+        stage: &mut MonoStage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {

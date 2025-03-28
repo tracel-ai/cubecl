@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident,
     global::AccumulatorLoader,
-    stage::{Stage, StageConfig},
+    stage::{MonoStage, StageConfig},
     tile::{Tile, TileConfig, TileMatmul},
 };
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
 #[derive(CubeType)]
 pub struct BiasLoader<CS: MatmulPrecision, G: StageConfig> {
     pub tensor_view: BiasReader<CS::EG>,
-    pub stage: Stage<CS::EA, ConvTilingLayout>,
+    pub stage: MonoStage<CS::EA, ConvTilingLayout>,
     pub has_bias: bool,
     #[cube(comptime)]
     _config: PhantomData<G>,
@@ -102,7 +102,7 @@ impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
 }
 
 #[cube]
-fn init_stage<ES: Numeric, G: StageConfig>(#[comptime] config: G) -> Stage<ES, ConvTilingLayout> {
+fn init_stage<ES: Numeric, G: StageConfig>(#[comptime] config: G) -> MonoStage<ES, ConvTilingLayout> {
     let line_size = config.line_size(Ident::Out);
 
     let smem = SharedMemory::new_lined(
@@ -110,10 +110,10 @@ fn init_stage<ES: Numeric, G: StageConfig>(#[comptime] config: G) -> Stage<ES, C
         line_size,
     );
 
-    Stage::<ES, ConvTilingLayout>::new_with_smem(smem)
+    MonoStage::<ES, ConvTilingLayout>::new_with_smem(smem)
 }
 
 #[cube]
-fn init_empty_stage<ES: Numeric>() -> Stage<ES, ConvTilingLayout> {
-    Stage::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1))
+fn init_empty_stage<ES: Numeric>() -> MonoStage<ES, ConvTilingLayout> {
+    MonoStage::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1))
 }

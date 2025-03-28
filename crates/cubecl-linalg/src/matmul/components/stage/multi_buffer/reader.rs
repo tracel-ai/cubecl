@@ -1,6 +1,6 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::stage::ReaderFamily;
-use crate::matmul::components::stage::Stage;
+use crate::matmul::components::stage::MonoStage;
 use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::tile::Tile;
@@ -11,13 +11,13 @@ use cubecl_core::prelude::*;
 #[derive(CubeType)]
 /// Stage reader for LHS
 pub struct LhsReader<ES: Numeric, T: TilingLayout> {
-    pub stage: Stage<ES, T>,
+    pub stage: MonoStage<ES, T>,
 }
 
 #[derive(CubeType)]
 /// Stage reader for RHS
 pub struct RhsReader<ES: Numeric, T: TilingLayout> {
-    pub stage: Stage<ES, T>,
+    pub stage: MonoStage<ES, T>,
 }
 
 pub struct LhsReaderFamily;
@@ -67,14 +67,14 @@ impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> LhsReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>) -> LhsReader<ES, T> {
+    pub fn new(stage: MonoStage<ES, T>) -> LhsReader<ES, T> {
         LhsReader::<ES, T> { stage }
     }
 }
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>) -> RhsReader<ES, T> {
+    pub fn new(stage: MonoStage<ES, T>) -> RhsReader<ES, T> {
         RhsReader::<ES, T> { stage }
     }
 }
