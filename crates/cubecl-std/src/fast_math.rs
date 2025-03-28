@@ -12,9 +12,7 @@ use cubecl_core::prelude::*;
 pub enum FastDivmod {
     Fast {
         divisor: u32,
-        #[allow(unused)]
         multiplier: u32,
-        #[allow(unused)]
         shift_right: u32,
     },
     Fallback {
