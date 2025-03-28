@@ -25,9 +25,7 @@ pub struct BiasLoader<MP: MatmulPrecision, G: StageConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: StageConfig> AccumulatorLoader<MP, G>
-    for BiasLoader<MP, G>
-{
+impl<MP: MatmulPrecision, G: StageConfig> AccumulatorLoader<MP, G> for BiasLoader<MP, G> {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         if this.has_bias {
             let stage_tiling = config.tiling_dimensions(Ident::Rhs);

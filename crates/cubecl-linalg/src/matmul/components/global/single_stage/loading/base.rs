@@ -1,7 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{global::{CopyMechanism, GlobalConfig}, MatmulPrecision};
+use crate::matmul::components::{
+    MatmulPrecision,
+    global::{CopyMechanism, GlobalConfig},
+};
 
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
@@ -26,11 +29,13 @@ pub trait SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G
 }
 
 #[cube]
-pub trait AsyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>:
-    FullLoader<MP, G>
-{
+pub trait AsyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
     /// Fills the stage at the current k offset.
-    fn fill_stage<CM: CopyMechanism<MP::ES>>(this: &mut Self, mechanism: &CM, #[comptime] config: G);
+    fn fill_stage<CM: CopyMechanism<MP::ES>>(
+        this: &mut Self,
+        mechanism: &CM,
+        #[comptime] config: G,
+    );
 
     /// Fills the stage with zeros
     fn clear_stage(this: &mut Self, #[comptime] config: G);

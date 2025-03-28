@@ -3,9 +3,10 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        stage, tile::TileMatmulFamily, CompleteStageTiling, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize, MatmulSpec, OutputRuntimeArg, EA, ES
+        CompleteStageTiling, EA, ES, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
+        MatmulSpec, OutputRuntimeArg, stage, tile::TileMatmulFamily,
     },
-    kernels::{matmul::base::matmul_cube_preparation, MatmulLaunchError},
+    kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
 
 use super::Algorithm;

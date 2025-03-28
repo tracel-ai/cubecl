@@ -2,7 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    config::MatmulConfig, Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
+    config::MatmulConfig,
 };
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
@@ -24,7 +25,7 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///  - Slices given as inputs must always be valid. If the actual matrix multiplication
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
-#[cube]               // I = ES, Acc = EA
+#[cube] // I = ES, Acc = EA
 pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
@@ -72,7 +73,8 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 
     /// Write the content of the output container to the given slice
-    fn read_accumulator<C: Numeric>( // TODO is this always MP::EG?
+    fn read_accumulator<C: Numeric>(
+        // TODO is this always MP::EG?
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Self::Config,

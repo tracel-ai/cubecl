@@ -24,9 +24,7 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G>
-    for SimpleIm2colLoader<MP, G>
-{
+impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
     type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -39,9 +37,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G>
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G>
-    for SimpleIm2colLoader<MP, G>
-{
+impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
