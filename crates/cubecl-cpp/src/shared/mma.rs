@@ -196,7 +196,6 @@ pub mod wmma_api_base {
                     format!("{}", fragment.elem)
                 }
             }
-            Elem::I8 => "int8".to_string(),
             elem => format!("{elem}"),
         };
         match fragment.layout {
