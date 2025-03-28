@@ -49,8 +49,13 @@ pub trait BitCast: CubePrimitive {
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
-        let vectorization =
-            var.elem().size() * var.item.vectorization.unwrap_or(NonZero::new(1).unwrap()).get() as usize / Self::as_elem(scope).size();
+        let vectorization = var.elem().size()
+            * var
+                .item
+                .vectorization
+                .unwrap_or(NonZero::new(1).unwrap())
+                .get() as usize
+            / Self::as_elem(scope).size();
         let new_var = scope.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(scope),
             NonZero::new(vectorization as u8),
