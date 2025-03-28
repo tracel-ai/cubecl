@@ -1,6 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+/// Create a fast-divmod object if supported, or a regular fallback if not.
+/// This precalculates certain values on the host, in exchange for making division and modulo
+/// operations on the GPU much faster.
 #[derive(CubeType, CubeLaunch)]
 pub enum FastDivmod<I: Int + MulHi> {
     Fast {
