@@ -107,8 +107,6 @@ pub(crate) fn matmul<
     };
 
     if comptime![config.quantized()] {
-        BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, quantization, config);
-    } else {
         BMM::Matmul::<(EG, ES, EA, Quantized)>::execute(
             lhs,
             rhs,
@@ -117,5 +115,7 @@ pub(crate) fn matmul<
             quantization,
             config,
         );
+    } else {
+        BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, quantization, config);
     }
 }
