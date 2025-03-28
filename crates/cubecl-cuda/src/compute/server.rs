@@ -65,7 +65,6 @@ pub(crate) struct CudaContext {
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
-    shared_mem_bytes: usize,
     ptx: Vec<i8>,
 }
 
@@ -94,7 +93,6 @@ impl KernelTimestamps {
 #[derive(Debug)]
 struct CompiledKernel {
     cube_dim: CubeDim,
-    shared_mem_bytes: usize,
     func: *mut CUfunc_st,
 }
 
@@ -613,7 +611,6 @@ impl CudaContext {
                     y: entry.cube_dim.1,
                     z: entry.cube_dim.2,
                 },
-                entry.shared_mem_bytes,
             );
             return;
         }
@@ -631,7 +628,6 @@ impl CudaContext {
         }
 
         let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
-        let shared_mem_bytes = compute_kernel.shared_memory_size();
         let cube_dim = kernel_compiled.cube_dim;
         let fast_math = compute_kernel.fast_math;
         let arch = format!("--gpu-architecture=sm_{}", self.arch);
@@ -672,7 +668,6 @@ impl CudaContext {
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                    shared_mem_bytes,
                     ptx: ptx.clone(),
                 },
             )
@@ -683,7 +678,6 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
-            shared_mem_bytes,
         );
     }
 
@@ -693,7 +687,6 @@ impl CudaContext {
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
-        shared_mem_bytes: usize,
     ) {
         let func_name = CString::new(entrypoint_name).unwrap();
         let func = unsafe {
@@ -702,14 +695,8 @@ impl CudaContext {
             cudarc::driver::result::module::get_function(module, func_name).unwrap()
         };
 
-        self.module_names.insert(
-            kernel_id.clone(),
-            CompiledKernel {
-                cube_dim,
-                shared_mem_bytes,
-                func,
-            },
-        );
+        self.module_names
+            .insert(kernel_id.clone(), CompiledKernel { cube_dim, func });
     }
 
     fn execute_task(
@@ -732,7 +719,10 @@ impl CudaContext {
                 kernel.func,
                 dispatch_count,
                 (cube_dim.x, cube_dim.y, cube_dim.z),
-                kernel.shared_mem_bytes as u32,
+                // Shared memory is specified statically in the kernel, and no dynamic shared
+                // memory is supported yet in the kernel, which would be that value for the
+                // current kernel launch.
+                0,
                 self.stream,
                 &mut bindings,
             )

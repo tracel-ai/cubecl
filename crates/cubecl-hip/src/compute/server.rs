@@ -45,7 +45,6 @@ struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
-    shared_mem_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -509,7 +508,6 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim: jitc_kernel.cube_dim,
-                shared_mem_bytes: jitc_kernel.repr.as_ref().unwrap().shared_memory_size(),
             },
         );
     }
@@ -537,7 +535,10 @@ impl HipContext {
                 cube_dim.x,
                 cube_dim.y,
                 cube_dim.z,
-                kernel.shared_mem_bytes as u32,
+                // Shared memory is specified statically in the kernel, and no dynamic shared
+                // memory is supported yet in the kernel, which would be that value for the
+                // current kernel launch.
+                0,
                 self.stream,
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),
