@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::components::MatmulPrecision;
+use cubecl_linalg::matmul::components::{I8Float, MatmulPrecision};
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
@@ -9,7 +9,7 @@ use cubecl_linalg::tensor::TensorHandle;
 use cubecl_std::SymQ8;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Args = (TensorHandle<R, MP::EG>, TensorHandle<R, MP::EG>);
+    type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
@@ -31,9 +31,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
 
         format!(
-            "matmul-{}-{}-{:?}",
+            "matmul-{}-{}-{}-{:?}",
             R::name(&client),
-            MP::EG::as_elem_native_unchecked(),
+            MP::EI::as_elem_native_unchecked(),
+            MP::EO::as_elem_native_unchecked(),
             self.strategy
         )
         .to_lowercase()
@@ -87,11 +88,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    );
+    run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
@@ -133,7 +134,8 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        run_benches::<cubecl::cuda::CudaRuntime, flex32>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        run_benches::<cubecl::cuda::CudaRuntime, i8>();
+        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
     }
 }

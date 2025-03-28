@@ -47,11 +47,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
-    if MP::QUANTIZED {
-        return Err(MatmulLaunchError::Unimplemented(
-            MatmulUnimplementedError::Quantization,
-        ));
-    }
+    // if MP::QUANTIZED {
+    //     return Err(MatmulLaunchError::Unimplemented(
+    //         MatmulUnimplementedError::Quantization,
+    //     ));
+    // }
 
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),

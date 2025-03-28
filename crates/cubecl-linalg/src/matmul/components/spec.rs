@@ -113,11 +113,21 @@ impl MatmulPrecision for SymQ8 {
 }
 
 impl MatmulPrecision for i8 {
-    const QUANTIZED: bool = true;
+    const QUANTIZED: bool = false;
     type EI = i8;
     type ES = i8;
     type EA = i32;
     type EO = i32;
+}
+
+#[derive(Clone)]
+pub struct I8Float;
+impl MatmulPrecision for I8Float {
+    const QUANTIZED: bool = false;
+    type EI = i8;
+    type ES = f16;
+    type EA = f16;
+    type EO = f16;
 }
 
 /// Input argument
