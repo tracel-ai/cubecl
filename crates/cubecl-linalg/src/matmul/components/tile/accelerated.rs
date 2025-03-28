@@ -158,9 +158,11 @@ impl MatmulConfigFactory for Accelerated {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input: i_elem,
                 output: o_elem,
-                m: size.m,
-                n: size.n,
-                k: size.k,
+                shape: Some(MatmulSize {
+                    m: size.m,
+                    n: size.n,
+                    k: size.k,
+                }),
             });
         }
 

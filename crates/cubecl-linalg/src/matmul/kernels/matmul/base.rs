@@ -204,7 +204,9 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() && MP::SUPPORT_TENSOR_CORE {
+    if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
+        && TypeId::of::<MP::EG>() == TypeId::of::<f32>()
+    {
         if tf32::is_supported(client) {
             select_kernel::<ReplaceES<MP, tf32>, R, A>(
                 client,
@@ -218,17 +220,13 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
                 MP::QUANTIZED,
             )
         } else {
-            select_kernel::<ReplaceES<MP, half::f16>, R, A>(
-                client,
-                TensorInputsLaunch::new(
-                    lhs.as_tensor_arg(lhs_line_size),
-                    rhs.as_tensor_arg(rhs_line_size),
-                ),
-                out.as_tensor_arg(out_line_size),
-                problem,
-                plane_dim,
-                MP::QUANTIZED,
-            )
+            let ea = MP::EA::as_elem_native_unchecked();
+            Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
+                input: tf32::as_elem_native_unchecked(),
+                output: ea,
+                shape: None,
+            }
+            .into())
         }
     } else {
         select_kernel::<MP, R, A>(

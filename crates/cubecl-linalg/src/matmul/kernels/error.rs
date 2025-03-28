@@ -1,7 +1,7 @@
 use cubecl_core::{CubeCount, ir::Elem};
 use std::fmt::Debug;
 
-use crate::matmul::components::InvalidConfigError;
+use crate::matmul::components::{InvalidConfigError, MatmulSize};
 
 pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
@@ -24,9 +24,7 @@ pub enum MatmulAvailabilityError {
     CmmaInstructionUnavailable {
         input: Elem,
         output: Elem,
-        m: u32,
-        n: u32,
-        k: u32,
+        shape: Option<MatmulSize>,
     },
     PipelineUnavailable,
     BarrierUnavailable,
@@ -163,14 +161,17 @@ impl Debug for MatmulAvailabilityError {
             MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input,
                 output,
-                m,
-                n,
-                k,
+                shape: Some(shape),
             } => writeln!(
                 f,
                 "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input, output, m, n, k
+                input, output, shape.m, shape.n, shape.k
             ),
+            MatmulAvailabilityError::CmmaInstructionUnavailable {
+                input,
+                output,
+                shape: None,
+            } => writeln!(f, "Cmma on inputs {:?} and outputs {:?}.", input, output,),
             MatmulAvailabilityError::PipelineUnavailable => {
                 writeln!(f, "Pipeline is not available.")
             }
