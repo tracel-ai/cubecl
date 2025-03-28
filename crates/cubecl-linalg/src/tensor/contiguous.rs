@@ -55,7 +55,7 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
 /// the absolute index to strided index.
 #[derive(CubeType, CubeLaunch)]
 pub enum StridedIndex {
-    Pitched(FastDivmod<u32>),
+    Pitched(FastDivmod),
     None,
 }
 
