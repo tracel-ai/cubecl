@@ -371,7 +371,7 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),
             problem,
-            (config_input, stage::Buffering::Single), // TODO support selecting double buffering
+            (config_input, stage::Buffering::Double), // TODO support selecting double buffering
             selection,
             false,
         )
