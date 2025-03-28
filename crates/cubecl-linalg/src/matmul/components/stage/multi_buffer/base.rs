@@ -586,6 +586,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> StageAcc<MP, TMM> {
         #[allow(clippy::single_match)]
         match (quantization_memories, scaling) {
             (CubeOption::Some(memories), CubeOption::Some(scaling)) => {
+                #[unroll]
                 for acc_index in 0..acc.len() {
                     let mut slice = memories.clone().quantized_slice_mut(acc_index, config);
                     TMM::read_accumulator(acc.index(acc_index), &mut slice, config.to_tmm_config());

@@ -77,6 +77,11 @@ impl WmmaCompiler<CudaDialect> for CudaWmmaCompiler {
                     gpu::Elem::Float(gpu::FloatKind::BF16),
                     gpu::Elem::Float(gpu::FloatKind::F32),
                 ),
+                (
+                    gpu::Elem::Int(gpu::IntKind::I8),
+                    gpu::Elem::Int(gpu::IntKind::I8),
+                    gpu::Elem::Int(gpu::IntKind::I32),
+                ),
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()

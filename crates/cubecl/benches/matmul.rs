@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
+use cubecl_std::SymQ8;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (TensorHandle<R, MP::EG>, TensorHandle<R, MP::EG>);
@@ -88,13 +89,13 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 }
 
 #[allow(unused)]
-fn run_benches<R: Runtime, E: Float>() {
-    run::<R, E>(Default::default(), matmul::Strategy::DoubleBuffering);
-    // run::<R, E>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    // );
-    // run::<R, E>(
+fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    );
+    // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
     // );
@@ -134,6 +135,8 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
+        run_benches::<cubecl::cuda::CudaRuntime, f32>();
         run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
     }
 }

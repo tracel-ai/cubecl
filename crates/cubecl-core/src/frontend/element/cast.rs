@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use cubecl_ir::{ExpandElement, Operator};
 
 use crate::frontend::{CubePrimitive, CubeType, cast};
@@ -47,9 +49,16 @@ pub trait BitCast: CubePrimitive {
     ) -> <Self as CubeType>::ExpandType {
         let value: ExpandElement = value.into();
         let var: Variable = *value;
+        let vectorization = var.elem().size()
+            * var
+                .item
+                .vectorization
+                .unwrap_or(NonZero::new(1).unwrap())
+                .get() as usize
+            / Self::as_elem(scope).size();
         let new_var = scope.create_local(Item::vectorized(
             <Self as CubePrimitive>::as_elem(scope),
-            var.item.vectorization,
+            NonZero::new(vectorization as u8),
         ));
         scope.register(Instruction::new(
             Operator::Bitcast(UnaryOperator { input: *value }),
