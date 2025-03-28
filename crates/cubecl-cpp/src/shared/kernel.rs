@@ -126,11 +126,16 @@ alignas(64) unsigned long long int opaque[16];
             )?;
         }
 
+        f.write_str("typedef unsigned int uint;\n")?;
         f.write_str("typedef unsigned char uint8;\n")?;
         f.write_str("typedef unsigned short uint16;\n")?;
-        f.write_str("typedef unsigned int uint;\n")?;
+        f.write_str("typedef unsigned int uint32;\n")?;
         f.write_str("typedef unsigned long long int uint64;\n")?;
-        f.write_str("typedef long long int int64;\n")?;
+
+        f.write_str("typedef signed char int8;\n")?;
+        f.write_str("typedef signed short int16;\n")?;
+        f.write_str("typedef signed int int32;\n")?;
+        f.write_str("typedef signed long long int int64;\n")?;
         D::deftypes(f)?;
 
         for item in self.items.iter() {

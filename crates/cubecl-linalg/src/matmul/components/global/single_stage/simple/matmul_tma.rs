@@ -46,9 +46,7 @@ where
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
         SMM::Matmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             ContiguousTilingLayout<RowMajorTilingOrder>,
             ContiguousTilingLayout<RowMajorTilingOrder>,
         >,
@@ -110,7 +108,7 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -119,16 +117,14 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG,
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
             RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
         >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
+    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;

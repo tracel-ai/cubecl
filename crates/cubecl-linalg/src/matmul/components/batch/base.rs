@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, MatmulLaunch, MatmulPrecision, TilingDimensions,
+    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
     config::MatmulConfig,
     global::{
         self, Quantization,
@@ -79,10 +79,10 @@ type Output<Args, EG> = <Args as MatmulArgs>::Output<EG>;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul<
+    Args: MatmulArgs,
     EG: Numeric,
     ES: Numeric,
     EA: Numeric,
-    Args: MatmulArgs,
     BMM: BatchMatmulFamily,
 >(
     inputs: &Input<Args, EG>,
@@ -106,5 +106,16 @@ pub(crate) fn matmul<
         CubeOption::new_None()
     };
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, quantization, config);
+    if comptime![config.quantized()] {
+        BMM::Matmul::<(EG, ES, EA, Quantized)>::execute(
+            lhs,
+            rhs,
+            out,
+            size_k,
+            quantization,
+            config,
+        );
+    } else {
+        BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, quantization, config);
+    }
 }
