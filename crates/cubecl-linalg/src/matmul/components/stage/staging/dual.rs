@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::multi_stage::double_buffering::{BufferId, BufferIdExpand};
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::stage::{StageConfig, TilingLayout};
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, InputIdent, MatrixLayout};
@@ -214,16 +214,17 @@ impl<ES: Numeric, T: TilingLayout> PhysicalDualStage<ES, T> {
     ) {
         // TODO
         // Should be similar to clear stage in mono
+        comptime!(todo!());
     }
 
-    pub fn as_slice(&self, buffer_id: BufferId) -> Slice<Line<ES>> {
+    pub fn as_slice(&self, #[comptime] buffer_id: BufferId) -> Slice<Line<ES>> {
         match buffer_id {
             BufferId::A => self.buffer_a.to_slice(),
             BufferId::B => self.buffer_b.to_slice(),
         }
     }
 
-    pub fn as_slice_mut(&mut self, buffer_id: BufferId) -> SliceMut<Line<ES>> {
+    pub fn as_slice_mut(&mut self, #[comptime] buffer_id: BufferId) -> SliceMut<Line<ES>> {
         match buffer_id {
             BufferId::A => self.buffer_a.to_slice_mut(),
             BufferId::B => self.buffer_b.to_slice_mut(),

@@ -1,4 +1,5 @@
 use crate::matmul::components::global::LoadingValidation;
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::{DualStage, DualStageFormat, TilingLayout};
 use crate::matmul::components::{Ident, global};
@@ -14,7 +15,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
     fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut DualStage<ES, Self::TilingLayout>,
-        buffer_index: u32,
+        #[comptime] buffer_id: BufferId,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     );

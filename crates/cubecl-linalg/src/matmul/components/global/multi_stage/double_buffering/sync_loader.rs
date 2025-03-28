@@ -61,13 +61,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 {
     fn fill_stage(
         this: &mut Self,
-        #[comptime] buffer: BufferId,
+        #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
         L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
             &this.tensor_view,
             &mut this.stage,
-            buffer.to_u32(),
+            buffer_id,
             Ident::Lhs,
             config,
         );
@@ -117,13 +117,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 {
     fn fill_stage(
         this: &mut Self,
-        #[comptime] buffer: BufferId,
+        #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
         L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
             &this.tensor_view,
             &mut this.stage,
-            buffer.to_u32(),
+            buffer_id,
             Ident::Rhs,
             config,
         );

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{
@@ -62,7 +63,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut DualStage<ES, Self::TilingLayout>,
-        buffer_index: u32,
+        #[comptime] buffer_id: BufferId,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -101,8 +102,8 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
                     let pos_within_tile = unit_position % tile_size;
 
                     let (tile_x, tile_y) = match ident.as_input() {
-                        InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
-                        InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
+                        InputIdent::Lhs => (unit_pos_in_buffer, buffer_id.to_u32().runtime()),
+                        InputIdent::Rhs => (buffer_id.to_u32().runtime(), unit_pos_in_buffer),
                     };
 
                     let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);

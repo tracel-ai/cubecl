@@ -67,7 +67,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                buffer_id.to_u32(),
+                buffer_id,
                 Ident::Lhs,
                 config,
             );
@@ -118,12 +118,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncBufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
-    fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: Config<S>) {
+    fn fill_stage(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                buffer.to_u32(),
+                buffer_id,
                 Ident::Rhs,
                 config,
             );
