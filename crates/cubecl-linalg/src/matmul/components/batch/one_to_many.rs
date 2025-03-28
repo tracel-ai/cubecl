@@ -78,7 +78,7 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         config: Self::Config,
     ) {
         unsafe {
-            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+            super::matmul::launch_unchecked::<MS, Self, R>(
                 client, cube_count, cube_dim, input, output, size_k, config,
             );
         }

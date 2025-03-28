@@ -47,12 +47,8 @@ where
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleMatmul<
-        MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
@@ -107,7 +103,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: StageMatmul<MP>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 > {
@@ -121,9 +117,7 @@ pub struct SimpleMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
@@ -131,8 +125,8 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncFullLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncFullRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncFullLhsLoader<MP, SMM::Config, LL>;
+    type RhsLoader = SyncFullRhsLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EG>;
     type Accumulator = SMM::Accumulator;
