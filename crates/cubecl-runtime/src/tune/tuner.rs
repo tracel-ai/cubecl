@@ -3,7 +3,7 @@ use cubecl_common::future;
 use hashbrown::HashSet;
 
 use core::future::Future;
-use cubecl_common::stub::Duration;
+use core::time::Duration;
 
 #[cfg(not(target_family = "wasm"))]
 use core::sync::atomic::{AtomicU64, Ordering};
