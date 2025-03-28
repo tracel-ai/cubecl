@@ -104,14 +104,14 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
+pub trait AccumulatorLoader<MP: MatmulPrecision, G: stage::StageConfig>:
     CubeType + 'static + Send + Sync
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
     /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
+    fn load<Tile: tile::TileMatmul<MP>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
         tile_n: u32,

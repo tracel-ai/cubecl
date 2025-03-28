@@ -24,11 +24,11 @@ pub struct LhsReaderFamily;
 pub struct RhsReaderFamily;
 
 impl ReaderFamily for LhsReaderFamily {
-    type Reader<I: Numeric, T: TilingLayout> = LhsReader<I, T>;
+    type Reader<ES: Numeric, T: TilingLayout> = LhsReader<ES, T>;
 }
 
 impl ReaderFamily for RhsReaderFamily {
-    type Reader<I: Numeric, T: TilingLayout> = RhsReader<I, T>;
+    type Reader<ES: Numeric, T: TilingLayout> = RhsReader<ES, T>;
 }
 
 #[cube]

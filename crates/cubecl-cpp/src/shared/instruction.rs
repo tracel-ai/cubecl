@@ -469,50 +469,19 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Wmma(it) => write!(f, "{it}"),
             Instruction::Bitcast(UnaryInstruction { input, out }) => {
                 let qualifier = out.const_qualifier();
-                let out_elem = out.elem();
-                let out = out.fmt_left();
+                let input_item = input.item();
+                let out_item = out.item();
 
-                match (input.elem(), out_elem) {
-                    (Elem::F32, Elem::I32) => {
-                        writeln!(f, "{out} = __float_as_int({input});")
-                    }
-                    (Elem::F32, Elem::U32) => {
-                        writeln!(f, "{out} = __float_as_uint({input});")
-                    }
-                    (Elem::F16, Elem::I32) => {
-                        writeln!(f, "{out} = __half_as_short({input});")
-                    }
-                    (Elem::F16, Elem::U32) => {
-                        writeln!(f, "{out} = __half_as_ushort({input});")
-                    }
-                    (Elem::BF16, Elem::I32) => {
-                        writeln!(f, "{out} = __bfloat16_as_short({input});")
-                    }
-                    (Elem::BF16, Elem::U32) => {
-                        writeln!(f, "{out} = __bfloat16_as_ushort({input});")
-                    }
-                    (Elem::I32, Elem::F32) => {
-                        writeln!(f, "{out} = __int_as_float({input});")
-                    }
-                    (Elem::I32, Elem::F16) => {
-                        writeln!(f, "{out} = __short_as_half({input});")
-                    }
-                    (Elem::I32, Elem::BF16) => {
-                        writeln!(f, "{out} = __short_as_bfloat16({input});")
-                    }
-                    (Elem::U32, Elem::F32) => {
-                        writeln!(f, "{out} = __uint_as_float({input});")
-                    }
-                    (Elem::U32, Elem::F16) => {
-                        writeln!(f, "{out} = __ushort_as_half({input});")
-                    }
-                    (Elem::U32, Elem::BF16) => {
-                        writeln!(f, "{out} = __ushort_as_bfloat16({input});")
-                    }
-                    (Elem::I32, Elem::U32) => {
-                        writeln!(f, "{out} = reinterpret_cast<uint{qualifier}&>({input});")
-                    }
-                    elem => panic!("Unsupported type for bitcasting {elem:?}"),
+                if out_item.elem.size() * out_item.vectorization
+                    != input.item().elem.size() * input.item().vectorization
+                {
+                    panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(
+                        f,
+                        "{out} = reinterpret_cast<{out_item}{qualifier}&>({input});"
+                    )
                 }
             }
             Instruction::AtomicCAS {

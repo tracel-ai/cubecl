@@ -8,7 +8,6 @@ use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatmulSelection;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::SingleMatmulSpec;
 use crate::matmul::components::global::args::TensorInputsLaunch;
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
@@ -94,7 +93,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<SingleMatmulSpec<P::EG, P::ES, P::EA>, R>(
+        A::BatchMatmul::launch_unchecked::<(P::EG, P::ES, P::EA), R>(
             &client,
             cube_dim,
             cube_count,
