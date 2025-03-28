@@ -204,7 +204,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
-    if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() && !MP::QUANTIZED {
+    if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() && MP::SUPPORT_TENSOR_CORE {
         if tf32::is_supported(client) {
             select_kernel::<ReplaceES<MP, tf32>, R, A>(
                 client,

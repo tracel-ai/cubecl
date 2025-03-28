@@ -28,6 +28,7 @@ impl<MP: MatmulPrecision> MatmulSpec for MP {
 /// Matrix multiplication precisions.
 pub trait MatmulPrecision: Send + Sync + Clone + 'static {
     const QUANTIZED: bool;
+    const SUPPORT_TENSOR_CORE: bool;
 
     /// Element type of each input and output tensors of the kernel.
     type EG: Numeric;
@@ -40,6 +41,7 @@ pub trait MatmulPrecision: Send + Sync + Clone + 'static {
 
 impl MatmulPrecision for f16 {
     const QUANTIZED: bool = false;
+    const SUPPORT_TENSOR_CORE: bool = false;
     type EG = f16;
     type ES = f16;
     type EA = f32;
@@ -47,6 +49,7 @@ impl MatmulPrecision for f16 {
 
 impl MatmulPrecision for flex32 {
     const QUANTIZED: bool = false;
+    const SUPPORT_TENSOR_CORE: bool = false;
     type EG = flex32;
     type ES = f16;
     type EA = f32;
@@ -54,6 +57,7 @@ impl MatmulPrecision for flex32 {
 
 impl MatmulPrecision for bf16 {
     const QUANTIZED: bool = false;
+    const SUPPORT_TENSOR_CORE: bool = false;
     type EG = bf16;
     type ES = bf16;
     type EA = f32;
@@ -61,6 +65,7 @@ impl MatmulPrecision for bf16 {
 
 impl MatmulPrecision for f32 {
     const QUANTIZED: bool = false;
+    const SUPPORT_TENSOR_CORE: bool = true;
     type EG = f32;
     type ES = f32;
     type EA = f32;
@@ -73,6 +78,7 @@ pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
 
 impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
     const QUANTIZED: bool = MP::QUANTIZED;
+    const SUPPORT_TENSOR_CORE: bool = MP::SUPPORT_TENSOR_CORE;
     type EG = MP::EG;
     type ES = ES;
     type EA = MP::EA;
@@ -80,6 +86,7 @@ impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
 
 impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
     const QUANTIZED: bool = false;
+    const SUPPORT_TENSOR_CORE: bool = false;
     type EG = EG;
     type ES = ES;
     type EA = EA;
@@ -87,6 +94,7 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
 
 impl MatmulPrecision for SymQ8 {
     const QUANTIZED: bool = true;
+    const SUPPORT_TENSOR_CORE: bool = false;
     type EG = i8;
     type ES = i8;
     type EA = i32;

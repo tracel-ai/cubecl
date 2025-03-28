@@ -135,8 +135,8 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
+        run_benches::<cubecl::cuda::CudaRuntime, f32>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
     }
 }
