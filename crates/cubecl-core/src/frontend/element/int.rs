@@ -9,14 +9,17 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
 };
-
-use super::{
-    __expand_new, CubePrimitive, ExpandElementBaseInit, ExpandElementTyped, Init, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings, init_expand_element,
+use crate::{
+    frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped},
+    prelude::MulHi,
 };
 
 mod typemap;
 pub use typemap::*;
+
+use super::{
+    __expand_new, Init, IntoRuntime, LaunchArgExpand, ScalarArgSettings, init_expand_element,
+};
 
 /// Signed or unsigned integer. Used as input in int kernels
 pub trait Int:
@@ -26,6 +29,7 @@ pub trait Int:
     + BitwiseNot
     + LeadingZeros
     + FindFirstSet
+    + MulHi
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

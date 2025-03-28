@@ -54,6 +54,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
+            Arithmetic::MulHi(op) => {
+                self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
+                    let out_st = b.type_struct([ty, ty]);
+                    let extended = match out_ty.elem() {
+                        Elem::Int(_, false) => b.u_mul_extended(out_st, None, lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => b.s_mul_extended(out_st, None, lhs, rhs).unwrap(),
+                        _ => unreachable!(),
+                    };
+                    b.composite_extract(ty, Some(out), extended, [1]).unwrap();
+                });
+            }
             Arithmetic::Div(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {

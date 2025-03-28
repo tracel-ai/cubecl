@@ -4,13 +4,16 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::io::read_tensor_checked;
 use cubecl_core::ir::ExpandElement;
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
     prelude::{expand_checked_index_assign, expand_erf},
+};
+use cubecl_core::{
+    io::read_tensor_checked,
+    prelude::{expand_himul_64, expand_himul_sim},
 };
 
 /// Wgsl Compiler.
@@ -727,6 +730,14 @@ impl WgslCompiler {
             cube::Arithmetic::Erf(op) => {
                 let mut scope = scope.child();
                 expand_erf(&mut scope, op.input, out);
+                instructions.extend(self.compile_scope(&mut scope));
+            }
+            cube::Arithmetic::MulHi(op) => {
+                let mut scope = scope.child();
+                match self.compilation_options.supports_u64 {
+                    true => expand_himul_64(&mut scope, op.lhs, op.rhs, out),
+                    false => expand_himul_sim(&mut scope, op.lhs, op.rhs, out),
+                }
                 instructions.extend(self.compile_scope(&mut scope));
             }
             cube::Arithmetic::Recip(op) => instructions.push(wgsl::Instruction::Recip {

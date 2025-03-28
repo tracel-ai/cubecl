@@ -147,7 +147,7 @@ pub fn register_features(
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);
     } else {
-        wgsl::register_types(props);
+        wgsl::register_wgsl_features(adapter, props, comp_options);
     }
 }
 

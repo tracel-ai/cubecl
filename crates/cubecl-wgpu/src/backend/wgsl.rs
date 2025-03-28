@@ -1,4 +1,8 @@
-use cubecl_core::{Compiler, Feature, compute::Visibility, ir::UIntKind};
+use cubecl_core::{
+    AtomicFeature, Compiler, Feature, WgpuCompilationOptions,
+    compute::Visibility,
+    ir::{Elem, UIntKind},
+};
 use cubecl_runtime::DeviceProperties;
 use wgpu::DeviceDescriptor;
 
@@ -40,7 +44,18 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
         .unwrap()
 }
 
-pub fn register_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_wgsl_features(
+    adapter: &wgpu::Adapter,
+    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    comp_options: &mut WgpuCompilationOptions,
+) {
+    register_types(props, adapter);
+    if props.feature_enabled(Feature::Type(Elem::UInt(UIntKind::U64))) {
+        comp_options.supports_u64 = true;
+    }
+}
+
+pub fn register_types(props: &mut DeviceProperties<Feature>, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{Elem, FloatKind, IntKind};
 
     let supported_types = [
@@ -53,7 +68,26 @@ pub fn register_types(props: &mut DeviceProperties<Feature>) {
         Elem::Bool,
     ];
 
-    for ty in supported_types {
+    let mut register = |ty: Elem| {
         props.register_feature(Feature::Type(ty));
+    };
+
+    for ty in supported_types {
+        register(ty)
+    }
+
+    let feats = adapter.features();
+
+    if feats.contains(wgpu::Features::SHADER_INT64) {
+        register(Elem::Int(IntKind::I64));
+        register(Elem::UInt(UIntKind::U64));
+    }
+    if feats.contains(wgpu::Features::SHADER_F64) {
+        register(Elem::Float(FloatKind::F32));
+    }
+    if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
+        register(Elem::AtomicFloat(FloatKind::F32));
+        props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
+        props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
 }
