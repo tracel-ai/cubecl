@@ -74,8 +74,8 @@ impl<R: Runtime> StridedIndexArgs<'_, R> {
 #[cube]
 impl StridedIndex {
     /// Translates absolute index to strided index if applicable
-    pub fn index<T: CubePrimitive>(this: &Self, tensor: &Tensor<Line<T>>, index: u32) -> u32 {
-        match this {
+    pub fn index<T: CubePrimitive>(&self, tensor: &Tensor<Line<T>>, index: u32) -> u32 {
+        match self {
             StridedIndex::Pitched(divmod) => {
                 let offset_abs = index * tensor.line_size();
                 let (y, x) = divmod.div_mod(offset_abs);
@@ -106,7 +106,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
         registers[i] = input[offset_input];
     }
 
-    let offset_output = StridedIndex::index(&out_stride, output, offset_output);
+    let offset_output = out_stride.index(output, offset_output);
 
     #[unroll]
     for i in 0..elems_per_thread {
