@@ -1,6 +1,7 @@
 use cubecl_ir::ExpandElement;
 
 use crate::Runtime;
+use crate::frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped};
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{Elem, IntKind, Scope};
 use crate::prelude::BitwiseNot;
@@ -8,10 +9,6 @@ use crate::prelude::{FindFirstSet, LeadingZeros};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
-};
-use crate::{
-    frontend::{CubePrimitive, ExpandElementBaseInit, ExpandElementTyped},
-    prelude::MulHi,
 };
 
 mod typemap;
@@ -29,7 +26,6 @@ pub trait Int:
     + BitwiseNot
     + LeadingZeros
     + FindFirstSet
-    + MulHi
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

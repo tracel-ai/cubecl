@@ -166,10 +166,12 @@ impl WgslCompiler {
             },
             cube::Elem::Int(i) => match i {
                 cube::IntKind::I32 => wgsl::Elem::I32,
+                cube::IntKind::I64 => wgsl::Elem::I64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::UInt(kind) => match kind {
                 cube::UIntKind::U32 => wgsl::Elem::U32,
+                cube::UIntKind::U64 => wgsl::Elem::U64,
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::Elem::Bool => wgsl::Elem::Bool,
