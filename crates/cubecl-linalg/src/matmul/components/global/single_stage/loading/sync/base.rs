@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
@@ -26,14 +27,10 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
 }
 
 #[derive(CubeType)]
-pub struct SyncFullLhsLoader<
-    EG: Numeric,
-    ES: Numeric,
-    S: stage::StageConfig,
-    L: SyncFullLoadingStrategy,
-> {
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+pub struct SyncFullLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+{
+    pub tensor_view: TensorReader<MP::EG>,
+    pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -41,14 +38,10 @@ pub struct SyncFullLhsLoader<
 }
 
 #[derive(CubeType)]
-pub struct SyncFullRhsLoader<
-    EG: Numeric,
-    ES: Numeric,
-    S: stage::StageConfig,
-    L: SyncFullLoadingStrategy,
-> {
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+pub struct SyncFullRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+{
+    pub tensor_view: TensorReader<MP::EG>,
+    pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -56,10 +49,10 @@ pub struct SyncFullRhsLoader<
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_stage::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    FullLoader<MP, single_stage::Config<S>> for SyncFullLhsLoader<MP, S, L>
 {
-    type StageReader = LhsReader<ES, L::TilingLayout>;
+    type StageReader = LhsReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -71,11 +64,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullLoader<EG, ES, single_stage::Config<S>> for SyncFullLhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    SyncFullLoader<MP, single_stage::Config<S>> for SyncFullLhsLoader<MP, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<EG, ES, single_stage::Config<S>>(
+        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Lhs,
@@ -85,11 +78,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullLhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    SyncFullLhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -98,7 +91,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncFullLhsLoader::<EG, ES, S, L> {
+        SyncFullLhsLoader::<MP, S, L> {
             tensor_view,
             stage,
             _config: PhantomData::<S>,
@@ -108,10 +101,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    FullLoader<EG, ES, single_stage::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    FullLoader<MP, single_stage::Config<S>> for SyncFullRhsLoader<MP, S, L>
 {
-    type StageReader = RhsReader<ES, L::TilingLayout>;
+    type StageReader = RhsReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -123,11 +116,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullLoader<EG, ES, single_stage::Config<S>> for SyncFullRhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    SyncFullLoader<MP, single_stage::Config<S>> for SyncFullRhsLoader<MP, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<EG, ES, single_stage::Config<S>>(
+        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Rhs,
@@ -137,11 +130,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-    SyncFullRhsLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
+    SyncFullRhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<MP::EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -150,7 +143,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncFullLoadingStrategy
         let stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncFullRhsLoader::<EG, ES, S, L> {
+        SyncFullRhsLoader::<MP, S, L> {
             tensor_view,
             stage,
             _config: PhantomData::<S>,

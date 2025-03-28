@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, MatmulLaunch, MatmulPrecision, TilingDimensions,
+    Args, EG, Ident, MatmulLaunch, MatmulPrecision, MatmulSpec, TilingDimensions,
     config::MatmulConfig,
     global::{
         self, Quantization,
@@ -74,37 +74,31 @@ pub trait BatchConfig: MatmulConfig {
     fn quantized(&self) -> bool;
 }
 
-type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
-type Output<Args, EG> = <Args as MatmulArgs>::Output<EG>;
+type Input<MS> = <Args<MS> as MatmulArgs>::Input<EG<MS>>;
+type Output<MS> = <Args<MS> as MatmulArgs>::Output<EG<MS>>;
 
 #[cube(launch_unchecked)]
-pub(crate) fn matmul<
-    EG: Numeric,
-    ES: Numeric,
-    EA: Numeric,
-    Args: MatmulArgs,
-    BMM: BatchMatmulFamily,
->(
-    inputs: &Input<Args, EG>,
-    output: &mut Output<Args, EG>,
+pub(crate) fn matmul<MS: MatmulSpec, BMM: BatchMatmulFamily>(
+    inputs: &Input<MS>,
+    output: &mut Output<MS>,
     size_k: u32,
     #[comptime] config: BMM::Config,
 ) {
-    let mut state = Args::init_state(inputs, output);
+    let mut state = MS::Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EG, Args>::new(&mut state);
+    let lhs = TensorInput::<EG<MS>, Args<MS>>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<EG<MS>, Args<MS>>::new(&state, args::TensorInputIdent::Rhs);
+    let mut out = TensorOutput::<EG<MS>, Args<MS>>::new(&mut state);
 
-    let lhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&lhs);
-    let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
-    let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
+    let lhs = VirtualTensor::<EG<MS>>::new::<TensorInput<EG<MS>, Args<MS>>>(&lhs);
+    let rhs = VirtualTensor::<EG<MS>>::new::<TensorInput<EG<MS>, Args<MS>>>(&rhs);
+    let out = VirtualTensor::<EG<MS>, ReadWrite>::new::<TensorOutput<EG<MS>, Args<MS>>>(&mut out);
 
     let quantization = if config.quantized() {
-        CubeOption::new_Some(Args::quantization(&state))
+        CubeOption::new_Some(Args::<MS>::quantization(&state))
     } else {
         CubeOption::new_None()
     };
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, size_k, quantization, config);
+    BMM::Matmul::<MS::Precision>::execute(lhs, rhs, out, size_k, quantization, config);
 }
