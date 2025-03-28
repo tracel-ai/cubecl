@@ -17,7 +17,7 @@ use crate::{
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
 pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
-    pub tensor_view: Im2colReader<MP::EG>,
+    pub tensor_view: Im2colReader<MP::EI>,
     pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<G>,
@@ -51,7 +51,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn new(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         shape_out_y: u32,
         shape_out_x: u32,
         x_offset: u32,
@@ -65,7 +65,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
         let shape_m = shape_batch * shape_out_y * shape_out_x;
         let shape_k = shape_channel * config.kernel_size(0) * config.kernel_size(1);
 
-        let tensor_view = Im2colReader::<MP::EG>::new(
+        let tensor_view = Im2colReader::<MP::EI>::new(
             tensor,
             shape_out_y,
             shape_out_x,
@@ -92,7 +92,7 @@ pub struct SimpleIm2col;
 #[cube]
 impl SimpleIm2col {
     pub fn load_to_slice<MP: MatmulPrecision, G: ConvGemmConfig>(
-        read_view: &Im2colReader<MP::EG>,
+        read_view: &Im2colReader<MP::EI>,
         slice: &mut SliceMut<Line<MP::ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,

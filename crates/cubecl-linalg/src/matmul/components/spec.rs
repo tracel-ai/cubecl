@@ -29,41 +29,47 @@ impl<MP: MatmulPrecision> MatmulSpec for MP {
 pub trait MatmulPrecision: Send + Sync + Clone + 'static {
     const QUANTIZED: bool;
 
-    /// Element type of each input and output tensors of the kernel.
-    type EG: Numeric;
+    /// Element type of each input tensors of the kernel.
+    type EI: Numeric;
     /// Element type for the shared memories used to read inputs.
     type ES: Numeric;
     /// Element type for the shared memories or fragments used to accumulate
     /// smaller matmul results before writing to the output tensor.
     type EA: Numeric;
+    /// Element type of the output tensor of the kernel.
+    type EO: Numeric;
 }
 
 impl MatmulPrecision for f16 {
     const QUANTIZED: bool = false;
-    type EG = f16;
+    type EI = f16;
     type ES = f16;
     type EA = f32;
+    type EO = f16;
 }
 
 impl MatmulPrecision for flex32 {
     const QUANTIZED: bool = false;
-    type EG = flex32;
+    type EI = flex32;
     type ES = f16;
     type EA = f32;
+    type EO = flex32;
 }
 
 impl MatmulPrecision for bf16 {
     const QUANTIZED: bool = false;
-    type EG = bf16;
+    type EI = bf16;
     type ES = bf16;
     type EA = f32;
+    type EO = bf16;
 }
 
 impl MatmulPrecision for f32 {
     const QUANTIZED: bool = false;
-    type EG = f32;
+    type EI = f32;
     type ES = f32;
     type EA = f32;
+    type EO = f32;
 }
 
 #[derive(Clone)]
@@ -73,40 +79,52 @@ pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
 
 impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
     const QUANTIZED: bool = MP::QUANTIZED;
-    type EG = MP::EG;
+    type EI = MP::EI;
     type ES = ES;
     type EA = MP::EA;
+    type EO = MP::EO;
 }
 
-impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
+impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI, ES, EA, EO) {
     const QUANTIZED: bool = false;
-    type EG = EG;
+    type EI = EI;
     type ES = ES;
     type EA = EA;
+    type EO = EO;
 }
 
 #[derive(Clone)]
 pub struct Quantized;
 
-impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA, Quantized) {
+impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI, ES, EA, EO, Quantized) {
     const QUANTIZED: bool = true;
-    type EG = EG;
+    type EI = EI;
     type ES = ES;
     type EA = EA;
+    type EO = EO;
 }
 
 impl MatmulPrecision for SymQ8 {
     const QUANTIZED: bool = true;
-    type EG = i8;
+    type EI = i8;
     type ES = i8;
     type EA = i32;
+    type EO = i8;
+}
+
+impl MatmulPrecision for i8 {
+    const QUANTIZED: bool = true;
+    type EI = i8;
+    type ES = i8;
+    type EA = i32;
+    type EO = i32;
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<EG<MS>>;
+pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<EI<MS>>;
 
 /// Output argument
-pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<EG<MS>>;
+pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<EO<MS>>;
 
 /// Input runtime argument
 pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
@@ -114,7 +132,9 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 /// Output runtime argument
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
-pub type EG<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EG;
+pub type EI<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EI;
 pub type ES<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::ES;
 pub type EA<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EA;
+pub type EO<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EO;
+
 pub type Args<MS> = <MS as MatmulSpec>::Args;

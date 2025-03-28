@@ -25,7 +25,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
     type Config: ConvGemmConfig;
     type AccumulatorLoader: AccumulatorLoader<MP, SMM::Config>;
 
-    type Out: OutputLoader<MP::EG>;
+    type Out: OutputLoader<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
@@ -45,28 +45,28 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
     );
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
     fn init_bias_loader(
-        bias: VirtualTensor<MP::EG>,
+        bias: VirtualTensor<MP::EI>,
         n_offset: u32,
         #[comptime] config: Self::Config,
         #[comptime] has_bias: bool,
     ) -> Self::AccumulatorLoader;
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
     ) -> Self::Out;
