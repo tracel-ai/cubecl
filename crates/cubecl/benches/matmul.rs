@@ -65,12 +65,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
     let client = R::client(&device);
 
     for (b, m, n, k) in [
-        // (1, 6144, 6144, 16384),
         (1, 6144, 6144, 6144),
         (1, 5000, 5000, 5000),
         (2, 4096, 4096, 4096),
-        // (16, 6144, 2048, 513),
-        // (32, 256, 256, 256),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,
@@ -99,19 +96,19 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
     // );
-    // run::<cubecl::cuda::CudaRuntime, f16>(
+    // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
     // );
-    // run::<cubecl::cuda::CudaRuntime, f16>(
+    // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
-    // run::<cubecl::cuda::CudaRuntime, f16>(
+    // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // );
-    // run::<cubecl::cuda::CudaRuntime, f16>(
+    // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
     // );
@@ -135,8 +132,8 @@ fn main() {
 
     #[cfg(feature = "cuda")]
     {
-        run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        // run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
+        // run_benches::<cubecl::cuda::CudaRuntime, f32>();
+        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        run_benches::<cubecl::cuda::CudaRuntime, flex32>();
     }
 }
