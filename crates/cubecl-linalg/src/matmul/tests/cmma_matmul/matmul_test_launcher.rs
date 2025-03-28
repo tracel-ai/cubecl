@@ -94,7 +94,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<SingleMatmulSpec<P::EG, P::ES, P::EA>, R>(
+        A::BatchMatmul::launch_unchecked::<SingleMatmulSpec<(P::EG, P::ES, P::EA)>, R>(
             &client,
             cube_dim,
             cube_count,

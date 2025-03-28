@@ -1,6 +1,8 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
-use cubecl_core::prelude::{LaunchArg, Numeric};
+use cubecl_core::prelude::*;
+use cubecl_std::SymQ8;
+use half::{bf16, f16};
 
 use super::global::args::{MatmulArgs, TensorArgs};
 
@@ -10,6 +12,18 @@ pub trait MatmulSpec: Send + Sync + Clone + 'static {
     type Precision: MatmulPrecision;
     /// How the input and output tensors are passed as arguments.
     type Args: MatmulArgs;
+}
+
+// TODO replace with tuple
+/// Specification for a simple standard matmul using global tensor as inputs.
+#[derive(Clone)]
+pub struct SingleMatmulSpec<MP: MatmulPrecision, Args = TensorArgs> {
+    _phantom: PhantomData<(MP, Args)>,
+}
+
+impl<MP: MatmulPrecision, Args: MatmulArgs> MatmulSpec for SingleMatmulSpec<MP, Args> {
+    type Precision = MP;
+    type Args = Args;
 }
 
 /// Matrix multiplication precisions.
@@ -25,11 +39,59 @@ pub trait MatmulPrecision: Send + Sync + Clone + 'static {
     type EA: Numeric;
 }
 
+impl MatmulPrecision for f16 {
+    const QUANTIZED: bool = false;
+    type EG = f16;
+    type ES = f16;
+    type EA = f32;
+}
+
+impl MatmulPrecision for flex32 {
+    const QUANTIZED: bool = false;
+    type EG = flex32;
+    type ES = f16;
+    type EA = f32;
+}
+
+impl MatmulPrecision for bf16 {
+    const QUANTIZED: bool = false;
+    type EG = bf16;
+    type ES = bf16;
+    type EA = f32;
+}
+
+impl MatmulPrecision for f32 {
+    const QUANTIZED: bool = false;
+    type EG = f32;
+    type ES = f32;
+    type EA = f32;
+}
+
+#[derive(Clone)]
+pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
+    _phantom: PhantomData<(ES, MP)>,
+}
+
+impl<MP: MatmulPrecision, ES: Numeric> MatmulPrecision for ReplaceES<MP, ES> {
+    const QUANTIZED: bool = MP::QUANTIZED;
+    type EG = MP::EG;
+    type ES = ES;
+    type EA = MP::EA;
+}
+
+// TODO Delete
 impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
     const QUANTIZED: bool = false;
     type EG = EG;
     type ES = ES;
     type EA = EA;
+}
+
+impl MatmulPrecision for SymQ8 {
+    const QUANTIZED: bool = true;
+    type EG = i8;
+    type ES = i8;
+    type EA = i32;
 }
 
 /// Input argument
@@ -48,19 +110,3 @@ pub type EG<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EG;
 pub type ES<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::ES;
 pub type EA<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EA;
 pub type Args<MS> = <MS as MatmulSpec>::Args;
-
-/// Specification for a simple standard matmul using global tensor as inputs.
-#[derive(Clone)]
-pub struct SingleMatmulSpec<EG, ES, EA, Args = TensorArgs> {
-    _eg: PhantomData<EG>,
-    _es: PhantomData<ES>,
-    _ea: PhantomData<EA>,
-    _args: PhantomData<Args>,
-}
-
-impl<Args: MatmulArgs, EG: Numeric, ES: Numeric, EA: Numeric> MatmulSpec
-    for SingleMatmulSpec<EG, ES, EA, Args>
-{
-    type Precision = (EG, ES, EA);
-    type Args = Args;
-}

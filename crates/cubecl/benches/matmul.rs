@@ -1,14 +1,14 @@
 use cubecl::prelude::*;
+use cubecl_linalg::matmul::components::MatmulPrecision;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
-use cubecl::frontend::Float;
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
-impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
-    type Args = (TensorHandle<R, E>, TensorHandle<R, E>);
+impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
+    type Args = (TensorHandle<R, MP::EG>, TensorHandle<R, MP::EG>);
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
@@ -23,7 +23,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         let client = R::client(&self.device);
         let out = TensorHandle::empty(&client, vec![self.b, self.m, self.n]);
 
-        matmul::launch::<R, E>(&self.strategy, &self.client, lhs, rhs, out).unwrap();
+        matmul::launch::<R, MP>(&self.strategy, &self.client, lhs, rhs, out).unwrap();
     }
 
     fn name(&self) -> String {
@@ -32,7 +32,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
         format!(
             "matmul-{}-{}-{:?}",
             R::name(&client),
-            E::as_elem_native_unchecked(),
+            MP::EG::as_elem_native_unchecked(),
             self.strategy
         )
         .to_lowercase()
@@ -48,7 +48,7 @@ impl<R: Runtime, E: Float> Benchmark for MatmulBench<R, E> {
 }
 
 #[allow(dead_code)]
-struct MatmulBench<R: Runtime, E> {
+struct MatmulBench<R: Runtime, MP> {
     b: usize,
     m: usize,
     k: usize,
@@ -56,11 +56,11 @@ struct MatmulBench<R: Runtime, E> {
     strategy: matmul::Strategy,
     device: R::Device,
     client: ComputeClient<R::Server, R::Channel>,
-    _e: PhantomData<E>,
+    _mp: PhantomData<MP>,
 }
 
 #[allow(dead_code)]
-fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
+fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     let client = R::client(&device);
 
     for (b, m, n, k) in [
@@ -70,7 +70,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
         (16, 6144, 2048, 513),
         (32, 256, 256, 256),
     ] {
-        let bench = MatmulBench::<R, E> {
+        let bench = MatmulBench::<R, MP> {
             b,
             m,
             k,
@@ -78,7 +78,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: matmul::Strategy) {
             client: client.clone(),
             device: device.clone(),
             strategy: strategy.clone(),
-            _e: PhantomData,
+            _mp: PhantomData,
         };
         println!("b: {b} m: {m} n: {n} k: {k}");
         println!("{}", bench.name());
