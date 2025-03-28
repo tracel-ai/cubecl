@@ -481,49 +481,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                         "{out} = reinterpret_cast<{out_item}{qualifier}&>({input});"
                     )
                 }
-
-                // match (input.elem(), out_elem) {
-                //     (Elem::F32, Elem::I32) => {
-                //         writeln!(f, "{out} = __float_as_int({input});")
-                //     }
-                //     (Elem::F32, Elem::U32) => {
-                //         writeln!(f, "{out} = __float_as_uint({input});")
-                //     }
-                //     (Elem::F16, Elem::I32) => {
-                //         writeln!(f, "{out} = __half_as_short({input});")
-                //     }
-                //     (Elem::F16, Elem::U32) => {
-                //         writeln!(f, "{out} = __half_as_ushort({input});")
-                //     }
-                //     (Elem::BF16, Elem::I32) => {
-                //         writeln!(f, "{out} = __bfloat16_as_short({input});")
-                //     }
-                //     (Elem::BF16, Elem::U32) => {
-                //         writeln!(f, "{out} = __bfloat16_as_ushort({input});")
-                //     }
-                //     (Elem::I32, Elem::F32) => {
-                //         writeln!(f, "{out} = __int_as_float({input});")
-                //     }
-                //     (Elem::I32, Elem::F16) => {
-                //         writeln!(f, "{out} = __short_as_half({input});")
-                //     }
-                //     (Elem::I32, Elem::BF16) => {
-                //         writeln!(f, "{out} = __short_as_bfloat16({input});")
-                //     }
-                //     (Elem::U32, Elem::F32) => {
-                //         writeln!(f, "{out} = __uint_as_float({input});")
-                //     }
-                //     (Elem::U32, Elem::F16) => {
-                //         writeln!(f, "{out} = __ushort_as_half({input});")
-                //     }
-                //     (Elem::U32, Elem::BF16) => {
-                //         writeln!(f, "{out} = __ushort_as_bfloat16({input});")
-                //     }
-                //     (Elem::I32, Elem::U32) => {
-                //         writeln!(f, "{out} = reinterpret_cast<uint{qualifier}&>({input});")
-                //     }
-                //     elem => panic!("Unsupported type for bitcasting {elem:?}"),
-                // }
             }
             Instruction::AtomicCAS {
                 input,
