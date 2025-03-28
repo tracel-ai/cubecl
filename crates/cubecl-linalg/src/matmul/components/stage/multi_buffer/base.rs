@@ -2,9 +2,9 @@ use super::reader::{LhsReader, RhsReader};
 use super::{LhsReaderFamily, RhsReaderFamily};
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::stage::Buffering;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
+use crate::matmul::components::stage::{Buffering, StageEventListener};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
@@ -152,6 +152,20 @@ where
                 config,
             ),
         }
+    }
+
+    fn execute_with_listener<SEL: StageEventListener>(
+        _lhs_reader: &LhsReader<I, TL>,
+        _rhs_reader: &RhsReader<I, TR>,
+        _lhs_fragment: &mut Self::LhsTile,
+        _rhs_fragments: &mut Self::RhsTile,
+        _acc: &mut Self::Accumulator,
+        _scaling: CubeOption<f32>,
+        #[comptime] _config: Self::Config,
+        _task: SEL,
+    ) {
+        // Should be merged with single_buffer soon
+        comptime!(unimplemented!());
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {

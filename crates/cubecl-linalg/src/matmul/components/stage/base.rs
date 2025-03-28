@@ -9,7 +9,7 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::TilingLayout;
+use super::{StageEventListener, TilingLayout};
 
 pub trait ReaderFamily {
     type Reader<I: Numeric, T: TilingLayout>: CubeType;
@@ -67,6 +67,8 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the accumulator
     ///
+    /// Equivalent to execute_with_listener with SEL:=NoEvent
+    ///
     /// # Quantization
     ///
     /// If scaling is provided, the matmul will be performed in a quantized version.
@@ -79,6 +81,19 @@ pub trait StageMatmul<ES: Numeric, EG: Numeric, EA: Numeric>: 'static + Send + S
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
+    );
+
+    /// Executes the matrix multiplication of LHS and RHS, with the addition of injected
+    /// [event listener](StageEventListener).
+    fn execute_with_listener<SEL: StageEventListener>(
+        lhs: &Self::LhsReader,
+        rhs: &Self::RhsReader,
+        instruction_lhs: &mut Self::LhsTile,
+        instruction_rhs: &mut Self::RhsTile,
+        acc: &mut Self::Accumulator,
+        scaling: CubeOption<f32>,
+        #[comptime] config: Self::Config,
+        listener: SEL,
     );
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile);

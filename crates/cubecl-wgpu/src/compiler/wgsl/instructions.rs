@@ -47,13 +47,6 @@ pub enum Instruction {
         or_else: Variable,
         out: Variable,
     },
-    ConditionalRead {
-        cond: Variable,
-        slice: Variable,
-        index: Variable,
-        fallback: Variable,
-        out: Variable,
-    },
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
@@ -76,13 +69,6 @@ pub enum Instruction {
         out: Variable,
     },
     // Index handles casting to correct local variable.
-    CheckedIndex {
-        len: Variable,
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    // Assign handle casting to correct output variable.
     Assign {
         input: Variable,
         out: Variable,
@@ -510,22 +496,6 @@ impl Display for Instruction {
                     index_assign(f, lhs, rhs, out, None)
                 }
             }
-            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
-                Variable::Slice { item, .. } => {
-                    let offset = Variable::Named {
-                        name: format!("{lhs}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let lhs = Variable::Named {
-                        name: format!("(*{lhs}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-                    index(f, &lhs, rhs, out, Some(offset), Some(len))
-                }
-                _ => index(f, lhs, rhs, out, None, Some(len)),
-            },
             Instruction::Copy {
                 input,
                 in_index,
@@ -993,48 +963,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "/* {content} */")
                 } else {
                     writeln!(f, "// {content}")
-                }
-            }
-            Instruction::ConditionalRead {
-                cond,
-                slice,
-                index,
-                fallback,
-                out,
-            } => {
-                let item_fallback = fallback.item();
-                let item_slice = slice.item();
-                let item_out = out.item();
-
-                let same_items = item_out == item_fallback || item_out == item_slice;
-                if !same_items {
-                    panic!(
-                        "condition read expects same type for input elements, fallback and ouput"
-                    );
-                }
-
-                if out.is_const() {
-                    let decl_out = out.fmt_left();
-                    write!(
-                        f,
-                        "
-var tmp_{out} = {fallback};
-if {cond} {{
-  tmp_{out} = (*{slice}_ptr)[{index} + {slice}_offset];
-}}
-{decl_out} = tmp_{out};
-"
-                    )
-                } else {
-                    write!(
-                        f,
-                        "
-{out} = {fallback};
-if {cond} {{
-  tmp_{out} = (*{slice}_ptr)[{index} + {slice}_offset];
-}}
-"
-                    )
                 }
             }
         }
