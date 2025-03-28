@@ -262,6 +262,10 @@ impl<T: CubeType> ExpandElementTyped<T> {
             .map(|it| it.get())
             .unwrap_or(1) as u32
     }
+
+    pub fn into_variable(self) -> Variable {
+        self.expand.consume()
+    }
 }
 
 impl<T: CubeType> Clone for ExpandElementTyped<T> {
