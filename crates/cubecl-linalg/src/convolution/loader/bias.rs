@@ -16,17 +16,17 @@ use crate::{
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
-pub struct BiasLoader<CS: MatmulPrecision, G: StageConfig> {
-    pub tensor_view: BiasReader<CS::EG>,
-    pub stage: Stage<CS::EA, ConvTilingLayout>,
+pub struct BiasLoader<MP: MatmulPrecision, G: StageConfig> {
+    pub tensor_view: BiasReader<MP::EG>,
+    pub stage: Stage<MP::EA, ConvTilingLayout>,
     pub has_bias: bool,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G>
-    for BiasLoader<CS, G>
+impl<MP: MatmulPrecision, G: StageConfig> AccumulatorLoader<MP, G>
+    for BiasLoader<MP, G>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         if this.has_bias {
@@ -50,7 +50,7 @@ impl<CS: MatmulPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G>
     }
 
     /// Load accumulator
-    fn load<I: Numeric, TMM: TileMatmul<I, CS::EA>>(
+    fn load<TMM: TileMatmul<MP>>(
         this: &mut Self,
         acc: &mut TMM::Accumulator,
         tile_n: u32,
@@ -70,28 +70,28 @@ impl<CS: MatmulPrecision, G: StageConfig> AccumulatorLoader<CS::EG, CS::EA, G>
 }
 
 #[cube]
-impl<CS: MatmulPrecision, G: StageConfig> BiasLoader<CS, G> {
+impl<MP: MatmulPrecision, G: StageConfig> BiasLoader<MP, G> {
     pub fn new(
-        tensor: VirtualTensor<CS::EG>,
+        tensor: VirtualTensor<MP::EG>,
         n_offset: u32,
         #[comptime] config: G,
         #[comptime] has_bias: bool,
     ) -> Self {
         if has_bias {
-            let stage = init_stage::<CS::EA, G>(config);
+            let stage = init_stage::<MP::EA, G>(config);
             let shape_n = tensor.shape(0);
-            let tensor_view = BiasReader::<CS::EG>::new(tensor, n_offset, shape_n);
+            let tensor_view = BiasReader::<MP::EG>::new(tensor, n_offset, shape_n);
 
-            BiasLoader::<CS, G> {
+            BiasLoader::<MP, G> {
                 tensor_view,
                 stage,
                 has_bias,
                 _config: PhantomData::<G>,
             }
         } else {
-            let stage = init_empty_stage::<CS::EA>();
-            let tensor_view = BiasReader::<CS::EG>::new(tensor, 0, 0);
-            BiasLoader::<CS, G> {
+            let stage = init_empty_stage::<MP::EA>();
+            let tensor_view = BiasReader::<MP::EG>::new(tensor, 0, 0);
+            BiasLoader::<MP, G> {
                 stage,
                 tensor_view,
                 has_bias,

@@ -230,18 +230,18 @@ where
         )
     }
 
-    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
-        SMM::check_availability::<R, CS>(client, &config.to_smm_config())
+        SMM::check_availability::<R, MP>(client, &config.to_smm_config())
     }
 }
 
 impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
-    unsafe fn launch_unchecked<CS: MatmulPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
@@ -252,7 +252,7 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
         unsafe {
-            implicit_conv::launch_unchecked::<CS::EG, CS::ES, CS::EA, Self, SMM, R>(
+            implicit_conv::launch_unchecked::<MP::EG, MP::ES, MP::EA, Self, SMM, R>(
                 client,
                 cube_count,
                 cube_dim,

@@ -36,7 +36,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> 
     type LhsReader = LhsBufferReaderFamily;
     type RhsReader = RhsBufferReaderFamily;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        SingleBufferMatmul<MP, TMM::Matmul<MP::ES, MP::EA>, TL, TR>;
+        SingleBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
 }
 
 impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
@@ -88,7 +88,7 @@ where
 /// - There are at least as many planes as the stage size in m
 pub struct SingleBufferMatmul<
     MP: MatmulPrecision,
-    TMM: TileMatmul<MP::ES, MP::EA>,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 > {
@@ -99,7 +99,7 @@ pub struct SingleBufferMatmul<
 impl<MP, TMM, TL, TR> StageMatmul<MP> for SingleBufferMatmul<MP, TMM, TL, TR>
 where
     MP: MatmulPrecision,
-    TMM: TileMatmul<MP::ES, MP::EA>,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
@@ -176,7 +176,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<MP::EG, MP::EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -184,7 +184,7 @@ where
         #[unroll]
         for i in 0..config.tile_count().n {
             let acc = acc.index_mut(i);
-            L::load::<MP::ES, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 
@@ -231,7 +231,7 @@ where
 impl<MP, TMM, TL, TR> SingleBufferMatmul<MP, TMM, TL, TR>
 where
     MP: MatmulPrecision,
-    TMM: TileMatmul<MP::ES, MP::EA>,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {

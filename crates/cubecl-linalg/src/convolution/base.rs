@@ -23,7 +23,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<MP::EG, MP::EA, SMM::Config>;
+    type AccumulatorLoader: AccumulatorLoader<MP, SMM::Config>;
 
     type Out: OutputLoader<MP::EG>;
     type Accumulator: CubeType;
@@ -90,7 +90,7 @@ pub trait ConvolutionConfigFactory: Send + Sync + 'static {
         cube_count: &CubeCount,
     ) -> Self::Config;
 
-    fn check_availability<R: Runtime, CS: MatmulPrecision>(
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError>;
@@ -104,7 +104,7 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
     ///
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
-    unsafe fn launch_unchecked<CS: MatmulPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,

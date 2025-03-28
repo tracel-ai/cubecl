@@ -40,7 +40,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        MultiBufferMatmul<MP, TMM::Matmul<MP::ES, MP::EA>, TL, TR>;
+        MultiBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
@@ -91,7 +91,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 /// - There are as many planes as the stage size in m
 pub struct MultiBufferMatmul<
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP::ES, MP::EA>,
+    TMM: tile::TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 > {
@@ -102,7 +102,7 @@ pub struct MultiBufferMatmul<
 impl<MP, TMM, TL, TR> StageMatmul<MP> for MultiBufferMatmul<MP, TMM, TL, TR>
 where
     MP: MatmulPrecision,
-    TMM: tile::TileMatmul<MP::ES, MP::EA>,
+    TMM: tile::TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
@@ -110,7 +110,7 @@ where
 
     type LhsReader = LhsReader<MP::ES, TL>;
     type RhsReader = RhsReader<MP::ES, TR>;
-    type Accumulator = StageAcc<MP::ES, MP::EA, TMM>;
+    type Accumulator = StageAcc<MP, TMM>;
     type LhsTile = TMM::Lhs;
     type RhsTile = RhsTile<TMM::Rhs>;
 
@@ -240,7 +240,7 @@ where
             CubeOption::new_None()
         };
 
-        StageAcc::<MP::ES, MP::EA, TMM> {
+        StageAcc::<MP, TMM> {
             tmm_accumulators,
             quantization_memories,
         }
@@ -253,7 +253,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<MP::EG, MP::EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -261,7 +261,7 @@ where
         #[unroll]
         for i in 0..config.tile_count().n {
             let acc = acc.tmm_accumulators.index_mut(i);
-            L::load::<MP::ES, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 }
@@ -282,7 +282,7 @@ fn check_num_planes(
 impl<MP, TMM, TL, TR> MultiBufferMatmul<MP, TMM, TL, TR>
 where
     MP: MatmulPrecision,
-    TMM: TileMatmul<MP::ES, MP::EA>,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
@@ -490,9 +490,9 @@ fn rescale(
 /// since pair of lhs and rhs stages may have different scaling parameters.
 /// See the [accumulated_dequantized_if_quantized] method.
 #[derive(CubeType, Clone)]
-pub struct StageAcc<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> {
+pub struct StageAcc<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     tmm_accumulators: Sequence<TMM::Accumulator>,
-    quantization_memories: CubeOption<QuantizationMemories<EA>>,
+    quantization_memories: CubeOption<QuantizationMemories<MP::EA>>,
 }
 
 // Each memory is stored as a single SharedMemory big enough to accommodate all tmm accumulators.
@@ -553,7 +553,7 @@ impl<EA: Numeric> QuantizationMemories<EA> {
 }
 
 #[cube]
-impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> StageAcc<ES, EA, TMM> {
+impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> StageAcc<MP, TMM> {
     // Read the tmm_accumulator into the quantized memory.
     // Then convert the element from the quantized memory to f32
     // and multiply them by scaling before adding the result to the dequantized memory.
