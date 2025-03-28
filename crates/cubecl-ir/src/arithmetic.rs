@@ -42,6 +42,8 @@ pub enum Arithmetic {
     Normalize(UnaryOperator),
     #[operation(commutative)]
     Dot(BinaryOperator),
+    #[operation(commutative)]
+    MulHi(BinaryOperator),
 }
 
 impl Display for Arithmetic {
@@ -66,11 +68,9 @@ impl Display for Arithmetic {
             Arithmetic::Ceil(op) => write!(f, "{}.ceil()", op.input),
             Arithmetic::Erf(op) => write!(f, "{}.erf()", op.input),
             Arithmetic::Recip(op) => write!(f, "{}.recip()", op.input),
-
             Arithmetic::Clamp(op) => {
                 write!(f, "{}.clamp({}, {})", op.input, op.min_value, op.max_value)
             }
-
             Arithmetic::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
             Arithmetic::Neg(op) => write!(f, "-{}", op.input),
             Arithmetic::Max(op) => write!(f, "{}.max({})", op.lhs, op.rhs),
@@ -79,6 +79,7 @@ impl Display for Arithmetic {
             Arithmetic::Magnitude(op) => write!(f, "{}.length()", op.input),
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
+            Arithmetic::MulHi(op) => write!(f, "mul_hi({}, {})", op.lhs, op.rhs),
         }
     }
 }

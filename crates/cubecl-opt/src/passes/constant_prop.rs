@@ -314,6 +314,25 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::MulHi(op) => {
+            use ConstantScalarValue::*;
+            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
+                let rhs = rhs.cast_to(lhs.elem());
+                Some(match (lhs, rhs) {
+                    (Int(lhs, kind), Int(rhs, _)) => {
+                        let mul = (lhs * rhs) >> 32;
+                        ConstantScalarValue::Int(mul as i32 as i64, kind)
+                    }
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        let mul = (lhs * rhs) >> 32;
+                        ConstantScalarValue::UInt(mul as u32 as u64, kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
         Arithmetic::Max(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {

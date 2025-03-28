@@ -124,6 +124,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
+        cubecl_core::testgen_binary_untyped!();
 
         cubecl_core::testgen_enums!();
     };

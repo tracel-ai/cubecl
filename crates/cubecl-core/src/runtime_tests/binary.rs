@@ -128,6 +128,85 @@ test_binary_impl!(
     ]
 );
 
+#[cube(launch_unchecked)]
+fn test_mulhi_kernel(
+    lhs: &Array<Line<u32>>,
+    rhs: &Array<Line<u32>>,
+    output: &mut Array<Line<u32>>,
+) {
+    if ABSOLUTE_POS < rhs.len() {
+        output[ABSOLUTE_POS] = MulHi::mul_hi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+macro_rules! test_mulhi_impl {
+    (
+        $test_name:ident,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            lhs: $lhs:expr,
+            rhs: $rhs:expr,
+            expected: $expected:expr
+        }),*]) => {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+            $(
+            {
+                let lhs = $lhs;
+                let rhs = $rhs;
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<u32>());
+                let lhs_handle = client.create(u32::as_bytes(lhs));
+                let rhs_handle = client.create(u32::as_bytes(rhs));
+
+                unsafe {
+                    test_mulhi_kernel::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
+                        ArrayArg::from_raw_parts::<u32>(&lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<u32>(&rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<u32>(&output_handle, $expected.len(), $out_vectorization),
+                    )
+                };
+
+                let actual = client.read_one(output_handle.binding());
+                let actual = u32::from_bytes(&actual);
+                let expected: &[u32] = $expected;
+
+                assert_eq!(actual, expected);
+            }
+            )*
+        }
+    };
+}
+
+test_mulhi_impl!(
+    test_mulhi,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: &[1, 2, 3, 4],
+            rhs: &[5, 6, 7, 8],
+            expected: &[0, 0, 0, 0]
+        },
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: &[0xFFFFFFFF, 0x80000000, 0x55555555, 0x10000000],
+            rhs: &[0x10000, 2, 4, 0x20000000],
+            expected: &[0x0000FFFF, 1, 1, 0x2000000]
+        },
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: &[0xFFFFFFFF, 0xFFFFFFFF, 0x80000000, 0x10000],
+            rhs: &[0xFFFFFFFF, 2, 0x80000000, 0x10000],
+            expected: &[0xFFFFFFFEu32, 1, 0x40000000, 1]
+        }
+    ]
+);
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_binary {
@@ -148,6 +227,28 @@ macro_rules! testgen_binary {
             }
 
             add_test!(test_dot);
+        }
+    };
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_binary_untyped {
+    () => {
+        mod binary_untyped {
+            use super::*;
+
+            macro_rules! add_test {
+                ($test_name:ident) => {
+                    #[test]
+                    fn $test_name() {
+                        let client = TestRuntime::client(&Default::default());
+                        cubecl_core::runtime_tests::binary::$test_name::<TestRuntime>(client);
+                    }
+                };
+            }
+
+            add_test!(test_mulhi);
         }
     };
 }

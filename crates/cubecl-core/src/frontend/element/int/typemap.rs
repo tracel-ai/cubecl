@@ -191,6 +191,7 @@ impl<const POS: u8> Abs for IntExpand<POS> {}
 impl<const POS: u8> Max for IntExpand<POS> {}
 impl<const POS: u8> Min for IntExpand<POS> {}
 impl<const POS: u8> Clamp for IntExpand<POS> {}
+impl<const POS: u8> MulHi for IntExpand<POS> {}
 
 impl<const POS: u8> BitwiseNot for IntExpand<POS> {}
 impl<const POS: u8> ReverseBits for IntExpand<POS> {}
