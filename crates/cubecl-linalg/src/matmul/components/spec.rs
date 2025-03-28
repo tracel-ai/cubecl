@@ -85,6 +85,16 @@ impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA) {
     type EA = EA;
 }
 
+#[derive(Clone)]
+pub struct Quantized;
+
+impl<EG: Numeric, ES: Numeric, EA: Numeric> MatmulPrecision for (EG, ES, EA, Quantized) {
+    const QUANTIZED: bool = true;
+    type EG = EG;
+    type ES = ES;
+    type EA = EA;
+}
+
 impl MatmulPrecision for SymQ8 {
     const QUANTIZED: bool = true;
     type EG = i8;
