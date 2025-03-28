@@ -1,7 +1,7 @@
 use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, SingleMatmulSpec, stage,
+    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, stage,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{
@@ -206,7 +206,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores() && !MP::QUANTIZED {
         if tf32::is_supported(client) {
-            select_kernel::<SingleMatmulSpec<ReplaceES<MP, tf32>>, R, A>(
+            select_kernel::<ReplaceES<MP, tf32>, R, A>(
                 client,
                 TensorInputsLaunch::new(
                     lhs.as_tensor_arg(lhs_line_size),
@@ -218,7 +218,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
                 MP::QUANTIZED,
             )
         } else {
-            select_kernel::<SingleMatmulSpec<ReplaceES<MP, half::f16>>, R, A>(
+            select_kernel::<ReplaceES<MP, half::f16>, R, A>(
                 client,
                 TensorInputsLaunch::new(
                     lhs.as_tensor_arg(lhs_line_size),
@@ -231,7 +231,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             )
         }
     } else {
-        select_kernel::<SingleMatmulSpec<MP>, R, A>(
+        select_kernel::<MP, R, A>(
             client,
             TensorInputsLaunch::new(
                 lhs.as_tensor_arg(lhs_line_size),
@@ -334,7 +334,7 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if TypeId::of::<MP::EG>() == TypeId::of::<half::f16>() {
-        let selection = matmul_selection::<A::TileMatmul, SingleMatmulSpec<MP, TensorMapArgs>, R>(
+        let selection = matmul_selection::<A::TileMatmul, (MP, TensorMapArgs), R>(
             client, &problem, plane_dim,
         );
         let stage_m = selection.tile_count.m * selection.tile_shape.m;
@@ -367,7 +367,7 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             tile_count: selection.tile_count,
         };
 
-        matmul_cube_preparation::<SingleMatmulSpec<MP, TensorMapArgs>, R, A>(
+        matmul_cube_preparation::<(MP, TensorMapArgs), R, A>(
             client,
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),

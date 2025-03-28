@@ -14,16 +14,15 @@ pub trait MatmulSpec: Send + Sync + Clone + 'static {
     type Args: MatmulArgs;
 }
 
-// TODO replace with tuple
-/// Specification for a simple standard matmul using global tensor as inputs.
-#[derive(Clone)]
-pub struct SingleMatmulSpec<MP: MatmulPrecision, Args = TensorArgs> {
-    _phantom: PhantomData<(MP, Args)>,
-}
-
-impl<MP: MatmulPrecision, Args: MatmulArgs> MatmulSpec for SingleMatmulSpec<MP, Args> {
+impl<MP: MatmulPrecision, Args: MatmulArgs> MatmulSpec for (MP, Args) {
     type Precision = MP;
     type Args = Args;
+}
+
+// A simple default for TensorArgs
+impl<MP: MatmulPrecision> MatmulSpec for MP {
+    type Precision = MP;
+    type Args = TensorArgs;
 }
 
 /// Matrix multiplication precisions.
