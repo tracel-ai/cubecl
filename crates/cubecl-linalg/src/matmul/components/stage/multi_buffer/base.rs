@@ -146,8 +146,8 @@ where
     }
 
     fn execute_with_listener<SEL: StageEventListener>(
-        _lhs_reader: &LhsReader<I, TL>,
-        _rhs_reader: &RhsReader<I, TR>,
+        _lhs_reader: &LhsReader<MP::ES, TL>,
+        _rhs_reader: &RhsReader<MP::ES, TR>,
         _lhs_fragment: &mut Self::LhsTile,
         _rhs_fragments: &mut Self::RhsTile,
         _acc: &mut Self::Accumulator,
