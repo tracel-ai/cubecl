@@ -114,7 +114,6 @@ where
     type RhsTile = RhsTile<TMM::Rhs>;
 
     fn execute(
-
         lhs_reader: &Self::LhsReader,
         rhs_reader: &Self::RhsReader,
         lhs_fragment: &mut Self::LhsTile,
