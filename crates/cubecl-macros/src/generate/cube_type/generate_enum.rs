@@ -179,52 +179,58 @@ impl CubeTypeEnum {
         let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = generics.split_for_impl();
 
-        let branches = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let variant_name = &variant.ident;
-                match variant.kind {
-                    VariantKind::Named => {
-                        let args = &variant.field_names;
-                        quote! {
-                            #name::#variant_name { #(#args),* } => {
-                                #(
-                                    #args.register(launcher);
-                                )*
+        let branches = |func: Ident| {
+            self.variants
+                .iter()
+                .map(|variant| {
+                    let variant_name = &variant.ident;
+                    match variant.kind {
+                        VariantKind::Named => {
+                            let args = &variant.field_names;
+                            quote! {
+                                #name::#variant_name { #(#args),* } => {
+                                    #(
+                                        #args.#func(launcher);
+                                    )*
+                                }
+                            }
+                        }
+                        VariantKind::Unnamed => {
+                            let args = variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
+                                .collect::<Vec<_>>();
+                            quote! {
+                                #name::#variant_name(#(#args),*) => {
+                                    #(
+                                        #args.#func(launcher);
+                                    )*
+                                }
+                            }
+                        }
+                        VariantKind::Empty => {
+                            quote! {
+                                #name::#variant_name => {}
                             }
                         }
                     }
-                    VariantKind::Unnamed => {
-                        let args = variant
-                            .fields
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
-                            .collect::<Vec<_>>();
-                        quote! {
-                            #name::#variant_name(#(#args),*) => {
-                                #(
-                                    #args.register(launcher);
-                                )*
-                            }
-                        }
-                    }
-                    VariantKind::Empty => {
-                        quote! {
-                            #name::#variant_name => {}
-                        }
-                    }
-                }
-            })
-            .collect();
+                })
+                .collect()
+        };
 
-        let body = self.match_impl(quote! {self}, branches);
+        let body_input = self.match_impl(quote! {self}, branches(format_ident!("register_input")));
+        let body_output =
+            self.match_impl(quote! {self}, branches(format_ident!("register_output")));
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register(&self, launcher: &mut #kernel_launcher<R>) {
-                    #body
+                fn register_input(&self, launcher: &mut #kernel_launcher<R>) {
+                    #body_input
+                }
+                fn register_output(&self, launcher: &mut #kernel_launcher<R>) {
+                    #body_output
                 }
             }
         }

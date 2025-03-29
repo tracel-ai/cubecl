@@ -4,7 +4,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     memory_management::MemoryUsage,
-    server::{Binding, BindingWithMeta, ComputeServer, ConstBinding, CubeCount, Handle},
+    server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
     storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
@@ -172,16 +172,10 @@ where
     }
 
     /// Executes the `kernel` over the given `bindings`.
-    pub fn execute(
-        &self,
-        kernel: Server::Kernel,
-        count: CubeCount,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
-    ) {
+    pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
         unsafe {
             self.channel
-                .execute(kernel, count, constants, bindings, ExecutionMode::Checked)
+                .execute(kernel, count, bindings, ExecutionMode::Checked)
         }
     }
 
@@ -194,12 +188,11 @@ where
         &self,
         kernel: Server::Kernel,
         count: CubeCount,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
     ) {
         unsafe {
             self.channel
-                .execute(kernel, count, constants, bindings, ExecutionMode::Unchecked)
+                .execute(kernel, count, bindings, ExecutionMode::Unchecked)
         }
     }
 

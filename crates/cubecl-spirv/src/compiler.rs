@@ -131,7 +131,11 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             .clone()
             .into_iter()
             .chain(value.outputs.clone())
-            .chain(value.named.clone().into_iter().map(|it| it.1))
+            .collect();
+        let scalars = value
+            .scalars
+            .iter()
+            .map(|s| (self.compile_elem(s.elem), s.count))
             .collect();
         let num_meta = value.inputs.len() + value.outputs.len();
         let mut ext_meta_pos = Vec::new();
@@ -154,6 +158,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             module,
             optimizer,
             bindings,
+            scalars,
         }
     }
 

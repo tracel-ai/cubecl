@@ -1,3 +1,5 @@
+use std::iter;
+
 use cubecl_core::{Compiler, Feature, compute::Visibility, ir::UIntKind};
 use cubecl_runtime::DeviceProperties;
 use wgpu::DeviceDescriptor;
@@ -7,10 +9,11 @@ use crate::WgslCompiler;
 pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize, Visibility)> {
     repr.inputs
         .iter()
-        .chain(repr.outputs.iter())
-        .chain(repr.named.iter().map(|it| &it.1))
+        .map(|it| it.visibility)
+        .chain(repr.outputs.iter().map(|it| it.visibility))
+        .chain(iter::once(Visibility::Read)) // info
+        .chain(repr.scalars.iter().map(|_| Visibility::Read))
         .enumerate()
-        .map(|it| (it.0, it.1.visibility))
         .collect()
 }
 

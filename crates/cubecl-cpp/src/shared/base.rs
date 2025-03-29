@@ -49,11 +49,15 @@ pub trait Dialect:
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub grid_constants: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
-        Self { warp_size: 32 }
+        Self {
+            warp_size: 32,
+            grid_constants: false,
+        }
     }
 }
 
@@ -116,7 +120,6 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
-        let constants = value.consts;
         let inputs = value
             .inputs
             .into_iter()
@@ -127,10 +130,10 @@ impl<D: Dialect> CppCompiler<D> {
             .into_iter()
             .map(|b| self.compile_binding(b))
             .collect();
-        let named = value
-            .named
+        let scalars = value
+            .scalars
             .into_iter()
-            .map(|(name, binding)| (name, self.compile_binding(binding)))
+            .map(|binding| (self.compile_elem(binding.elem), binding.count))
             .collect();
 
         let body = Body {
@@ -149,10 +152,11 @@ impl<D: Dialect> CppCompiler<D> {
             .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
-            constants,
+            num_tensor_maps: value.num_tensor_maps as usize,
             inputs,
             outputs,
-            named,
+            scalars,
+            meta_static_len: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             body,
             wmma_activated: self.wmma,
@@ -161,6 +165,7 @@ impl<D: Dialect> CppCompiler<D> {
             tma: self.tma,
             bf16: self.bf16,
             f16: self.f16,
+            grid_constant: self.compilation_options.grid_constants,
             fast_math,
             items: self.items,
             kernel_name: value.options.kernel_name,
@@ -189,6 +194,7 @@ impl<D: Dialect> CppCompiler<D> {
         let pos = match var.kind {
             gpu::VariableKind::GlobalInputArray(id) => id as usize,
             gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
+            gpu::VariableKind::TensorMap(id) => self.num_inputs + self.num_outputs + id as usize,
             other => panic!("Only global arrays have metadata, got {other:?}"),
         };
         self.ext_meta_positions[pos]
@@ -609,6 +615,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -618,6 +626,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -627,6 +637,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
+                    split_meta: self.compilation_options.grid_constants,
                     out,
                 }
             }
@@ -643,11 +654,15 @@ impl<D: Dialect> CppCompiler<D> {
                         let id = match input {
                             Variable::GlobalInputArray(id, _) => id,
                             Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
+                            Variable::TensorMap(id) => {
+                                self.num_inputs as u32 + self.num_outputs as u32 + id
+                            }
                             _ => panic!("Can only get length of global array"),
                         };
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }
@@ -663,11 +678,15 @@ impl<D: Dialect> CppCompiler<D> {
                         let id = match input {
                             Variable::GlobalInputArray(id, _) => id,
                             Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
+                            Variable::TensorMap(id) => {
+                                self.num_inputs as u32 + self.num_outputs as u32 + id
+                            }
                             _ => panic!("Can only get buffer length of global array"),
                         };
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }
@@ -1105,9 +1124,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalInputArray(id) => {
                 Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::VariableKind::GlobalScalar(id) => {
-                Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
-            }
+            gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
+                id,
+                elem: self.compile_elem(item.elem),
+                in_struct: self.compilation_options.grid_constants,
+            },
             gpu::VariableKind::TensorMap(id) => {
                 self.tma = true;
                 Variable::TensorMap(id)

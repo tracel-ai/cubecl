@@ -25,6 +25,8 @@
 //! Ranks and lengths have a constant offset, while shapes/strides involve loading the tensor's
 //! offset, then adding `dim` to the offset to get each shape/stride.
 
+use cubecl_runtime::server::MetadataBinding;
+
 // Metadata
 const BUFFER_LEN: u32 = 0;
 const LENGTH: u32 = 1;
@@ -34,6 +36,7 @@ const BASE_LEN: u32 = 2;
 const RANK: u32 = 0;
 const SHAPE_OFFSETS: u32 = 1;
 const STRIDE_OFFSETS: u32 = 2;
+const EXTENDED_LEN: u32 = 3;
 
 /// Helper to calculate metadata offsets based on buffer count and position
 #[derive(Clone, Debug, Default)]
@@ -56,6 +59,10 @@ impl Metadata {
 
     fn base_len(&self) -> u32 {
         self.num_meta * BASE_LEN
+    }
+
+    pub fn static_len(&self) -> u32 {
+        self.num_meta * BASE_LEN + self.num_extended_meta * EXTENDED_LEN
     }
 
     fn offset_of_extended(&self, id: u32) -> u32 {
@@ -119,7 +126,7 @@ impl MetadataBuilder {
     }
 
     /// Build the final serialized metadata struct
-    pub fn finish(self) -> Vec<u32> {
+    pub fn finish(self) -> MetadataBinding {
         let mut meta = self.buffer_lens;
         meta.extend(self.lengths);
         meta.extend(self.ranks.clone());
@@ -144,8 +151,11 @@ impl MetadataBuilder {
 
         meta.extend(stride_offsets);
 
+        let static_len = meta.len();
+
         meta.extend(self.shapes.into_iter().flatten());
         meta.extend(self.strides.into_iter().flatten());
-        meta
+
+        MetadataBinding::new(meta, static_len)
     }
 }
