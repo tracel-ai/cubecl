@@ -36,6 +36,7 @@ pub struct SpirvKernel {
     pub optimizer: Optimizer,
     pub bindings: Vec<Binding>,
     pub scalars: Vec<(Elem, usize)>,
+    pub has_metadata: bool,
 }
 
 impl Display for SpirvKernel {

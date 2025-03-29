@@ -1,5 +1,3 @@
-use std::iter;
-
 use ash::{
     khr::cooperative_matrix,
     vk::{
@@ -32,13 +30,12 @@ mod features;
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
 pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
-    repr.bindings
-        .iter()
-        .map(|it| it.visibility)
-        .chain(iter::once(Visibility::Read)) // info
-        .chain(repr.scalars.iter().map(|_| Visibility::Read))
-        .enumerate()
-        .collect()
+    let mut bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

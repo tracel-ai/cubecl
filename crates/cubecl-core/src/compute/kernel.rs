@@ -3,7 +3,7 @@ use std::{fmt::Display, marker::PhantomData};
 use crate::{Compiler, Kernel, KernelId, KernelOptions};
 use alloc::sync::Arc;
 use cubecl_common::{CubeDim, ExecutionMode};
-use cubecl_ir::{Elem, Item, Scope};
+use cubecl_ir::{Elem, Id, Item, Scope};
 use serde::{Deserialize, Serialize};
 
 /// A kernel, compiled in the target language
@@ -197,9 +197,8 @@ fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) ->
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
-    pub num_tensor_maps: u32,
+    pub buffers: Vec<Binding>,
+    pub tensor_maps: Vec<Id>,
     pub scalars: Vec<ScalarBinding>,
     pub cube_dim: CubeDim,
     pub body: Scope,
@@ -209,6 +208,7 @@ pub struct KernelDefinition {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub struct Binding {
+    pub id: Id,
     pub location: Location,
     pub visibility: Visibility,
     pub item: Item,

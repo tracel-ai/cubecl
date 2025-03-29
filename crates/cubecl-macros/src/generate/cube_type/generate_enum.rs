@@ -179,7 +179,8 @@ impl CubeTypeEnum {
         let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = generics.split_for_impl();
 
-        let branches = |func: Ident| {
+        let body = self.match_impl(
+            quote! {self},
             self.variants
                 .iter()
                 .map(|variant| {
@@ -190,7 +191,7 @@ impl CubeTypeEnum {
                             quote! {
                                 #name::#variant_name { #(#args),* } => {
                                     #(
-                                        #args.#func(launcher);
+                                        #args.register(launcher);
                                     )*
                                 }
                             }
@@ -205,7 +206,7 @@ impl CubeTypeEnum {
                             quote! {
                                 #name::#variant_name(#(#args),*) => {
                                     #(
-                                        #args.#func(launcher);
+                                        #args.register(launcher);
                                     )*
                                 }
                             }
@@ -217,20 +218,13 @@ impl CubeTypeEnum {
                         }
                     }
                 })
-                .collect()
-        };
-
-        let body_input = self.match_impl(quote! {self}, branches(format_ident!("register_input")));
-        let body_output =
-            self.match_impl(quote! {self}, branches(format_ident!("register_output")));
+                .collect(),
+        );
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {
-                fn register_input(&self, launcher: &mut #kernel_launcher<R>) {
-                    #body_input
-                }
-                fn register_output(&self, launcher: &mut #kernel_launcher<R>) {
-                    #body_output
+                fn register(&self, launcher: &mut #kernel_launcher<R>) {
+                    #body
                 }
             }
         }

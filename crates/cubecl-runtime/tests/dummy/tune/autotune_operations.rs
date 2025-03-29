@@ -25,7 +25,7 @@ impl Tunable for OneKernelAutotuneOperation {
         self.client.execute(
             self.kernel.clone(),
             CubeCount::Static(1, 1, 1),
-            Bindings::new().with_inputs(inputs),
+            Bindings::new().with_buffers(inputs),
         );
 
         Ok(())

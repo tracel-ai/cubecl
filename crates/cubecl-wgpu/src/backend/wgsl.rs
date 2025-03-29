@@ -1,5 +1,3 @@
-use std::iter;
-
 use cubecl_core::{Compiler, Feature, compute::Visibility, ir::UIntKind};
 use cubecl_runtime::DeviceProperties;
 use wgpu::DeviceDescriptor;
@@ -7,14 +5,16 @@ use wgpu::DeviceDescriptor;
 use crate::WgslCompiler;
 
 pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize, Visibility)> {
-    repr.inputs
+    let mut bindings = repr
+        .buffers
         .iter()
         .map(|it| it.visibility)
-        .chain(repr.outputs.iter().map(|it| it.visibility))
-        .chain(iter::once(Visibility::Read)) // info
-        .chain(repr.scalars.iter().map(|_| Visibility::Read))
-        .enumerate()
-        .collect()
+        .collect::<Vec<_>>();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {

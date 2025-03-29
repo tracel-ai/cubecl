@@ -42,19 +42,10 @@ pub enum CubeOptionArgs<'a, T: CubeLaunch, R: Runtime> {
 }
 
 impl<T: CubeLaunch, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {
-    fn register_input(&self, launcher: &mut KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
         match self {
             CubeOptionArgs::Some(arg) => {
-                arg.register_input(launcher);
-            }
-            CubeOptionArgs::None => {}
-        }
-    }
-
-    fn register_output(&self, launcher: &mut KernelLauncher<R>) {
-        match self {
-            CubeOptionArgs::Some(arg) => {
-                arg.register_output(launcher);
+                arg.register(launcher);
             }
             CubeOptionArgs::None => {}
         }

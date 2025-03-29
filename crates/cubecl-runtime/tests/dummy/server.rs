@@ -133,11 +133,10 @@ impl ComputeServer for DummyServer {
         _mode: ExecutionMode,
     ) {
         let mut resources: Vec<_> = bindings
-            .inputs
+            .buffers
             .into_iter()
             .map(|b| self.get_resource(b))
             .collect();
-        resources.extend(bindings.outputs.into_iter().map(|b| self.get_resource(b)));
         let metadata = self.create(bytemuck::cast_slice(&bindings.metadata.data));
         resources.push(self.get_resource(metadata.binding()));
 

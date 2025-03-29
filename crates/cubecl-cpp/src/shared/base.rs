@@ -78,8 +78,6 @@ pub struct CppCompiler<D: Dialect> {
     bf16: bool,
     f16: bool,
     printf: bool,
-    num_inputs: usize,
-    num_outputs: usize,
     ext_meta_positions: Vec<u32>,
     items: HashSet<Item<D>>,
     strategy: ExecutionMode,
@@ -120,13 +118,8 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
-        let inputs = value
-            .inputs
-            .into_iter()
-            .map(|b| self.compile_binding(b))
-            .collect();
-        let outputs = value
-            .outputs
+        let buffers = value
+            .buffers
             .into_iter()
             .map(|b| self.compile_binding(b))
             .collect();
@@ -152,9 +145,8 @@ impl<D: Dialect> CppCompiler<D> {
             .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
-            num_tensor_maps: value.num_tensor_maps as usize,
-            inputs,
-            outputs,
+            tensor_maps: value.tensor_maps,
+            buffers,
             scalars,
             meta_static_len: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
@@ -173,31 +165,32 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn build_metadata(&mut self, value: &KernelDefinition) {
-        self.num_inputs = value.inputs.len();
-        self.num_outputs = value.outputs.len();
-
         let mut num_ext = 0;
 
-        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+        let mut all_meta: Vec<_> = value
+            .buffers
+            .iter()
+            .map(|buf| (buf.id, buf.has_extended_meta))
+            .chain(value.tensor_maps.iter().map(|i| (*i, true)))
+            .collect();
+
+        all_meta.sort_by_key(|(id, _)| *id);
+
+        for (_, has_extended_meta) in &all_meta {
             self.ext_meta_positions.push(num_ext);
-            if binding.has_extended_meta {
+            if *has_extended_meta {
                 num_ext += 1;
             }
         }
 
-        let num_meta = self.num_inputs + self.num_outputs;
+        let num_meta = all_meta.len();
 
         self.metadata = cubecl_core::Metadata::new(num_meta as u32, num_ext);
     }
 
     pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
-        let pos = match var.kind {
-            gpu::VariableKind::GlobalInputArray(id) => id as usize,
-            gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-            gpu::VariableKind::TensorMap(id) => self.num_inputs + self.num_outputs + id as usize,
-            other => panic!("Only global arrays have metadata, got {other:?}"),
-        };
-        self.ext_meta_positions[pos]
+        let id = var.index().expect("Variable should have index");
+        self.ext_meta_positions[id as usize]
     }
 
     fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction<D>> {
@@ -651,14 +644,7 @@ impl<D: Dialect> CppCompiler<D> {
                         Instruction::ConstLength { length, out }
                     }
                     _ => {
-                        let id = match input {
-                            Variable::GlobalInputArray(id, _) => id,
-                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
-                            Variable::TensorMap(id) => {
-                                self.num_inputs as u32 + self.num_outputs as u32 + id
-                            }
-                            _ => panic!("Can only get length of global array"),
-                        };
+                        let id = input.id().expect("Variable should have id");
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
@@ -675,14 +661,7 @@ impl<D: Dialect> CppCompiler<D> {
                 match input {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
-                        let id = match input {
-                            Variable::GlobalInputArray(id, _) => id,
-                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
-                            Variable::TensorMap(id) => {
-                                self.num_inputs as u32 + self.num_outputs as u32 + id
-                            }
-                            _ => panic!("Can only get buffer length of global array"),
-                        };
+                        let id = input.id().expect("Variable should have id");
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
@@ -1301,6 +1280,7 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
+            id: binding.id,
             item: self.compile_item(binding.item),
             size: binding.size,
             vis: binding.visibility,

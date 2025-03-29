@@ -172,12 +172,8 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
 }
 
 impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
-    fn register_input(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_input_tensor(self);
-    }
-
-    fn register_output(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_output_tensor(self);
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
+        launcher.register_tensor(self);
     }
 }
 

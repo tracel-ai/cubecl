@@ -250,7 +250,7 @@ pub enum Variable<D: Dialect> {
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
+            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("buffer_{number}")),
             Variable::TensorMap(id) => write!(f, "tensormap_{id}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
@@ -258,7 +258,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalOutputArray(number, _) => write!(f, "output_{number}"),
+            Variable::GlobalOutputArray(number, _) => write!(f, "buffer_{number}"),
             Variable::GlobalScalar {
                 id,
                 elem,
@@ -485,6 +485,7 @@ impl<D: Dialect> Variable<D> {
         match self {
             Variable::GlobalInputArray(id, ..) => Some(*id),
             Variable::GlobalOutputArray(id, ..) => Some(*id),
+            Variable::TensorMap(id, ..) => Some(*id),
             Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),

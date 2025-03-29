@@ -9,7 +9,7 @@ use cubecl::prelude::*;
 use cubecl_runtime::{server::ComputeServer, storage::ComputeStorage};
 
 #[cube(launch)]
-pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
+fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::<F>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
@@ -26,7 +26,7 @@ pub fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>
 }
 
 #[cube(launch)]
-pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) {
+fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) {
     let mut shared = SharedMemory::new_aligned(32u32 * 16, 1u32, 128u32);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
@@ -40,6 +40,19 @@ pub fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<
         memcpy_async_tensor_commit();
         memcpy_async_tensor_wait_read(0u32);
     }
+}
+
+#[cube(launch)]
+fn tensormap_metadata<F: Float>(
+    input_1: &Tensor<Line<F>>,
+    output: &mut TensorMap<F>,
+    input_2: &TensorMap<F>,
+    output_2: &mut Tensor<u32>,
+) {
+    output_2[0] = input_1.shape(0);
+    output_2[1] = input_2.shape(0);
+    output_2[2] = output.shape(0);
+    output_2[3] = output_2.shape(0);
 }
 
 pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
@@ -136,6 +149,57 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected);
 }
 
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) where
+    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+{
+    if !client
+        .properties()
+        .feature_enabled(Feature::Tma(TmaFeature::Base))
+    {
+        println!("Skipped test_tensormap_load due to unavailability");
+        return;
+    }
+
+    let in_handle_1 = client.empty(4);
+    let in_handle_2 = client.empty(64);
+    let out_handle_1 = client.empty(64);
+    let out_handle_2 = client.empty(size_of::<u32>() * 4);
+    let strides = vec![16, 1];
+    let input_1 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_1, &strides, &[2, 3], 1) };
+    let input_2 = unsafe { TensorArg::from_raw_parts::<F>(&in_handle_2, &strides, &[4, 5], 1) };
+    let output_1 = unsafe { TensorArg::from_raw_parts::<F>(&out_handle_1, &strides, &[6, 7], 1) };
+    let output_2 = unsafe { TensorArg::from_raw_parts::<u32>(&out_handle_2, &strides, &[8, 9], 1) };
+
+    tensormap_metadata::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 16),
+        input_1,
+        TensorMapArg::new(
+            TensorMapFormat::Tiled {
+                tile_size: vec![16, 16],
+            },
+            output_1,
+            F::as_elem_native_unchecked(),
+        ),
+        TensorMapArg::new(
+            TensorMapFormat::Tiled {
+                tile_size: vec![16, 32],
+            },
+            input_2,
+            F::as_elem_native_unchecked(),
+        ),
+        output_2,
+    );
+
+    let actual = client.read_one(out_handle_2.binding());
+    let actual = u32::from_bytes(&actual);
+
+    assert_eq!(actual, &[2, 4, 6, 8]);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_tensormap {
@@ -154,6 +218,14 @@ macro_rules! testgen_tensormap {
         fn test_tensormap_store() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_store::<TestRuntime, FloatType>(
+                client,
+            );
+        }
+
+        #[test]
+        fn test_tensormap_metadata() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::tensormap::test_tensormap_metadata::<TestRuntime, FloatType>(
                 client,
             );
         }

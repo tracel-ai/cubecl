@@ -503,16 +503,10 @@ impl ComputeServer for CudaServer {
             .collect::<_>();
 
         let mut resources = bindings
-            .inputs
+            .buffers
             .into_iter()
             .map(|binding| find_resource(ctx, binding))
             .collect::<Vec<_>>();
-        resources.extend(
-            bindings
-                .outputs
-                .into_iter()
-                .map(|binding| find_resource(ctx, binding)),
-        );
         resources.extend(
             scalar_bindings
                 .into_iter()

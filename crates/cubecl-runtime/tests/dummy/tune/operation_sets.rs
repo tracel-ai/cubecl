@@ -74,7 +74,7 @@ pub fn cache_test_set(
             client.execute(
                 kernel.clone(),
                 CubeCount::Static(1, 1, 1),
-                Bindings::new().with_inputs(bindings.clone()),
+                Bindings::new().with_buffers(bindings.clone()),
             );
         }
     }

@@ -151,10 +151,8 @@ impl Handle {
 /// Bindings to execute a kernel.
 #[derive(Debug, Default)]
 pub struct Bindings {
-    /// Input buffers
-    pub inputs: Vec<Binding>,
-    /// Output buffers
-    pub outputs: Vec<Binding>,
+    /// Buffer bindings
+    pub buffers: Vec<Binding>,
     /// Packed metadata for tensor bindings (len, shape, stride, etc).
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
@@ -170,27 +168,15 @@ impl Bindings {
         Self::default()
     }
 
-    /// Add an input
-    pub fn with_input(mut self, binding: Binding) -> Self {
-        self.inputs.push(binding);
+    /// Add a buffer binding
+    pub fn with_buffer(mut self, binding: Binding) -> Self {
+        self.buffers.push(binding);
         self
     }
 
-    /// Set the inputs to `bindings`
-    pub fn with_inputs(mut self, bindings: Vec<Binding>) -> Self {
-        self.inputs = bindings;
-        self
-    }
-
-    /// Add an output
-    pub fn with_output(mut self, binding: Binding) -> Self {
-        self.outputs.push(binding);
-        self
-    }
-
-    /// Set the outputs to `bindings`
-    pub fn with_outputs(mut self, bindings: Vec<Binding>) -> Self {
-        self.outputs = bindings;
+    /// Set the buffers to `bindings`
+    pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
+        self.buffers = bindings;
         self
     }
 

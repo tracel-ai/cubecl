@@ -30,13 +30,8 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     /// Register an input tensor to be launched.
-    pub fn register_input_tensor(&mut self, tensor: &TensorArg<'_, R>) {
-        self.tensors.push_input_tensor(tensor);
-    }
-
-    /// Register an output tensor to be launched.
-    pub fn register_output_tensor(&mut self, tensor: &TensorArg<'_, R>) {
-        self.tensors.push_output_tensor(tensor);
+    pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+        self.tensors.push_tensor(tensor);
     }
 
     /// Register a mapped tensor to be launched.
@@ -45,13 +40,8 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register an input array to be launched.
-    pub fn register_input_array(&mut self, array: &ArrayArg<'_, R>) {
-        self.tensors.push_input_array(array);
-    }
-
-    /// Register an output array to be launched.
-    pub fn register_output_array(&mut self, array: &ArrayArg<'_, R>) {
-        self.tensors.push_output_array(array);
+    pub fn register_array(&mut self, array: &ArrayArg<'_, R>) {
+        self.tensors.push_array(array);
     }
 
     /// Register a u8 scalar to be launched.
@@ -188,8 +178,7 @@ pub enum TensorState<R: Runtime> {
     Empty,
     /// The registered tensors.
     Some {
-        inputs: Vec<Binding>,
-        outputs: Vec<Binding>,
+        buffers: Vec<Binding>,
         tensor_maps: Vec<TensorMapBinding>,
         metadata: MetadataBuilder,
         runtime: PhantomData<R>,
@@ -210,8 +199,7 @@ impl<R: Runtime> TensorState<R> {
     fn maybe_init(&mut self) {
         if matches!(self, TensorState::Empty) {
             *self = TensorState::Some {
-                inputs: Vec::new(),
-                outputs: Vec::new(),
+                buffers: Vec::new(),
                 tensor_maps: Vec::new(),
                 metadata: MetadataBuilder::default(),
                 runtime: PhantomData,
@@ -219,20 +207,12 @@ impl<R: Runtime> TensorState<R> {
         }
     }
 
-    fn inputs(&mut self) -> &mut Vec<Binding> {
+    fn buffers(&mut self) -> &mut Vec<Binding> {
         self.maybe_init();
-        let TensorState::Some { inputs, .. } = self else {
+        let TensorState::Some { buffers, .. } = self else {
             panic!("Should be init");
         };
-        inputs
-    }
-
-    fn outputs(&mut self) -> &mut Vec<Binding> {
-        self.maybe_init();
-        let TensorState::Some { outputs, .. } = self else {
-            panic!("Should be init");
-        };
-        outputs
+        buffers
     }
 
     fn tensor_maps(&mut self) -> &mut Vec<TensorMapBinding> {
@@ -252,16 +232,9 @@ impl<R: Runtime> TensorState<R> {
     }
 
     /// Push a new input tensor to the state.
-    pub fn push_input_tensor(&mut self, tensor: &TensorArg<'_, R>) {
+    pub fn push_tensor(&mut self, tensor: &TensorArg<'_, R>) {
         if let Some(tensor) = self.process_tensor(tensor) {
-            self.inputs().push(tensor);
-        }
-    }
-
-    /// Push a new input tensor to the state.
-    pub fn push_output_tensor(&mut self, tensor: &TensorArg<'_, R>) {
-        if let Some(tensor) = self.process_tensor(tensor) {
-            self.outputs().push(tensor);
+            self.buffers().push(tensor);
         }
     }
 
@@ -289,16 +262,9 @@ impl<R: Runtime> TensorState<R> {
     }
 
     /// Push a new input array to the state.
-    pub fn push_input_array(&mut self, array: &ArrayArg<'_, R>) {
+    pub fn push_array(&mut self, array: &ArrayArg<'_, R>) {
         if let Some(tensor) = self.process_array(array) {
-            self.inputs().push(tensor);
-        }
-    }
-
-    /// Push a new input array to the state.
-    pub fn push_output_array(&mut self, array: &ArrayArg<'_, R>) {
-        if let Some(tensor) = self.process_array(array) {
-            self.outputs().push(tensor);
+            self.buffers().push(tensor);
         }
     }
 
@@ -331,8 +297,7 @@ impl<R: Runtime> TensorState<R> {
 
     fn register(self, bindings_global: &mut Bindings) {
         if let Self::Some {
-            inputs,
-            outputs,
+            buffers,
             tensor_maps,
             metadata,
             ..
@@ -340,8 +305,7 @@ impl<R: Runtime> TensorState<R> {
         {
             let metadata = metadata.finish();
 
-            bindings_global.inputs = inputs;
-            bindings_global.outputs = outputs;
+            bindings_global.buffers = buffers;
             bindings_global.tensor_maps = tensor_maps;
             bindings_global.metadata = metadata;
         }

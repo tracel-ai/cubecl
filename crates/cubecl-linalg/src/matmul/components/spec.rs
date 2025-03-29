@@ -66,6 +66,13 @@ impl MatmulPrecision for f32 {
     type EA = f32;
 }
 
+impl MatmulPrecision for f64 {
+    const QUANTIZED: bool = false;
+    type EG = f64;
+    type ES = f32;
+    type EA = f32;
+}
+
 #[derive(Clone)]
 pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
     _phantom: PhantomData<(ES, MP)>,

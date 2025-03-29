@@ -76,12 +76,8 @@ pub enum ArrayArg<'a, R: Runtime> {
 }
 
 impl<R: Runtime> ArgSettings<R> for ArrayArg<'_, R> {
-    fn register_input(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_input_array(self)
-    }
-
-    fn register_output(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_output_array(self);
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
+        launcher.register_array(self)
     }
 }
 

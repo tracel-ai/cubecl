@@ -89,16 +89,10 @@ impl WgpuStream {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let mut resources = bindings
-            .inputs
+            .buffers
             .iter()
             .map(|b| self.mem_manage.get_resource(b.clone()))
             .collect::<Vec<_>>();
-        resources.extend(
-            bindings
-                .outputs
-                .iter()
-                .map(|b| self.mem_manage.get_resource(b.clone())),
-        );
 
         if let Some(info) = info {
             resources.push(self.mem_manage.get_resource(info.binding()));

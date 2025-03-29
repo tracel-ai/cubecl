@@ -10,6 +10,7 @@ pub enum Location {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding {
+    pub id: Id,
     pub location: Location,
     pub visibility: Visibility,
     pub item: Item,
@@ -60,8 +61,7 @@ impl LocalArray {
 
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
-    pub inputs: Vec<Binding>,
-    pub outputs: Vec<Binding>,
+    pub buffers: Vec<Binding>,
     pub scalars: Vec<(Elem, usize)>,
     pub shared_memories: Vec<SharedMemory>,
     pub constant_arrays: Vec<ConstantArray>,
@@ -93,17 +93,12 @@ impl Display for ComputeShader {
             f.write_str("enable subgroups;")?;
         }
 
-        Self::format_bindings(f, "input", &self.inputs, 0)?;
-        Self::format_bindings(f, "output", &self.outputs, self.inputs.len())?;
+        Self::format_bindings(f, "buffer", &self.buffers, 0)?;
 
+        let mut offset = self.buffers.len();
         if self.has_metadata {
-            Self::format_scalar_binding(
-                f,
-                "info",
-                Elem::U32,
-                None,
-                self.inputs.len() + self.outputs.len(),
-            )?;
+            Self::format_scalar_binding(f, "info", Elem::U32, None, offset)?;
+            offset += 1;
         }
 
         for (i, (elem, len)) in self.scalars.iter().enumerate() {
@@ -112,7 +107,7 @@ impl Display for ComputeShader {
                 &format!("scalars_{elem}"),
                 *elem,
                 Some(*len),
-                self.inputs.len() + self.outputs.len() + 1 + i,
+                offset + i,
             )?;
         }
 

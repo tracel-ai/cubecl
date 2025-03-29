@@ -4,6 +4,7 @@ use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding<D: Dialect> {
+    pub id: Id,
     pub item: Item<D>,
     pub size: Option<usize>,
     pub vis: Visibility,
@@ -51,9 +52,8 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub num_tensor_maps: usize,
-    pub inputs: Vec<Binding<D>>,
-    pub outputs: Vec<Binding<D>>,
+    pub tensor_maps: Vec<Id>,
+    pub buffers: Vec<Binding<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
     pub meta_static_len: usize,
     pub cube_dim: CubeDim,
@@ -87,7 +87,7 @@ impl<D: Dialect> ComputeKernel<D> {
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut tma = self.tma;
-        if self.num_tensor_maps > 0 {
+        if !self.tensor_maps.is_empty() {
             tma = true;
         }
 
@@ -195,45 +195,34 @@ extern \"C\" __global__ void {}(
             _ => 0,
         };
 
-        let num_bindings = self.num_tensor_maps
-            + self.inputs.len()
-            + self.outputs.len()
-            + self.scalars.len()
-            + meta_len;
+        let num_bindings =
+            self.tensor_maps.len() + self.buffers.len() + self.scalars.len() + meta_len;
         let mut binding_index = 0;
-        for index in 0..self.num_tensor_maps {
+        for index in self.tensor_maps.iter() {
             binding_index += 1;
             write!(f, "const __grid_constant__ CUtensorMap tensormap_{}", index)?;
             if binding_index < num_bindings {
                 f.write_str(",")?;
             }
         }
-        for (index, binding) in self.inputs.iter().enumerate() {
+        for binding in self.buffers.iter() {
             binding_index += 1;
             match binding.vis {
                 Visibility::Read => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
+                    write!(f, "{} buffer_{}[]", binding.item, binding.id)?;
                     // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
                     // we should have multiple pointer types to enable that optimization.
                     //
                     // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
                 }
                 Visibility::ReadWrite => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
+                    write!(f, "{} buffer_{}[]", binding.item, binding.id)?;
                 }
             }
             if binding_index < num_bindings {
                 f.write_str(",")?;
             }
         }
-        for (index, binding) in self.outputs.iter().enumerate() {
-            binding_index += 1;
-            write!(f, "{} output_{}[]", binding.item, index)?;
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-
         if self.meta_static_len > 0 {
             binding_index += 1;
             write!(f, "const uint* __restrict__ info")?;

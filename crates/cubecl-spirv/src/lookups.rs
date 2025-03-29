@@ -17,8 +17,7 @@ use crate::{
 
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
-    pub inputs: Vec<Word>,
-    pub outputs: Vec<Word>,
+    pub buffers: Vec<Word>,
     pub scalar_bindings: HashMap<ir::Elem, Word>,
     pub info: Word,
     pub cube_dims: Vec<Word>,
@@ -103,32 +102,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_state(&mut self, kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
-        self.state.inputs = kernel
-            .inputs
+        self.state.buffers = kernel
+            .buffers
             .into_iter()
-            .enumerate()
-            .map(|(i, binding)| {
-                let var = ir::Variable::new(VariableKind::GlobalInputArray(i as u32), binding.item);
-                let name = self.name_of_var(var);
-                target.generate_binding(self, binding, name.into(), i as u32)
-            })
-            .collect();
-
-        let offset = self.state.inputs.len() as u32;
-        self.state.outputs = kernel
-            .outputs
-            .into_iter()
-            .enumerate()
-            .map(|(i, binding)| {
+            .map(|binding| {
                 let var =
-                    ir::Variable::new(VariableKind::GlobalOutputArray(i as u32), binding.item);
+                    ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.item);
                 let name = self.name_of_var(var);
-                target.generate_binding(self, binding, name.into(), i as u32 + offset)
+                target.generate_binding(self, binding, name.into())
             })
             .collect();
 
-        let offset = offset + self.state.outputs.len() as u32;
+        let mut offset = self.state.buffers.len() as u32;
         let info_binding = Binding {
+            id: offset,
             location: Location::Storage,
             visibility: Visibility::Read,
             item: ir::Item::new(ir::Elem::UInt(ir::UIntKind::U32)),
@@ -136,11 +123,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             has_extended_meta: false,
         };
         if self.metadata.static_len() > 0 {
-            self.state.info =
-                target.generate_binding(self, info_binding, "info".to_string(), offset);
+            self.state.info = target.generate_binding(self, info_binding, "info".to_string());
+            offset += 1;
         }
 
-        let offset = offset + 1;
         self.state.scalar_bindings = kernel
             .scalars
             .into_iter()
@@ -148,6 +134,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|(i, binding)| {
                 let elem = binding.elem;
                 let binding = Binding {
+                    id: i as u32 + offset,
                     location: Location::Storage,
                     visibility: Visibility::Read,
                     item: ir::Item::new(elem),
@@ -155,10 +142,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     has_extended_meta: false,
                 };
                 let name = format!("scalars({elem})");
-                (
-                    elem,
-                    target.generate_binding(self, binding, name, i as u32 + offset),
-                )
+                (elem, target.generate_binding(self, binding, name))
             })
             .collect();
 

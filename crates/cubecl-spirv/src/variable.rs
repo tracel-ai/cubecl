@@ -373,13 +373,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .into(),
             ir::VariableKind::GlobalInputArray(id) => {
                 let pos = id;
-                let id = self.state.inputs[id as usize];
+                let id = self.state.buffers[id as usize];
                 Variable::GlobalInputArray(id, self.compile_item(item), pos)
             }
             ir::VariableKind::GlobalOutputArray(id) => {
-                let pos = self.state.inputs.len() as u32 + id;
-                let id = self.state.outputs[id as usize];
-                Variable::GlobalOutputArray(id, self.compile_item(item), pos)
+                let id = self.state.buffers[id as usize];
+                Variable::GlobalOutputArray(id, self.compile_item(item), id)
             }
             ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
             ir::VariableKind::LocalMut { id } => {

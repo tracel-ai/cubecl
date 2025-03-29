@@ -1,12 +1,7 @@
-use std::num::NonZero;
-
 use cubecl_common::CubeDim;
-use cubecl_ir::{
-    Elem, Id, Item, ReadingStrategy, Scope, UIntKind, Variable, VariableKind, Vectorization,
-};
+use cubecl_ir::{Elem, Id, Item, Scope};
 use serde::{Deserialize, Serialize};
 
-use super::Compiler;
 use crate::{
     compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
     prelude::FastMath,
@@ -17,48 +12,23 @@ use crate::{
 #[derive(Clone)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
-    num_tensor_map: Id,
-    input_bindings: Vec<Binding>,
-    output_bindings: Vec<Binding>,
+    buffer_bindings: Vec<Binding>,
     scalar_bindings: Vec<ScalarBinding>,
+    tensor_maps: Vec<Id>,
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
 #[derive(Clone)]
 pub struct KernelExpansion {
-    pub inputs: Vec<InputInfo>,
-    pub outputs: Vec<OutputInfo>,
-    pub num_tensor_map: Id,
+    pub buffers: Vec<BufferInfo>,
+    pub scalars: Vec<ScalarInfo>,
+    pub tensor_maps: Vec<Id>,
     pub scope: Scope,
-}
-
-/// Simply indicate the output that can be replaced by the input.
-#[derive(new, Default, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct InplaceMapping {
-    /// Input position.
-    pub pos_input: usize,
-    /// Output position.
-    pub pos_output: usize,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum VectorizationPartial {
-    Input {
-        pos: usize,
-        vectorization: Vectorization,
-    },
-    Output {
-        pos: usize,
-        vectorization: Vectorization,
-    },
 }
 
 #[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelSettings {
-    pub mappings: Vec<InplaceMapping>,
-    vectorization_partial: Vec<VectorizationPartial>,
     pub cube_dim: CubeDim,
-    pub reading_strategy: Vec<(Id, ReadingStrategy)>,
     pub options: KernelOptions,
 }
 
@@ -69,136 +39,7 @@ pub struct KernelOptions {
     pub fp_math_mode: FastMath,
 }
 
-impl core::fmt::Display for KernelSettings {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // The goal of this implementation is to generate the shortest representation
-        // that won't clash with any other compilation settings. This is crucial since we rely on
-        // this representation to know when to compile a new version of a kernel.
-        //
-        // Each main section starts with a letter that can't be used by other main sections:
-        //
-        // * Mapping:          m
-        //   * Input:  i
-        //   * Output: o
-        //
-        // * Reading Strategy: r
-        //   * Output layout: o
-        //   * Plain:         p
-        //
-        // * Vectorization Global:    vg{factor}
-        // * Vectorization Partial Input:    v{factor}i{pos}
-        // * Vectorization Partial Output:    vo
-        // * Cube Dim X: x
-        // * Cube Dim Y: y
-        // * Cube Dim Z: z
-        f.write_str("m")?;
-        for mapping in self.mappings.iter() {
-            f.write_fmt(format_args!(
-                "i{}o{}",
-                mapping.pos_input, mapping.pos_output
-            ))?;
-        }
-
-        f.write_str("r")?;
-
-        for (input, strategy) in self.reading_strategy.iter() {
-            match strategy {
-                ReadingStrategy::OutputLayout => f.write_fmt(format_args!("i{}o", input)),
-                ReadingStrategy::Plain => f.write_fmt(format_args!("i{}p", input)),
-            }?;
-        }
-
-        for vectorization in self.vectorization_partial.iter() {
-            match vectorization {
-                VectorizationPartial::Input { pos, vectorization } => f.write_fmt(format_args!(
-                    "v{}i{pos}",
-                    vectorization.map(NonZero::get).unwrap_or(1)
-                ))?,
-                VectorizationPartial::Output { pos, vectorization } => f.write_fmt(
-                    format_args!("v{}o{pos}", vectorization.map(NonZero::get).unwrap_or(1)),
-                )?,
-            };
-        }
-
-        f.write_fmt(format_args!(
-            "x{}y{}z{}",
-            self.cube_dim.x, self.cube_dim.y, self.cube_dim.x
-        ))
-    }
-}
-
 impl KernelSettings {
-    /// Compile the shader with vectorization enabled for an input.
-    #[allow(dead_code)]
-    pub fn vectorize_input(mut self, position: usize, vectorization: Vectorization) -> Self {
-        // Not setting the vectorization factor when it's the default value reduces the kernel id
-        // size.
-        if vectorization.is_none() {
-            return self;
-        }
-
-        self.vectorization_partial
-            .push(VectorizationPartial::Input {
-                pos: position,
-                vectorization,
-            });
-        self
-    }
-
-    /// Compile the shader with vectorization enabled for an output.
-    #[allow(dead_code)]
-    pub fn vectorize_output(mut self, position: usize, vectorization: Vectorization) -> Self {
-        // Not setting the vectorization factor when it's the default value reduces the kernel id
-        // size.
-        if vectorization.is_none() {
-            return self;
-        }
-
-        self.vectorization_partial
-            .push(VectorizationPartial::Output {
-                pos: position,
-                vectorization,
-            });
-        self
-    }
-
-    /// Fetch the vectorization for the provided input position.
-    pub fn vectorization_input(&self, position: usize) -> Vectorization {
-        for partial in self.vectorization_partial.iter() {
-            if let VectorizationPartial::Input { pos, vectorization } = partial {
-                if *pos == position {
-                    return *vectorization;
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Fetch the vectorization for the provided output position.
-    pub fn vectorization_output(&self, position: usize) -> Vectorization {
-        for partial in self.vectorization_partial.iter() {
-            if let VectorizationPartial::Output { pos, vectorization } = partial {
-                if *pos == position {
-                    return *vectorization;
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Compile the shader with inplace enabled by the given [mapping](InplaceMapping).
-    ///
-    /// Notes:
-    ///
-    /// You should favor using `dynamic_settings` when using fusion, since the mapping is going to
-    /// be created from the runtime information.
-    pub fn inplace(mut self, mappings: Vec<InplaceMapping>) -> Self {
-        self.mappings = mappings;
-        self
-    }
-
     /// Set cube dimension.
     #[allow(dead_code)]
     pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
@@ -226,84 +67,21 @@ impl KernelSettings {
     }
 }
 
-/// Information related to an input.
+/// Information related to a buffer binding.
 #[derive(Clone, Debug)]
-pub enum InputInfo {
-    Array {
-        item: Item,
-        visibility: Visibility,
-        /// Whether this input has extended metadata (rank, shape, strides)
-        has_extended_meta: bool,
-    },
-    Scalar {
-        elem: Elem,
-        count: usize,
-    },
+pub struct BufferInfo {
+    pub id: Id,
+    pub item: Item,
+    pub visibility: Visibility,
+    /// Whether this input has extended metadata (rank, shape, strides)
+    pub has_extended_meta: bool,
 }
 
-impl InputInfo {
-    /// The item type of the input.
-    #[allow(dead_code)]
-    pub fn item(&self) -> Item {
-        match self {
-            InputInfo::Array { item, .. } => *item,
-            InputInfo::Scalar { elem, count: _ } => Item::new(*elem),
-        }
-    }
-}
-
-impl OutputInfo {
-    /// The item type of the input.
-    #[allow(dead_code)]
-    pub fn item(&self) -> Item {
-        match self {
-            OutputInfo::ArrayWrite { item, .. } => *item,
-            OutputInfo::InputArrayWrite { item, .. } => *item,
-            OutputInfo::Array { item, .. } => *item,
-        }
-    }
-}
-
-/// Information related to an output.
+/// Information related to a scalar input.
 #[derive(Clone, Debug)]
-pub enum OutputInfo {
-    /// Write the local variable to a new array.
-    ///
-    /// This will create a new binding in the [kernel definition](KernelDefinition).
-    ArrayWrite {
-        item: Item,
-        local: Id,
-        position: Variable,
-        /// Whether this output has extended metadata (rank, shape, strides)
-        has_extended_meta: bool,
-    },
-    /// Write the local variable to an existing input binding.
-    InputArrayWrite {
-        item: Item,
-        input: Id,
-        local: Id,
-        position: Variable,
-    },
-    /// Simply register the output, but don't automatically add a write to it.
-    ///
-    /// Useful when a procedure writes to the output using operations.
-    Array {
-        item: Item,
-        /// Whether this output has extended metadata (rank, shape, strides)
-        has_extended_meta: bool,
-    },
-}
-
-impl OutputInfo {
-    #[allow(dead_code)]
-    pub fn elem_size<C: Compiler>(&self, compiler: &C) -> usize {
-        let elem = match self {
-            OutputInfo::ArrayWrite { item, .. } => bool_elem(item.elem()),
-            OutputInfo::InputArrayWrite { item, .. } => bool_elem(item.elem()),
-            OutputInfo::Array { item, .. } => bool_elem(item.elem()),
-        };
-        compiler.elem_size(elem)
-    }
+pub struct ScalarInfo {
+    pub elem: Elem,
+    pub count: usize,
 }
 
 impl KernelIntegrator {
@@ -311,25 +89,23 @@ impl KernelIntegrator {
     pub fn new(info: KernelExpansion) -> Self {
         Self {
             expansion: info,
-            num_tensor_map: 0,
-            input_bindings: Default::default(),
-            output_bindings: Default::default(),
+            buffer_bindings: Default::default(),
             scalar_bindings: Default::default(),
+            tensor_maps: Default::default(),
         }
     }
 
     /// Performs the compilation with the provided [settings](KernelSettings).
-    pub fn integrate(mut self, mut settings: KernelSettings) -> KernelDefinition {
-        self.register_inputs(&settings);
-        self.register_outputs(&mut settings);
+    pub fn integrate(mut self, settings: KernelSettings) -> KernelDefinition {
+        self.register_buffers();
+        self.register_scalars();
+        self.register_tensor_maps();
 
-        self.num_tensor_map = self.expansion.num_tensor_map;
         self.scalar_bindings.sort_by_key(|binding| binding.elem);
 
         KernelDefinition {
-            inputs: self.input_bindings,
-            outputs: self.output_bindings,
-            num_tensor_maps: self.num_tensor_map,
+            buffers: self.buffer_bindings,
+            tensor_maps: self.tensor_maps,
             scalars: self.scalar_bindings,
             cube_dim: settings.cube_dim,
             body: self.expansion.scope,
@@ -337,178 +113,31 @@ impl KernelIntegrator {
         }
     }
 
-    fn register_inputs(&mut self, settings: &KernelSettings) {
-        for (id, strategy) in settings.reading_strategy.iter() {
-            self.expansion.scope.update_read(*id, *strategy);
-        }
-
-        for input in self.expansion.inputs.drain(..) {
-            match input {
-                InputInfo::Array {
-                    item,
-                    visibility,
-                    has_extended_meta,
-                } => {
-                    self.input_bindings.push(Binding {
-                        item: bool_item(item),
-                        visibility,
-                        location: Location::Storage,
-                        has_extended_meta,
-                        size: None,
-                    });
-                }
-                InputInfo::Scalar { elem, count } => {
-                    let elem = bool_elem(elem);
-                    self.scalar_bindings.push(ScalarBinding { elem, count });
-                }
-            }
+    fn register_buffers(&mut self) {
+        for buffer in self.expansion.buffers.drain(..) {
+            self.buffer_bindings.push(Binding {
+                id: buffer.id,
+                item: buffer.item,
+                visibility: buffer.visibility,
+                location: Location::Storage,
+                has_extended_meta: buffer.has_extended_meta,
+                size: None,
+            });
         }
     }
 
-    fn register_outputs(&mut self, settings: &mut KernelSettings) {
-        let mut index = 0;
-
-        if !settings.mappings.is_empty() {
-            let mut mappings = Vec::new();
-            core::mem::swap(&mut settings.mappings, &mut mappings);
-
-            for mapping in mappings {
-                self.register_inplace_mapping(mapping);
-            }
-        }
-
-        for array in self.expansion.outputs.drain(..) {
-            match array {
-                OutputInfo::ArrayWrite {
-                    item,
-                    local,
-                    position,
-                    has_extended_meta,
-                } => {
-                    let item_adapted = bool_item(item);
-
-                    self.output_bindings.push(Binding {
-                        item: item_adapted,
-                        visibility: Visibility::ReadWrite,
-                        location: Location::Storage,
-                        has_extended_meta,
-                        size: None,
-                    });
-                    self.expansion.scope.write_global(
-                        Variable::new(VariableKind::LocalMut { id: local }, item),
-                        Variable::new(VariableKind::GlobalOutputArray(index), item_adapted),
-                        position,
-                    );
-                    index += 1;
-                }
-                OutputInfo::InputArrayWrite {
-                    item,
-                    input,
-                    local,
-                    position,
-                } => {
-                    self.expansion.scope.write_global(
-                        Variable::new(VariableKind::LocalMut { id: local }, item),
-                        Variable::new(VariableKind::GlobalInputArray(input), bool_item(item)),
-                        position,
-                    );
-                }
-                OutputInfo::Array {
-                    item,
-                    has_extended_meta,
-                } => {
-                    let elem_adapted = bool_item(item);
-
-                    self.output_bindings.push(Binding {
-                        item: elem_adapted,
-                        visibility: Visibility::ReadWrite,
-                        location: Location::Storage,
-                        has_extended_meta,
-                        size: None,
-                    });
-
-                    index += 1;
-                }
-            }
+    fn register_scalars(&mut self) {
+        for scalar in self.expansion.scalars.drain(..) {
+            self.scalar_bindings.push(ScalarBinding {
+                elem: scalar.elem,
+                count: scalar.count,
+            });
         }
     }
 
-    fn register_inplace_mapping(&mut self, mapping: InplaceMapping) {
-        let output = match self.expansion.outputs.get_mut(mapping.pos_output) {
-            Some(output) => output,
-            None => {
-                if let Some(binding) = self.input_bindings.get_mut(mapping.pos_input) {
-                    // Update input visibility.
-                    binding.visibility = Visibility::ReadWrite;
-                }
-
-                // The mapping is handled differently, normally by cube itself.
-                return;
-            }
-        };
-
-        let (item, local, position) = match output {
-            OutputInfo::ArrayWrite {
-                item,
-                local,
-                position,
-                ..
-            } => (item, local, position),
-            OutputInfo::InputArrayWrite {
-                item: _,
-                input,
-                local: _,
-                position: _,
-            } => {
-                assert_eq!(
-                    *input, mapping.pos_input as Id,
-                    "Can't use different inputs for the same output."
-                );
-                return;
-            }
-            OutputInfo::Array { .. } => panic!(
-                "Can't register an inplace operation for an array that isn't using a defined writing strategy."
-            ),
-        };
-
-        let item = match self.input_bindings.get_mut(mapping.pos_input) {
-            Some(binding) => {
-                // Update input visibility.
-                binding.visibility = Visibility::ReadWrite;
-                // Inputs modified inplace should be read without any specified layout.
-                self.expansion
-                    .scope
-                    .update_read(mapping.pos_input as Id, ReadingStrategy::Plain);
-
-                // Use the same item as the input.
-                //
-                // The output can be different (i.e inplace boolean operations on float bindings).
-                binding.item
-            }
-            None => *item,
-        };
-
-        // Update the output.
-        *output = OutputInfo::InputArrayWrite {
-            item,
-            input: mapping.pos_input as Id,
-            local: *local,
-            position: *position,
-        };
-    }
-}
-
-fn bool_item(ty: Item) -> Item {
-    Item {
-        elem: bool_elem(ty.elem),
-        vectorization: ty.vectorization,
-    }
-}
-
-pub fn bool_elem(elem: Elem) -> Elem {
-    match elem {
-        // U32 are used for bool tensors
-        Elem::Bool => Elem::UInt(UIntKind::U32),
-        _ => elem,
+    fn register_tensor_maps(&mut self) {
+        for id in self.expansion.tensor_maps.drain(..) {
+            self.tensor_maps.push(id);
+        }
     }
 }
