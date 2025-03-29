@@ -134,7 +134,7 @@ impl MatmulConfigFactory for Accelerated {
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
         let i_elem = MP::ES::as_elem_native().expect("to be a native type");
-        let o_elem = MP::EG::as_elem_native().expect("to be a native type");
+        let o_elem = MP::EA::as_elem_native().expect("to be a native type");
 
         let i_elem = match i_elem {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
@@ -158,9 +158,11 @@ impl MatmulConfigFactory for Accelerated {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input: i_elem,
                 output: o_elem,
-                m: size.m,
-                n: size.n,
-                k: size.k,
+                shape: Some(MatmulSize {
+                    m: size.m,
+                    n: size.n,
+                    k: size.k,
+                }),
             });
         }
 

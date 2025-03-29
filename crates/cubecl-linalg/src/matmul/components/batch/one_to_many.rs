@@ -4,11 +4,11 @@ use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
+    Args, EA, EG, ES, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem,
+    MatmulSpec, OutputRuntimeArg,
 };
 use crate::matmul::components::{
-    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -78,7 +78,7 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         config: Self::Config,
     ) {
         unsafe {
-            super::matmul::launch_unchecked::<MS, Self, R>(
+            super::matmul::launch_unchecked::<Args<MS>, EG<MS>, ES<MS>, EA<MS>, Self, R>(
                 client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
