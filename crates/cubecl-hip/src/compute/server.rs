@@ -252,8 +252,7 @@ impl ComputeServer for HipServer {
         };
 
         let Bindings {
-            inputs,
-            outputs,
+            buffers,
             metadata,
             scalars,
             tensor_maps,
@@ -269,8 +268,7 @@ impl ComputeServer for HipServer {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let mut resources: Vec<_> = inputs.into_iter().map(|i| find_resource(ctx, i)).collect();
-        resources.extend(outputs.into_iter().map(|o| find_resource(ctx, o)));
+        let mut resources: Vec<_> = buffers.into_iter().map(|b| find_resource(ctx, b)).collect();
         resources.push(find_resource(ctx, info.clone().binding()));
         resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
