@@ -4,8 +4,6 @@ use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::CopyMechanism;
 use crate::matmul::components::{
     Ident,
     global::{
@@ -14,16 +12,18 @@ use crate::matmul::components::{
         tensor_view::MappedTensorReader,
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
+        self, Stage,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
+use crate::matmul::components::{MatmulPrecision, MatrixLayout};
+use crate::matmul::components::{global::CopyMechanism, stage::StridedTilingLayout};
 
 #[derive(CubeType)]
 pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EG>,
     pub barrier: Barrier<MP::EG>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -32,7 +32,7 @@ pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EG>,
     pub barrier: Barrier<MP::EG>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -47,13 +47,17 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
         #[comptime] config: single_stage::Config<S>,
     ) {
         if UNIT_POS == 0 {
+            let (row, col) = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
+            };
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_tensor_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
-                this.tensor_view.tile_x as i32,
+                row as i32,
+                col as i32,
             );
             this.barrier.arrive_tx(
                 1,
@@ -74,7 +78,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = LhsReader<MP::ES, StridedTilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -112,7 +116,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
-    type StageReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = RhsReader<MP::ES, StridedTilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -133,13 +137,17 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
         #[comptime] config: single_stage::Config<S>,
     ) {
         if UNIT_POS == 0 {
+            let (row, col) = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
+            };
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
             this.barrier.memcpy_async_tensor_to_shared_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
-                this.tensor_view.tile_x as i32,
+                row as i32,
+                col as i32,
             );
             this.barrier.arrive_tx(
                 1,

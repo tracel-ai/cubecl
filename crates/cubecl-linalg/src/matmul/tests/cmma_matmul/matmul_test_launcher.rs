@@ -13,6 +13,7 @@ use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::tests::test_utils::TestPrecision;
 
+#[derive(Debug)]
 pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {
     pub handle: server::Handle,
     pub shape: Vec<usize>,

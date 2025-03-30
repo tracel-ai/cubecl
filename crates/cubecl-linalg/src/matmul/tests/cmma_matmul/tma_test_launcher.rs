@@ -40,18 +40,9 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, Ident::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, Ident::Out);
 
-    problem.lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &lhs.shape,
-        &lhs.strides,
-        lhs.strides.len() - 1,
-    );
-    problem.rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&P::EG::as_elem_native_unchecked()),
-        &rhs.shape,
-        &rhs.strides,
-        rhs.strides.len() - 1,
-    );
+    // No point vectorizing when we never deal with individual values anyways
+    problem.lhs_line_size = 1;
+    problem.rhs_line_size = 1;
     problem.out_line_size = tensor_line_size_parallel(
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &out.shape,

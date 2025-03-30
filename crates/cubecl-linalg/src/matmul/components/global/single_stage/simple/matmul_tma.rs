@@ -1,17 +1,15 @@
-use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
     Config, FullLoader, loading::AsyncFullLoader,
 };
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
-use crate::matmul::components::stage::ContiguousTilingLayout;
-use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::{
     MatmulPrecision,
     global::single_stage::{TmaLhsLoader, TmaRhsLoader},
 };
+use crate::matmul::components::{global::ZeroAccumulatorLoader, stage::StridedTilingLayout};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -43,14 +41,8 @@ impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
-        MP,
-        SMM::Matmul<
-            MP,
-            ContiguousTilingLayout<RowMajorTilingOrder>,
-            ContiguousTilingLayout<RowMajorTilingOrder>,
-        >,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        SimpleTmaMatmul<MP, SMM::Matmul<MP, StridedTilingLayout, StridedTilingLayout>>;
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
@@ -118,8 +110,8 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-            RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            LhsReader = LhsReader<MP::ES, StridedTilingLayout>,
+            RhsReader = RhsReader<MP::ES, StridedTilingLayout>,
         >,
 {
     type Config = Config<SMM::Config>;
