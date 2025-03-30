@@ -1,28 +1,22 @@
+use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
-use cubecl_core::{CubeElement, server};
 
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulLaunch;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatmulSelection;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::global::args::TensorInputsLaunch;
+use crate::matmul::components::{Ident, global::args::TensorMapInputsLaunch};
+use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::tests::test_utils::TestPrecision;
 
-pub(crate) struct TensorRawParts<N: Numeric + CubeElement> {
-    pub handle: server::Handle,
-    pub shape: Vec<usize>,
-    pub strides: Vec<usize>,
-    pub original_data: Option<Vec<N>>,
-}
+use super::matmul_test_launcher::{TensorRawParts, shape, tensor_size, transpose};
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_matmul_algorithm<A, P, R>(
+pub fn test_tma_matmul_algorithm<A, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: MatmulProblem,
     input: <A::BatchMatmul as MatmulConfigFactory>::Input,
@@ -65,6 +59,18 @@ pub fn test_matmul_algorithm<A, P, R>(
         out.strides.len() - 1,
     );
 
+    let stage_m = selection.tile_count.m * selection.tile_shape.m;
+    let stage_n = selection.tile_count.n * selection.tile_shape.n;
+    let stage_k = selection.tile_count.k * selection.tile_shape.k;
+    let stage_size_lhs = match problem.lhs_layout {
+        MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
+        MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+    };
+    let stage_size_rhs = match problem.rhs_layout {
+        MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
+        MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+    };
+
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
@@ -92,25 +98,44 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     }
 
+    let lhs_arg = unsafe {
+        TensorArg::<R>::from_raw_parts::<P::EG>(
+            &lhs.handle,
+            &lhs.strides,
+            &lhs.shape,
+            problem.lhs_line_size,
+        )
+    };
+    let rhs_arg = unsafe {
+        TensorArg::<R>::from_raw_parts::<P::EG>(
+            &rhs.handle,
+            &rhs.strides,
+            &rhs.shape,
+            problem.rhs_line_size,
+        )
+    };
+
+    let lhs_map = TensorMapArg::new(
+        TensorMapFormat::Tiled {
+            tile_size: stage_size_lhs,
+        },
+        lhs_arg,
+        P::EG::as_elem_native_unchecked(),
+    );
+    let rhs_map = TensorMapArg::new(
+        TensorMapFormat::Tiled {
+            tile_size: stage_size_rhs,
+        },
+        rhs_arg,
+        P::EG::as_elem_native_unchecked(),
+    );
+
     unsafe {
-        A::BatchMatmul::launch_unchecked::<(P::EG, P::ES, P::EA), R>(
+        A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA), TensorMapArgs), R>(
             &client,
             cube_dim,
             cube_count,
-            TensorInputsLaunch::new(
-                TensorArg::<R>::from_raw_parts::<P::EG>(
-                    &lhs.handle,
-                    &lhs.strides,
-                    &lhs.shape,
-                    problem.lhs_line_size,
-                ),
-                TensorArg::<R>::from_raw_parts::<P::EG>(
-                    &rhs.handle,
-                    &rhs.strides,
-                    &rhs.shape,
-                    problem.rhs_line_size,
-                ),
-            ),
+            TensorMapInputsLaunch::new(lhs_map, rhs_map),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
                 &out.strides,
@@ -148,19 +173,24 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
             }
 
+            let mut shape = shape(problem, ident);
+            let rank = shape.len();
+
             let data = match problem.lhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
+                    shape.swap(rank - 1, rank - 2);
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.m, problem.k)
                 }
             };
 
-            let handle = client.create(P::EG::as_bytes(&data));
+            let (handle, strides) =
+                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             TensorRawParts {
                 handle,
-                shape: shape(problem, Ident::Lhs),
-                strides: strides(problem, Ident::Lhs),
+                shape,
+                strides,
                 original_data: Some(original_data),
             }
         }
@@ -173,19 +203,24 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 original_data.extend_from_slice(&[zero, zero, zero, params.zero_offset]);
             }
 
+            let mut shape = shape(problem, ident);
+            let rank = shape.len();
+
             let data = match problem.rhs_layout {
                 MatrixLayout::RowMajor => original_data.clone(),
                 MatrixLayout::ColMajor => {
+                    shape.swap(rank - 1, rank - 2);
                     transpose::<P::EG>(&original_data, problem.num_batches(), problem.k, problem.n)
                 }
             };
 
-            let handle = client.create(P::EG::as_bytes(&data));
+            let (handle, strides) =
+                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             TensorRawParts {
                 handle,
-                shape: shape(problem, Ident::Rhs),
-                strides: strides(problem, Ident::Rhs),
+                shape,
+                strides,
                 original_data: Some(original_data),
             }
         }
@@ -210,83 +245,4 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             }
         }
     }
-}
-
-pub(crate) fn transpose<E: Copy>(array: &[E], batches: usize, rows: usize, cols: usize) -> Vec<E> {
-    let mut result = vec![array[0]; array.len()];
-    for b in 0..batches {
-        for i in 0..rows {
-            for j in 0..cols {
-                result[(b * rows * cols) + j * rows + i] = array[(b * rows * cols) + i * cols + j];
-            }
-        }
-    }
-    result
-}
-
-/// Returns the total number of elements for the identified tensor, inferred by the problem definition
-pub(crate) fn tensor_size(problem: &MatmulProblem, ident: Ident) -> usize {
-    match ident {
-        Ident::Lhs => problem.num_batches() * problem.m * problem.k,
-        Ident::Rhs => problem.num_batches() * problem.k * problem.n,
-        Ident::Out => problem.num_batches() * problem.m * problem.n,
-    }
-}
-
-/// Returns the shape of the identified tensor, inferred by the problem definition
-pub(crate) fn shape(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    match ident {
-        Ident::Lhs => problem
-            .batches
-            .0
-            .iter()
-            .cloned()
-            .chain(vec![problem.m, problem.k])
-            .collect(),
-        Ident::Rhs => problem
-            .batches
-            .1
-            .iter()
-            .cloned()
-            .chain(vec![problem.k, problem.n])
-            .collect(),
-        Ident::Out => problem
-            .batch_dims()
-            .iter()
-            .cloned()
-            .chain(vec![problem.m, problem.n])
-            .collect(),
-    }
-}
-
-/// Returns the stride of the identified tensor, inferred by the problem definition
-pub(crate) fn strides(problem: &MatmulProblem, ident: Ident) -> Vec<usize> {
-    let shape = shape(problem, ident);
-    let rank = shape.len();
-    let mut strides = Vec::with_capacity(rank);
-
-    let (last_batch, x, y) = match ident {
-        Ident::Lhs => match problem.lhs_layout {
-            MatrixLayout::RowMajor => (problem.m * problem.k, problem.k, 1),
-            MatrixLayout::ColMajor => (problem.m * problem.k, 1, problem.m),
-        },
-        Ident::Rhs => match problem.rhs_layout {
-            MatrixLayout::RowMajor => (problem.k * problem.n, problem.n, 1),
-            MatrixLayout::ColMajor => (problem.k * problem.n, 1, problem.k),
-        },
-        Ident::Out => (problem.m * problem.n, problem.n, 1),
-    };
-
-    strides.push(y);
-    strides.push(x);
-
-    if rank > 2 {
-        strides.push(last_batch);
-
-        for b in shape.iter().rev().take(rank - 3) {
-            strides.push(last_batch * b)
-        }
-    }
-
-    strides.into_iter().rev().collect()
 }

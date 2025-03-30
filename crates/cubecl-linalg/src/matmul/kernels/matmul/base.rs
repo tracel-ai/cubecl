@@ -1,4 +1,3 @@
-use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
     MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, stage,
@@ -8,7 +7,11 @@ use crate::matmul::kernels::{
     MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
 };
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
-use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixLayout, TensorHandle, matrix_layout};
+use crate::{
+    matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch},
+    tensor::into_contiguous_pitched,
+};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -76,21 +79,21 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         (false, true) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
             lhs,
-            &into_contiguous::<R, MP::EG>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, false) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
-            &into_contiguous::<R, MP::EG>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EG>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, true) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
-            &into_contiguous::<R, MP::EG>(client, lhs).as_ref(),
-            &into_contiguous::<R, MP::EG>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EG>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EG>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
@@ -253,6 +256,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
+    transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
     let eg_elem = MP::EG::as_elem_native().expect("To be a native type");
@@ -280,16 +284,22 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         rank - 1,
     );
 
+    let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();
+    let batch_rhs: usize = rhs.shape[..rhs.shape.len() - 2].iter().product();
+
     let problem = MatmulProblem {
         m: m as usize,
         n: n as usize,
         k: k as usize,
-        batches: (
-            lhs.shape[..lhs.shape.len() - 2].to_vec(),
-            rhs.shape[..rhs.shape.len() - 2].to_vec(),
-        ),
-        lhs_layout: matmul::components::MatrixLayout::RowMajor,
-        rhs_layout: matmul::components::MatrixLayout::RowMajor,
+        batches: ([batch_lhs].to_vec(), [batch_rhs].to_vec()),
+        lhs_layout: match transposed.0 {
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
+        },
+        rhs_layout: match transposed.1 {
+            true => matmul::components::MatrixLayout::ColMajor,
+            false => matmul::components::MatrixLayout::RowMajor,
+        },
         lhs_line_size,
         rhs_line_size,
         out_line_size,
@@ -349,6 +359,49 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
             components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
         };
+
+        let elem_size = size_of::<MP::EG>();
+
+        let lhs_rank = lhs.shape.len();
+        let mut lhs_shape = vec![
+            problem.batches.0[0],
+            lhs.shape[lhs_rank - 2],
+            lhs.shape[lhs_rank - 1],
+        ];
+        let mut lhs_strides = lhs.strides[lhs_rank - 3..].to_vec();
+
+        let rhs_rank = rhs.shape.len();
+        let mut rhs_shape = vec![
+            problem.batches.1[0],
+            rhs.shape[rhs_rank - 2],
+            rhs.shape[rhs_rank - 1],
+        ];
+        let mut rhs_strides = rhs.strides[rhs_rank - 3..].to_vec();
+
+        // TMA assumes last stride is contiguous and won't even take it, so we need to map it with
+        // transposed shape and stride
+        let lhs = match problem.lhs_layout {
+            components::MatrixLayout::RowMajor => lhs,
+            components::MatrixLayout::ColMajor => &{
+                lhs_shape.swap(lhs_rank - 1, lhs_rank - 2);
+                lhs_strides.swap(lhs_rank - 1, lhs_rank - 2);
+                unsafe {
+                    TensorHandleRef::from_raw_parts(lhs.handle, &lhs_strides, &lhs_shape, elem_size)
+                }
+            },
+        };
+
+        let rhs = match problem.rhs_layout {
+            components::MatrixLayout::RowMajor => rhs,
+            components::MatrixLayout::ColMajor => &{
+                rhs_shape.swap(rhs_rank - 1, rhs_rank - 2);
+                rhs_strides.swap(rhs_rank - 1, rhs_rank - 2);
+                unsafe {
+                    TensorHandleRef::from_raw_parts(rhs.handle, &rhs_strides, &rhs_shape, elem_size)
+                }
+            },
+        };
+
         let lhs = TensorMapArg::new(
             TensorMapFormat::Tiled {
                 tile_size: stage_size_lhs,
