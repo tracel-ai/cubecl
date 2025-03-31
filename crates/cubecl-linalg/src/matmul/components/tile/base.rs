@@ -5,8 +5,10 @@ use crate::matmul::components::{
     Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout, config::MatmulConfig,
 };
 
-pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
-    fn tile_shape(config: &Self::Config) -> MatmulSize;
+pub trait TileMatmulFamily:
+    MatmulConfigFactory<Input = MatmulSize, Config: TileConfig>
+{
+    fn tile_shape(config: &Self::Config) -> Self::Input;
     fn requires_tensor_cores() -> bool;
 
     type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;

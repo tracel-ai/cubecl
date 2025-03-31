@@ -182,11 +182,11 @@ pub trait StageConfig: MatmulConfig {
 
     fn tile_count(&self) -> &MatmulSize;
 
-    fn buffering(&self) -> Buffering;
+    fn buffering(&self) -> StageBuffering;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Buffering {
+pub enum StageBuffering {
     Single,
     Double,
 }

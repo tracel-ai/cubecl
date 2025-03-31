@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
+    NoEvent, StageBuffering, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
     TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -46,7 +46,7 @@ impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
 where
     TMM: TileMatmulFamily,
 {
-    type Input = (CompleteStageTiling, Buffering);
+    type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -69,12 +69,14 @@ where
     ) -> Self::Config {
         let tile_shape = input.0.tile_shape;
         let tile_count = input.0.tile_count;
+        let global_buffering = input.0.global_buffering;
 
         let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
         let tiling = CompleteStageTiling {
             tile_count,
             tile_shape,
+            global_buffering,
         };
 
         CommonStageConfig::new(tmm_config, tiling, tile_count.m, quantized, input.1)
@@ -185,8 +187,10 @@ where
         (
             TMM::allocate_lhs(config.to_tmm_config()),
             match config.buffering {
-                Buffering::Single => RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config())),
-                Buffering::Double => RhsTile::new_Double((
+                StageBuffering::Single => {
+                    RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config()))
+                }
+                StageBuffering::Double => RhsTile::new_Double((
                     TMM::allocate_rhs(config.to_tmm_config()),
                     TMM::allocate_rhs(config.to_tmm_config()),
                 )),
@@ -283,11 +287,14 @@ where
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
         mut task: SEL,
     ) {
+        // k_iter assumed to be 0 for now. todo enable looping on k
+        let k_iter = 0;
         let mut current = comptime![0u32];
         let total = acc.len();
         SEL::on_event(&mut task, StageEvent::Begin);
 
-        let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
+        let lhs_tile =
+            LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, k_iter, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
         SEL::on_event(
             &mut task,
@@ -300,7 +307,8 @@ where
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..total {
-            let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current, config);
+            let rhs_tile =
+                RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current, k_iter, config);
             TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
             SEL::on_event(
                 &mut task,
@@ -336,11 +344,14 @@ where
         #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
         mut listener: SEL,
     ) {
+        // k_iter assumed to be 0 for now. todo enable looping on k
+        let k_iter = 0;
         let mut current_event = comptime![0u32];
         let total = acc.len();
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
+        let lhs_tile =
+            LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, k_iter, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
         SEL::on_event(
             &mut listener,
@@ -351,7 +362,7 @@ where
         );
 
         let rhs_tile_first =
-            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current_event, config);
+            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current_event, k_iter, config);
         TMM::fill_rhs(
             &rhs_tile_first,
             &mut rhs_fragments.0,
@@ -377,6 +388,7 @@ where
             let rhs_tile_next = RhsBufferReader::read_tile::<TMM::Config>(
                 rhs_reader,
                 comptime![current_event + 1],
+                0,
                 config,
             );
             TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());

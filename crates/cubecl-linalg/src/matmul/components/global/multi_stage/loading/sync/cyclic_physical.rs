@@ -1,8 +1,10 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{
-    ContiguousTilingLayout, DualStage, DualStageExpand, DualStageFormat, RowMajorTilingOrder,
+    ContiguousTilingLayout, DualStage, DualStageExpand, DualStageFormat, TilingOrder,
 };
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
@@ -11,18 +13,21 @@ use cubecl_core::prelude::*;
 use super::SyncBufferLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
-pub struct CyclicCoalescedPhysicalBufferLoading {}
+pub struct CyclicCoalescedPhysicalBufferLoading<T: TilingOrder> {
+    #[cube(comptime)]
+    _phantom: PhantomData<T>,
+}
 
-impl LoadingValidation for CyclicCoalescedPhysicalBufferLoading {
+impl<T: TilingOrder> LoadingValidation for CyclicCoalescedPhysicalBufferLoading<T> {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl SyncBufferLoadingStrategy for CyclicCoalescedPhysicalBufferLoading {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedPhysicalBufferLoading<T> {
     // RowMajorTilingOrder hardcoded as it has no impact, because buffers are 1D
-    type TilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+    type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
@@ -38,12 +43,16 @@ impl SyncBufferLoadingStrategy for CyclicCoalescedPhysicalBufferLoading {
             DualStage::Physical(stage) => {
                 let tiling = config.tiling_dimensions(ident);
                 let line_size = config.global_line_size(ident);
-                let num_buffer_elements = match ident.as_input() {
-                    InputIdent::Lhs => tiling.tile_count_row() * tiling.tile_size(),
-                    InputIdent::Rhs => tiling.tile_count_col() * tiling.tile_size(),
-                };
+
+                let num_buffer_elements = comptime!(tiling.tile_count() * tiling.tile_size());
+
                 let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
                 let num_loads_per_unit = comptime!(num_buffer_elements / jump_length);
+
+                let (tile_view_offset_x, tile_view_offset_y) = match ident.as_input() {
+                    InputIdent::Lhs => (0, tiling.tile_count_col() * buffer_id.to_u32()),
+                    InputIdent::Rhs => (tiling.tile_count_row() * buffer_id.to_u32(), 0),
+                };
 
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
                 let unit_position_base = unit_id * line_size;
@@ -55,14 +64,15 @@ impl SyncBufferLoadingStrategy for CyclicCoalescedPhysicalBufferLoading {
                     let nth_tile = unit_position / tile_num_elements;
                     let pos_within_tile = unit_position % tile_num_elements;
 
-                    let (tile_x, tile_y) = match ident.as_input() {
-                        InputIdent::Lhs => (nth_tile, buffer_id.to_u32().runtime()),
-                        InputIdent::Rhs => (buffer_id.to_u32().runtime(), nth_tile),
-                    };
+                    let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+                        nth_tile,
+                        tiling.tile_count_row(),
+                        tiling.tile_count_col(),
+                    );
 
                     let line_read = read_view.load_coalesced_in_tile::<G>(
-                        tile_x,
-                        tile_y,
+                        tile_view_offset_x + tile_x,
+                        tile_view_offset_y + tile_y,
                         pos_within_tile,
                         ident,
                         config,

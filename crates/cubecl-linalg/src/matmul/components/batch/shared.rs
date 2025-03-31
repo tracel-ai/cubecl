@@ -34,6 +34,8 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         batch_rhs += tmp % rhs.shape(axis) * rhs.stride(axis);
     }
 
+    let num_buffers = GMM::global_buffering().to_u32();
+
     let indexed_quantization = match quantization {
         CubeOption::Some(quantization) => {
             // TODO Support broadcast
@@ -52,7 +54,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
             );
             let num_stages_lhs_col_axis = div_ceil(
                 lhs.shape(rank - 1),
-                config.tiling_dimensions(Ident::Lhs).total_col(),
+                config.tiling_dimensions(Ident::Lhs).total_col() / num_buffers,
             );
             let num_stages_lhs_per_batch = num_stages_lhs_col_axis * num_stages_lhs_row_axis;
 
@@ -69,7 +71,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
 
             let num_stages_rhs_row_axis = div_ceil(
                 rhs.shape(rank - 2),
-                config.tiling_dimensions(Ident::Rhs).total_row(),
+                config.tiling_dimensions(Ident::Rhs).total_row() / num_buffers,
             );
             let num_stages_rhs_col_axis = div_ceil(
                 rhs.shape(rank - 1),

@@ -406,6 +406,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
         let config_input = CompleteStageTiling {
             tile_shape: selection.tile_shape,
             tile_count: selection.tile_count,
+            global_buffering: A::global_buffering(),
         };
 
         matmul_cube_preparation::<SingleMatmulSpec<EG::Numeric, half::f16, f32, TensorMapArgs>, R, A>(
@@ -413,7 +414,7 @@ fn matmul_launch_kernel_tma<R: Runtime, EG: MaybeQuantized, A: Algorithm>(
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),
             problem,
-            (config_input, stage::Buffering::Double), // TODO support selecting double buffering
+            (config_input, stage::StageBuffering::Double), // TODO support selecting double buffering
             selection,
             false,
         )

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
+    GlobalBuffering, Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
     stage::{self, StageWriter},
@@ -99,6 +99,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Fill the accumulator with zeros
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+
+    /// The kind of global buffering of the global matmul
+    fn global_buffering() -> GlobalBuffering;
 }
 
 #[cube]

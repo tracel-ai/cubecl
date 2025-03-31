@@ -64,7 +64,16 @@ impl<ES: Numeric, T: TilingLayout> MonoStage<ES, T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        T::get_tile::<ES, S>(&self.smem.to_slice(), x, y, ident, config)
+        let tiling = config.tiling_dimensions(ident);
+        T::get_tile::<ES, S>(
+            &self.smem.to_slice(),
+            x,
+            y,
+            tiling.tile_count_row(),
+            tiling.tile_count_col(),
+            ident,
+            config,
+        )
     }
 
     /// Return the whole stage as a slice, for reading

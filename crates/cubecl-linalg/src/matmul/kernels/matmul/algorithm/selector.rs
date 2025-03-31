@@ -28,6 +28,7 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
+        global_buffering: A::global_buffering(),
     };
 
     matmul_cube_preparation::<MS, R, A>(
@@ -35,7 +36,7 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
-        (config_input, stage::Buffering::Double), // TODO support double buffering
+        (config_input, stage::StageBuffering::Double), // TODO support double buffering
         selection,
         quantized,
     )

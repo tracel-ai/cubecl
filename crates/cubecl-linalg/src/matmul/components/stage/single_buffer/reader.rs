@@ -42,10 +42,12 @@ impl<ES: Numeric, T: TilingLayout> LhsBufferReader<ES, T> {
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         compute_plane_offset: u32,
+        k_offset: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
             compute_plane_offset,
+            k_offset,
             this.buffer_id,
             Ident::Lhs,
             config,
@@ -62,10 +64,12 @@ impl<ES: Numeric, T: TilingLayout> RhsBufferReader<ES, T> {
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         accumulator_offset: u32,
+        k_offset: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
             accumulator_offset,
+            k_offset,
             this.buffer_id,
             Ident::Rhs,
             config,

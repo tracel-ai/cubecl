@@ -3,10 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    MatmulProblem, MatmulSelection,
-    batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self},
-    stage, tile,
+    batch::{self, CubeCountDispatch, CubeDispatch}, global::{self}, stage, tile, GlobalBuffering, MatmulProblem, MatmulSelection
 };
 
 pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
@@ -36,5 +33,9 @@ where
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::Single
     }
 }

@@ -110,6 +110,7 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
 pub struct CompleteStageTiling {
     pub tile_shape: MatmulSize,
     pub tile_count: MatmulSize,
+    pub global_buffering: GlobalBuffering,
 }
 
 impl CompleteStageTiling {
@@ -118,20 +119,20 @@ impl CompleteStageTiling {
             Ident::Lhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.k,
-                tile_count_row: self.tile_count.m,
-                tile_count_col: self.tile_count.k,
+                tile_count_row_full: self.tile_count.m,
+                tile_count_col_full: self.tile_count.k,
             },
             Ident::Rhs => TilingDimensions {
                 tile_shape_row: self.tile_shape.k,
                 tile_shape_col: self.tile_shape.n,
-                tile_count_row: self.tile_count.k,
-                tile_count_col: self.tile_count.n,
+                tile_count_row_full: self.tile_count.k,
+                tile_count_col_full: self.tile_count.n,
             },
             Ident::Out => TilingDimensions {
                 tile_shape_row: self.tile_shape.m,
                 tile_shape_col: self.tile_shape.n,
-                tile_count_row: self.tile_count.m,
-                tile_count_col: self.tile_count.n,
+                tile_count_row_full: self.tile_count.m,
+                tile_count_col_full: self.tile_count.n,
             },
         }
     }
@@ -145,13 +146,32 @@ impl CompleteStageTiling {
     }
 }
 
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum GlobalBuffering {
+    Single,
+    Double,
+}
+
+#[cube]
+impl GlobalBuffering {
+    pub fn to_u32(&self) -> u32 {
+        match self {
+            GlobalBuffering::Single => 1,
+            GlobalBuffering::Double => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Dimensions for stage.
+///
+/// Important: in double buffering, this is for a single buffer.
+/// Therefore, taking tile_count_col of Lhs or tile_count_row for Rhs does not necessarily give k
 pub struct TilingDimensions {
     pub tile_shape_row: u32,
     pub tile_shape_col: u32,
-    pub tile_count_row: u32,
-    pub tile_count_col: u32,
+    pub tile_count_row_full: u32,
+    pub tile_count_col_full: u32,
 }
 
 impl TilingDimensions {
@@ -192,11 +212,11 @@ impl TilingDimensions {
 
     /// Returns the number of tiles across the row axis of the stage.
     pub fn tile_count_row(&self) -> u32 {
-        self.tile_count_row
+        self.tile_count_row_full
     }
 
     /// Returns the number of tiles across the column axis of the stage.
     pub fn tile_count_col(&self) -> u32 {
-        self.tile_count_col
+        self.tile_count_col_full
     }
 }

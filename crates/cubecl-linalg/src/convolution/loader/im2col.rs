@@ -122,9 +122,12 @@ impl SimpleIm2col {
             let nth_tile = unit_position / tile_num_elements;
             let pos_within_tile = unit_position % tile_num_elements;
 
-            let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<
-                G::SmmConfig,
-            >(nth_tile, ident, config.to_smm_config());
+            let (tile_x, tile_y) =
+                ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<G::SmmConfig>(
+                    nth_tile,
+                    stage_tiling.tile_count_row(),
+                    stage_tiling.tile_count_col(),
+                );
 
             let line_read =
                 read_view.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);

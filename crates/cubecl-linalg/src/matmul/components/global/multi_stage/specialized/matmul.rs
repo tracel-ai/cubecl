@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
+    GlobalBuffering, Ident, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         multi_stage::{
@@ -174,8 +174,8 @@ where
 
         let is_consumer = Self::is_consumer(config);
 
-        let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
+        let num_buffers = 2;
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
         let k_step = num_buffers * buffer_step;
 
         let range = k_range.1 - k_range.0;
@@ -293,6 +293,10 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::new_Double()
     }
 }
 

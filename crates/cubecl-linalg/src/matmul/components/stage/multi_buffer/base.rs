@@ -4,7 +4,7 @@ use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
 use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
-use crate::matmul::components::stage::{Buffering, StageEventListener};
+use crate::matmul::components::stage::{StageBuffering, StageEventListener};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
@@ -44,7 +44,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
-    type Input = (CompleteStageTiling, Buffering);
+    type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -71,12 +71,14 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
     ) -> Self::Config {
         let tile_shape = input.0.tile_shape;
         let tile_count = input.0.tile_count;
+        let global_buffering = input.0.global_buffering;
 
         let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
         let tiling = CompleteStageTiling {
             tile_shape,
             tile_count,
+            global_buffering,
         };
 
         CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
@@ -173,8 +175,8 @@ where
         (
             TMM::allocate_lhs(tmm_config),
             match config.buffering() {
-                Buffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
-                Buffering::Double => RhsTile::new_Double((
+                StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
+                StageBuffering::Double => RhsTile::new_Double((
                     TMM::allocate_rhs(tmm_config),
                     TMM::allocate_rhs(tmm_config),
                 )),

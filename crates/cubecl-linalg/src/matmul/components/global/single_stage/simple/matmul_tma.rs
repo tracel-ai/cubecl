@@ -1,3 +1,4 @@
+use crate::matmul::components::GlobalBuffering;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
@@ -234,5 +235,9 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::new_Single()
     }
 }

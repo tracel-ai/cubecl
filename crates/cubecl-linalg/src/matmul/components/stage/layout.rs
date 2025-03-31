@@ -77,6 +77,8 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
         stage_slice: &Slice<Line<ES>>,
         x: u32,
         y: u32,
+        tile_count_row: u32,
+        tile_count_col: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES>;
@@ -85,15 +87,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
 #[cube]
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
-    pub fn to_x_y<S: StageConfig>(
-        nth: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: S,
-    ) -> (u32, u32) {
-        let stage_tiling = config.tiling_dimensions(ident);
-        let num_x = stage_tiling.tile_count_row();
-        let num_y = stage_tiling.tile_count_col();
-
+    pub fn to_x_y<S: StageConfig>(nth: u32, num_x: u32, num_y: u32) -> (u32, u32) {
         T::to_row_col(nth, num_x, num_y)
     }
 }
@@ -104,15 +98,14 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         stage_slice: &Slice<Line<ES>>,
         x: u32,
         y: u32,
+        tile_count_row: u32,
+        tile_count_col: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
         let line_size = config.line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
-
-        let tile_count_x = tiling_dimensions.tile_count_row();
-        let tile_count_y = tiling_dimensions.tile_count_col();
 
         let (tile_shape_x, tile_shape_y, length) = match matrix_layout {
             MatrixLayout::RowMajor => {
@@ -131,7 +124,8 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
             }
         };
 
-        let start = tile_shape_x * tile_shape_y * T::to_nth_tile(x, y, tile_count_x, tile_count_y);
+        let start =
+            tile_shape_x * tile_shape_y * T::to_nth_tile(x, y, tile_count_row, tile_count_col);
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage_slice.slice(start, start + length),
@@ -170,6 +164,8 @@ impl TilingLayout for StridedTilingLayout {
         stage_slice: &Slice<Line<ES>>,
         x: u32,
         y: u32,
+        tile_count_row: u32,
+        tile_count_col: u32,
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
@@ -177,15 +173,12 @@ impl TilingLayout for StridedTilingLayout {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
 
-        let tile_count_x = tiling_dimensions.tile_count_row();
-        let tile_count_y = tiling_dimensions.tile_count_col();
-
         match matrix_layout {
             MatrixLayout::RowMajor => {
                 let tile_shape_x = tiling_dimensions.tile_shape_row();
                 let tile_shape_y = tiling_dimensions.tile_shape_col() / line_size;
 
-                let stride = tile_count_y * tile_shape_y;
+                let stride = tile_count_col * tile_shape_y;
                 let length = (tile_shape_x - 1) * stride + tile_shape_y;
                 let start = x * tile_shape_x * stride + y * tile_shape_y;
 
@@ -195,7 +188,7 @@ impl TilingLayout for StridedTilingLayout {
                 let tile_shape_x = tiling_dimensions.tile_shape_row() / line_size;
                 let tile_shape_y = tiling_dimensions.tile_shape_col();
 
-                let stride = tile_count_x * tile_shape_x;
+                let stride = tile_count_row * tile_shape_x;
                 let length = (tile_shape_y - 1) * stride + tile_shape_x;
                 let start = x * tile_shape_x + y * tile_shape_y * stride;
 

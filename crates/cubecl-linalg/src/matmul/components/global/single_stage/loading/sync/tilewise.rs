@@ -67,8 +67,8 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
 
         let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
             nth_tile,
-            ident,
-            config.to_smm_config(),
+            tiling.tile_count_row_full,
+            tiling.tile_count_col_full,
         );
 
         for i in 0..num_loads_per_unit {

@@ -1,3 +1,4 @@
+use crate::matmul::components::GlobalBuffering;
 use crate::matmul::components::{
     MatmulPrecision,
     global::{
@@ -258,5 +259,9 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::new_Single()
     }
 }

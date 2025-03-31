@@ -1,10 +1,12 @@
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::multi_stage::CyclicCoalescedPhysicalBufferLoading;
-use crate::matmul::components::stage::{self};
+use crate::matmul::components::global::multi_stage::{
+    CyclicCoalescedPhysicalBufferLoading, CyclicCoalescedVirtualBufferLoading,
+};
+use crate::matmul::components::stage::{self, RowMajorTilingOrder};
+use crate::matmul::components::{GlobalBuffering, MatmulProblem};
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
 
@@ -24,8 +26,10 @@ where
     type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        CyclicCoalescedPhysicalBufferLoading,
-        CyclicCoalescedPhysicalBufferLoading,
+        CyclicCoalescedPhysicalBufferLoading<RowMajorTilingOrder>,
+        CyclicCoalescedPhysicalBufferLoading<RowMajorTilingOrder>,
+        // CyclicCoalescedVirtualBufferLoading<RowMajorTilingOrder>,
+        // CyclicCoalescedVirtualBufferLoading<RowMajorTilingOrder>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
@@ -41,5 +45,9 @@ where
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::Double
     }
 }

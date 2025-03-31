@@ -64,8 +64,8 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
 
             let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
-                ident,
-                config.to_smm_config(),
+                tiling.tile_count_row_full,
+                tiling.tile_count_col_full,
             );
 
             let line_read = read_view.load_coalesced_in_tile::<G>(

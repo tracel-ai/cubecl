@@ -1,3 +1,4 @@
+use crate::matmul::components::GlobalBuffering;
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::global::multi_stage::AsyncBufferLoader;
@@ -69,10 +70,6 @@ where
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
         LL::check::<Self::Config>(config, Ident::Lhs)?;
         RL::check::<Self::Config>(config, Ident::Rhs)?;
-
-        if config.tiling_dimensions(Ident::Lhs).tile_count_col() != 2 {
-            return Err(Box::new("Double buffering matmul needs exactly 2 buffers."));
-        }
 
         SMM::check_config(&config.to_smm_config())
     }
@@ -159,7 +156,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
+        let buffer_step = config.tiling_dimensions(Ident::Lhs).total_col();
         let k_step = num_buffers * buffer_step;
 
         let range = k_range.1 - k_range.0;
@@ -367,5 +364,9 @@ where
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         SMM::zero_accumulator(acc, config.to_smm_config());
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::new_Double()
     }
 }

@@ -15,12 +15,12 @@ use super::SyncBufferLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicCoalescedBufferLoading<T: TilingOrder> {
+pub struct CyclicCoalescedVirtualBufferLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> LoadingValidation for CyclicCoalescedVirtualBufferLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -57,7 +57,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedVirtualBufferLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
@@ -77,15 +77,12 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
                 let tile_size = tiling_dimensions.tile_size();
                 let tile_count_row = tiling_dimensions.tile_count_row();
                 let tile_count_col = tiling_dimensions.tile_count_col();
+                let num_tiles_in_buffer = tiling_dimensions.tile_count();
 
                 let num_lines_per_tile = tile_size / line_size;
                 let total_units = config.plane_dim() * config.num_planes();
                 let jump_length = total_units * line_size;
 
-                let num_tiles_in_buffer = comptime! {match ident.as_input() {
-                    InputIdent::Lhs => tile_count_row,
-                    InputIdent::Rhs => tile_count_col,
-                }};
                 let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
                 let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
 
@@ -101,6 +98,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
                     let unit_pos_in_buffer = unit_position / tile_size;
                     let pos_within_tile = unit_position % tile_size;
 
+                    // TODO probably a problem here
                     let (tile_x, tile_y) = match ident.as_input() {
                         InputIdent::Lhs => (unit_pos_in_buffer, buffer_id.to_u32().runtime()),
                         InputIdent::Rhs => (buffer_id.to_u32().runtime(), unit_pos_in_buffer),

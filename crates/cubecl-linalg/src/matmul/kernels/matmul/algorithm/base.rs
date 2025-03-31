@@ -1,12 +1,12 @@
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    CompleteStageTiling, MatmulConfigFactory, MatmulPrecision, MatmulProblem, MatmulSelection,
-    batch, global, stage, tile,
+    CompleteStageTiling, GlobalBuffering, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
+    MatmulSelection, batch, global, stage, tile,
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
-type StageInput = (CompleteStageTiling, stage::Buffering);
+type StageInput = (CompleteStageTiling, stage::StageBuffering);
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
@@ -17,6 +17,7 @@ pub trait Algorithm {
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &MatmulProblem) -> CubeCount;
+    fn global_buffering() -> GlobalBuffering;
 
     #[allow(clippy::type_complexity, clippy::result_large_err)]
     fn make_config(

@@ -3,14 +3,10 @@ use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    MatmulProblem, MatmulSelection,
-    batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{
+    batch::{self, CubeCountDispatch, CubeDispatch}, global::{
         self,
         single_stage::{CyclicCoalescedLoading, SyncFullLoadingStrategy},
-    },
-    stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
-    tile,
+    }, stage::{self, ColMajorTilingOrder, RowMajorTilingOrder}, tile, GlobalBuffering, MatmulProblem, MatmulSelection
 };
 
 pub struct SimpleAlgorithm<
@@ -49,5 +45,9 @@ where
         let cubes_for_n = (problem.n as u32 + n_stage - 1) / n_stage;
 
         Dispatch::cube_count(cubes_for_m, cubes_for_n, problem.num_batches() as u32)
+    }
+
+    fn global_buffering() -> GlobalBuffering {
+        GlobalBuffering::Single
     }
 }

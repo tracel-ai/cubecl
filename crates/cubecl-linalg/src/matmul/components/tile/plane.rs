@@ -1,8 +1,8 @@
+use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::config::MatmulConfig;
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout, tile,
+    Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout, tile,
 };
-use crate::matmul::components::{MatmulProblem, MatmulSize};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
