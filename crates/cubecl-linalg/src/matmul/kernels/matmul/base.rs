@@ -1,24 +1,21 @@
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, stage,
+    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{
     MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
 };
-use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
+use crate::matmul::{self};
+use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixLayout, TensorHandle, matrix_layout};
-use crate::{
-    matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch},
-    tensor::into_contiguous_pitched,
-};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
 
-use super::{Algorithm, matmul_selection, select_kernel};
+use super::{Algorithm, select_kernel};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -186,15 +183,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         }
     }
 
-    matmul_launch_kernel::<R, MP, A>(
-        client,
-        lhs,
-        rhs,
-        out,
-        (lhs_line_size, rhs_line_size, out_line_size),
-        problem,
-        plane_dim,
-    )
+    matmul_launch_kernel::<R, MP, A>(client, lhs, rhs, out, problem, plane_dim)
 }
 
 #[allow(clippy::result_large_err)]
@@ -203,7 +192,6 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-    (lhs_line_size, rhs_line_size, out_line_size): (u8, u8, u8),
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
@@ -213,11 +201,9 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         if tf32::is_supported(client) {
             select_kernel::<ReplaceES<MP, tf32>, R, A>(
                 client,
-                TensorInputsLaunch::new(
-                    lhs.as_tensor_arg(lhs_line_size),
-                    rhs.as_tensor_arg(rhs_line_size),
-                ),
-                out.as_tensor_arg(out_line_size),
+                lhs,
+                rhs,
+                out,
                 problem,
                 plane_dim,
                 MP::QUANTIZED,
@@ -225,28 +211,16 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         } else {
             select_kernel::<ReplaceES<MP, half::f16>, R, A>(
                 client,
-                TensorInputsLaunch::new(
-                    lhs.as_tensor_arg(lhs_line_size),
-                    rhs.as_tensor_arg(rhs_line_size),
-                ),
-                out.as_tensor_arg(out_line_size),
+                lhs,
+                rhs,
+                out,
                 problem,
                 plane_dim,
                 MP::QUANTIZED,
             )
         }
     } else {
-        select_kernel::<MP, R, A>(
-            client,
-            TensorInputsLaunch::new(
-                lhs.as_tensor_arg(lhs_line_size),
-                rhs.as_tensor_arg(rhs_line_size),
-            ),
-            out.as_tensor_arg(out_line_size),
-            problem,
-            plane_dim,
-            MP::QUANTIZED,
-        )
+        select_kernel::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim, MP::QUANTIZED)
     }
 }
 
@@ -265,18 +239,6 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
-    let lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
-        lhs.shape,
-        lhs.strides,
-        rank - 1,
-    );
-    let rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
-        rhs.shape,
-        rhs.strides,
-        rank - 1,
-    );
     let out_line_size = tensor_line_size_parallel(
         R::line_size_elem(&eg_elem),
         out.shape,
@@ -300,8 +262,9 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
             true => matmul::components::MatrixLayout::ColMajor,
             false => matmul::components::MatrixLayout::RowMajor,
         },
-        lhs_line_size,
-        rhs_line_size,
+        // No point vectorizing, since we never deal with individual values when using TMA
+        lhs_line_size: 1,
+        rhs_line_size: 1,
         out_line_size,
     };
 
@@ -324,114 +287,26 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    matmul_launch_kernel_tma::<R, MP, A>(
-        client,
-        lhs,
-        rhs,
-        out,
-        (lhs_line_size, rhs_line_size, out_line_size),
-        problem,
-        plane_dim,
-    )
-}
-
-#[allow(clippy::result_large_err)]
-fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    lhs: &TensorHandleRef<'_, R>,
-    rhs: &TensorHandleRef<'_, R>,
-    out: &TensorHandleRef<'_, R>,
-    (_, _, out_line_size): (u8, u8, u8),
-    problem: MatmulProblem,
-    plane_dim: u32,
-) -> Result<(), MatmulLaunchError> {
-    if TypeId::of::<MP::EG>() == TypeId::of::<half::f16>() {
-        let selection =
-            matmul_selection::<A::TileMatmul, (MP, TensorMapArgs), R>(client, &problem, plane_dim);
-        let stage_m = selection.tile_count.m * selection.tile_shape.m;
-        let stage_n = selection.tile_count.n * selection.tile_shape.n;
-        let stage_k = selection.tile_count.k * selection.tile_shape.k;
-        let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
-        };
-        let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
-        };
-
-        let elem_size = size_of::<MP::EG>();
-
-        let lhs_rank = lhs.shape.len();
-        let mut lhs_shape = vec![
-            problem.batches.0[0],
-            lhs.shape[lhs_rank - 2],
-            lhs.shape[lhs_rank - 1],
-        ];
-        let mut lhs_strides = lhs.strides[lhs_rank - 3..].to_vec();
-
-        let rhs_rank = rhs.shape.len();
-        let mut rhs_shape = vec![
-            problem.batches.1[0],
-            rhs.shape[rhs_rank - 2],
-            rhs.shape[rhs_rank - 1],
-        ];
-        let mut rhs_strides = rhs.strides[rhs_rank - 3..].to_vec();
-
-        // TMA assumes last stride is contiguous and won't even take it, so we need to map it with
-        // transposed shape and stride
-        let lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => lhs,
-            components::MatrixLayout::ColMajor => &{
-                lhs_shape.swap(lhs_rank - 1, lhs_rank - 2);
-                lhs_strides.swap(lhs_rank - 1, lhs_rank - 2);
-                unsafe {
-                    TensorHandleRef::from_raw_parts(lhs.handle, &lhs_strides, &lhs_shape, elem_size)
-                }
-            },
-        };
-
-        let rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => rhs,
-            components::MatrixLayout::ColMajor => &{
-                rhs_shape.swap(rhs_rank - 1, rhs_rank - 2);
-                rhs_strides.swap(rhs_rank - 1, rhs_rank - 2);
-                unsafe {
-                    TensorHandleRef::from_raw_parts(rhs.handle, &rhs_strides, &rhs_shape, elem_size)
-                }
-            },
-        };
-
-        let lhs = TensorMapArg::new(
-            TensorMapFormat::Tiled {
-                tile_size: stage_size_lhs,
-            },
-            lhs.as_tensor_arg(1),
-            half::f16::as_elem_native_unchecked(),
-        );
-        let rhs = TensorMapArg::new(
-            TensorMapFormat::Tiled {
-                tile_size: stage_size_rhs,
-            },
-            rhs.as_tensor_arg(1),
-            half::f16::as_elem_native_unchecked(),
-        );
-        let config_input = CompleteStageTiling {
-            tile_shape: selection.tile_shape,
-            tile_count: selection.tile_count,
-        };
-
-        matmul_cube_preparation::<(MP, TensorMapArgs), R, A>(
+    if TypeId::of::<MP::EG>() == TypeId::of::<f32>() {
+        select_kernel::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client,
-            TensorMapInputsLaunch::new(lhs, rhs),
-            out.as_tensor_arg(out_line_size),
+            lhs,
+            rhs,
+            out,
             problem,
-            (config_input, stage::Buffering::Double), // TODO support selecting double buffering
-            selection,
-            false,
+            plane_dim,
+            MP::QUANTIZED,
         )
     } else {
-        todo!()
+        select_kernel::<(MP, TensorMapArgs), R, A>(
+            client,
+            lhs,
+            rhs,
+            out,
+            problem,
+            plane_dim,
+            MP::QUANTIZED,
+        )
     }
 }
 

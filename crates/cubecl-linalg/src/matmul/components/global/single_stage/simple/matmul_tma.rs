@@ -1,10 +1,10 @@
-use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
     Config, FullLoader, loading::AsyncFullLoader,
 };
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::{Ident, global::output_loader::Unloader};
 use crate::matmul::components::{
     MatmulPrecision,
     global::single_stage::{TmaLhsLoader, TmaRhsLoader},
@@ -17,7 +17,7 @@ use cubecl_core::{self as cubecl};
 use cubecl_core::{Feature, TmaFeature};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
-use std::marker::PhantomData;
+use std::{any::TypeId, marker::PhantomData};
 
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
@@ -61,6 +61,14 @@ where
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
+
+        let eg_id = TypeId::of::<MP::EG>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = eg_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if eg_id != es_id && !is_tf32 {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
+        }
 
         if !client
             .properties()
@@ -137,7 +145,7 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new(BarrierLevel::unit());
+        let barrier = Barrier::<MP::ES>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_units();
@@ -145,6 +153,16 @@ where
             // Start loading
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
             Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+
+            if UNIT_POS == 0 {
+                let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
+                    + config.tiling_dimensions(Ident::Lhs).total_size();
+                barrier.arrive_tx(1, total_stage * MP::EG::elem_size());
+            } else {
+                barrier.arrive();
+            }
+
+            barrier.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);

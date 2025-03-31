@@ -28,13 +28,7 @@ macro_rules! testgen_matmul_accelerated {
 
 #[macro_export]
 macro_rules! testgen_matmul_tma {
-    ($eg:ty, $es:ty) => {
-        type Precision = ($eg, $es);
-
-        $crate::matmul_tma_tests!();
-    };
-
-    ([$($float:ident),*]) => {
+    ([$($float:ident: $stage: ident),*]) => {
         #[allow(non_snake_case)]
         mod matmul_tma {
             use super::*;
@@ -43,10 +37,15 @@ macro_rules! testgen_matmul_tma {
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
-                    $crate::testgen_matmul_tma!($float, half::f16);
+                    $crate::testgen_matmul_tma!($float, $stage);
                 })*
             }
         }
+    };
+    ($eg:ty, $es:ty) => {
+        type Precision = ($eg, $es);
+
+        $crate::matmul_tma_tests!();
     };
 }
 

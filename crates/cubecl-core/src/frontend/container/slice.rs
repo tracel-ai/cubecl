@@ -8,6 +8,7 @@ use crate::{
     prelude::{List, ListExpand, ListMut, ListMutExpand, index, index_assign},
     unexpanded,
 };
+use cubecl_common::tf32;
 use cubecl_ir::{ExpandElement, Operator};
 use std::marker::PhantomData;
 
@@ -116,7 +117,7 @@ mod metadata {
             C: CubePrimitive,
             T: CubePrimitive,
         {
-            if T::as_elem(scope) != C::as_elem(scope) {
+            if T::as_elem(scope) != C::as_elem(scope) && !is_tf32::<C, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 
@@ -158,13 +159,22 @@ mod metadata {
             C: CubePrimitive,
             T: CubePrimitive,
         {
-            if T::as_elem(scope) != C::as_elem(scope) {
+            if T::as_elem(scope) != C::as_elem(scope) && !is_tf32::<C, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 
             self.expand.into()
         }
     }
+}
+
+pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> bool {
+    let ty_c = C::as_elem(scope);
+    let ty_t = T::as_elem(scope);
+    let ty_f32 = f32::as_elem(scope);
+    let ty_tf32 = tf32::as_elem(scope);
+
+    (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }
 
 /// Module that contains the implementation details of the index functions.

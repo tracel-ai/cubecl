@@ -1,13 +1,18 @@
+use std::marker::PhantomData;
+
 use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 
-use crate::matmul::components::MatmulLaunch;
+use crate::matmul::components::Ident;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::MatmulSelection;
 use crate::matmul::components::MatrixLayout;
-use crate::matmul::components::{Ident, global::args::TensorMapInputsLaunch};
 use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
+use crate::matmul::components::{
+    MatmulLaunch,
+    global::args::{InputsLaunch, TensorMapInputs},
+};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -50,18 +55,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         out.strides.len() - 1,
     );
 
-    let stage_m = selection.tile_count.m * selection.tile_shape.m;
-    let stage_n = selection.tile_count.n * selection.tile_shape.n;
-    let stage_k = selection.tile_count.k * selection.tile_shape.k;
-    let stage_size_lhs = match problem.lhs_layout {
-        MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
-        MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
-    };
-    let stage_size_rhs = match problem.rhs_layout {
-        MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
-        MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
-    };
-
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
 
@@ -89,50 +82,39 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         }
     }
 
-    let lhs_arg = unsafe {
-        TensorArg::<R>::from_raw_parts::<P::EG>(
-            &lhs.handle,
-            &lhs.strides,
-            &lhs.shape,
-            problem.lhs_line_size,
-        )
+    let elem_size = size_of::<P::EG>();
+    let lhs_handle = TensorHandleRef {
+        handle: &lhs.handle,
+        strides: &lhs.strides,
+        shape: &lhs.shape,
+        elem_size,
+        runtime: PhantomData,
     };
-    let rhs_arg = unsafe {
-        TensorArg::<R>::from_raw_parts::<P::EG>(
-            &rhs.handle,
-            &rhs.strides,
-            &rhs.shape,
-            problem.rhs_line_size,
-        )
+    let rhs_handle = TensorHandleRef {
+        handle: &rhs.handle,
+        strides: &rhs.strides,
+        shape: &rhs.shape,
+        elem_size,
+        runtime: PhantomData,
     };
 
-    let lhs_map = TensorMapArg::new(
-        TensorMapFormat::Tiled {
-            tile_size: stage_size_lhs,
-        },
-        lhs_arg,
-        P::EG::as_elem_native_unchecked(),
-    );
-    let rhs_map = TensorMapArg::new(
-        TensorMapFormat::Tiled {
-            tile_size: stage_size_rhs,
-        },
-        rhs_arg,
-        P::EG::as_elem_native_unchecked(),
-    );
+    let inputs = TensorMapInputs::create(&lhs_handle, &rhs_handle, &selection, &problem);
+    let output = unsafe {
+        TensorArg::<R>::from_raw_parts::<P::EG>(
+            &out.handle,
+            &out.strides,
+            &out.shape,
+            problem.out_line_size,
+        )
+    };
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<((P::EG, P::ES, P::EA), TensorMapArgs), R>(
             &client,
             cube_dim,
             cube_count,
-            TensorMapInputsLaunch::new(lhs_map, rhs_map),
-            TensorArg::<R>::from_raw_parts::<P::EG>(
-                &out.handle,
-                &out.strides,
-                &out.shape,
-                problem.out_line_size,
-            ),
+            inputs,
+            output,
             ScalarArg::new(problem.k as u32),
             config,
         );
@@ -175,8 +157,13 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, strides) =
+            let (handle, mut strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+
+            if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
+                shape.swap(rank - 1, rank - 2);
+                strides.swap(rank - 1, rank - 2);
+            }
 
             TensorRawParts {
                 handle,
@@ -205,8 +192,13 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 }
             };
 
-            let (handle, strides) =
+            let (handle, mut strides) =
                 client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+
+            if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
+                shape.swap(rank - 1, rank - 2);
+                strides.swap(rank - 1, rank - 2);
+            }
 
             TensorRawParts {
                 handle,
