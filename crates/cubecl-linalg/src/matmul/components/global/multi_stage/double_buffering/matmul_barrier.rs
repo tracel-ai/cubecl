@@ -141,10 +141,10 @@ where
     RL: AsyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = AsyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = AsyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -153,7 +153,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        _quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        _quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
@@ -328,7 +328,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -339,7 +339,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -350,7 +350,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

@@ -173,10 +173,10 @@ where
         )
     }
 
-    fn read_accumulator<SW: StageWriter<MP::EG>, G: global::GlobalConfig>(
+    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -209,7 +209,7 @@ where
                 }
             }
             _ => {
-                let mut out_smem = SharedMemory::<MP::EG>::new_lined(
+                let mut out_smem = SharedMemory::<MP::EO>::new_lined(
                     num_tile_lines * stage_config.num_planes(),
                     out_smem_line_size,
                 );
@@ -223,7 +223,7 @@ where
                         &mut smem_slice,
                         stage_config.to_tmm_config(),
                     );
-                    SW::write::<MP::EG, G>(
+                    SW::write::<MP::EO, G>(
                         out,
                         smem_slice.to_slice(),
                         UNIT_POS_Y,
@@ -420,14 +420,14 @@ where
 // This currently assumes that EG is i8.
 // The types are generics simply to please the rust type system.
 #[cube]
-fn requantize<EG: Numeric, TMM: TileConfig>(
+fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
     slice: SliceMut<Line<f32>>,
-    mut quantization: IndexedQuantization<EG>,
+    mut quantization: IndexedQuantization<EI, EO>,
     #[comptime] config: CommonStageConfig<TMM>,
 ) {
-    if comptime!(TypeId::of::<EG>() != TypeId::of::<i8>()) {
+    if comptime!(TypeId::of::<EI>() != TypeId::of::<i8>()) {
         comptime!(panic!(
-            "invalid types for requantization (expected EG = i8)"
+            "invalid types for requantization (expected EI = i8)"
         ));
     }
 
