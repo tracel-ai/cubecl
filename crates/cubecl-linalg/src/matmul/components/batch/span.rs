@@ -34,13 +34,13 @@ pub struct SpanDim {
 /// Iterates on several global matmul across a span
 pub trait SpanMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         span: Span,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: GMM::Config,
     );
 }
@@ -92,13 +92,13 @@ impl SpanDim {
 #[cube]
 impl SpanMatmul for RowMajorSpanMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -126,13 +126,13 @@ impl SpanMatmul for RowMajorSpanMatmul {
 #[cube]
 impl SpanMatmul for ColMajorSpanMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: GMM::Config,
     ) {
         for batch_iter in range_stepped(span.batch.start, span.batch.end, span.batch.step) {
@@ -160,13 +160,13 @@ impl SpanMatmul for ColMajorSpanMatmul {
 #[cube]
 impl<const W: u32> SpanMatmul for SwizzleSpanMatmul<W> {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         span: Span,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: GMM::Config,
     ) {
         let num_swizzle = span.row.num_iterations() * span.col.num_iterations();
