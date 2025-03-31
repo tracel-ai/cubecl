@@ -19,6 +19,8 @@ pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: S
 /// The trait to be implemented by an autotune output.
 pub trait AutotuneOutput: Send + 'static {
     #[cfg(feature = "autotune-checks")]
+    /// Checks if the output of an autotune operation is the same as another one on the same
+    /// problem.
     fn check_equivalence(&self, other: Self);
 }
 
