@@ -69,7 +69,7 @@ where
         SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -135,7 +135,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
@@ -151,7 +151,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: Self::Config,
@@ -160,7 +160,7 @@ where
     }
 
     fn init_bias_loader(
-        bias: VirtualTensor<MP::EG>,
+        bias: VirtualTensor<MP::EI>,
         n_offset: u32,
         #[comptime] config: Self::Config,
         #[comptime] has_bias: bool,
@@ -169,7 +169,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
     ) -> Self::Out {
@@ -252,7 +252,7 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
         unsafe {
-            implicit_conv::launch_unchecked::<MP::EG, MP::ES, MP::EA, Self, SMM, R>(
+            implicit_conv::launch_unchecked::<MP::EI, MP::ES, MP::EA, MP::EO, Self, SMM, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -269,16 +269,17 @@ impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFa
 
 #[cube(launch_unchecked)]
 pub(crate) fn implicit_conv<
-    EG: Numeric,
+    EI: Numeric,
     ES: Numeric,
     EA: Numeric,
+    EO: Numeric,
     GMM: ConvolutionFamily<SMM>,
     SMM: StageMatmulFamily,
 >(
-    lhs: &Tensor<Line<EG>>,
-    rhs: &Tensor<Line<EG>>,
-    bias: &Tensor<Line<EG>>,
-    out: &mut Tensor<Line<EG>>,
+    lhs: &Tensor<Line<EI>>,
+    rhs: &Tensor<Line<EI>>,
+    bias: &Tensor<Line<EI>>,
+    out: &mut Tensor<Line<EO>>,
     #[comptime] config: GMM::Config,
     #[comptime] has_bias: bool,
 ) {
@@ -286,17 +287,17 @@ pub(crate) fn implicit_conv<
     let y_offset = CUBE_POS_Y * config.tiling_dimensions(Ident::Rhs).total_col();
     let k_range = (0, rhs.shape(0));
 
-    let lhs = VirtualTensor::<EG>::new::<Tensor<Line<EG>>>(lhs);
-    let rhs = VirtualTensor::<EG>::new::<Tensor<Line<EG>>>(rhs);
-    let bias = VirtualTensor::<EG>::new::<Tensor<Line<EG>>>(bias);
-    let out = VirtualTensor::<EG, ReadWrite>::new::<Tensor<Line<EG>>>(out);
+    let lhs = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(lhs);
+    let rhs = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(rhs);
+    let bias = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(bias);
+    let out = VirtualTensor::<EO, ReadWrite>::new::<Tensor<Line<EO>>>(out);
 
-    GMM::Convolution::<(EG, ES, EA)>::execute(
-        GMM::Convolution::<(EG, ES, EA)>::init_lhs_loader(lhs, x_offset, k_range.0, config),
-        GMM::Convolution::<(EG, ES, EA)>::init_rhs_loader(rhs, k_range.0, y_offset, config),
-        GMM::Convolution::<(EG, ES, EA)>::init_bias_loader(bias, y_offset, config, has_bias),
-        GMM::Convolution::<(EG, ES, EA)>::init_unloader(out, x_offset, y_offset),
-        &mut GMM::Convolution::<(EG, ES, EA)>::init_accumulator(config),
+    GMM::Convolution::<(EI, ES, EA, EO)>::execute(
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_lhs_loader(lhs, x_offset, k_range.0, config),
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_rhs_loader(rhs, k_range.0, y_offset, config),
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_bias_loader(bias, y_offset, config, has_bias),
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_unloader(out, x_offset, y_offset),
+        &mut GMM::Convolution::<(EI, ES, EA, EO)>::init_accumulator(config),
         k_range,
         config,
     );

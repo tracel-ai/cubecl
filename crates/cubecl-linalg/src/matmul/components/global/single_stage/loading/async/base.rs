@@ -17,8 +17,8 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// Load the full stage
-    fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
+    fn load_full<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] ident: Ident,
@@ -35,8 +35,8 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     type TilingLayout: TilingLayout;
 
     /// Load the stage only at the buffer identified by buffer_index
-    fn load_buffer<EG: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
+    fn load_buffer<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] buffer_index: u32,
@@ -50,7 +50,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
 #[derive(CubeType)]
 pub struct AsyncLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
-    pub tensor_view: TensorReader<MP::EG>,
+    pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -60,7 +60,7 @@ pub struct AsyncLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFu
 
 #[derive(CubeType)]
 pub struct AsyncRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
-    pub tensor_view: TensorReader<MP::EG>,
+    pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -77,7 +77,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>, CM>(
+        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -111,7 +111,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncLhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -163,7 +163,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>, CM>(
+        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -182,7 +182,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
     AsyncRhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

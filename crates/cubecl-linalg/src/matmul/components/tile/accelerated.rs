@@ -133,31 +133,31 @@ impl MatmulConfigFactory for Accelerated {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MP::ES::as_elem_native().expect("to be a native type");
-        let o_elem = MP::EA::as_elem_native().expect("to be a native type");
+        let es = MP::ES::as_elem_native().expect("to be a native type");
+        let ea = MP::EA::as_elem_native().expect("to be a native type");
 
-        let i_elem = match i_elem {
+        let es = match es {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => i_elem,
+            _ => es,
         };
 
-        let o_elem = match o_elem {
+        let ea = match ea {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => o_elem,
+            _ => ea,
         };
 
         let size = config.size;
         if !client.properties().feature_enabled(Feature::Cmma {
-            a: i_elem,
-            b: i_elem,
-            c: o_elem,
+            a: es,
+            b: es,
+            c: ea,
             m: size.m as u8,
             k: size.k as u8,
             n: size.n as u8,
         }) {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
-                input: i_elem,
-                output: o_elem,
+                input: es,
+                output: ea,
                 shape: Some(MatmulSize {
                     m: size.m,
                     n: size.n,
@@ -166,10 +166,10 @@ impl MatmulConfigFactory for Accelerated {
             });
         }
 
-        if !(MP::ES::is_supported(client) && MP::EG::is_supported(client)) {
+        if !(MP::ES::is_supported(client) && MP::EA::is_supported(client)) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
-                input: i_elem,
-                output: o_elem,
+                input: es,
+                output: ea,
             });
         }
 
