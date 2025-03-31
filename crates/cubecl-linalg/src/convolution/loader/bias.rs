@@ -17,7 +17,7 @@ use crate::{
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
 pub struct BiasLoader<MP: MatmulPrecision, G: StageConfig> {
-    pub tensor_view: BiasReader<MP::EG>,
+    pub tensor_view: BiasReader<MP::EI>,
     pub stage: Stage<MP::EA, ConvTilingLayout>,
     pub has_bias: bool,
     #[cube(comptime)]
@@ -70,7 +70,7 @@ impl<MP: MatmulPrecision, G: StageConfig> AccumulatorLoader<MP, G> for BiasLoade
 #[cube]
 impl<MP: MatmulPrecision, G: StageConfig> BiasLoader<MP, G> {
     pub fn new(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         n_offset: u32,
         #[comptime] config: G,
         #[comptime] has_bias: bool,
@@ -78,7 +78,7 @@ impl<MP: MatmulPrecision, G: StageConfig> BiasLoader<MP, G> {
         if has_bias {
             let stage = init_stage::<MP::EA, G>(config);
             let shape_n = tensor.shape(0);
-            let tensor_view = BiasReader::<MP::EG>::new(tensor, n_offset, shape_n);
+            let tensor_view = BiasReader::<MP::EI>::new(tensor, n_offset, shape_n);
 
             BiasLoader::<MP, G> {
                 tensor_view,
@@ -88,7 +88,7 @@ impl<MP: MatmulPrecision, G: StageConfig> BiasLoader<MP, G> {
             }
         } else {
             let stage = init_empty_stage::<MP::EA>();
-            let tensor_view = BiasReader::<MP::EG>::new(tensor, 0, 0);
+            let tensor_view = BiasReader::<MP::EI>::new(tensor, 0, 0);
             BiasLoader::<MP, G> {
                 stage,
                 tensor_view,

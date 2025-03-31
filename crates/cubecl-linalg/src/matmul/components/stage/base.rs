@@ -103,10 +103,10 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// If some `quantization` is provided, the read will also requantize the stage in the output
     /// and update the scaling of the output tensor. This assumes that [execute] is called
     /// with some `scaling` provided.
-    fn read_accumulator<Out: StageWriter<MP::EG>, G: global::GlobalConfig>(
+    fn read_accumulator<Out: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
@@ -143,7 +143,7 @@ pub trait StageReader<ES: Numeric>: CubeType {
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait StageWriter<EG: Numeric>: CubeType + 'static + Send + Sync {
+pub trait StageWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
     fn write<ES: Numeric, G: global::GlobalConfig>(

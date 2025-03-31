@@ -12,15 +12,15 @@ use cubecl_std::{CubeOption, CubeOptionExpand, div_ceil};
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
 pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<MP::EG>,
-    rhs: VirtualTensor<MP::EG>,
-    out: VirtualTensor<MP::EG, ReadWrite>,
+    lhs: VirtualTensor<MP::EI>,
+    rhs: VirtualTensor<MP::EI>,
+    out: VirtualTensor<MP::EO, ReadWrite>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: CubeOption<Quantization<MP::EG>>,
+    quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
