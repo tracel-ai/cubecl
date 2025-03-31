@@ -13,36 +13,39 @@ use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::CubeOption;
 
 #[derive(Clone, CubeType)]
 pub struct SyncLhsBufferLoader<
-    EG: Numeric,
+    EI: Numeric,
     ES: Numeric,
     S: stage::StageConfig,
     L: SyncBufferLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<EG>,
+    pub tensor_view: TensorReader<EI>,
     pub stage: Stage<ES, L::TilingLayout>,
+    pub scaling: CubeOption<ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
 #[derive(Clone, CubeType)]
 pub struct SyncRhsBufferLoader<
-    EG: Numeric,
+    EI: Numeric,
     ES: Numeric,
     S: stage::StageConfig,
     L: SyncBufferLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<EG>,
+    pub tensor_view: TensorReader<EI>,
     pub stage: Stage<ES, L::TilingLayout>,
+    pub scaling: CubeOption<ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    BufferLoader<EI, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EI, ES, S, L>
 {
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
 
@@ -56,18 +59,19 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<EI, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EI, ES, S, L>
 {
     fn fill_stage(
         this: &mut Self,
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
+        L::load_buffer::<EI, ES, CommonGlobalConfig<S>>(
             &this.tensor_view,
             &mut this.stage,
             buffer.to_u32(),
+            this.scaling,
             Ident::Lhs,
             config,
         );
@@ -75,30 +79,32 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncLhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncLhsBufferLoader<EI, ES, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        scaling: CubeOption<ES>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncLhsBufferLoader::<EG, ES, S, L> {
+        SyncLhsBufferLoader::<EI, ES, S, L> {
             tensor_view,
             stage,
+            scaling,
             _config: PhantomData::<S>,
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    BufferLoader<EI, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EI, ES, S, L>
 {
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
 
@@ -112,18 +118,19 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<EI, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EI, ES, S, L>
 {
     fn fill_stage(
         this: &mut Self,
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
+        L::load_buffer::<EI, ES, CommonGlobalConfig<S>>(
             &this.tensor_view,
             &mut this.stage,
             buffer.to_u32(),
+            this.scaling,
             Ident::Rhs,
             config,
         );
@@ -131,22 +138,24 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncRhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncRhsBufferLoader<EI, ES, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        scaling: CubeOption<ES>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncRhsBufferLoader::<EG, ES, S, L> {
+        SyncRhsBufferLoader::<EI, ES, S, L> {
             tensor_view,
             stage,
+            scaling,
             _config: PhantomData::<S>,
         }
     }

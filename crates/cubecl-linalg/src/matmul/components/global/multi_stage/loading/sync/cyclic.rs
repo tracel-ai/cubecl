@@ -6,6 +6,7 @@ use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrde
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::SyncBufferLoadingStrategy;
 
@@ -57,10 +58,11 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
 impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
+    fn load_buffer<EI: Numeric, ES: Numeric, G: GlobalConfig>(
+        read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         buffer_index: u32,
+        scaling: CubeOption<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -112,7 +114,12 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let tile_end = tile_start + num_lines_per_tile;
             let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
-            tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
+            let line = Line::cast_from(line_read);
+
+            tile_slice[pos_within_tile / line_size] = match scaling {
+                CubeOption::Some(scaling) => Line::new(scaling) * line,
+                CubeOption::None => line,
+            };
         }
     }
 }

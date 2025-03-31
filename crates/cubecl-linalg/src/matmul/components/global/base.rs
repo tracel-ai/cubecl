@@ -72,6 +72,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         k_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
@@ -82,6 +83,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 

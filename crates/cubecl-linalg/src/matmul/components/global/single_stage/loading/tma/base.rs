@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::CopyMechanism;
@@ -24,6 +25,7 @@ pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub barrier: Barrier<MP::EI>,
     pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub scaling: CubeOption<MP::ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -33,6 +35,7 @@ pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub barrier: Barrier<MP::EI>,
     pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub scaling: CubeOption<MP::ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -92,6 +95,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
         x: u32,
         y: u32,
         batch: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
@@ -103,6 +107,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
             tensor_view,
             barrier,
             stage,
+            scaling,
             _config: PhantomData::<S>,
         }
     }
@@ -163,6 +168,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaRhsLoader<MP, S> {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
@@ -174,6 +180,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaRhsLoader<MP, S> {
             tensor_view,
             barrier,
             stage,
+            scaling,
             _config: PhantomData::<S>,
         }
     }

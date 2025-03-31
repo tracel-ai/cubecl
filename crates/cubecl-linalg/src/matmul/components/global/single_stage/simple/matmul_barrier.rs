@@ -215,9 +215,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, scaling, config)
     }
 
     fn init_rhs_loader(
@@ -226,9 +227,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, scaling, config)
     }
 
     fn init_unloader(

@@ -9,6 +9,7 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
@@ -25,14 +26,20 @@ impl LoadingValidation for MaximizeSliceLengthBufferLoading {
 impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
+    fn load_buffer<EI: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+        read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
+        scaling: CubeOption<ES>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
+        comptime! {
+            if scaling.is_some() {
+                panic!("unsupported quantization with async buffer loading")
+            }
+        }
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -87,7 +94,7 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
 
             let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
 
-            let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+            let window: Window<EI> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
             let mut destination: SliceMut<Line<ES>> =
                 StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
                     stage,

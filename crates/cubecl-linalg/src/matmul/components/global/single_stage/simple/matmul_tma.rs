@@ -186,6 +186,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
@@ -193,6 +194,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            scaling,
             config,
         )
     }
@@ -203,6 +205,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -210,6 +213,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            scaling,
             config,
         )
     }

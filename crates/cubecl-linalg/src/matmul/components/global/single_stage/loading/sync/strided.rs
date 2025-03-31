@@ -4,6 +4,7 @@ use crate::matmul::components::stage::{Stage, StridedTilingLayout};
 use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::SyncFullLoadingStrategy;
 
@@ -38,6 +39,7 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
+        scaling: CubeOption<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -55,7 +57,12 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
             let line_read =
                 read_view.load_coalesced_in_stage::<G>(unit_position * line_size, ident, config);
 
-            stage.as_slice_mut()[unit_position] = Line::cast_from(line_read);
+            let line = Line::cast_from(line_read);
+
+            stage.as_slice_mut()[unit_position] = match scaling {
+                CubeOption::Some(scaling) => Line::new(scaling) * line,
+                _ => line,
+            }
         }
     }
 }

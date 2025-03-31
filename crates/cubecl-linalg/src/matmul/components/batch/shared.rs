@@ -34,85 +34,98 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         batch_rhs += tmp % rhs.shape(axis) * rhs.stride(axis);
     }
 
-    let indexed_quantization = match quantization {
-        CubeOption::Some(quantization) => {
-            // TODO Support broadcast
-            //      The launcher should panic before executing the kernel
-            //      if it is quantized and broadcasted.
+    let indexed_quantization = CubeOption::new_None();
+    // DEAD CODE
+    //  match quantization {
+    //     CubeOption::Some(quantization) => {
+    //         // TODO Support broadcast
+    //         //      The launcher should panic before executing the kernel
+    //         //      if it is quantized and broadcasted.
 
-            // Assuming that quantization params are stored in row major order per batch,
-            // we compute the range of indices we need to retrieve the proper scaling for
-            // the current global matmul.
+    //         // Assuming that quantization params are stored in row major order per batch,
+    //         // we compute the range of indices we need to retrieve the proper scaling for
+    //         // the current global matmul.
 
-            // LHS
+    //         // LHS
 
-            let num_stages_lhs_row_axis = div_ceil(
-                lhs.shape(rank - 2),
-                config.tiling_dimensions(Ident::Lhs).total_row(),
-            );
-            let num_stages_lhs_col_axis = div_ceil(
-                lhs.shape(rank - 1),
-                config.tiling_dimensions(Ident::Lhs).total_col(),
-            );
-            let num_stages_lhs_per_batch = num_stages_lhs_col_axis * num_stages_lhs_row_axis;
+    //         let num_stages_lhs_row_axis = div_ceil(
+    //             lhs.shape(rank - 2),
+    //             config.tiling_dimensions(Ident::Lhs).total_row(),
+    //         );
+    //         let num_stages_lhs_col_axis = div_ceil(
+    //             lhs.shape(rank - 1),
+    //             config.tiling_dimensions(Ident::Lhs).total_col(),
+    //         );
+    //         let num_stages_lhs_per_batch = num_stages_lhs_col_axis * num_stages_lhs_row_axis;
 
-            let start_lhs =
-                nth_batch * num_stages_lhs_per_batch + x_offset * num_stages_lhs_col_axis;
+    //         let start_lhs =
+    //             nth_batch * num_stages_lhs_per_batch + x_offset * num_stages_lhs_col_axis;
 
-            let range_lhs = IndexRange {
-                current: start_lhs + k_range.0,
-                end: start_lhs + k_range.1,
-                step: 1,
-            };
+    //         let range_lhs = IndexRange {
+    //             current: start_lhs + k_range.0,
+    //             end: start_lhs + k_range.1,
+    //             step: 1,
+    //         };
 
-            // RHS
+    //         // RHS
 
-            let num_stages_rhs_row_axis = div_ceil(
-                rhs.shape(rank - 2),
-                config.tiling_dimensions(Ident::Rhs).total_row(),
-            );
-            let num_stages_rhs_col_axis = div_ceil(
-                rhs.shape(rank - 1),
-                config.tiling_dimensions(Ident::Rhs).total_col(),
-            );
-            let num_stages_rhs_per_batch = num_stages_rhs_col_axis * num_stages_rhs_row_axis;
+    //         let num_stages_rhs_row_axis = div_ceil(
+    //             rhs.shape(rank - 2),
+    //             config.tiling_dimensions(Ident::Rhs).total_row(),
+    //         );
+    //         let num_stages_rhs_col_axis = div_ceil(
+    //             rhs.shape(rank - 1),
+    //             config.tiling_dimensions(Ident::Rhs).total_col(),
+    //         );
+    //         let num_stages_rhs_per_batch = num_stages_rhs_col_axis * num_stages_rhs_row_axis;
 
-            let start_rhs = nth_batch * num_stages_rhs_per_batch + y_offset;
+    //         let start_rhs = nth_batch * num_stages_rhs_per_batch + y_offset;
 
-            let range_rhs = IndexRange {
-                current: start_rhs + k_range.0 * num_stages_rhs_col_axis,
-                end: start_rhs + k_range.1 * num_stages_rhs_col_axis,
-                step: num_stages_rhs_col_axis,
-            };
+    //         let range_rhs = IndexRange {
+    //             current: start_rhs + k_range.0 * num_stages_rhs_col_axis,
+    //             end: start_rhs + k_range.1 * num_stages_rhs_col_axis,
+    //             step: num_stages_rhs_col_axis,
+    //         };
 
-            // OUT
-            let num_stages_out_row_axis = div_ceil(
-                out.shape(rank - 2),
-                config.tiling_dimensions(Ident::Out).total_row(),
-            );
-            let num_stages_out_col_axis = div_ceil(
-                out.shape(rank - 1),
-                config.tiling_dimensions(Ident::Out).total_col(),
-            );
-            let num_stages_out_per_batch = num_stages_out_col_axis * num_stages_out_row_axis;
+    //         // OUT
+    //         let num_stages_out_row_axis = div_ceil(
+    //             out.shape(rank - 2),
+    //             config.tiling_dimensions(Ident::Out).total_row(),
+    //         );
+    //         let num_stages_out_col_axis = div_ceil(
+    //             out.shape(rank - 1),
+    //             config.tiling_dimensions(Ident::Out).total_col(),
+    //         );
+    //         let num_stages_out_per_batch = num_stages_out_col_axis * num_stages_out_row_axis;
 
-            let index_out = num_stages_out_per_batch * nth_batch
-                + x_offset * num_stages_out_col_axis
-                + y_offset;
+    //         let index_out = num_stages_out_per_batch * nth_batch
+    //             + x_offset * num_stages_out_col_axis
+    //             + y_offset;
 
-            CubeOption::new_Some(IndexedQuantization::new(
-                quantization,
-                range_lhs,
-                range_rhs,
-                index_out,
-            ))
-        }
-        CubeOption::None => CubeOption::new_None(),
-    };
+    //         CubeOption::new_Some(IndexedQuantization::new(
+    //             quantization,
+    //             range_lhs,
+    //             range_rhs,
+    //             index_out,
+    //         ))
+    //     }
+    //     CubeOption::None => CubeOption::new_None(),
+    // };
+    //
+
+    // TODO Compute scaling
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, batch_lhs, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, config),
+        GMM::init_lhs_loader(
+            lhs,
+            x_offset,
+            k_range.0,
+            nth_batch,
+            batch_lhs,
+            CubeOption::new_None(),
+            config,
+        ),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, CubeOption::new_None(), config),
         GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,

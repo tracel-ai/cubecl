@@ -9,6 +9,7 @@ use crate::matmul::components::{Ident, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
@@ -39,6 +40,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
         read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
+        scaling: CubeOption<ES>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -52,6 +54,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 pub struct AsyncLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
+    pub scaling: CubeOption<MP::ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -62,6 +65,7 @@ pub struct AsyncLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFu
 pub struct AsyncRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
+    pub scaling: CubeOption<MP::ES>,
     #[cube(comptime)]
     _config: PhantomData<S>,
     #[cube(comptime)]
@@ -115,6 +119,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: G,
     ) -> Self {
         let mut stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
@@ -133,6 +138,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         AsyncLhsLoader::<MP, S, L> {
             tensor_view,
             stage,
+            scaling,
             _config: PhantomData::<S>,
             _loading: PhantomData::<L>,
         }
@@ -186,6 +192,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        scaling: CubeOption<MP::ES>,
         #[comptime] config: G,
     ) -> Self {
         let mut stage = Stage::new::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
@@ -204,6 +211,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         AsyncRhsLoader::<MP, S, L> {
             tensor_view,
             stage,
+            scaling,
             _config: PhantomData::<S>,
             _loading: PhantomData::<L>,
         }

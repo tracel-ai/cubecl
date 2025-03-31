@@ -11,6 +11,7 @@ use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBuffer
 use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use super::config::Config;
@@ -24,6 +25,7 @@ pub struct SyncLhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    pub scaling: CubeOption<ES>,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -38,6 +40,7 @@ pub struct SyncRhsBufferLoader<
 > {
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
+    pub scaling: CubeOption<ES>,
     is_producer: bool,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -68,6 +71,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
                 &this.tensor_view,
                 &mut this.stage,
                 buffer_id.to_u32(),
+                this.scaling,
                 Ident::Lhs,
                 config,
             );
@@ -76,24 +80,26 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncLhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncLhsBufferLoader<EI, ES, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
         is_producer: bool,
+        scaling: CubeOption<ES>,
         #[comptime] config: Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncLhsBufferLoader::<EG, ES, S, L> {
+        SyncLhsBufferLoader::<EI, ES, S, L> {
             tensor_view,
             stage,
             is_producer,
+            scaling,
             _config: PhantomData,
         }
     }
@@ -115,15 +121,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<EI, ES, Config<S>> for SyncRhsBufferLoader<EI, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {
-            L::load_buffer::<EG, ES, Config<S>>(
+            L::load_buffer::<EI, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
                 buffer.to_u32(),
+                this.scaling,
                 Ident::Rhs,
                 config,
             );
@@ -132,24 +139,26 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncRhsBufferLoader<EG, ES, S, L>
+impl<EI: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
+    SyncRhsBufferLoader<EI, ES, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
         is_producer: bool,
+        scaling: CubeOption<ES>,
         #[comptime] config: Config<S>,
     ) -> Self {
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncRhsBufferLoader::<EG, ES, S, L> {
+        SyncRhsBufferLoader::<EI, ES, S, L> {
             tensor_view,
             stage,
             is_producer,
+            scaling,
             _config: PhantomData::<S>,
         }
     }

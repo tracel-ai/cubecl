@@ -6,6 +6,7 @@ use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrde
 use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::SyncFullLoadingStrategy;
 
@@ -43,6 +44,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
+        scaling: CubeOption<ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) {
@@ -76,7 +78,12 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
                 config,
             );
 
-            stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
+            let line = Line::cast_from(line_read);
+
+            stage.as_slice_mut()[unit_position / line_size] = match scaling {
+                CubeOption::Some(scaling) => Line::new(scaling) * line,
+                CubeOption::None => line,
+            };
         }
     }
 }
