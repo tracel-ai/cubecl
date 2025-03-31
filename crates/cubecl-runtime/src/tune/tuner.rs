@@ -2,7 +2,6 @@ use async_channel::{Receiver, Sender};
 use cubecl_common::future;
 use hashbrown::HashSet;
 
-use alloc::boxed::Box;
 use core::future::Future;
 use cubecl_common::stub::Duration;
 
@@ -49,7 +48,8 @@ enum AutotuneMessage<K> {
         checksum: String,
         #[cfg(autotune_persistent_cache)]
         results: Vec<Result<AutotuneOutcome, String>>,
-        check: Box<dyn FnOnce() + Send>,
+        #[cfg(feature = "autotune-checks")]
+        autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
     },
     Starting {
         key: K,
@@ -121,13 +121,15 @@ impl<K: AutotuneKey> Tuner<K> {
                     checksum,
                     #[cfg(autotune_persistent_cache)]
                     results,
-                    check,
+                    #[cfg(feature = "autotune-checks")]
+                        autotune_checks: check,
                 } => {
                     #[cfg(not(target_family = "wasm"))]
                     AtomicU64::fetch_sub(&self.current, 1, Ordering::Relaxed);
 
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
 
+                    #[cfg(feature = "autotune-checks")]
                     check();
 
                     #[cfg(autotune_persistent_cache)]
@@ -184,7 +186,8 @@ impl<K: AutotuneKey> Tuner<K> {
                     checksum: tunables.compute_checksum(),
                     #[cfg(autotune_persistent_cache)]
                     results: Vec::new(),
-                    check: Box::new(|| {}),
+                    #[cfg(feature = "autotune-checks")]
+                    autotune_checks: Box::new(|| {}),
                 })
                 .expect("Autotune results channel closed");
             return;
@@ -200,6 +203,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let test_inputs = tunables.generate_inputs(&key, inputs);
 
         spawn_benchmark_task(async move {
+            #[cfg(feature = "autotune-checks")]
             let mut checks_outputs = Vec::new();
 
             let mut bench_results = Vec::with_capacity(autotunables.len());
@@ -208,7 +212,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 let name = op.name().to_string();
                 let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
 
-                checks_outputs.push(tuner.output());
+                #[cfg(feature = "autotune-checks")]
+                checks_outputs.push(tuner.output_for_checks());
 
                 let sample_fut = tuner.sample_durations();
                 let result = sample_fut.await;
@@ -278,7 +283,8 @@ impl<K: AutotuneKey> Tuner<K> {
                         .into_iter()
                         .map(|result| result.map_err(|err| format!("{err:?}")))
                         .collect(),
-                    check: Box::new(|| {
+                    #[cfg(feature = "autotune-checks")]
+                    autotune_checks: Box::new(|| {
                         check_autotune_outputs(checks_outputs);
                     }),
                 })
@@ -288,6 +294,7 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 }
 
+#[cfg(feature = "autotune-checks")]
 pub fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<Result<O, AutotuneError>>,
 ) {

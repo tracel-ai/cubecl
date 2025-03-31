@@ -16,11 +16,14 @@ pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: S
     client: ComputeClient<S, C>,
 }
 
+/// The trait to be implemented by an autotune output.
 pub trait AutotuneOutput: Send + 'static {
+    #[cfg(feature = "autotune-checks")]
     fn check_equivalence(&self, other: Self);
 }
 
 impl AutotuneOutput for () {
+    #[cfg(feature = "autotune-checks")]
     fn check_equivalence(&self, _other: Self) {
         //
     }
@@ -33,7 +36,8 @@ impl<
     Out: AutotuneOutput,
 > TuneBenchmark<S, C, In, Out>
 {
-    pub fn output(&self) -> Result<Out, AutotuneError> {
+    #[cfg(feature = "autotune-checks")]
+    pub fn output_for_checks(&self) -> Result<Out, AutotuneError> {
         self.operation.clone().execute(self.inputs.clone())
     }
 
