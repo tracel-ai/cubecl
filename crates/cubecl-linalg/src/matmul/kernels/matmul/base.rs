@@ -4,9 +4,7 @@ use crate::matmul::components::{
     MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, stage,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
-use crate::matmul::kernels::{
-    MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
-};
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
 use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
