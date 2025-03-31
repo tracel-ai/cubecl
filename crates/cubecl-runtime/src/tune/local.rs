@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner, check_autotune_outputs};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
@@ -43,6 +43,21 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         *state = None;
     }
 
+    fn checks<In: Send + Clone + 'static, Out: AutotuneOutput>(
+        &self,
+        operations: &TunableSet<AK, In, Out>,
+        inputs: &In,
+        tuner: &Tuner<AK>,
+    ) {
+        let mut checks_outputs = Vec::new();
+        for i in 0..tuner.autotuning.len() {
+            let op = operations.fastest(i);
+            let result = op.execute(inputs.clone());
+            checks_outputs.push(result);
+        }
+        check_autotune_outputs(checks_outputs);
+    }
+
     /// Execute the best operation in the provided [tunable set](TunableSet)
     pub fn execute<S, C, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
@@ -61,10 +76,14 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         if let Some(map) = self.state.read().as_ref() {
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+                    self.checks(operations, &inputs, tuner);
+
                     let op = operations.fastest(fastest_index);
-                    return op
+                    let result = op
                         .execute(inputs)
                         .expect("Should run when selected by autotune.");
+
+                    return result;
                 }
             }
         }
@@ -81,6 +100,8 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
             #[allow(unused_mut)]
             let mut fastest = tuner.fastest(&key);
+
+            self.checks(operations, &inputs, tuner);
 
             // If the cache checksum hasn't been checked, do so now, and retry.
             #[cfg(autotune_persistent_cache)]

@@ -200,7 +200,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let test_inputs = tunables.generate_inputs(&key, inputs);
 
         spawn_benchmark_task(async move {
-            let mut outputs = Vec::new();
+            let mut checks_outputs = Vec::new();
 
             let mut bench_results = Vec::with_capacity(autotunables.len());
 
@@ -208,7 +208,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 let name = op.name().to_string();
                 let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
 
-                outputs.push(tuner.output());
+                checks_outputs.push(tuner.output());
 
                 let sample_fut = tuner.sample_durations();
                 let result = sample_fut.await;
@@ -267,17 +267,6 @@ impl<K: AutotuneKey> Tuner<K> {
                 0
             };
 
-            let check = || {
-                let reference = outputs.remove(outputs.len() - 1);
-
-                if let Ok(reference) = reference {
-                    for other in outputs.into_iter() {
-                        if let Ok(o) = other {
-                            reference.check_equivalence(o);
-                        }
-                    }
-                }
-            };
             sender
                 .send(AutotuneMessage::Done {
                     key,
@@ -289,11 +278,27 @@ impl<K: AutotuneKey> Tuner<K> {
                         .into_iter()
                         .map(|result| result.map_err(|err| format!("{err:?}")))
                         .collect(),
-                    check: Box::new(check),
+                    check: Box::new(|| {
+                        check_autotune_outputs(checks_outputs);
+                    }),
                 })
                 .await
                 .expect("Autotune results channel closed");
         });
+    }
+}
+
+pub fn check_autotune_outputs<O: AutotuneOutput>(
+    mut checks_outputs: Vec<Result<O, AutotuneError>>,
+) {
+    let reference = checks_outputs.remove(checks_outputs.len() - 1);
+
+    if let Ok(reference) = reference {
+        for other in checks_outputs.into_iter() {
+            if let Ok(o) = other {
+                reference.check_equivalence(o);
+            }
+        }
     }
 }
 
