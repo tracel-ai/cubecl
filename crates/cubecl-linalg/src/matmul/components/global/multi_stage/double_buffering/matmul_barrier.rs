@@ -153,7 +153,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        _quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
+        _quantization: CubeOption<IndexedQuantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;

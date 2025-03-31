@@ -106,7 +106,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn read_accumulator<Out: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
+        quantization: CubeOption<IndexedQuantization<MP>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );

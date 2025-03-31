@@ -176,7 +176,7 @@ where
     fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
+        quantization: CubeOption<IndexedQuantization<MP>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -420,12 +420,12 @@ where
 // This currently assumes that EG is i8.
 // The types are generics simply to please the rust type system.
 #[cube]
-fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
+fn requantize<MP: MatmulPrecision, TMM: TileConfig>(
     slice: SliceMut<Line<f32>>,
-    mut quantization: IndexedQuantization<EI, EO>,
+    mut quantization: IndexedQuantization<MP>,
     #[comptime] config: CommonStageConfig<TMM>,
 ) {
-    if comptime!(TypeId::of::<EI>() != TypeId::of::<i8>()) {
+    if comptime!(TypeId::of::<MP::EI>() != TypeId::of::<i8>()) {
         comptime!(panic!(
             "invalid types for requantization (expected EI = i8)"
         ));

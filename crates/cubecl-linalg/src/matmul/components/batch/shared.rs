@@ -20,7 +20,7 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
+    quantization: CubeOption<Quantization<MP>>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
@@ -125,7 +125,15 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
             CubeOption::new_None(),
             config,
         ),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, CubeOption::new_None(), config),
+        GMM::init_rhs_loader(
+            rhs,
+            k_range.0,
+            y_offset,
+            nth_batch,
+            batch_rhs,
+            CubeOption::new_None(),
+            config,
+        ),
         GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,

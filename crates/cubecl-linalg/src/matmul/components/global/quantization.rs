@@ -1,19 +1,20 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-// TODO Support EI and EO
+use crate::matmul::components::MatmulPrecision;
+
 /// Store the quantization meta-parameters.
 /// For now, we only support symmetric quantization,
 /// thus we only store the scaling.
 #[derive(CubeType, Clone, Copy)]
-pub struct Quantization<EI: Numeric, EO: Numeric> {
-    pub lhs: Slice<Line<EI>>,
-    pub rhs: Slice<Line<EI>>,
-    pub out: SliceMut<Line<EO>>,
+pub struct Quantization<MP: MatmulPrecision> {
+    pub lhs: Slice<Line<MP::EI>>,
+    pub rhs: Slice<Line<MP::EI>>,
+    pub out: SliceMut<Line<MP::EO>>,
 }
 
 #[cube]
-impl<EI: Numeric, EO: Numeric> Quantization<EI, EO> {
+impl<MP: MatmulPrecision> Quantization<MP> {
     pub fn read_scale_lhs(&self, index: u32, #[comptime] line_size: u32) -> f32 {
         read_f32(self.lhs, index, line_size)
     }
@@ -42,22 +43,22 @@ impl IndexRange {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct IndexedQuantization<EI: Numeric, EO: Numeric> {
-    pub quantization: Quantization<EI, EO>,
+pub struct IndexedQuantization<MP: MatmulPrecision> {
+    pub quantization: Quantization<MP>,
     pub range_lhs: IndexRange,
     pub range_rhs: IndexRange,
     pub index_out: u32,
 }
 
 #[cube]
-impl<EI: Numeric, EO: Numeric> IndexedQuantization<EI, EO> {
+impl<MP: MatmulPrecision> IndexedQuantization<MP> {
     pub fn new(
-        quantization: Quantization<EI, EO>,
+        quantization: Quantization<MP>,
         range_lhs: IndexRange,
         range_rhs: IndexRange,
         index_out: u32,
-    ) -> IndexedQuantization<EI, EO> {
-        IndexedQuantization::<EI, EO> {
+    ) -> IndexedQuantization<MP> {
+        IndexedQuantization::<MP> {
             quantization,
             range_lhs,
             range_rhs,

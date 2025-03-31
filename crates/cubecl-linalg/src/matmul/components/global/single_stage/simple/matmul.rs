@@ -138,7 +138,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
+        quantization: CubeOption<IndexedQuantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
