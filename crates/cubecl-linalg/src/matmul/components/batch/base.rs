@@ -1,17 +1,16 @@
 use crate::matmul::components::{
+    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
     config::MatmulConfig,
     global::{
-        self,
+        self, Quantization,
         args::{self, MatmulArgs, TensorInput, TensorOutput},
-        Quantization,
     },
-    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
     CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).

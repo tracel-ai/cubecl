@@ -96,7 +96,9 @@ impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI
 #[derive(Clone)]
 pub struct Quantized;
 
-impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI, ES, EA, EO, Quantized) {
+impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision
+    for (EI, ES, EA, EO, Quantized)
+{
     const QUANTIZED: bool = true;
     type EI = EI;
     type ES = ES;
