@@ -31,9 +31,11 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
 
         format!(
-            "matmul-{}-{}-{}-{:?}",
+            "matmul-{}-{}-{}-{}-{}-{:?}",
             R::name(&client),
             MP::EI::as_elem_native_unchecked(),
+            MP::ES::as_elem_native_unchecked(),
+            MP::EA::as_elem_native_unchecked(),
             MP::EO::as_elem_native_unchecked(),
             self.strategy
         )
@@ -134,8 +136,14 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        run_benches::<cubecl::cuda::CudaRuntime, i8>();
-        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, half::bf16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
+        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();
+        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, f32, half::f16)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, half::bf16, half::f16)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, i8)>();
     }
 }
