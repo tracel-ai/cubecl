@@ -511,9 +511,17 @@ impl Expression {
                 let arms = arms
                     .iter()
                     .map(|arm| arm.to_tokens(context, *runtime_variants));
-                quote! {
-                    match #expr {
-                        #(#arms,)*
+                if *runtime_variants {
+                    quote! {
+                        match (#expr).clone() {
+                            #(#arms,)*
+                        }
+                    }
+                } else {
+                    quote! {
+                        match #expr {
+                            #(#arms,)*
+                        }
                     }
                 }
             }
