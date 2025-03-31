@@ -16,13 +16,27 @@ pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: S
     client: ComputeClient<S, C>,
 }
 
+pub trait AutotuneOutput: Send + 'static {
+    fn check_equivalence(&self, other: Self);
+}
+
+impl AutotuneOutput for () {
+    fn check_equivalence(&self, _other: Self) {
+        //
+    }
+}
+
 impl<
     S: ComputeServer + 'static,
     C: ComputeChannel<S> + 'static,
     In: Clone + Send + 'static,
-    Out: Send + 'static,
+    Out: AutotuneOutput,
 > TuneBenchmark<S, C, In, Out>
 {
+    pub fn output(&self) -> Result<Out, AutotuneError> {
+        self.operation.clone().execute(self.inputs.clone())
+    }
+
     /// Benchmark how long this operation takes for a number of samples.
     pub async fn sample_durations(self) -> Result<BenchmarkDurations, AutotuneError> {
         let operation = self.operation;

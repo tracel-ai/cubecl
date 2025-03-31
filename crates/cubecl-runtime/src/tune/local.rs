@@ -1,4 +1,4 @@
-use super::{AutotuneKey, TunableSet, Tuner};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
@@ -44,7 +44,7 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
     }
 
     /// Execute the best operation in the provided [tunable set](TunableSet)
-    pub fn execute<S, C, In: Send + Clone + 'static, Out: Send + 'static>(
+    pub fn execute<S, C, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
