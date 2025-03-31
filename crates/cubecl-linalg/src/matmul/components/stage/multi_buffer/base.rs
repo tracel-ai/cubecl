@@ -427,7 +427,7 @@ fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
 ) {
     if comptime!(TypeId::of::<EI>() != TypeId::of::<i8>()) {
         comptime!(panic!(
-            "invalid types for requantization (expected EG = i8)"
+            "invalid types for requantization (expected EI = i8)"
         ));
     }
 
