@@ -74,9 +74,10 @@ impl MatmulPrecision for f32 {
 
 impl MatmulPrecision for f64 {
     const QUANTIZED: bool = false;
-    type EG = f64;
+    type EI = f64;
     type ES = f32;
     type EA = f32;
+    type EO = f64;
 }
 
 #[derive(Clone)]
