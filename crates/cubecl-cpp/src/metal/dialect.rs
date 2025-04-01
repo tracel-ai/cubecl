@@ -2,11 +2,18 @@ use core::panic;
 use std::fmt::Display;
 
 use crate::{
+    Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations, Variable, WmmaInstruction
-    }, Dialect
+        self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
+        FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
+        SupportedWmmaCombinations, Variable, WmmaInstruction,
+    },
 };
-use cubecl_core::{compute::ConstBinding, ir::{self as gpu}};
+use cubecl_core::{
+    compute::ConstBinding,
+    ir::{self as gpu},
+};
 
 use super::{
     AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
@@ -164,7 +171,10 @@ struct alignas({alignment}) {item} {{"
         write!(f, "thread")
     }
 
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, _shared: &SharedMemory<Self>) -> std::fmt::Result {
+    fn compile_shared_memory_qualifier(
+        f: &mut std::fmt::Formatter<'_>,
+        _shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
         write!(f, "threadgroup")
     }
 }
@@ -204,7 +214,10 @@ void {}(",
         }
         // Global metal builtins args
         let builtins = vec![
-            (flags.builtins.absolute_pos_tuple, Variable::<Self>::AbsolutePosBaseName),
+            (
+                flags.builtins.absolute_pos_tuple,
+                Variable::<Self>::AbsolutePosBaseName,
+            ),
             (flags.builtins.cube_dim_tuple, Variable::CubeDimBaseName),
             (flags.builtins.cube_count_tuple, Variable::CubeCountBaseName),
             (flags.builtins.unit_pos, Variable::UnitPos),
@@ -238,8 +251,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
         let absolute_pos = flags.absolute_pos;
         let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
         let cube_dim = flags.cube_dim;
-        let cube_dim_tuple =
-            flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
+        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
         let unit_pos = flags.unit_pos;
         let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         let cube_count = flags.cube_count;
@@ -394,7 +406,6 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("simd_lane_id")
     }
-
 }
 
 // Instructions

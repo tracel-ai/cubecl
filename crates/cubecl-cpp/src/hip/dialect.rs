@@ -113,7 +113,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, _shared: &SharedMemory<Self>) -> std::fmt::Result {
+    fn compile_shared_memory_qualifier(
+        f: &mut std::fmt::Formatter<'_>,
+        _shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
         write!(f, "__shared__")
     }
 }
@@ -124,7 +127,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        constants:  &[ConstBinding],
+        constants: &[ConstBinding],
         inputs: &[Binding<Self>],
         outputs: &[Binding<Self>],
         named: &[(String, Binding<Self>)],

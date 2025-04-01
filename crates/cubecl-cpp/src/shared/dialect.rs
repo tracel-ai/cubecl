@@ -6,7 +6,9 @@ use cubecl_core::compute::ConstBinding;
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, CubeIndexFlags, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations, Variable, WmmaInstruction
+    Architecture, AtomicKind, Binding, Component, CubeIndexFlags, Elem, Flags, Fragment,
+    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations,
+    Variable, WmmaInstruction,
 };
 
 // Base dialect
@@ -73,7 +75,10 @@ pub trait DialectTypes<D: Dialect> {
         flags: &Flags,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, shared: &SharedMemory<D>) -> std::fmt::Result;
+    fn compile_shared_memory_qualifier(
+        f: &mut std::fmt::Formatter<'_>,
+        shared: &SharedMemory<D>,
+    ) -> std::fmt::Result;
     /// Address space (for Metal dialect only).
     fn address_space_for_variable(_variable: &Variable<D>) -> String {
         "".to_string()
@@ -110,8 +115,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let absolute_pos = flags.absolute_pos || unit_pos_plane;
         let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
         let cube_dim = flags.cube_dim;
-        let cube_dim_tuple =
-            flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
+        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
         let unit_pos = flags.unit_pos;
         let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         let cube_count = flags.cube_count;

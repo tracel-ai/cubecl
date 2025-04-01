@@ -4,9 +4,11 @@ use std::fmt::Display;
 use cubecl_core::compute::ConstBinding;
 
 use crate::{
+    Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, SharedMemory, Variable
-    }, Dialect
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
+        DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, SharedMemory, Variable,
+    },
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -122,7 +124,10 @@ impl DialectTypes<Self> for CudaDialect {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, shared: &SharedMemory<Self>) -> std::fmt::Result {
+    fn compile_shared_memory_qualifier(
+        f: &mut std::fmt::Formatter<'_>,
+        shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
         let align = match shared.align {
             Some(alignment) => format!("alignas({alignment})"),
             None => "".to_string(),

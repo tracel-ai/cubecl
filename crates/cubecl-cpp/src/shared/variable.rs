@@ -54,7 +54,6 @@ pub enum Variable<D: Dialect> {
     PlanePos,
     UnitPosPlane,
 
-
     GlobalInputArray(Id, Item<D>),
     GlobalOutputArray(Id, Item<D>),
     GlobalScalar(Id, Elem<D>, gpu::Elem),
@@ -154,7 +153,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::PlaneDimChecked => Item::scalar(Elem::U32, true),
             Variable::PlanePos => Item::scalar(Elem::U32, true),
             Variable::UnitPosPlane => Item::scalar(Elem::U32, true),
-
 
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
@@ -256,7 +254,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::PlaneDimChecked => D::compile_plane_dim_checked(f),
             Variable::PlanePos => D::compile_plane_pos(f),
             Variable::UnitPosPlane => D::compile_unit_pos_plane(f),
-
 
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::LocalArray(id, _, _) => {
@@ -390,7 +387,6 @@ impl<D: Dialect> Variable<D> {
             Variable::PlaneDim => true,
             Variable::PlaneDimChecked => true,
             Variable::PlanePos => true,
-
 
             Variable::Barrier { .. } => false,
             Variable::ConstantArray(_, _, _) => false,
