@@ -230,8 +230,8 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     settings: &Flags,
 ) -> core::fmt::Result {
-    if settings.builtins.absolute_pos_global {
-        let variable = Variable::<D>::AbsolutePosGlobal;
+    if settings.builtins.absolute_pos {
+        let variable = Variable::<D>::AbsolutePos;
         let ty = variable.item();
         let absolute_pos_x = Variable::<D>::AbsolutePosX;
         let absolute_pos_y = Variable::<D>::AbsolutePosY;
@@ -246,8 +246,8 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_dim_global {
-        let variable = Variable::<D>::CubeDimGlobal;
+    if settings.builtins.cube_dim {
+        let variable = Variable::<D>::CubeDim;
         let ty = variable.item();
         let cube_dim_x = Variable::<D>::CubeDimX;
         let cube_dim_y = Variable::<D>::CubeDimY;
@@ -258,8 +258,8 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_count_global {
-        let variable = Variable::<D>::CubeCountGlobal;
+    if settings.builtins.cube_count {
+        let variable = Variable::<D>::CubeCount;
         let ty = variable.item();
         let cube_count_x = Variable::<D>::CubeCountX;
         let cube_count_y = Variable::<D>::CubeCountY;
@@ -270,8 +270,8 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_pos_global {
-        let variable = Variable::<D>::CubePosGlobal;
+    if settings.builtins.cube_pos {
+        let variable = Variable::<D>::CubePos;
         let ty = variable.item();
         let cube_pos_x = Variable::<D>::CubePosX;
         let cube_pos_y = Variable::<D>::CubePosY;

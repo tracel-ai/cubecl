@@ -24,36 +24,36 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
-    AbsolutePosGlobal,
-    AbsolutePos, // base name for XYZ
+    AbsolutePos,
+    AbsolutePosBaseName, // base name for XYZ
     AbsolutePosX,
     AbsolutePosY,
     AbsolutePosZ,
-    UnitPosGlobal,
-    UnitPos, // base name for XYZ
+    UnitPos,
+    UnitPosBaseName, // base name for XYZ
     UnitPosX,
     UnitPosY,
     UnitPosZ,
-    CubePosGlobal,
-    CubePos, // base name for XYZ
+    CubePos,
+    CubePosBaseName, // base name for XYZ
     CubePosX,
     CubePosY,
     CubePosZ,
-    CubeDimGlobal,
-    CubeDim, // base name for XYZ
+    CubeDim,
+    CubeDimBaseName, // base name for XYZ
     CubeDimX,
     CubeDimY,
     CubeDimZ,
-    CubeCountGlobal,
-    CubeCount, // base name for XYZ
+    CubeCount,
+    CubeCountBaseName, // base name for XYZ
     CubeCountX,
     CubeCountY,
     CubeCountZ,
     PlaneDim,
     PlaneDimChecked,
+    PlanePos,
     UnitPosPlane,
 
-    PlaneIndex,
 
     GlobalInputArray(Id, Item<D>),
     GlobalOutputArray(Id, Item<D>),
@@ -105,56 +105,56 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos => Item {
+            Variable::AbsolutePos => Item::scalar(Elem::U32, true),
+            Variable::AbsolutePosBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
                 native: true,
             },
-            Variable::AbsolutePosGlobal => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosX => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosY => Item::scalar(Elem::U32, true),
             Variable::AbsolutePosZ => Item::scalar(Elem::U32, true),
-            Variable::CubeCount => Item {
+            Variable::CubeCount => Item::scalar(Elem::U32, true),
+            Variable::CubeCountBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
                 native: true,
             },
-            Variable::CubeCountGlobal => Item::scalar(Elem::U32, true),
             Variable::CubeCountX => Item::scalar(Elem::U32, true),
             Variable::CubeCountY => Item::scalar(Elem::U32, true),
             Variable::CubeCountZ => Item::scalar(Elem::U32, true),
-            Variable::CubeDim => Item {
+            Variable::CubeDimBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
                 native: true,
             },
-            Variable::CubeDimGlobal => Item::scalar(Elem::U32, true),
+            Variable::CubeDim => Item::scalar(Elem::U32, true),
             Variable::CubeDimX => Item::scalar(Elem::U32, true),
             Variable::CubeDimY => Item::scalar(Elem::U32, true),
             Variable::CubeDimZ => Item::scalar(Elem::U32, true),
-            Variable::CubePos => Item {
+            Variable::CubePos => Item::scalar(Elem::U32, true),
+            Variable::CubePosBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
                 native: true,
             },
-            Variable::CubePosGlobal => Item::scalar(Elem::U32, true),
             Variable::CubePosX => Item::scalar(Elem::U32, true),
             Variable::CubePosY => Item::scalar(Elem::U32, true),
             Variable::CubePosZ => Item::scalar(Elem::U32, true),
-            Variable::UnitPos => Item {
+            Variable::UnitPos => Item::scalar(Elem::U32, true),
+            Variable::UnitPosBaseName => Item {
                 elem: Elem::U32,
                 vectorization: 3,
                 native: true,
             },
-            Variable::UnitPosGlobal => Item::scalar(Elem::U32, true),
             Variable::UnitPosX => Item::scalar(Elem::U32, true),
             Variable::UnitPosY => Item::scalar(Elem::U32, true),
             Variable::UnitPosZ => Item::scalar(Elem::U32, true),
             Variable::PlaneDim => Item::scalar(Elem::U32, true),
             Variable::PlaneDimChecked => Item::scalar(Elem::U32, true),
+            Variable::PlanePos => Item::scalar(Elem::U32, true),
             Variable::UnitPosPlane => Item::scalar(Elem::U32, true),
 
-            Variable::PlaneIndex => Item::scalar(Elem::U32, true),
 
             Variable::GlobalInputArray(_, e) => *e,
             Variable::GlobalOutputArray(_, e) => *e,
@@ -228,35 +228,35 @@ impl<D: Dialect> Display for Variable<D> {
             }
 
             Variable::AbsolutePos => D::compile_absolute_pos(f),
-            Variable::AbsolutePosGlobal => D::compile_absolute_pos_global(f),
+            Variable::AbsolutePosBaseName => D::compile_absolute_pos_base_name(f),
             Variable::AbsolutePosX => D::compile_absolute_pos_x(f),
             Variable::AbsolutePosY => D::compile_absolute_pos_y(f),
             Variable::AbsolutePosZ => D::compile_absolute_pos_z(f),
             Variable::CubeCount => D::compile_cube_count(f),
-            Variable::CubeCountGlobal => D::compile_cube_count_global(f),
+            Variable::CubeCountBaseName => D::compile_cube_count_base_name(f),
             Variable::CubeCountX => D::compile_cube_count_x(f),
             Variable::CubeCountY => D::compile_cube_count_y(f),
             Variable::CubeCountZ => D::compile_cube_count_z(f),
             Variable::CubeDim => D::compile_cube_dim(f),
-            Variable::CubeDimGlobal => D::compile_cube_dim_global(f),
+            Variable::CubeDimBaseName => D::compile_cube_dim_base_name(f),
             Variable::CubeDimX => D::compile_cube_dim_x(f),
             Variable::CubeDimY => D::compile_cube_dim_y(f),
             Variable::CubeDimZ => D::compile_cube_dim_z(f),
             Variable::CubePos => D::compile_cube_pos(f),
-            Variable::CubePosGlobal => D::compile_cube_pos_global(f),
+            Variable::CubePosBaseName => D::compile_cube_pos_base_name(f),
             Variable::CubePosX => D::compile_cube_pos_x(f),
             Variable::CubePosY => D::compile_cube_pos_y(f),
             Variable::CubePosZ => D::compile_cube_pos_z(f),
             Variable::UnitPos => D::compile_unit_pos(f),
-            Variable::UnitPosGlobal => D::compile_unit_pos_global(f),
+            Variable::UnitPosBaseName => D::compile_unit_pos_base_name(f),
             Variable::UnitPosX => D::compile_unit_pos_x(f),
             Variable::UnitPosY => D::compile_unit_pos_y(f),
             Variable::UnitPosZ => D::compile_unit_pos_z(f),
             Variable::PlaneDim => D::compile_plane_dim(f),
             Variable::PlaneDimChecked => D::compile_plane_dim_checked(f),
+            Variable::PlanePos => D::compile_plane_pos(f),
             Variable::UnitPosPlane => D::compile_unit_pos_plane(f),
 
-            Variable::PlaneIndex => D::compile_plane_index(f),
 
             Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
             Variable::LocalArray(id, _, _) => {
@@ -361,36 +361,36 @@ impl<D: Dialect> Variable<D> {
 
     pub fn is_always_scalar(&self) -> bool {
         match self {
-            Variable::AbsolutePos => false,
-            Variable::AbsolutePosGlobal => true,
+            Variable::AbsolutePos => true,
+            Variable::AbsolutePosBaseName => false,
             Variable::AbsolutePosX => true,
             Variable::AbsolutePosY => true,
             Variable::AbsolutePosZ => true,
-            Variable::CubeCount => false,
-            Variable::CubeCountGlobal => true,
+            Variable::CubeCount => true,
+            Variable::CubeCountBaseName => false,
             Variable::CubeCountX => true,
             Variable::CubeCountY => true,
             Variable::CubeCountZ => true,
-            Variable::CubeDim => false,
-            Variable::CubeDimGlobal => true,
+            Variable::CubeDim => true,
+            Variable::CubeDimBaseName => false,
             Variable::CubeDimX => true,
             Variable::CubeDimY => true,
             Variable::CubeDimZ => true,
             Variable::CubePos => true,
-            Variable::CubePosGlobal => true,
+            Variable::CubePosBaseName => true,
             Variable::CubePosX => true,
             Variable::CubePosY => true,
             Variable::CubePosZ => true,
-            Variable::PlaneDim => true,
-            Variable::PlaneDimChecked => true,
             Variable::UnitPos => true,
-            Variable::UnitPosGlobal => true,
+            Variable::UnitPosBaseName => true,
             Variable::UnitPosPlane => true,
             Variable::UnitPosX => true,
             Variable::UnitPosY => true,
             Variable::UnitPosZ => true,
+            Variable::PlaneDim => true,
+            Variable::PlaneDimChecked => true,
+            Variable::PlanePos => true,
 
-            Variable::PlaneIndex => true,
 
             Variable::Barrier { .. } => false,
             Variable::ConstantArray(_, _, _) => false,

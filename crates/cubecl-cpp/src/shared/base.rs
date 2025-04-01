@@ -37,26 +37,26 @@ impl Default for CompilationOptions {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CubeBuiltinFlags {
+pub struct CubeIndexFlags {
     pub absolute_pos: bool,
-    pub absolute_pos_global: bool,
+    pub absolute_pos_tuple: bool,
     pub cube_count: bool,
-    pub cube_count_global: bool,
+    pub cube_count_tuple: bool,
     pub cube_dim: bool,
-    pub cube_dim_global: bool,
+    pub cube_dim_tuple: bool,
     pub cube_pos: bool,
-    pub cube_pos_global: bool,
+    pub cube_pos_tuple: bool,
     pub plane_dim: bool,
     pub plane_dim_checked: bool,
     pub plane_index: bool,
     pub unit_pos: bool,
-    pub unit_pos_global: bool,
+    pub unit_pos_tuple: bool,
     pub unit_pos_plane: bool,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Flags {
-    pub builtins: CubeBuiltinFlags,
+    pub builtins: CubeIndexFlags,
     pub elem_bf16: bool,
     pub elem_f16: bool,
     pub op_barrier: bool,
@@ -585,7 +585,7 @@ impl<D: Dialect> CppCompiler<D> {
                 stride,
                 layout,
             } => {
-                self.flags.builtins.unit_pos_global = true;
+                self.flags.builtins.unit_pos = true;
                 self.flags.builtins.plane_index = true;
                 Instruction::Wmma(WmmaInstruction::Store {
                     output: out,
@@ -1161,83 +1161,83 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
-                    self.flags.builtins.absolute_pos_global = true;
-                    Variable::AbsolutePosGlobal
+                    self.flags.builtins.absolute_pos = true;
+                    Variable::AbsolutePos
                 }
                 gpu::Builtin::AbsolutePosX => {
-                    self.flags.builtins.absolute_pos = true;
+                    self.flags.builtins.absolute_pos_tuple = true;
                     Variable::AbsolutePosX
                 }
                 gpu::Builtin::AbsolutePosY => {
-                    self.flags.builtins.absolute_pos = true;
+                    self.flags.builtins.absolute_pos_tuple = true;
                     Variable::AbsolutePosY
                 }
                 gpu::Builtin::AbsolutePosZ => {
-                    self.flags.builtins.absolute_pos = true;
+                    self.flags.builtins.absolute_pos_tuple = true;
                     Variable::AbsolutePosZ
                 }
                 gpu::Builtin::CubeDim => {
-                    self.flags.builtins.cube_dim_global = true;
-                    Variable::CubeDimGlobal
+                    self.flags.builtins.cube_dim = true;
+                    Variable::CubeDim
                 }
                 gpu::Builtin::CubeDimX => {
-                    self.flags.builtins.cube_dim = true;
+                    self.flags.builtins.cube_dim_tuple = true;
                     Variable::CubeDimX
                 }
                 gpu::Builtin::CubeDimY => {
-                    self.flags.builtins.cube_dim = true;
+                    self.flags.builtins.cube_dim_tuple = true;
                     Variable::CubeDimY
                 }
                 gpu::Builtin::CubeDimZ => {
-                    self.flags.builtins.cube_dim = true;
+                    self.flags.builtins.cube_dim_tuple = true;
                     Variable::CubeDimZ
                 }
                 gpu::Builtin::CubePos => {
-                    self.flags.builtins.cube_pos_global = true;
-                    Variable::CubePosGlobal
+                    self.flags.builtins.cube_pos = true;
+                    Variable::CubePos
                 }
                 gpu::Builtin::CubePosX => {
-                    self.flags.builtins.cube_pos = true;
+                    self.flags.builtins.cube_pos_tuple = true;
                     Variable::CubePosX
                 }
                 gpu::Builtin::CubePosY => {
-                    self.flags.builtins.cube_pos = true;
+                    self.flags.builtins.cube_pos_tuple = true;
                     Variable::CubePosY
                 }
                 gpu::Builtin::CubePosZ => {
-                    self.flags.builtins.cube_pos = true;
+                    self.flags.builtins.cube_pos_tuple = true;
                     Variable::CubePosZ
                 }
                 gpu::Builtin::CubeCount => {
-                    self.flags.builtins.cube_count_global = true;
-                    Variable::CubeCountGlobal
+                    self.flags.builtins.cube_count = true;
+                    Variable::CubeCount
                 }
                 gpu::Builtin::CubeCountX => {
-                    self.flags.builtins.cube_count = true;
+                    self.flags.builtins.cube_count_tuple = true;
                     Variable::CubeCountX
                 }
                 gpu::Builtin::CubeCountY => {
-                    self.flags.builtins.cube_count = true;
+                    self.flags.builtins.cube_count_tuple = true;
                     Variable::CubeCountY
                 }
                 gpu::Builtin::CubeCountZ => {
-                    self.flags.builtins.cube_count = true;
+                    self.flags.builtins.cube_count_tuple = true;
                     Variable::CubeCountZ
                 }
                 gpu::Builtin::UnitPos => {
-                    self.flags.builtins.unit_pos_global = true;
-                    Variable::UnitPosGlobal
+                    self.flags.builtins.unit_pos = true;
+                    Variable::UnitPos
                 }
                 gpu::Builtin::UnitPosX => {
-                    self.flags.builtins.unit_pos = true;
+                    self.flags.builtins.unit_pos_tuple = true;
                     Variable::UnitPosX
                 }
                 gpu::Builtin::UnitPosY => {
-                    self.flags.builtins.unit_pos = true;
+                    self.flags.builtins.unit_pos_tuple = true;
                     Variable::UnitPosY
                 }
                 gpu::Builtin::UnitPosZ => {
-                    self.flags.builtins.unit_pos = true;
+                    self.flags.builtins.unit_pos_tuple = true;
                     Variable::UnitPosZ
                 }
                 gpu::Builtin::PlaneDim => {
@@ -1285,8 +1285,8 @@ impl<D: Dialect> CppCompiler<D> {
                 self.flags.op_barrier = true;
                 match level {
                     gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
-                        self.flags.builtins.cube_dim_global = true;
-                        self.flags.builtins.unit_pos_global = true;
+                        self.flags.builtins.cube_dim = true;
+                        self.flags.builtins.unit_pos = true;
                     }
                     _ => {}
                 }

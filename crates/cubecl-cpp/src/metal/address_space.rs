@@ -63,23 +63,23 @@ impl<D: Dialect> From<&Binding<D>> for AddressSpace {
 impl<D: Dialect> From<&Variable<D>> for AddressSpace {
     fn from(value: &Variable<D>) -> Self {
         match value {
-            Variable::AbsolutePos
+            Variable::AbsolutePosBaseName
             | Variable::AbsolutePosX
             | Variable::AbsolutePosY
             | Variable::AbsolutePosZ
-            | Variable::UnitPos
+            | Variable::UnitPosBaseName
             | Variable::UnitPosX
             | Variable::UnitPosY
             | Variable::UnitPosZ
-            | Variable::CubePos
+            | Variable::CubePosBaseName
             | Variable::CubePosX
             | Variable::CubePosY
             | Variable::CubePosZ
-            | Variable::CubeDim
+            | Variable::CubeDimBaseName
             | Variable::CubeDimX
             | Variable::CubeDimY
             | Variable::CubeDimZ
-            | Variable::CubeCount
+            | Variable::CubeCountBaseName
             | Variable::CubeCountX
             | Variable::CubeCountY
             | Variable::CubeCountZ
