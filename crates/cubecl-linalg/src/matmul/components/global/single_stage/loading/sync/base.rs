@@ -57,7 +57,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> Loader<MP, G>
 #[cube]
 impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> SyncLoader<MP, G, L> {
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
-        L::load::<MP::EI, MP::ES, G>(&this.tensor_view, &mut this.stage, Ident::Lhs, config);
+        L::load::<MP::EI, MP::ES, G>(&this.tensor_view, &mut this.stage, this.ident, config);
     }
 
     pub fn new(

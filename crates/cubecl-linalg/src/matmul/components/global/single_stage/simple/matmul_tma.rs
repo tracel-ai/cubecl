@@ -1,14 +1,12 @@
+use crate::matmul::components::Ident;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::{Config, Loader, loading::AsyncLoader};
+use crate::matmul::components::global::single_stage::{Config, Loader};
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::{
-    MatmulPrecision,
-    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
-};
+use crate::matmul::components::{MatmulPrecision, global::single_stage::TmaLoader};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -116,8 +114,8 @@ where
     SMM: StageMatmul<MP, LL, RL>,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
+    type LhsLoader = TmaLoader<MP, SMM::Config>;
+    type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -186,6 +184,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            Ident::Lhs,
             config,
         )
     }
@@ -203,6 +202,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            Ident::Rhs,
             config,
         )
     }
