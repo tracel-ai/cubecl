@@ -157,11 +157,11 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
         let index = first_index + UNIT_POS_X * range.step;
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
-            BoundChecksInner::Mask => select(
-                index < range.end,
-                items.read(index),
-                R::null_input(line_size),
-            ),
+            BoundChecksInner::Mask => {
+                let mask = index < range.end;
+                let index = index * u32::cast_from(mask);
+                select(mask, items.read(index), R::null_input(line_size))
+            }
             BoundChecksInner::Branch => {
                 if index < range.end {
                     items.read(index)
@@ -219,11 +219,11 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         let index = first_index + UNIT_POS * range.step;
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
-            BoundChecksInner::Mask => select(
-                index < range.end,
-                items.read(index),
-                R::null_input(line_size),
-            ),
+            BoundChecksInner::Mask => {
+                let mask = index < range.end;
+                let index = index * u32::cast_from(mask);
+                select(mask, items.read(index), R::null_input(line_size))
+            }
             BoundChecksInner::Branch => {
                 if index < range.end {
                     items.read(index)

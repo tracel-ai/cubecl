@@ -69,6 +69,7 @@ pub use input_generator::*;
 pub use key_generator::*;
 pub use local::*;
 pub use operation::*;
+pub use tune_benchmark::AutotuneOutput;
 pub use tune_benchmark::*;
 pub use tune_cache::*;
 pub use tuner::*;
