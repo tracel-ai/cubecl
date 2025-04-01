@@ -53,16 +53,19 @@ cfg-if = { workspace = true }
 
 # wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
-# wgpu = { version = "24.0.3", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "24.0.3", features = ["fragile-send-sync-non-atomic-wasm"] }
+# Uncomment if targeting metal through msl feature
+# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
+# For development on wgpu uncomment this one and make it point to your local wgpu repo
+# wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["fragile-send-sync-non-atomic-wasm"]}
 # On macOS, the `vulkan-portability` feature is required due to the MoltenVK translation layer.
 # To install MoltenVK, install the VulkanSDK: https://vulkan.lunarg.com/sdk/home#mac
 [target.'cfg(target_os = "macos")'.dependencies]
-wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
-# wgpu = { version = "24.0.3", features = [
-#     "vulkan-portability",
-#     "fragile-send-sync-non-atomic-wasm",
-# ] }
+wgpu = { version = "24.0.3", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"] }
+# Uncomment if targeting metal through msl feature
+# wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
+# For development on wgpu uncomment this one and make it point to your local wgpu repo
+# wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", features = [
