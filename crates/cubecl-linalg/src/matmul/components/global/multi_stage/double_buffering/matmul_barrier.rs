@@ -1,13 +1,12 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::multi_stage::AsyncBufferLoader;
-use crate::matmul::components::global::multi_stage::BufferLoader;
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
+use crate::matmul::components::global::single_stage::{
+    AsyncLhsLoader, AsyncLoader, AsyncLoadingStrategy, AsyncRhsLoader, Loader,
+};
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::stage::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily};
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -22,18 +21,12 @@ use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::stage::single_buffer::{
-    LhsBufferReaderFamily, RhsBufferReaderFamily,
-};
 use crate::matmul::kernels::MatmulAvailabilityError;
-
-use super::AsyncLhsBufferLoader;
-use super::AsyncRhsBufferLoader;
 
 pub struct DoubleBufferingBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncBufferLoadingStrategy,
-    RL: AsyncBufferLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -42,12 +35,9 @@ pub struct DoubleBufferingBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = LhsBufferReaderFamily,
-            RhsReader = RhsBufferReaderFamily,
-        >,
-    LL: AsyncBufferLoadingStrategy,
-    RL: AsyncBufferLoadingStrategy,
+    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingBarrierMatmul<
         MP,
@@ -60,8 +50,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncBufferLoadingStrategy,
-    RL: AsyncBufferLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = CommonGlobalConfig<SMM::Config>;
@@ -119,8 +109,8 @@ where
 pub struct DoubleBufferingBarrierMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LL: AsyncBufferLoadingStrategy,
-    RL: AsyncBufferLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -134,15 +124,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncBufferLoadingStrategy,
-    RL: AsyncBufferLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = AsyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -169,10 +159,13 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        // Buffer A
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader);
+
+        // Buffer B
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader);
 
         let barrier_level = LL::barrier_level();
         comptime!(assert!(barrier_level == RL::barrier_level()));
@@ -182,23 +175,15 @@ where
         #[allow(clippy::collapsible_if)]
         if comptime!(config.check_k_bounds()) {
             if num_loops == 0 {
-                Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
-                Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
+                // Buffer A
+                Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                Self::RhsLoader::clear_stage(&mut rhs_loader, config);
                 sync_units();
             }
         }
-        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut lhs_loader,
-            &barrier_a,
-            BufferId::A,
-            config,
-        );
-        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut rhs_loader,
-            &barrier_a,
-            BufferId::A,
-            config,
-        );
+        // Buffer A
+        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier_a, config);
+        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier_a, config);
         barrier_a.arrive();
 
         // So it can do the first iteration
@@ -206,18 +191,9 @@ where
 
         for loop_iter in 0..num_loops {
             barrier_b.wait();
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut lhs_loader,
-                &barrier_b,
-                BufferId::B,
-                config,
-            );
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut rhs_loader,
-                &barrier_b,
-                BufferId::B,
-                config,
-            );
+            // Buffer B
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier_b, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier_b, config);
             barrier_b.arrive();
 
             barrier_a.wait();
@@ -251,47 +227,30 @@ where
             #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
-                    Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::A, config);
-                    Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::A, config);
+                    // Buffer A
+                    Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+                    Self::RhsLoader::clear_stage(&mut rhs_loader, config);
                     // TODO can we remove
                     sync_units();
                 }
             }
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut lhs_loader,
-                &barrier_a,
-                BufferId::A,
-                config,
-            );
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut rhs_loader,
-                &barrier_a,
-                BufferId::A,
-                config,
-            );
+            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier_a, config);
+            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier_a, config);
             barrier_a.arrive();
         }
 
         barrier_b.wait();
         #[allow(clippy::collapsible_if)]
         if comptime!(config.check_k_bounds()) {
-            Self::LhsLoader::clear_stage(&mut lhs_loader, BufferId::B, config);
-            Self::RhsLoader::clear_stage(&mut rhs_loader, BufferId::B, config);
+            // Buffer B
+            Self::LhsLoader::clear_stage(&mut lhs_loader, config);
+            Self::RhsLoader::clear_stage(&mut rhs_loader, config);
             // TODO can we remove
             sync_units();
         }
-        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut lhs_loader,
-            &barrier_b,
-            BufferId::B,
-            config,
-        );
-        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut rhs_loader,
-            &barrier_b,
-            BufferId::B,
-            config,
-        );
+        // Buffer B
+        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier_b, config);
+        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier_b, config);
         barrier_b.arrive();
 
         barrier_a.wait();

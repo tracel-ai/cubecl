@@ -8,7 +8,7 @@ use crate::matmul::components::{
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use super::AsyncFullLoadingStrategy;
+use super::AsyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -35,7 +35,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for CyclicWindowLoading<T> {
+impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(

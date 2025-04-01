@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, MatmulPrecision,
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
+    global::single_stage::{Loader, SyncLoader},
+    stage::{ContiguousTilingLayout, LhsReader, RowMajorTilingOrder},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -24,7 +24,7 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
+impl<MP: MatmulPrecision, G: ConvGemmConfig> Loader<MP, G> for SimpleIm2colLoader<MP, G> {
     type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -37,7 +37,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colL
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
+impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncLoader<MP, G> for SimpleIm2colLoader<MP, G> {
     fn fill_stage(this: &mut Self, #[comptime] config: G) {
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,

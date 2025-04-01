@@ -1,22 +1,16 @@
-use super::SyncLhsBufferLoader;
-use super::SyncRhsBufferLoader;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
-use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
-};
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::single_stage::{
+    Loader, SyncLhsLoader, SyncLoader, SyncLoadingStrategy, SyncRhsLoader,
+};
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::StageConfig;
-use crate::matmul::components::stage::StageEvent;
-use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::global::{GlobalMatmulFamily, IndexedQuantization};
+use crate::matmul::components::stage::{LhsReader, RhsReader};
+use crate::matmul::components::stage::{LhsReaderFamily, StageEvent};
+use crate::matmul::components::stage::{RhsReaderFamily, StageEventListener};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
-};
-use crate::matmul::components::{
-    global::{GlobalMatmulFamily, IndexedQuantization},
-    stage::single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -27,8 +21,8 @@ use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -37,12 +31,9 @@ pub struct DoubleBufferingMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = LhsBufferReaderFamily,
-            RhsReader = RhsBufferReaderFamily,
-        >,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
@@ -51,8 +42,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = CommonGlobalConfig<SMM::Config>;
@@ -106,8 +97,8 @@ where
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -121,15 +112,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -162,19 +153,22 @@ where
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        // Buffer A
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader);
+        // Buffer B
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader);
 
-        Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+        // Buffer A
+        Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
         sync_units();
 
         for _ in 1..num_loops {
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_buffer_reader_a,
                 &rhs_buffer_reader_a,
@@ -192,7 +186,7 @@ where
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
             SMM::execute_with_listener::<
-                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+                DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
                 &lhs_buffer_reader_b,
                 &rhs_buffer_reader_b,
@@ -207,7 +201,7 @@ where
         }
 
         SMM::execute_with_listener::<
-            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, SMM::Config>,
+            DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
             &lhs_buffer_reader_a,
             &rhs_buffer_reader_a,
@@ -282,26 +276,26 @@ where
 }
 
 #[derive(CubeType)]
-struct DoubleBufferingEventListener<Lhs: CubeType, Rhs: CubeType, S: StageConfig> {
+struct DoubleBufferingEventListener<Lhs: CubeType, Rhs: CubeType, G: GlobalConfig> {
     #[cube(comptime)]
     buffer_id: BufferId,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
-    config: CommonGlobalConfig<S>,
+    config: G,
 }
 
 #[cube]
-impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
-    DoubleBufferingEventListener<Lhs, Rhs, S>
+impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, G: GlobalConfig>
+    DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
         #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) -> DoubleBufferingEventListener<Lhs, Rhs, S> {
-        DoubleBufferingEventListener::<Lhs, Rhs, S> {
+        #[comptime] config: G,
+    ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
+        DoubleBufferingEventListener::<Lhs, Rhs, G> {
             buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
@@ -319,27 +313,18 @@ fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool
 }
 
 #[cube]
-impl<
-    EG: Numeric,
-    ES: Numeric,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
-    S: StageConfig,
-> StageEventListener
-    for DoubleBufferingEventListener<
-        SyncLhsBufferLoader<EG, ES, S, LL>,
-        SyncRhsBufferLoader<EG, ES, S, RL>,
-        S,
-    >
+impl<MP: MatmulPrecision, LL: SyncLoadingStrategy, RL: SyncLoadingStrategy, G: GlobalConfig>
+    StageEventListener
+    for DoubleBufferingEventListener<SyncLhsLoader<MP, G, LL>, SyncRhsLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::TmmCompleted { current, total } = event {
             if comptime![should_handle_event_ratio(0.25, current, total)] {
-                SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
+                SyncLhsLoader::fill_stage(&mut this.loader_lhs, this.config);
             }
 
             if comptime![should_handle_event_ratio(0.5, current, total)] {
-                SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
+                SyncRhsLoader::fill_stage(&mut this.loader_rhs, this.config);
             }
         };
     }

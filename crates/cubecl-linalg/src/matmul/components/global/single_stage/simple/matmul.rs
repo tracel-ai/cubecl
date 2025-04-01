@@ -4,14 +4,10 @@ use crate::matmul::components::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
         single_stage::{
-            Config, FullLoader, SyncFullLhsLoader, SyncFullLoader, SyncFullLoadingStrategy,
-            SyncFullRhsLoader,
+            Config, Loader, SyncLhsLoader, SyncLoader, SyncLoadingStrategy, SyncRhsLoader,
         },
     },
-    stage::{
-        StageMatmul,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{LhsReader, RhsReader, StageMatmul},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -23,18 +19,15 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, LhsReaderFamily, RhsReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
 
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -44,8 +37,8 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SimpleMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
@@ -54,8 +47,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -104,8 +97,8 @@ where
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -121,12 +114,12 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncFullLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = SyncFullRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = SyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -203,7 +196,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -214,7 +207,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(

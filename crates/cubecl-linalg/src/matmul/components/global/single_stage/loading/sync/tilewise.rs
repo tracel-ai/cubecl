@@ -8,7 +8,7 @@ use crate::matmul::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::SyncFullLoadingStrategy;
+use super::SyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
@@ -46,10 +46,10 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> SyncLoadingStrategy for TilewiseCoalescedLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,

@@ -1,22 +1,18 @@
+use crate::matmul::components::global::single_stage::Loader;
+use crate::matmul::components::global::single_stage::SyncLoader;
 use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        multi_stage::{
-            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
-        },
         output_loader::Unloader,
+        single_stage::{SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader},
     },
-    stage::{
-        StageMatmul,
-        single_buffer::{LhsBufferReader, RhsBufferReader},
-    },
+    stage::{LhsReader, RhsReader, StageMatmul},
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -27,18 +23,15 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
-        },
+        stage::{self, LhsReaderFamily, RhsReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
 
 pub struct SpecializedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -47,12 +40,9 @@ pub struct SpecializedMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = LhsBufferReaderFamily,
-            RhsReader = RhsBufferReaderFamily,
-        >,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SpecializedMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
@@ -61,8 +51,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SpecializedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -123,8 +113,8 @@ where
 pub struct SpecializedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -138,15 +128,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -180,14 +170,18 @@ where
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
+        // Buffer A
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader);
+        // Buffer B
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader);
 
         for _ in 0..num_loops {
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+            // Buffer A
+            // TODO if is_producer (it was removed from within loader)
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -203,8 +197,10 @@ where
                 );
             }
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            // Buffer B
+            // TODO if is_producer (it was removed from within loader)
+            Self::LhsLoader::fill_stage(&mut lhs_loader, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             sync_units();
 
@@ -243,14 +239,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -261,14 +250,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            config,
-        )
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(
@@ -295,11 +277,11 @@ impl<
     MP: MatmulPrecision,
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
+            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: SyncBufferLoadingStrategy,
-    RL: SyncBufferLoadingStrategy,
+    LL: SyncLoadingStrategy,
+    RL: SyncLoadingStrategy,
 > SpecializedMatmul<MP, SMM, LL, RL>
 {
     fn is_consumer(#[comptime] config: <Self as GlobalMatmul<MP>>::Config) -> bool {

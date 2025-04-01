@@ -4,14 +4,10 @@ use crate::matmul::components::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
         single_stage::{
-            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-            FullLoader,
+            AsyncLhsLoader, AsyncLoader, AsyncLoadingStrategy, AsyncRhsLoader, Config, Loader,
         },
     },
-    stage::{
-        StageMatmul,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{LhsReader, RhsReader, StageMatmul},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -26,18 +22,15 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, LhsReaderFamily, RhsReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
 
 pub struct SimplePipelinedMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -47,8 +40,8 @@ pub struct SimplePipelinedMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SimplePipelinedMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
@@ -57,8 +50,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -113,8 +106,8 @@ where
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -130,12 +123,12 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -222,7 +215,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -233,7 +226,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(

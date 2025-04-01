@@ -7,17 +7,17 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
+use crate::matmul::components::global::single_stage::{Loader, SyncLoader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        single_stage::{self, CyclicCoalescedLoading, SyncRhsLoader},
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
-        multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+        self, ContiguousTilingLayout, LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily,
+        RowMajorTilingOrder, StageMatmulFamily,
     },
 };
 use crate::{
@@ -65,8 +65,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader =
-        SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;

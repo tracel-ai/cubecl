@@ -4,14 +4,14 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncFullLoader;
-use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::single_stage::AsyncLhsLoader;
+use crate::matmul::components::global::single_stage::AsyncLoader;
+use crate::matmul::components::global::single_stage::AsyncLoadingStrategy;
 use crate::matmul::components::global::single_stage::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::single_stage::FullLoader;
+use crate::matmul::components::global::single_stage::Loader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::{LhsReader, RhsReader};
 
 use barrier::Barrier;
 use cubecl_core::Feature;
@@ -25,10 +25,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, LhsReaderFamily, RhsReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -36,8 +33,8 @@ use cubecl_std::CubeOption;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -47,8 +44,8 @@ pub struct SimpleBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> =
         SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
@@ -57,8 +54,8 @@ where
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Input = SMM::Input;
     type Config = Config<SMM::Config>;
@@ -113,8 +110,8 @@ where
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -130,12 +127,12 @@ where
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
-    LL: AsyncFullLoadingStrategy,
-    RL: AsyncFullLoadingStrategy,
+    LL: AsyncLoadingStrategy,
+    RL: AsyncLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP, Self::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -217,7 +214,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_rhs_loader(
@@ -228,7 +225,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
     }
 
     fn init_unloader(

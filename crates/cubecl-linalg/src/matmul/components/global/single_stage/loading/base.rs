@@ -9,9 +9,7 @@ use crate::matmul::components::{
 #[cube]
 /// Input to the global matmul, responsible of filling the stage and providing a reader for it.
 /// Advances along the k-dimension to fill the stage with further data.
-pub trait FullLoader<MP: MatmulPrecision, G: GlobalConfig>:
-    CubeType + 'static + Send + Sync
-{
+pub trait Loader<MP: MatmulPrecision, G: GlobalConfig>: CubeType + 'static + Send + Sync {
     /// The stage reader which matches the input of the underlying stage matmul.
     type StageReader: CubeType;
 
@@ -23,13 +21,13 @@ pub trait FullLoader<MP: MatmulPrecision, G: GlobalConfig>:
 }
 
 #[cube]
-pub trait SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
+pub trait SyncLoader<MP: MatmulPrecision, G: GlobalConfig>: Loader<MP, G> {
     /// Fills the stage at the current k offset.
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
-pub trait AsyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
+pub trait AsyncLoader<MP: MatmulPrecision, G: GlobalConfig>: Loader<MP, G> {
     /// Fills the stage at the current k offset.
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,

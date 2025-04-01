@@ -1,13 +1,13 @@
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
+    Config, Loader, loading::AsyncLoader,
 };
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::{LhsReader, RhsReader};
 use crate::matmul::components::{
     MatmulPrecision,
     global::single_stage::{TmaLhsLoader, TmaRhsLoader},
@@ -27,10 +27,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, LhsReaderFamily, RhsReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };

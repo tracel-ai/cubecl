@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{self, AsyncFullLoader, FullLoader};
+use crate::matmul::components::global::single_stage::{AsyncLoader, Loader};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{LhsReader, RhsReader};
+use crate::matmul::components::stage::{Stage, TilingLayout};
 use crate::matmul::components::{Ident, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -12,7 +12,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
@@ -29,55 +29,32 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     fn barrier_level() -> BarrierLevel;
 }
 
-#[cube]
-pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
-    type TilingLayout: TilingLayout;
-
-    /// Load the stage only at the buffer identified by buffer_index
-    fn load_buffer<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EI>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
-        mechanism: &CM,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    );
-
-    /// The barrier level at which the copy mechanism works
-    fn barrier_level() -> BarrierLevel;
-}
-
 #[derive(CubeType)]
-pub struct AsyncLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
+pub struct AsyncLhsLoader<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
-    _config: PhantomData<S>,
-    #[cube(comptime)]
-    _loading: PhantomData<L>,
+    _phantom: PhantomData<(G, L)>,
 }
 
 #[derive(CubeType)]
-pub struct AsyncRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
+pub struct AsyncRhsLoader<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
-    _config: PhantomData<S>,
-    #[cube(comptime)]
-    _loading: PhantomData<L>,
+    _phantom: PhantomData<(G, L)>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncFullLoader<MP, single_stage::Config<S>> for AsyncLhsLoader<MP, S, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLoader<MP, G>
+    for AsyncLhsLoader<MP, G, L>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: G,
     ) {
-        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>, CM>(
+        L::load_full::<MP::EI, MP::ES, G, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -86,14 +63,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+    fn clear_stage(this: &mut Self, #[comptime] config: G) {
+        this.stage
+            .clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config())
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    FullLoader<MP, single_stage::Config<S>> for AsyncLhsLoader<MP, S, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> Loader<MP, G>
+    for AsyncLhsLoader<MP, G, L>
 {
     type StageReader = LhsReader<MP::ES, L::TilingLayout>;
 
@@ -107,10 +85,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncLhsLoader<MP, S, L>
-{
-    pub fn new<G: global::GlobalConfig>(
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLhsLoader<MP, G, L> {
+    pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
@@ -130,18 +106,17 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
 
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncLhsLoader::<MP, S, L> {
+        AsyncLhsLoader::<MP, G, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>,
-            _loading: PhantomData::<L>,
+            _phantom: PhantomData::<(G, L)>,
         }
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    FullLoader<MP, single_stage::Config<S>> for AsyncRhsLoader<MP, S, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> Loader<MP, G>
+    for AsyncRhsLoader<MP, G, L>
 {
     type StageReader = RhsReader<MP::ES, L::TilingLayout>;
 
@@ -155,15 +130,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncFullLoader<MP, single_stage::Config<S>> for AsyncRhsLoader<MP, S, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLoader<MP, G>
+    for AsyncRhsLoader<MP, G, L>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
         mechanism: &CM,
-        #[comptime] config: single_stage::Config<S>,
+        #[comptime] config: G,
     ) {
-        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>, CM>(
+        L::load_full::<MP::EI, MP::ES, G, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -172,16 +147,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         );
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
+    fn clear_stage(this: &mut Self, #[comptime] config: G) {
+        this.stage
+            .clear::<G::SmmConfig>(Ident::Rhs, config.to_smm_config())
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncRhsLoader<MP, S, L>
-{
-    pub fn new<G: global::GlobalConfig>(
+impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncRhsLoader<MP, G, L> {
+    pub fn new(
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
@@ -201,11 +175,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
 
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncRhsLoader::<MP, S, L> {
+        AsyncRhsLoader::<MP, G, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>,
-            _loading: PhantomData::<L>,
+            _phantom: PhantomData::<(G, L)>,
         }
     }
 }

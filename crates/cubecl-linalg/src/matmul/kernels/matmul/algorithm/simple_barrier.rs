@@ -5,13 +5,13 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
-    global::{self, single_stage::AsyncFullLoadingStrategy},
+    global::{self, single_stage::AsyncLoadingStrategy},
     stage, tile,
 };
 
 pub struct SimpleBarrierAlgorithm<
     TMM,
-    L: AsyncFullLoadingStrategy,
+    L: AsyncLoadingStrategy,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _tmm: PhantomData<TMM>,
@@ -22,7 +22,7 @@ pub struct SimpleBarrierAlgorithm<
 impl<TMM, L, Dispatch> base::Algorithm for SimpleBarrierAlgorithm<TMM, L, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
-    L: AsyncFullLoadingStrategy,
+    L: AsyncLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;

@@ -5,7 +5,7 @@ use crate::matmul::components::{Ident, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::SyncFullLoadingStrategy;
+use super::SyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
@@ -32,10 +32,10 @@ impl LoadingValidation for StridedCoalescedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for StridedCoalescedLoading {
+impl SyncLoadingStrategy for StridedCoalescedLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         #[comptime] ident: Ident,

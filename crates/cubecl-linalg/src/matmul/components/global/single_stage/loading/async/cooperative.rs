@@ -9,7 +9,7 @@ use crate::matmul::components::{
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use super::AsyncFullLoadingStrategy;
+use super::AsyncLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without modification,  
@@ -25,7 +25,7 @@ impl LoadingValidation for WindowCooperativeLoading {
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for WindowCooperativeLoading {
+impl AsyncLoadingStrategy for WindowCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(

@@ -10,13 +10,10 @@ use crate::matmul::components::{
     Ident,
     global::{
         self, GlobalConfig,
-        single_stage::{self, AsyncFullLoader, FullLoader},
+        single_stage::{self, AsyncLoader, Loader},
         tensor_view::MappedTensorReader,
     },
-    stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{self, ContiguousTilingLayout, LhsReader, RhsReader, RowMajorTilingOrder, Stage},
 };
 
 #[derive(CubeType)]
@@ -38,7 +35,7 @@ pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncLoader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
@@ -71,7 +68,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> Loader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
     type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -109,7 +106,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> Loader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
     type StageReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
@@ -124,7 +121,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Co
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncLoader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
