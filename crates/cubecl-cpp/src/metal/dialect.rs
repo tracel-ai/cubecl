@@ -556,8 +556,8 @@ impl DialectInstructions<Self> for MslDialect {
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
-        format_string: &String,
-        args: &Vec<Variable<Self>>,
+        format_string: &str,
+        args: &[Variable<Self>],
     ) -> std::fmt::Result {
         let format_string = format_string
             .replace("\t", "\\t")

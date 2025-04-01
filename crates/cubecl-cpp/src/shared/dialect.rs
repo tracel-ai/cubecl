@@ -407,8 +407,8 @@ pub trait DialectInstructions<D: Dialect> {
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
-        format_string: &String,
-        args: &Vec<Variable<D>>,
+        format_string: &str,
+        args: &[Variable<D>],
     ) -> std::fmt::Result {
         let format_string = format_string
             .replace("\t", "\\t")
