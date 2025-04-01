@@ -263,7 +263,7 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncProxyShared => {
-                    self.tma = true;
+                    self.flags.inst_tma = true;
                     instructions.push(Instruction::ProxySharedFence)
                 }
             },
@@ -504,7 +504,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             },
             gpu::Operation::Tma(tma_ops) => {
-                self.tma = true;
+                self.flags.inst_tma = true;
                 match tma_ops {
                     gpu::TmaOps::MemCopyAsyncTensorToGlobal {
                         source,
@@ -1118,7 +1118,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
             gpu::VariableKind::TensorMap(id) => {
-                self.tma = true;
+                self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
             gpu::VariableKind::LocalMut { id } => Variable::LocalMut {

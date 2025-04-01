@@ -1,4 +1,4 @@
-use super::{Body, Component, Dialect, Elem, Flags, Item, Variable};
+use super::{Body, Component, Dialect, Flags, Item, Variable};
 use cubecl_core::{
     CubeDim,
     compute::{ConstBinding, Location, Visibility},
@@ -92,74 +92,18 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 
         // Kernel signature --------------------------------------------------
         D::compile_kernel_signature(
+            f,
+            &self.kernel_name,
+            &self.constants,
+            &self.inputs,
+            &self.outputs,
+            &self.named,
+            &self.flags,
+        )?;
 
         // Body --------------------------------------------------------------
         f.write_str(" {")?;
         compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
-=======
-        let num_bindings =
-            self.constants.len() + self.inputs.len() + self.outputs.len() + self.named.len();
-        let mut binding_index = 0;
-        for (index, binding) in self.constants.iter().enumerate() {
-            binding_index += 1;
-            match binding {
-                ConstBinding::TensorMap => {
-                    write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
-                }
-            }
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-        for (index, binding) in self.inputs.iter().enumerate() {
-            binding_index += 1;
-            match binding.vis {
-                Visibility::Read => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
-                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                    // we should have multiple pointer types to enable that optimization.
-                    //
-                    // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
-                }
-                Visibility::ReadWrite => {
-                    write!(f, "{} input_{}[]", binding.item, index)?;
-                }
-            }
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-        for (index, binding) in self.outputs.iter().enumerate() {
-            binding_index += 1;
-            write!(f, "{} output_{}[]", binding.item, index)?;
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-        for (name, binding) in self.named.iter() {
-            binding_index += 1;
-
-            match binding.vis {
-                Visibility::Read => {
-                    write!(f, "{} {}[]", binding.item, name)?;
-                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                    // we should have multiple pointer types to enable that optimization.
-                    //
-                    // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
-                }
-                Visibility::ReadWrite => {
-                    write!(f, "{} {}[]", binding.item, name)?;
-                }
-            }
-
-            if binding_index < num_bindings {
-                f.write_str(",")?;
-            }
-        }
-
-        f.write_str("\n) {")?;
-
->>>>>>> origin/main
         write!(f, "{}", self.body)?;
         f.write_str("\n}")?;
 
@@ -212,12 +156,26 @@ struct __align__({alignment}) {item} {{"
 
 pub fn compile_bindings<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
+    constants: &[ConstBinding],
     inputs: &[Binding<D>],
     outputs: &[Binding<D>],
     named: &[(String, Binding<D>)],
 ) -> std::fmt::Result {
-    let num_bindings = inputs.len() + outputs.len() + named.len();
+    let num_bindings = constants.len() + inputs.len() + outputs.len() + named.len();
     let mut binding_index = 0;
+    for (index, binding) in constants.iter().enumerate() {
+        binding_index += 1;
+        match binding {
+            ConstBinding::TensorMap => {
+                write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
+            }
+        }
+        if binding_index < num_bindings {
+            f.write_str(",")?;
+        }
+    }
+    f.write_str("\n) {")?;
+
     for (index, binding) in inputs.iter().enumerate() {
         binding_index += 1;
         match binding.vis {
@@ -236,6 +194,7 @@ pub fn compile_bindings<D: Dialect>(
             f.write_str(",")?;
         }
     }
+
     for (index, binding) in outputs.iter().enumerate() {
         binding_index += 1;
         write!(f, "{} output_{}[]", binding.item, index)?;
@@ -243,6 +202,7 @@ pub fn compile_bindings<D: Dialect>(
             f.write_str(",")?;
         }
     }
+
     for (name, binding) in named.iter() {
         binding_index += 1;
 

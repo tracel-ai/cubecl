@@ -18,7 +18,7 @@ impl<D: Dialect> Display for Body<D> {
             let item = &shared.item;
             let index = &shared.index;
             let size = &shared.size;
-            D::compile_shared_memory_qualifier(f)?;
+            D::compile_shared_memory_qualifier(f, shared)?;
             writeln!(f, " {item} shared_memory_{index}[{size}];",)?;
         }
 

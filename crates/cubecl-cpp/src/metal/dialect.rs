@@ -2,15 +2,11 @@ use core::panic;
 use std::fmt::Display;
 
 use crate::{
-    Dialect,
     shared::{
-        self, AtomicKind, Binding, Component, CubeBuiltinFlags, DialectBindings,
-        DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes,
-        DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
-        Instruction, Item, SupportedWmmaCombinations, Variable, WmmaInstruction,
-    },
+        self, AtomicKind, Binding, Component, CubeBuiltinFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations, Variable, WmmaInstruction
+    }, Dialect
 };
-use cubecl_core::ir::{self as gpu};
+use cubecl_core::{compute::ConstBinding, ir::{self as gpu}};
 
 use super::{
     AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
@@ -168,7 +164,7 @@ struct alignas({alignment}) {item} {{"
         write!(f, "thread")
     }
 
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, _shared: &SharedMemory<Self>) -> std::fmt::Result {
         write!(f, "threadgroup")
     }
 }
@@ -179,6 +175,7 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
+        _constants: &[ConstBinding],
         inputs: &[Binding<Self>],
         outputs: &[Binding<Self>],
         named: &[(String, Binding<Self>)],

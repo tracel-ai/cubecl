@@ -60,6 +60,7 @@ pub enum Variable<D: Dialect> {
     GlobalScalar(Id, Elem<D>, gpu::Elem),
     ConstantArray(Id, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
+    TensorMap(Id),
     LocalMut {
         id: Id,
         item: Item<D>,
@@ -170,6 +171,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { id: _, item } => *item,
             Variable::Barrier { id: _, item, .. } => *item,
+            Variable::TensorMap(_) => unreachable!(),
         }
     }
 
@@ -184,6 +186,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("in_{number}")),
 
             Variable::GlobalOutputArray(number, _) => write!(f, "out_{number}"),
+            Variable::TensorMap(id) => write!(f, "constant_{id}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
             Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
@@ -193,8 +196,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
-            // We do the conversion in Rust and then render the number to avoid overflow or other
-            // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
@@ -406,6 +407,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Slice { .. } => false,
             Variable::Tmp { .. } => false,
             Variable::WmmaFragment { .. } => false,
+            Variable::TensorMap { .. } => false,
         }
     }
 

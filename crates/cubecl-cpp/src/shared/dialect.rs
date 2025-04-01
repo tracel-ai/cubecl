@@ -1,12 +1,12 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
+use cubecl_core::compute::ConstBinding;
+
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, CubeBuiltinFlags, Elem, Flags, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, SupportedWmmaCombinations, Variable,
-    WmmaInstruction,
+    Architecture, AtomicKind, Binding, Component, CubeBuiltinFlags, Elem, Flags, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations, Variable, WmmaInstruction
 };
 
 // Base dialect
@@ -73,7 +73,7 @@ pub trait DialectTypes<D: Dialect> {
         flags: &Flags,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, shared: &SharedMemory<D>) -> std::fmt::Result;
     /// Address space (for Metal dialect only).
     fn address_space_for_variable(_variable: &Variable<D>) -> String {
         "".to_string()
@@ -86,6 +86,7 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
+        constants: &[ConstBinding],
         inputs: &[Binding<D>],
         outputs: &[Binding<D>],
         named: &[(String, Binding<D>)],

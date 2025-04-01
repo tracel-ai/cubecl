@@ -1,7 +1,9 @@
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use crate::shared::{DialectInstructions, Instruction, Variable};
+use cubecl_core::compute::ConstBinding;
+
+use crate::shared::{DialectInstructions, Instruction, SharedMemory, Variable};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -86,13 +88,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
             shared::Elem::BF16 => f.write_str("hip_bfloat16"),
             shared::Elem::BF162 => f.write_str("hip_bfloat16"),
             shared::Elem::TF32 => f.write_str("float"),
-            shared::Elem::I8 => f.write_str("char"),
-            shared::Elem::I16 => f.write_str("short"),
-            shared::Elem::I32 => f.write_str("int"),
+            shared::Elem::I8 => f.write_str("int8"),
+            shared::Elem::I16 => f.write_str("int16"),
+            shared::Elem::I32 => f.write_str("int32"),
             shared::Elem::I64 => f.write_str("int64"),
             shared::Elem::U8 => f.write_str("uint8"),
             shared::Elem::U16 => f.write_str("uint16"),
-            shared::Elem::U32 => f.write_str("uint"),
+            shared::Elem::U32 => f.write_str("uint32"),
             shared::Elem::U64 => f.write_str("uint64"),
             shared::Elem::Bool => f.write_str("bool"),
             shared::Elem::Atomic(inner) => inner.fmt(f),
@@ -111,7 +113,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn compile_shared_memory_qualifier(f: &mut std::fmt::Formatter<'_>, _shared: &SharedMemory<Self>) -> std::fmt::Result {
         write!(f, "__shared__")
     }
 }
@@ -122,6 +124,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
+        constants:  &[ConstBinding],
         inputs: &[Binding<Self>],
         outputs: &[Binding<Self>],
         named: &[(String, Binding<Self>)],
@@ -135,7 +138,7 @@ extern \"C\" __global__ void {}(
 ",
             kernel_name
         )?;
-        shared::compile_bindings::<Self>(f, inputs, outputs, named)?;
+        shared::compile_bindings::<Self>(f, constants, inputs, outputs, named)?;
         f.write_str("\n)")
     }
 }
