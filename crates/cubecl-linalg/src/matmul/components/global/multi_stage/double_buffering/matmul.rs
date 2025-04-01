@@ -1,7 +1,5 @@
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::{
-    Loader, SyncLhsLoader, SyncLoader, SyncLoadingStrategy, SyncRhsLoader,
-};
+use crate::matmul::components::global::single_stage::{Loader, SyncLoader, SyncLoadingStrategy};
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::global::{GlobalMatmulFamily, IndexedQuantization};
@@ -113,8 +111,8 @@ where
     RL: SyncLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncLhsLoader<MP, Self::Config, LL>;
-    type RhsLoader = SyncRhsLoader<MP, Self::Config, RL>;
+    type LhsLoader = SyncLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -236,7 +234,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config)
     }
 
     fn init_rhs_loader(
@@ -247,7 +245,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, Ident::Rhs, config)
     }
 
     fn init_unloader(
@@ -305,16 +303,16 @@ fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool
 #[cube]
 impl<MP: MatmulPrecision, LL: SyncLoadingStrategy, RL: SyncLoadingStrategy, G: GlobalConfig>
     StageEventListener
-    for DoubleBufferingEventListener<SyncLhsLoader<MP, G, LL>, SyncRhsLoader<MP, G, RL>, G>
+    for DoubleBufferingEventListener<SyncLoader<MP, G, LL>, SyncLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::TmmCompleted { current, total } = event {
             if comptime![should_handle_event_ratio(0.25, current, total)] {
-                SyncLhsLoader::fill_stage(&mut this.loader_lhs, this.config);
+                SyncLoader::fill_stage(&mut this.loader_lhs, this.config);
             }
 
             if comptime![should_handle_event_ratio(0.5, current, total)] {
-                SyncRhsLoader::fill_stage(&mut this.loader_rhs, this.config);
+                SyncLoader::fill_stage(&mut this.loader_rhs, this.config);
             }
         };
     }

@@ -21,12 +21,6 @@ pub trait Loader<MP: MatmulPrecision, G: GlobalConfig>: CubeType + 'static + Sen
 }
 
 #[cube]
-pub trait SyncLoader<MP: MatmulPrecision, G: GlobalConfig>: Loader<MP, G> {
-    /// Fills the stage at the current k offset.
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
-}
-
-#[cube]
 pub trait AsyncLoader<MP: MatmulPrecision, G: GlobalConfig>: Loader<MP, G> {
     /// Fills the stage at the current k offset.
     fn fill_stage<CM: CopyMechanism<MP::ES>>(

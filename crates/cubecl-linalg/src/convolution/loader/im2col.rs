@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, MatmulPrecision,
-    global::single_stage::{Loader, SyncLoader},
+    global::single_stage::Loader,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageReader},
 };
 use crate::{
@@ -40,8 +40,8 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> Loader<MP, G> for SimpleIm2colLoade
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    fn fill_stage(this: &mut Self, #[comptime] config: G) {
+impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
+    pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
@@ -49,10 +49,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncLoader<MP, G> for SimpleIm2colL
             config,
         );
     }
-}
 
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         shape_out_y: u32,

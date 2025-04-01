@@ -6,20 +6,20 @@ use crate::matmul::components::stage::{Buffering, NoEvent, StageEvent, StageEven
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
-use crate::matmul::components::{global, stage::StageWriter, tile, Ident, MatmulProblem};
 use crate::matmul::components::{
     CompleteStageTiling, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulSize,
 };
+use crate::matmul::components::{Ident, MatmulProblem, global, stage::StageWriter, tile};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use core::any::TypeId;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_reduce::ReduceInstruction;
 use cubecl_reduce::instructions::MaxAbs;
+use cubecl_reduce::primitives::ReduceRange;
 use cubecl_reduce::primitives::reduce_slice_shared;
 use cubecl_reduce::primitives::reduce_tree;
-use cubecl_reduce::primitives::ReduceRange;
-use cubecl_reduce::ReduceInstruction;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::staging::StageReader;

@@ -13,7 +13,7 @@ use crate::matmul::components::{
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncRhsLoader},
+        single_stage::{self, CyclicCoalescedLoading},
     },
     stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily},
 };
@@ -61,7 +61,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncRhsLoader<MP, Self::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncLoader<MP, Self::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;
@@ -151,7 +151,7 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, Ident::Rhs, config)
     }
 
     fn init_bias_loader(
