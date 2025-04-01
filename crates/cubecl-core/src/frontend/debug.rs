@@ -56,6 +56,7 @@ pub fn debug_source_expand(
 
 /// Registers name for an expand if possible
 #[track_caller]
+#[inline(never)]
 pub fn debug_var_expand<E: CubeDebug>(scope: &mut Scope, name: &'static str, expand: E) -> E {
     expand.set_debug_name(scope, name);
     expand

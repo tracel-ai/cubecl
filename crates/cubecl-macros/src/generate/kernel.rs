@@ -34,19 +34,19 @@ impl KernelFn {
             KernelBody::Block(block) => &block.to_tokens(&mut self.context),
             KernelBody::Verbatim(tokens) => tokens,
         };
-        let name = &self.full_name;
-        let debug_source = quote_spanned! {self.span=>
-            #debug_source(context, #name, file!(), #source_text, line!(), column!())
-        };
-        let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
-            let name_str = name.to_string();
-            quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
-        });
+        // let name = &self.full_name;
+        // let debug_source = quote_spanned! {self.span=>
+        //     #debug_source(context, #name, file!(), #source_text, line!(), column!())
+        // };
+        // let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
+        //     let name_str = name.to_string();
+        //     // quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
+        // });
 
         let out = quote! {
             #vis #sig {
                 #debug_source;
-                #(#debug_params)*
+                // #(#debug_params)*
                 use #prelude_path::IntoRuntime as _;
 
                 #body

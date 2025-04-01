@@ -96,7 +96,7 @@ impl<C: CubePrimitive> Init for PipelineExpand<C> {
 }
 
 impl<C: CubePrimitive> CubeDebug for PipelineExpand<C> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &mut Scope, name: &str) {
         scope.update_variable_name(*self.elem, name);
     }
 }

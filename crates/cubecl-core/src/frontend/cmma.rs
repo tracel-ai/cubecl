@@ -95,7 +95,7 @@ impl<C: CubeType> Init for MatrixExpand<C> {
 }
 
 impl<C: CubeType> CubeDebug for MatrixExpand<C> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &mut Scope, name: &str) {
         scope.update_variable_name(*self.elem, name);
     }
 }

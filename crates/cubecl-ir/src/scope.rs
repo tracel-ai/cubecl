@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, rc::Rc, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
 use core::{any::TypeId, cell::RefCell};
 use hashbrown::{HashMap, HashSet};
 
@@ -48,7 +48,7 @@ pub struct Scope {
 pub struct DebugInfo {
     pub enabled: bool,
     pub sources: Rc<RefCell<HashSet<CubeFnSource>>>,
-    pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
+    pub variable_names: Rc<RefCell<HashMap<Variable, String>>>,
     pub source_loc: Option<SourceLoc>,
     pub entry_loc: Option<SourceLoc>,
 }
@@ -469,7 +469,7 @@ impl Scope {
         }
     }
 
-    pub fn update_variable_name(&self, variable: Variable, name: impl Into<Cow<'static, str>>) {
+    pub fn update_variable_name(&self, variable: Variable, name: impl Into<String>) {
         if self.debug.enabled {
             self.debug
                 .variable_names

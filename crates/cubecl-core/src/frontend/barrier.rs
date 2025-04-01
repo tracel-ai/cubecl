@@ -32,7 +32,7 @@ impl<C: CubePrimitive> Init for BarrierExpand<C> {
 }
 
 impl<C: CubePrimitive> CubeDebug for BarrierExpand<C> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &mut Scope, name: &str) {
         scope.update_variable_name(*self.elem, name);
     }
 }
@@ -58,7 +58,7 @@ impl Init for BarrierLevel {
 }
 
 impl CubeDebug for BarrierLevel {
-    fn set_debug_name(&self, _scope: &mut Scope, _name: &'static str) {}
+    fn set_debug_name(&self, _scope: &mut Scope, _name: &str) {}
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]

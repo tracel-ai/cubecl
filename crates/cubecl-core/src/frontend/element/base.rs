@@ -57,7 +57,7 @@ pub trait CubeDebug: Sized {
     /// Set the debug name of this type's expansion. Should do nothing for types that don't appear
     /// at runtime
     #[allow(unused)]
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
+    fn set_debug_name(&self, scope: &mut Scope, name: &str) {}
 }
 
 /// A type that can be used as a kernel comptime argument.
@@ -248,7 +248,7 @@ impl<T: ExpandElementBaseInit> Init for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &mut Scope, name: &str) {
         scope.update_variable_name(*self.expand, name);
     }
 }

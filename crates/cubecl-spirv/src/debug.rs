@@ -16,8 +16,6 @@
 //! All debug instructions are deduplicated to ensure minimal binary size when functions are called
 //! in a loop or other similar situations.
 
-use std::borrow::Cow;
-
 use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
 use hashbrown::HashMap;
 use rspirv::{
@@ -449,7 +447,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
+    pub fn name_of_var(&mut self, var: Variable) -> String {
         let var_names = self.opt.root_scope.debug.variable_names.clone();
         let debug_name = var_names.borrow().get(&var).cloned();
         debug_name.unwrap_or_else(|| var.to_string().into())

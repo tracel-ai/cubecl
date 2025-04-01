@@ -775,7 +775,7 @@ mod __input {
         }
     }
     impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug for TensorInputExpand<EI, EO, GA> {
-        fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        fn set_debug_name(&self, scope: &mut Scope, name: &str) {
             self.state.set_debug_name(scope, name);
         }
     }
@@ -816,7 +816,7 @@ mod __output {
     }
 
     impl<EI: Numeric, EO: Numeric, GA: MatmulArgs> CubeDebug for TensorOutputExpand<EI, EO, GA> {
-        fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+        fn set_debug_name(&self, scope: &mut Scope, name: &str) {
             self.state.set_debug_name(scope, name);
         }
     }

@@ -122,7 +122,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     #[cfg(autotune_persistent_cache)]
                     results,
                     #[cfg(feature = "autotune-checks")]
-                        autotune_checks: check,
+                    autotune_checks,
                 } => {
                     #[cfg(not(target_family = "wasm"))]
                     AtomicU64::fetch_sub(&self.current, 1, Ordering::Relaxed);
@@ -130,7 +130,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     self.tune_cache.cache_insert(key.clone(), fastest_index);
 
                     #[cfg(feature = "autotune-checks")]
-                    check();
+                    autotune_checks();
 
                     #[cfg(autotune_persistent_cache)]
                     {
@@ -295,14 +295,15 @@ impl<K: AutotuneKey> Tuner<K> {
 }
 
 #[cfg(feature = "autotune-checks")]
-pub fn check_autotune_outputs<O: AutotuneOutput>(
+pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<Result<O, AutotuneError>>,
 ) {
     let reference = checks_outputs.remove(checks_outputs.len() - 1);
 
     if let Ok(reference) = reference {
-        for other in checks_outputs.into_iter() {
+        for (i, other) in checks_outputs.into_iter().enumerate() {
             if let Ok(o) = other {
+                println!("Checking output {i} ..");
                 reference.check_equivalence(o);
             }
         }
