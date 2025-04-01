@@ -351,6 +351,9 @@ impl Launch {
             if let Some(mode) = &self.args.fast_math {
                 settings.extend(quote![.fp_math_mode(#mode)]);
             }
+            if let Some(cluster_dim) = &self.args.cluster_dim {
+                settings.extend(quote![.cluster_dim(#cluster_dim)]);
+            }
 
             quote! {
                 #[doc = #kernel_doc]

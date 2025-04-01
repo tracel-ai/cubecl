@@ -72,6 +72,38 @@ The position of the working unit inside the cube along the Z axis.
 );
 
 constant!(
+    CLUSTER_DIM,
+    crate::ir::Builtin::ClusterDim,
+    r"
+The total amount of cubes in a cluster.
+"
+);
+
+constant!(
+    CLUSTER_DIM_X,
+    crate::ir::Builtin::ClusterDimX,
+    r"
+The dimension of the cluster along the X axis.
+"
+);
+
+constant!(
+    CLUSTER_DIM_Y,
+    crate::ir::Builtin::ClusterDimY,
+    r"
+The dimension of the cluster along the Y axis.
+"
+);
+
+constant!(
+    CLUSTER_DIM_Z,
+    crate::ir::Builtin::ClusterDimZ,
+    r"
+The dimension of the cluster along the Z axis.
+"
+);
+
+constant!(
     CUBE_DIM,
     crate::ir::Builtin::CubeDim,
     r"
@@ -134,6 +166,39 @@ constant!(
 The cube position along the Z axis.
 "
 );
+
+constant!(
+    CUBE_POS_CLUSTER,
+    crate::ir::Builtin::CubePosCluster,
+    r"
+The cube position within the cluster.
+"
+);
+
+constant!(
+    CUBE_POS_CLUSTER_X,
+    crate::ir::Builtin::CubePosClusterX,
+    r"
+The cube position in the cluster along the X axis.
+"
+);
+
+constant!(
+    CUBE_POS_CLUSTER_Y,
+    crate::ir::Builtin::CubePosClusterY,
+    r"
+The cube position in the cluster along the Y axis.
+"
+);
+
+constant!(
+    CUBE_POS_CLUSTER_Z,
+    crate::ir::Builtin::CubePosClusterZ,
+    r"
+The cube position in the cluster along the Z axis.
+"
+);
+
 constant!(
     CUBE_COUNT,
     crate::ir::Builtin::CubeCount,

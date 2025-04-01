@@ -2,13 +2,13 @@ use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::io::read_tensor_checked;
-use cubecl_core::ir::{ExpandElement, VariableKind};
+use cubecl_core::ir::{ExpandElement, UIntKind, VariableKind};
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Compiler, Feature,
     ir::{self as gpu},
 };
+use cubecl_core::{CubeDim, io::read_tensor_checked};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition, expand_checked_index_assign},
@@ -49,11 +49,15 @@ pub trait Dialect:
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub supports_clusters: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
-        Self { warp_size: 32 }
+        Self {
+            warp_size: 32,
+            supports_clusters: false,
+        }
     }
 }
 
@@ -66,6 +70,7 @@ pub struct CppCompiler<D: Dialect> {
     const_arrays: Vec<ConstArray<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
+    cluster_dim: CubeDim,
     warp_size_checked: bool,
     wmma: bool,
     pipeline: bool,
@@ -74,6 +79,7 @@ pub struct CppCompiler<D: Dialect> {
     bf16: bool,
     f16: bool,
     printf: bool,
+    cluster_group: bool,
     num_inputs: usize,
     num_outputs: usize,
     ext_meta_positions: Vec<u32>,
@@ -90,12 +96,17 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
     fn compile(
         &mut self,
-        kernel: KernelDefinition,
+        mut kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
+
+        if !self.compilation_options.supports_clusters {
+            kernel.options.cluster_dim = None;
+        }
+        self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
 
         let ir = self.clone().compile_ir(kernel);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -141,12 +152,18 @@ impl<D: Dialect> CppCompiler<D> {
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
             warp_size_checked: self.warp_size_checked,
+            cluster_group: self.cluster_group,
             settings: self.settings,
         };
         let fast_math = value
             .options
             .fp_math_mode
             .contains(FastMath::ReducedPrecision);
+
+        let mut cluster_dim = value.options.cluster_dim;
+        if !self.compilation_options.supports_clusters {
+            cluster_dim = None;
+        }
 
         ComputeKernel {
             constants,
@@ -158,12 +175,14 @@ impl<D: Dialect> CppCompiler<D> {
             wmma_activated: self.wmma,
             pipeline: self.pipeline,
             barrier: self.barrier,
+            clusters: self.cluster_group,
             tma: self.tma,
             bf16: self.bf16,
             f16: self.f16,
             fast_math,
             items: self.items,
             kernel_name: value.options.kernel_name,
+            cluster_dim,
         }
     }
 
@@ -1165,6 +1184,28 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubePosX => Variable::BlockIdxX,
                 gpu::Builtin::CubePosY => Variable::BlockIdxY,
                 gpu::Builtin::CubePosZ => Variable::BlockIdxZ,
+                gpu::Builtin::CubePosCluster if self.compilation_options.supports_clusters => {
+                    self.cluster_group = true;
+                    Variable::ClusterRank
+                }
+                gpu::Builtin::CubePosClusterX if self.compilation_options.supports_clusters => {
+                    self.cluster_group = true;
+                    Variable::ClusterIndexX
+                }
+                gpu::Builtin::CubePosClusterY if self.compilation_options.supports_clusters => {
+                    self.cluster_group = true;
+                    Variable::ClusterIndexY
+                }
+                gpu::Builtin::CubePosClusterZ if self.compilation_options.supports_clusters => {
+                    self.cluster_group = true;
+                    Variable::ClusterIndexZ
+                }
+                // Fallback if clusters aren't supported, ID is always 0 since clusters are always
+                // (1, 1, 1) if unsupported
+                gpu::Builtin::CubePosCluster
+                | gpu::Builtin::CubePosClusterX
+                | gpu::Builtin::CubePosClusterY
+                | gpu::Builtin::CubePosClusterZ => const_u32(0),
                 gpu::Builtin::AbsolutePosX => {
                     self.settings.absolute_idx.0 = true;
                     Variable::AbsoluteIdxX
@@ -1180,6 +1221,10 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Builtin::CubeDimX => Variable::BlockDimX,
                 gpu::Builtin::CubeDimY => Variable::BlockDimY,
                 gpu::Builtin::CubeDimZ => Variable::BlockDimZ,
+                gpu::Builtin::ClusterDim => const_u32(self.cluster_dim.num_elems()),
+                gpu::Builtin::ClusterDimX => const_u32(self.cluster_dim.x),
+                gpu::Builtin::ClusterDimY => const_u32(self.cluster_dim.y),
+                gpu::Builtin::ClusterDimZ => const_u32(self.cluster_dim.z),
                 gpu::Builtin::CubeCountX => Variable::GridDimX,
                 gpu::Builtin::CubeCountY => Variable::GridDimY,
                 gpu::Builtin::CubeCountZ => Variable::GridDimZ,
@@ -1352,6 +1397,13 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Elem::Bool => Elem::Bool,
         }
     }
+}
+
+fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
+    Variable::ConstantScalar(
+        gpu::ConstantScalarValue::UInt(value as u64, UIntKind::U32),
+        Elem::U32,
+    )
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {

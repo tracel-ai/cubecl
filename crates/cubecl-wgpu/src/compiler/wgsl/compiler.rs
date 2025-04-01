@@ -4,13 +4,16 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::io::read_tensor_checked;
 use cubecl_core::ir::ExpandElement;
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
     ir::{self as cube, Scope},
     prelude::{expand_checked_index_assign, expand_erf},
+};
+use cubecl_core::{
+    io::read_tensor_checked,
+    ir::{ConstantScalarValue, UIntKind},
 };
 
 /// Wgsl Compiler.
@@ -279,6 +282,10 @@ impl WgslCompiler {
                     self.workgroup_id = true;
                     wgsl::Variable::WorkgroupIdZ
                 }
+                cube::Builtin::CubePosCluster
+                | cube::Builtin::CubePosClusterX
+                | cube::Builtin::CubePosClusterY
+                | cube::Builtin::CubePosClusterZ => self.constant_var(1),
                 cube::Builtin::AbsolutePosX => {
                     self.global_invocation_id = true;
                     wgsl::Variable::GlobalInvocationIdX
@@ -294,6 +301,10 @@ impl WgslCompiler {
                 cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
                 cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
                 cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
+                cube::Builtin::ClusterDim
+                | cube::Builtin::ClusterDimX
+                | cube::Builtin::ClusterDimY
+                | cube::Builtin::ClusterDimZ => self.constant_var(1),
                 cube::Builtin::CubeCountX => {
                     self.num_workgroups = true;
                     wgsl::Variable::NumWorkgroupsX
@@ -338,6 +349,11 @@ impl WgslCompiler {
             }
             cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
+    }
+
+    fn constant_var(&mut self, value: u32) -> wgsl::Variable {
+        let var = cube::Variable::constant(ConstantScalarValue::UInt(value as u64, UIntKind::U32));
+        self.compile_variable(var)
     }
 
     fn compile_scope(&mut self, scope: &mut cube::Scope) -> Vec<wgsl::Instruction> {

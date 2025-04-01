@@ -11,6 +11,7 @@ pub struct Body<D: Dialect> {
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
     pub warp_size_checked: bool,
+    pub cluster_group: bool,
     pub settings: VariableSettings,
 }
 
@@ -85,7 +86,15 @@ impl<D: Dialect> Display for Body<D> {
         if self.warp_size_checked {
             f.write_str(
                 "
- int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
+    int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
+",
+            )?;
+        }
+
+        if self.cluster_group {
+            f.write_str(
+                "
+    cooperative_groups::cluster_group cluster = cooperative_groups::this_cluster();
 ",
             )?;
         }

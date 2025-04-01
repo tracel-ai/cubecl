@@ -60,10 +60,12 @@ pub struct ComputeKernel<D: Dialect> {
     pub outputs: Vec<Binding<D>>,
     pub named: Vec<(String, Binding<D>)>,
     pub cube_dim: CubeDim,
+    pub cluster_dim: Option<CubeDim>,
     pub body: Body<D>,
     pub wmma_activated: bool,
     pub pipeline: bool,
     pub barrier: bool,
+    pub clusters: bool,
     pub tma: bool,
     pub bf16: bool,
     pub f16: bool,
@@ -113,7 +115,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
         }
-        if self.barrier || tma {
+        if self.barrier || tma || self.clusters {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
@@ -161,14 +163,21 @@ struct __align__({alignment}) {item} {{"
             }
         }
 
-        write!(
-            f,
+        f.write_str(
             "
 
-extern \"C\" __global__ void {}(
-",
-            self.kernel_name
+extern \"C\" __global__ void ",
         )?;
+
+        if let Some(cluster_dim) = self.cluster_dim {
+            write!(
+                f,
+                "__cluster_dims__({}, {}, {}) ",
+                cluster_dim.x, cluster_dim.y, cluster_dim.z
+            )?;
+        }
+
+        writeln!(f, "{}(", self.kernel_name)?;
 
         let num_bindings =
             self.constants.len() + self.inputs.len() + self.outputs.len() + self.named.len();

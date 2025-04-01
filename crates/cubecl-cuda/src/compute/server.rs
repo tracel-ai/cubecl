@@ -65,6 +65,7 @@ pub(crate) struct CudaContext {
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
+    cluster_dim: Option<(u32, u32, u32)>,
     shared_mem_bytes: usize,
     ptx: Vec<i8>,
 }
@@ -643,6 +644,9 @@ impl CudaContext {
             options.push("--use_fast_math");
         }
 
+        #[cfg(feature = "cache-ptx")]
+        let cluster_dim = compute_kernel.cluster_dim;
+
         let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
@@ -672,6 +676,7 @@ impl CudaContext {
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
                     shared_mem_bytes,
                     ptx: ptx.clone(),
                 },

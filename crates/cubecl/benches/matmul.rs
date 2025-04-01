@@ -1,12 +1,11 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::components::{I8Float, MatmulPrecision};
-use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
+use cubecl_linalg::matmul;
+use cubecl_linalg::matmul::components::MatmulPrecision;
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
-use cubecl_std::SymQ8;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
     type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
