@@ -1,3 +1,5 @@
+use alloc::collections::BTreeMap;
+
 use cubecl_ir::{ExpandElement, Scope, Variable, VariableKind};
 use cubecl_runtime::debug::DebugLogger;
 
@@ -5,7 +7,6 @@ use crate::ir::{Elem, Id, Item};
 use crate::prelude::KernelDefinition;
 use crate::{BufferInfo, KernelSettings, ScalarInfo};
 use crate::{KernelExpansion, KernelIntegrator};
-use hashbrown::HashMap;
 
 use super::Visibility;
 
@@ -14,7 +15,7 @@ pub struct KernelBuilder {
     /// Cube [scope](Scope).
     pub context: Scope,
     buffers: Vec<BufferInfo>,
-    scalars: HashMap<Elem, usize>,
+    scalars: BTreeMap<Elem, usize>,
     tensor_maps: Vec<Id>,
 }
 

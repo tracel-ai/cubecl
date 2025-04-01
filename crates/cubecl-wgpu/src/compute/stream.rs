@@ -82,7 +82,7 @@ impl WgpuStream {
             .then(|| self.create(bytemuck::cast_slice(&bindings.metadata.data)));
         let scalars = bindings
             .scalars
-            .iter()
+            .values()
             .map(|s| self.create(s.data()))
             .collect::<Vec<_>>();
 

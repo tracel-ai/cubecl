@@ -372,14 +372,18 @@ impl ComputeServer for CudaServer {
             // pointers are 64-bit aligned, which I believe is true on all cards that support grid
             // constants regardless. Metadata is inserted after the 8-aligned scalars to ensure proper
             // packing
-            for binding in bindings.scalars.iter().filter(|it| it.elem.size() == 8) {
+            for binding in bindings.scalars.values().filter(|it| it.elem.size() == 8) {
                 scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
             }
             if bindings.metadata.static_len > 0 {
                 scalars.push(bindings.metadata.data.as_ptr() as *const _ as *mut c_void);
             }
             for size in [4, 2, 1] {
-                for binding in bindings.scalars.iter().filter(|it| it.elem.size() == size) {
+                for binding in bindings
+                    .scalars
+                    .values()
+                    .filter(|it| it.elem.size() == size)
+                {
                     scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
                 }
             }
@@ -399,7 +403,7 @@ impl ComputeServer for CudaServer {
             handles.extend(
                 bindings
                     .scalars
-                    .iter()
+                    .values()
                     .map(|scalar| self.create(scalar.data())),
             );
             (Vec::new(), handles)

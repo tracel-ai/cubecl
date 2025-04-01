@@ -231,6 +231,10 @@ extern \"C\" __global__ void {}(
             }
         }
 
+        // We use grid constants when supported, since they're much faster than global accesses, and
+        // as far as I can tell even faster than normal `__constant__` memory since they're private
+        // to the grid and use a special 4KB memory region that exists specifically for kernel
+        // parameters.
         if self.grid_constant {
             // Need to sort elements because of alignment when packing
             // Metadata is align 4 so it needs to be spliced in the middle.
@@ -251,8 +255,10 @@ extern \"C\" __global__ void {}(
                 Ok(())
             };
 
+            // Pack 64-bit aligned types first, since metadata is 32-bit aligned
             scalars_of_size(f, 8, &mut binding_index)?;
 
+            // Pack metadata
             if self.meta_static_len > 0 {
                 binding_index += 1;
                 write!(f, "const __grid_constant__ metadata_st static_info")?;
@@ -261,6 +267,7 @@ extern \"C\" __global__ void {}(
                 }
             }
 
+            // Pack remaining scalars that are 4 bytes or below
             for size in [4, 2, 1] {
                 scalars_of_size(f, size, &mut binding_index)?;
             }
