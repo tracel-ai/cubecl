@@ -152,12 +152,14 @@ impl DialectBindings<Self> for CudaDialect {
             f,
             "
 
-extern \"C\" __global__ void {}(
+extern \"C\" __global__ void {} (
 ",
             kernel_name
         )?;
         shared::compile_bindings::<Self>(f, constants, inputs, outputs, named)?;
-        f.write_str("\n)")
+        f.write_str("\n)")?;
+        //
+        Ok(())
     }
 }
 

@@ -122,6 +122,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let cube_count_tuple = flags.cube_count_tuple || absolute_pos;
         let cube_pos = flags.cube_pos;
         let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
+
         CubeIndexFlags {
             absolute_pos,
             absolute_pos_tuple,

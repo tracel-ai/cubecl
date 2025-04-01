@@ -110,7 +110,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         )?;
 
         // Body --------------------------------------------------------------
-        writeln!(f, " {{")?;
+        f.write_str(" {\n")?;
         compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
         write!(f, "{}", self.body)?;
         f.write_str("\n}")?;
@@ -182,20 +182,19 @@ pub fn compile_bindings<D: Dialect>(
             f.write_str(",")?;
         }
     }
-    f.write_str("\n) {")?;
 
     for (index, binding) in inputs.iter().enumerate() {
         binding_index += 1;
         match binding.vis {
             Visibility::Read => {
-                write!(f, "{} input_{}[]", binding.item, index)?;
+                write!(f, "{} in_{}[]", binding.item, index)?;
                 // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
                 // we should have multiple pointer types to enable that optimization.
                 //
                 // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
             }
             Visibility::ReadWrite => {
-                write!(f, "{} input_{}[]", binding.item, index)?;
+                write!(f, "{} in_{}[]", binding.item, index)?;
             }
         }
         if binding_index < num_bindings {
@@ -205,7 +204,7 @@ pub fn compile_bindings<D: Dialect>(
 
     for (index, binding) in outputs.iter().enumerate() {
         binding_index += 1;
-        write!(f, "{} output_{}[]", binding.item, index)?;
+        write!(f, "{} out_{}[]", binding.item, index)?;
         if binding_index < num_bindings {
             f.write_str(",")?;
         }
