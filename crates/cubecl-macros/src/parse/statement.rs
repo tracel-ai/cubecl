@@ -1,4 +1,4 @@
-use quote::format_ident;
+use quote::{format_ident, quote};
 use syn::{ExprArray, LitStr, Macro, Pat, Stmt, Type, TypeReference, parse_quote};
 
 use crate::{
@@ -90,10 +90,20 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
 
 pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression> {
     if mac.path.is_ident("comptime") {
-        Ok(Expression::Verbatim { tokens: mac.tokens })
-    } else if ["panic", "assert", "assert_eq", "assert_ne"]
-        .into_iter()
-        .any(|target| mac.path.is_ident(&target))
+        let tokens = &mac.tokens;
+        Ok(Expression::Verbatim {
+            tokens: quote![{#tokens}],
+        })
+    } else if [
+        "panic",
+        "assert",
+        "assert_eq",
+        "assert_ne",
+        "todo",
+        "unimplemented",
+    ]
+    .into_iter()
+    .any(|target| mac.path.is_ident(&target))
     {
         Ok(Expression::RustMacro {
             ident: mac.path.segments.last().unwrap().ident.clone(),
