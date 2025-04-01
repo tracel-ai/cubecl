@@ -21,7 +21,7 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = stage::PlaneRowMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul = global::single_stage::simple::SimplePipelinedMatmulFamily<
         Self::StageMatmul,
         CyclicWindowLoading<ColMajorTilingOrder>,

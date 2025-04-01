@@ -491,7 +491,12 @@ where
                     total: acc_total_iterations
                 }),
             );
+
+            comptime![k_iter += 1];
         }
+
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
+
         acc.accumulate_dequantized_if_quantized(scaling, config);
     }
 }

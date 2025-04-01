@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::multi_stage::CyclicCoalescedBufferLoading;
+use crate::matmul::components::global::single_stage::CyclicCoalescedLoading;
 use crate::matmul::components::stage::{self, RowMajorTilingOrder};
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
@@ -21,11 +21,11 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::single_buffer::SingleBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = stage::PlaneRowMatmulFamily<Self::TileMatmul>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingMatmulFamily<
         Self::StageMatmul,
-        CyclicCoalescedBufferLoading<RowMajorTilingOrder>,
-        CyclicCoalescedBufferLoading<RowMajorTilingOrder>,
+        CyclicCoalescedLoading<RowMajorTilingOrder>,
+        CyclicCoalescedLoading<RowMajorTilingOrder>,
     >;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
