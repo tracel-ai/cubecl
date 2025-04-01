@@ -17,6 +17,7 @@ version.workspace = true
 proc-macro = true
 
 [features]
+debug_symbols = []
 default = []
 nightly = []
 std = []
