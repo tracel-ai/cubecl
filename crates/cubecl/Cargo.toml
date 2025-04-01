@@ -11,6 +11,7 @@ repository = "https://github.com/tracel-ai/cubecl"
 version.workspace = true
 
 [features]
+autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = [
     "std",
     "linalg",

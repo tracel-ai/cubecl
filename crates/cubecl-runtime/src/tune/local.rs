@@ -1,4 +1,4 @@
-use super::{AutotuneKey, TunableSet, Tuner};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
 use crate::{
     channel::ComputeChannel, client::ComputeClient, server::ComputeServer, tune::TuneCacheResult,
 };
@@ -43,8 +43,23 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         *state = None;
     }
 
+    #[cfg(feature = "autotune-checks")]
+    fn checks<In: Send + Clone + 'static, Out: AutotuneOutput>(
+        &self,
+        operations: &TunableSet<AK, In, Out>,
+        inputs: &In,
+    ) {
+        let mut checks_outputs = Vec::new();
+        for i in 0..operations.len() {
+            let op = operations.fastest(i);
+            let result = op.execute(inputs.clone());
+            checks_outputs.push(result);
+        }
+        super::check_autotune_outputs(checks_outputs);
+    }
+
     /// Execute the best operation in the provided [tunable set](TunableSet)
-    pub fn execute<S, C, In: Send + Clone + 'static, Out: Send + 'static>(
+    pub fn execute<S, C, In: Send + Clone + 'static, Out: AutotuneOutput>(
         &self,
         id: &ID,
         client: &ComputeClient<S, C>,
@@ -61,10 +76,15 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
         if let Some(map) = self.state.read().as_ref() {
             if let Some(tuner) = map.get(id) {
                 if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
+                    #[cfg(feature = "autotune-checks")]
+                    self.checks(operations, &inputs);
+
                     let op = operations.fastest(fastest_index);
-                    return op
+                    let result = op
                         .execute(inputs)
                         .expect("Should run when selected by autotune.");
+
+                    return result;
                 }
             }
         }
@@ -100,6 +120,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
+                #[cfg(feature = "autotune-checks")]
+                self.checks(operations, &inputs);
+
                 return operations
                     .fastest(fastest_index)
                     .execute(inputs)
@@ -172,6 +195,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                 }
             }
         };
+
+        #[cfg(feature = "autotune-checks")]
+        self.checks(operations, &inputs);
 
         operations
             .fastest(fastest)
