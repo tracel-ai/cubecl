@@ -49,21 +49,25 @@ pub trait DialectIncludes<D: Dialect> {
 
 pub trait DialectTypes<D: Dialect> {
     fn item_can_be_optimized() -> bool;
-    fn compile_elem(f: &mut std::fmt::Formatter<'_>, elem: &Elem<D>) -> std::fmt::Result;
+    fn compile_elem(
+        f: &mut std::fmt::Formatter<'_>,
+        elem: &Elem<D>,
+        word: bool,
+    ) -> std::fmt::Result;
 
     fn compile_atomic_kind(
         f: &mut std::fmt::Formatter<'_>,
         kind: &AtomicKind<D>,
     ) -> std::fmt::Result {
         match kind {
-            AtomicKind::I32 => Elem::<D>::I32.fmt(f),
-            AtomicKind::I64 => Elem::<D>::I64.fmt(f),
-            AtomicKind::U32 => Elem::<D>::U32.fmt(f),
-            AtomicKind::U64 => Elem::<D>::U64.fmt(f),
-            AtomicKind::F16 => Elem::<D>::F16.fmt(f),
-            AtomicKind::BF16 => Elem::<D>::BF16.fmt(f),
-            AtomicKind::F32 => Elem::<D>::F32.fmt(f),
-            AtomicKind::F64 => Elem::<D>::F64.fmt(f),
+            AtomicKind::I32 => write!(f, "{}", Elem::<D>::I32),
+            AtomicKind::I64 => write!(f, "{}", Elem::<D>::I64),
+            AtomicKind::U32 => write!(f, "{}", Elem::<D>::U32),
+            AtomicKind::U64 => write!(f, "{}", Elem::<D>::U64),
+            AtomicKind::F16 => write!(f, "{}", Elem::<D>::F16),
+            AtomicKind::BF16 => write!(f, "{}", Elem::<D>::BF16),
+            AtomicKind::F32 => write!(f, "{}", Elem::<D>::F32),
+            AtomicKind::F64 => write!(f, "{}", Elem::<D>::F64),
             AtomicKind::_Dialect(_) => Ok(()),
         }
     }
@@ -139,6 +143,28 @@ pub trait DialectCubeBuiltins<D: Dialect> {
             unit_pos,
             unit_pos_plane,
         }
+    }
+
+    fn compile_absolute_pos_tuple_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variable = Variable::<D>::AbsolutePosBaseName;
+        let ty = variable.item();
+        let cube_pos_x = Variable::<D>::CubePosX;
+        let cube_pos_y = Variable::<D>::CubePosY;
+        let cube_pos_z = Variable::<D>::CubePosZ;
+        let cube_dim_x = Variable::<D>::CubeDimX;
+        let cube_dim_y = Variable::<D>::CubeDimY;
+        let cube_dim_z = Variable::<D>::CubeDimZ;
+        let unit_pos_x = Variable::<D>::UnitPosX;
+        let unit_pos_y = Variable::<D>::UnitPosY;
+        let unit_pos_z = Variable::<D>::UnitPosZ;
+        writeln!(
+            f,
+            "{ty} {variable} = make_{ty}(
+    {cube_pos_x} * {cube_dim_x} + {unit_pos_x},
+    {cube_pos_y} * {cube_dim_y} + {unit_pos_y},
+    {cube_pos_z} * {cube_dim_z} + {unit_pos_z}
+);"
+        )
     }
 
     fn compile_absolute_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -231,6 +257,20 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     fn compile_cube_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Self::compile_cube_pos_base_name(f)?;
         write!(f, ".z")
+    }
+
+    fn compile_unit_pos_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variable = Variable::<D>::UnitPos;
+        let ty = variable.item();
+        let cube_dim_x = Variable::<D>::CubeDimX;
+        let cube_dim_y = Variable::<D>::CubeDimY;
+        let unit_pos_x = Variable::<D>::UnitPosX;
+        let unit_pos_y = Variable::<D>::UnitPosY;
+        let unit_pos_z = Variable::<D>::UnitPosZ;
+        writeln!(
+            f,
+            "{ty} {variable} = {unit_pos_x} + {unit_pos_y} * {cube_dim_x} + {unit_pos_z} * ({cube_dim_x} * {cube_dim_y});"
+        )
     }
 
     fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

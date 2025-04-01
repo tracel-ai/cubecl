@@ -26,29 +26,9 @@ pub enum Elem<D: Dialect> {
     _Dialect(std::marker::PhantomData<D>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
-pub enum AtomicKind<D: Dialect> {
-    I32,
-    I64,
-    U32,
-    U64,
-    F16,
-    BF16,
-    F32,
-    F64,
-    /// Required to construct the inner `Elem` of the atomic value
-    _Dialect(std::marker::PhantomData<D>),
-}
-
-impl<D: Dialect> Display for AtomicKind<D> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_atomic_kind(f, self)
-    }
-}
-
 impl<D: Dialect> Display for Elem<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        D::compile_elem(f, self)
+        D::compile_elem(f, self, false)
     }
 }
 
@@ -82,5 +62,25 @@ impl<D: Dialect> Elem<D> {
             Elem::Atomic(AtomicKind::_Dialect(_)) => 0,
             Elem::_Dialect(_) => 0,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub enum AtomicKind<D: Dialect> {
+    I32,
+    I64,
+    U32,
+    U64,
+    F16,
+    BF16,
+    F32,
+    F64,
+    /// Required to construct the inner `Elem` of the atomic value
+    _Dialect(std::marker::PhantomData<D>),
+}
+
+impl<D: Dialect> Display for AtomicKind<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        D::compile_atomic_kind(f, self)
     }
 }

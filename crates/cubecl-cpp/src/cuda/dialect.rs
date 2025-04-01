@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::fmt::Display;
 
 use cubecl_core::compute::ConstBinding;
 
@@ -90,26 +89,44 @@ impl DialectTypes<Self> for CudaDialect {
     fn compile_elem(
         f: &mut std::fmt::Formatter<'_>,
         elem: &shared::Elem<Self>,
+        words: bool,
     ) -> std::fmt::Result {
-        match elem {
-            shared::Elem::F16 => f.write_str("__half"),
-            shared::Elem::F162 => f.write_str("__half2"),
-            shared::Elem::F32 => f.write_str("float"),
-            shared::Elem::F64 => f.write_str("double"),
-            shared::Elem::BF16 => f.write_str("__nv_bfloat16"),
-            shared::Elem::BF162 => f.write_str("__nv_bfloat162"),
-            shared::Elem::TF32 => f.write_str("float"),
-            shared::Elem::I8 => f.write_str("int8"),
-            shared::Elem::I16 => f.write_str("int16"),
-            shared::Elem::I32 => f.write_str("int32"),
-            shared::Elem::I64 => f.write_str("int64"),
-            shared::Elem::U8 => f.write_str("uint8"),
-            shared::Elem::U16 => f.write_str("uint16"),
-            shared::Elem::U32 => f.write_str("uint32"),
-            shared::Elem::U64 => f.write_str("uint64"),
-            shared::Elem::Bool => f.write_str("bool"),
-            shared::Elem::Atomic(inner) => inner.fmt(f),
-            shared::Elem::_Dialect(_) => Ok(()),
+        if words {
+            match elem {
+                shared::Elem::F32 => f.write_str("float"),
+                shared::Elem::F64 => f.write_str("double"),
+                shared::Elem::TF32 => f.write_str("float"),
+                shared::Elem::I8 => f.write_str("char"),
+                shared::Elem::I16 => f.write_str("short"),
+                shared::Elem::I32 => f.write_str("int"),
+                shared::Elem::I64 => f.write_str("long"),
+                shared::Elem::U8 => f.write_str("uchar"),
+                shared::Elem::U16 => f.write_str("ushort"),
+                shared::Elem::U32 => f.write_str("uint"),
+                shared::Elem::U64 => f.write_str("ulong"),
+                _ => Self::compile_elem(f, elem, false),
+            }
+        } else {
+            match elem {
+                shared::Elem::F16 => f.write_str("__half"),
+                shared::Elem::F162 => f.write_str("__half2"),
+                shared::Elem::F32 => f.write_str("float"),
+                shared::Elem::F64 => f.write_str("double"),
+                shared::Elem::BF16 => f.write_str("__nv_bfloat16"),
+                shared::Elem::BF162 => f.write_str("__nv_bfloat162"),
+                shared::Elem::TF32 => f.write_str("float"),
+                shared::Elem::I8 => f.write_str("int8"),
+                shared::Elem::I16 => f.write_str("int16"),
+                shared::Elem::I32 => f.write_str("int32"),
+                shared::Elem::I64 => f.write_str("int64"),
+                shared::Elem::U8 => f.write_str("uint8"),
+                shared::Elem::U16 => f.write_str("uint16"),
+                shared::Elem::U32 => f.write_str("uint32"),
+                shared::Elem::U64 => f.write_str("uint64"),
+                shared::Elem::Bool => f.write_str("bool"),
+                shared::Elem::Atomic(inner) => write!(f, "{inner}"),
+                shared::Elem::_Dialect(_) => Ok(()),
+            }
         }
     }
 
@@ -117,7 +134,13 @@ impl DialectTypes<Self> for CudaDialect {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
-        write!(f, "{}_{}", item.elem, item.vectorization)
+        if item.native {
+            // native types use the word form of types only
+            Self::compile_elem(f, &item.elem, true)?;
+            write!(f, "{}", item.vectorization)
+        } else {
+            write!(f, "{}_{}", item.elem, item.vectorization)
+        }
     }
 
     fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -112,7 +112,9 @@ struct alignas({alignment}) {item} {{"
     fn compile_elem(
         f: &mut std::fmt::Formatter<'_>,
         elem: &shared::Elem<Self>,
+        _words: bool,
     ) -> std::fmt::Result {
+        // we always use the word form of types
         match elem {
             shared::Elem::F16 => f.write_str("half"),
             shared::Elem::F162 => panic!("type F162 not supported!"),
@@ -276,6 +278,13 @@ impl DialectCubeBuiltins<Self> for MslDialect {
         }
     }
 
+    fn compile_absolute_pos_tuple_computation(
+        _f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        // no need to compute it on metal as there is y a built-in for it
+        Ok(())
+    }
+
     fn compile_absolute_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("thread_pos_in_grid")
     }
@@ -366,6 +375,11 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     fn compile_cube_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Self::compile_cube_pos_base_name(f)?;
         write!(f, ".z")
+    }
+
+    fn compile_unit_pos_computation(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // no need to compute it on metal as there is y a built-in for it
+        Ok(())
     }
 
     fn compile_unit_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

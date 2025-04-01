@@ -171,6 +171,7 @@ pub fn compile_bindings<D: Dialect>(
 ) -> std::fmt::Result {
     let num_bindings = constants.len() + inputs.len() + outputs.len() + named.len();
     let mut binding_index = 0;
+    write!(f, "    ")?;
     for (index, binding) in constants.iter().enumerate() {
         binding_index += 1;
         match binding {
@@ -179,7 +180,7 @@ pub fn compile_bindings<D: Dialect>(
             }
         }
         if binding_index < num_bindings {
-            f.write_str(",")?;
+            f.write_str(", ")?;
         }
     }
 
@@ -198,7 +199,7 @@ pub fn compile_bindings<D: Dialect>(
             }
         }
         if binding_index < num_bindings {
-            f.write_str(",")?;
+            f.write_str(", ")?;
         }
     }
 
@@ -206,7 +207,7 @@ pub fn compile_bindings<D: Dialect>(
         binding_index += 1;
         write!(f, "{} out_{}[]", binding.item, index)?;
         if binding_index < num_bindings {
-            f.write_str(",")?;
+            f.write_str(", ")?;
         }
     }
 
@@ -227,7 +228,7 @@ pub fn compile_bindings<D: Dialect>(
         }
 
         if binding_index < num_bindings {
-            f.write_str(",")?;
+            f.write_str(", ")?;
         }
     }
     Ok(())
@@ -237,6 +238,14 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     settings: &Flags,
 ) -> core::fmt::Result {
+    if settings.builtins.absolute_pos_tuple {
+        D::compile_absolute_pos_tuple_computation(f)?;
+    }
+
+    if settings.builtins.unit_pos {
+        D::compile_unit_pos_computation(f)?;
+    }
+
     if settings.builtins.absolute_pos {
         let variable = Variable::<D>::AbsolutePos;
         let ty = variable.item();
