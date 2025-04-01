@@ -97,7 +97,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
         1 => {
             // Each item is a 1 byte value, we need four of them.
             let start = index * 4;
-            let mut bytes = Line::empty(4);
+            let mut bytes = Line::empty(4_u32);
             #[unroll]
             for k in 0..4 {
                 bytes[k] = slice[start + k][0];
@@ -107,7 +107,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
         2 => {
             // Each item is a 2 bytes value, we need two of them.
             let start = index * 2;
-            let mut bytes = Line::empty(2); // This is either a line of two lines of u8 / i8 or a line of two f16 / u16 / i16.
+            let mut bytes = Line::empty(2_u32); // This is either a line of two lines of u8 / i8 or a line of two f16 / u16 / i16.
             #[unroll]
             for k in 0..2 {
                 bytes[k] = slice[start + k][0];
@@ -119,7 +119,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
             // Each item is a 8 bytes value, we need half of one.
             let outer = index / 2;
             let inner = index % 2;
-            let mut bytes = Line::empty(line_size / 2);
+            let mut bytes = Line::empty(comptime!(line_size / 2));
             #[unroll]
             for k in 0..line_size / 2 {
                 bytes[k] = slice[outer][inner + k];
@@ -130,7 +130,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
             // Each item is a 16 bytes value, we need a quarter of one.
             let outer = index / 4;
             let inner = index % 4;
-            let mut bytes = Line::empty(line_size / 4);
+            let mut bytes = Line::empty(comptime!(line_size / 4));
             #[unroll]
             for k in 0..line_size / 4 {
                 bytes[k] = slice[outer][inner + k];
@@ -141,7 +141,7 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
             // Each item is a 32 bytes value, we need an eight of one.
             let outer = index / 8;
             let inner = index % 8;
-            let mut bytes = Line::empty(line_size / 8);
+            let mut bytes = Line::empty(comptime!(line_size / 8));
             #[unroll]
             for k in 0..line_size / 8 {
                 bytes[k] = slice[outer][inner + k];
@@ -180,7 +180,7 @@ fn write_f32<EG: Numeric>(
             #[unroll]
             for k in 0..2 {
                 // We build a line from the first / last two bytes.
-                let mut line = Line::<EG>::empty(2);
+                let mut line = Line::<EG>::empty(2_u32);
                 line[0] = bytes[2 * k];
                 line[1] = bytes[2 * k + 1];
 

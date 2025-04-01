@@ -6,6 +6,7 @@ pub mod synchronization;
 
 mod base;
 mod comment;
+pub mod comptime_error;
 mod const_expand;
 mod container;
 mod debug;

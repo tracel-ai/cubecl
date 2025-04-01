@@ -1,5 +1,5 @@
 use quote::format_ident;
-use syn::{ExprArray, LitStr, Pat, Stmt, Type, TypeReference, parse_quote};
+use syn::{ExprArray, LitStr, Macro, Pat, Stmt, Type, TypeReference, parse_quote};
 
 use crate::{
     expression::Expression,
@@ -37,44 +37,10 @@ impl Statement {
             }
             Stmt::Item(_) => Statement::Skip,
             Stmt::Macro(val) => {
-                if val.mac.path.is_ident("comptime") {
-                    Statement::Expression {
-                        expression: Box::new(Expression::Verbatim {
-                            tokens: val.mac.tokens,
-                        }),
-                        terminated: val.semi_token.is_some(),
-                    }
-                } else if val.mac.path.is_ident("debug_print") {
-                    let args = val.mac.tokens;
-                    let arg_exprs: ExprArray = parse_quote!([#args]);
-                    let args = arg_exprs
-                        .elems
-                        .into_iter()
-                        .map(|expr| Expression::from_expr(expr, context))
-                        .collect::<Result<_, _>>()?;
-                    Statement::Expression {
-                        expression: Box::new(Expression::ExpressionMacro {
-                            ident: val.mac.path.get_ident().cloned().unwrap(),
-                            args,
-                        }),
-                        terminated: val.semi_token.is_some(),
-                    }
-                } else if val.mac.path.is_ident("comment") {
-                    let content = syn::parse2::<LitStr>(val.mac.tokens)?;
-                    Statement::Expression {
-                        expression: Box::new(Expression::Comment { content }),
-                        terminated: val.semi_token.is_some(),
-                    }
-                } else if val.mac.path.is_ident("terminate") {
-                    Statement::Expression {
-                        expression: Box::new(Expression::Terminate),
-                        terminated: val.semi_token.is_some(),
-                    }
-                } else {
-                    return Err(syn::Error::new_spanned(
-                        val,
-                        "Unsupported macro".to_string().as_str(),
-                    ));
+                let expression = parse_macros(val.mac, context)?;
+                Statement::Expression {
+                    expression: Box::new(expression),
+                    terminated: val.semi_token.is_some(),
                 }
             }
         };
@@ -120,4 +86,40 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
         ))?,
     };
     Ok(res)
+}
+
+pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression> {
+    if mac.path.is_ident("comptime") {
+        Ok(Expression::Verbatim { tokens: mac.tokens })
+    } else if ["panic", "assert", "assert_eq", "assert_ne"]
+        .into_iter()
+        .any(|target| mac.path.is_ident(&target))
+    {
+        Ok(Expression::RustMacro {
+            ident: mac.path.segments.last().unwrap().ident.clone(),
+            tokens: mac.tokens,
+        })
+    } else if mac.path.is_ident("debug_print") {
+        let args = mac.tokens;
+        let arg_exprs: ExprArray = parse_quote!([#args]);
+        let args = arg_exprs
+            .elems
+            .into_iter()
+            .map(|expr| Expression::from_expr(expr, context))
+            .collect::<Result<_, _>>()?;
+        Ok(Expression::ExpressionMacro {
+            ident: mac.path.get_ident().cloned().unwrap(),
+            args,
+        })
+    } else if mac.path.is_ident("comment") {
+        let content = syn::parse2::<LitStr>(mac.tokens)?;
+        Ok(Expression::Comment { content })
+    } else if mac.path.is_ident("terminate") {
+        Ok(Expression::Terminate)
+    } else {
+        Err(syn::Error::new_spanned(
+            mac,
+            "Unsupported macro".to_string().as_str(),
+        ))
+    }
 }

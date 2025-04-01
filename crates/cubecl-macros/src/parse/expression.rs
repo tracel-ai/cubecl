@@ -14,6 +14,7 @@ use crate::{
 use super::{
     branch::{expand_for_loop, expand_if, expand_loop, numeric_match},
     operator::{parse_binop, parse_unop},
+    statement::parse_macros,
 };
 
 impl Expression {
@@ -316,15 +317,7 @@ impl Expression {
                     }
                 }
             }
-            Expr::Macro(mac) if is_comptime_macro(&mac.mac.path) => {
-                let tokens = mac.mac.tokens;
-                Expression::Verbatim {
-                    tokens: quote![{ #tokens }],
-                }
-            }
-            Expr::Macro(mac) => Expression::Verbatim {
-                tokens: quote![#mac],
-            },
+            Expr::Macro(mac) => parse_macros(mac.mac, context)?,
             Expr::Struct(init) => {
                 let fields = init
                     .fields
@@ -510,7 +503,3 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
     }
 }
 
-fn is_comptime_macro(path: &Path) -> bool {
-    let path = path.to_token_stream().to_string();
-    "::cubecl::comptime".ends_with(&path)
-}
