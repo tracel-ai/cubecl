@@ -1,12 +1,13 @@
 use cubecl_core::{CubeCount, ir::Elem};
 use std::fmt::Debug;
 
-use crate::matmul::components::InvalidConfigError;
+use crate::matmul::components::{InvalidConfigError, MatmulSize};
 
 pub enum MatmulLaunchError {
     Unavailable(MatmulAvailabilityError),
     InvalidProblem(MatmulInvalidProblem),
     InvalidConfig(InvalidConfigError),
+    Unimplemented(MatmulUnimplementedError),
 }
 
 pub enum MatmulAvailabilityError {
@@ -23,12 +24,11 @@ pub enum MatmulAvailabilityError {
     CmmaInstructionUnavailable {
         input: Elem,
         output: Elem,
-        m: u32,
-        n: u32,
-        k: u32,
+        shape: Option<MatmulSize>,
     },
     PipelineUnavailable,
     BarrierUnavailable,
+    TmaUnavailable,
 }
 
 pub enum MatmulInvalidProblem {
@@ -58,6 +58,12 @@ impl From<InvalidConfigError> for MatmulLaunchError {
     }
 }
 
+impl From<MatmulUnimplementedError> for MatmulLaunchError {
+    fn from(value: MatmulUnimplementedError) -> Self {
+        Self::Unimplemented(value)
+    }
+}
+
 impl Debug for MatmulLaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -80,6 +86,13 @@ impl Debug for MatmulLaunchError {
                     f,
                     "Unable to launch matmul because the config is invalid: {:?}",
                     err.to_string()
+                )
+            }
+            MatmulLaunchError::Unimplemented(err) => {
+                writeln!(
+                    f,
+                    "Unable to launch matmul because the feature is not ready: {:?}",
+                    err
                 )
             }
         }
@@ -148,19 +161,39 @@ impl Debug for MatmulAvailabilityError {
             MatmulAvailabilityError::CmmaInstructionUnavailable {
                 input,
                 output,
-                m,
-                n,
-                k,
+                shape: Some(shape),
             } => writeln!(
                 f,
                 "Cmma on inputs {:?} and outputs {:?} with shape m={:?}, n={:?}, k={:?} not supported.",
-                input, output, m, n, k
+                input, output, shape.m, shape.n, shape.k
             ),
+            MatmulAvailabilityError::CmmaInstructionUnavailable {
+                input,
+                output,
+                shape: None,
+            } => writeln!(f, "Cmma on inputs {:?} and outputs {:?}.", input, output,),
             MatmulAvailabilityError::PipelineUnavailable => {
                 writeln!(f, "Pipeline is not available.")
             }
             MatmulAvailabilityError::BarrierUnavailable => {
                 writeln!(f, "Barrier is not available.")
+            }
+            MatmulAvailabilityError::TmaUnavailable => {
+                writeln!(f, "TMA is not available.")
+            }
+        }
+    }
+}
+
+pub enum MatmulUnimplementedError {
+    Quantization,
+}
+
+impl Debug for MatmulUnimplementedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatmulUnimplementedError::Quantization => {
+                writeln!(f, "Quantization")
             }
         }
     }

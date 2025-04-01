@@ -114,11 +114,8 @@ fn calculate_batch_offsets<N: Numeric>(
 ) -> BatchOffsets {
     let rank = out.rank();
 
-    let dim_m = lhs.shape(rank - 2);
-    let dim_n = rhs.shape(rank - 1);
-
     // Batch offset for output
-    let mut offset_out = dim_m * dim_n * batch_number;
+    let mut offset_out = batch_number * out.stride(rank - 2) * out.shape(rank - 2);
     let mut offset_lhs = 0;
     let mut offset_rhs = 0;
 

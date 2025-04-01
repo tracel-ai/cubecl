@@ -402,7 +402,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
-            ir::VariableKind::SharedMemory { id, length } => {
+            ir::VariableKind::SharedMemory {
+                id,
+                length,
+                alignment,
+            } => {
                 let item = self.compile_item(item);
                 let id = if let Some(arr) = self.state.shared_memories.get(&id) {
                     arr.id
@@ -413,6 +417,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         item: item.clone(),
                         len: length,
                         var: variable,
+                        alignment,
                     };
                     self.state.shared_memories.insert(id, arr);
                     arr_id
@@ -433,6 +438,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         item: item.clone(),
                         len: length,
                         var: variable,
+                        alignment: None,
                     };
                     self.state.local_arrays.insert(id, arr);
                     arr_id
@@ -451,6 +457,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
             ir::VariableKind::Barrier { .. } => panic!("Barrier not supported."),
+            ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 

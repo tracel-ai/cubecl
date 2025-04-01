@@ -75,13 +75,13 @@ impl<D: Dialect> Display for Elem<D> {
             Elem::BF16 => D::bfloat16_type_name(f),
             Elem::BF162 => D::bfloat162_type_name(f),
             Elem::TF32 => f.write_str("float"),
-            Elem::I8 => f.write_str("char"),
-            Elem::I16 => f.write_str("short"),
-            Elem::I32 => f.write_str("int"),
+            Elem::I8 => f.write_str("int8"),
+            Elem::I16 => f.write_str("int16"),
+            Elem::I32 => f.write_str("int32"),
             Elem::I64 => f.write_str("int64"),
             Elem::U8 => f.write_str("uint8"),
             Elem::U16 => f.write_str("uint16"),
-            Elem::U32 => f.write_str("uint"),
+            Elem::U32 => f.write_str("uint32"),
             Elem::U64 => f.write_str("uint64"),
             Elem::Bool => f.write_str("bool"),
             Elem::Atomic(inner) => inner.fmt(f),
@@ -165,8 +165,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::BlockDimGlobal => Item::scalar(Elem::U32),
             Variable::GridDimGlobal => Item::scalar(Elem::U32),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { id: _, item } => *item,
-            Variable::Barrier { id: _, item, .. } => *item,
+            Variable::Pipeline { item, .. } => *item,
+            Variable::Barrier { item, .. } => *item,
+            Variable::TensorMap(_) => unreachable!(),
         }
     }
 
@@ -182,6 +183,7 @@ pub enum Variable<D: Dialect> {
     GlobalInputArray(Id, Item<D>),
     GlobalOutputArray(Id, Item<D>),
     GlobalScalar(Id, Elem<D>, gpu::Elem),
+    TensorMap(Id),
     ConstantArray(Id, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
     LocalMut {
@@ -245,6 +247,7 @@ impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("input_{number}")),
+            Variable::TensorMap(id) => write!(f, "constant_{id}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
             Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
@@ -255,8 +258,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")
             }
-            // We do the conversion in Rust and then render the number to avoid overflow or other
-            // precision related problems.
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
@@ -455,6 +456,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Tmp { .. } => false,
             Variable::Pipeline { .. } => false,
             Variable::Barrier { .. } => false,
+            Variable::TensorMap(_) => false,
         }
     }
 

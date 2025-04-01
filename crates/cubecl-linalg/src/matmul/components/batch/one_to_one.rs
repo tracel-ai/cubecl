@@ -1,18 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::batch::shared::gmm_execute;
-use crate::matmul::components::global::{GlobalMatmul, GlobalMatmulFamily};
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
-};
-use crate::matmul::components::{
-    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Args, EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory,
+    MatmulLaunch, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingDimensions,
+    batch::{self, shared::gmm_execute},
+    config::MatmulConfig,
+    global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use batch::{BatchMatmul, BatchMatmulFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::{BatchConfig as _, CubeDispatch};
@@ -57,7 +56,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulConfigFactory
             panic!("Dynamic cube count unsupported")
         };
 
-        Config::<GMM::Config, C>::new(gmm_config, cube_count)
+        Config::<GMM::Config, C>::new(gmm_config, cube_count, quantized)
     }
 }
 
@@ -68,11 +67,12 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
-            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-                client, cube_count, cube_dim, input, output, config,
+            super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+                client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
     }
@@ -96,17 +96,18 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        size_k: u32,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();
         let x_offset = x_index * config.tiling_dimensions(Ident::Lhs).total_row();
         let y_offset = y_index * config.tiling_dimensions(Ident::Rhs).total_col();
         let nth_batch = C::batch_index();
-        let rank = lhs.rank();
-        let k_range = (0, lhs.shape(rank - 1));
+        let k_range = (0, size_k);
 
         let gmm_config = config.to_gmm_config();
 
@@ -119,6 +120,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
             nth_batch,
             &mut GMM::init_accumulator(gmm_config),
             k_range,
+            quantization,
             gmm_config,
         );
     }
@@ -129,6 +131,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
 pub struct Config<G: global::GlobalConfig, C: CubeDispatch> {
     gmm_config: G,
     cube_count: (u32, u32, u32),
+    quantized: bool,
     _c: PhantomData<C>,
 }
 
@@ -154,15 +157,20 @@ impl<G: global::GlobalConfig, C: CubeDispatch> batch::BatchConfig for Config<G, 
     fn max_batches(&self) -> u32 {
         C::max_batches(self.cube_count)
     }
+
+    fn quantized(&self) -> bool {
+        self.quantized
+    }
 }
 
 impl<G: global::GlobalConfig, C: CubeDispatch> MatmulConfig for Config<G, C> {}
 
 impl<G: global::GlobalConfig, C: CubeDispatch> Config<G, C> {
-    pub fn new(gmm_config: G, cube_count: (u32, u32, u32)) -> Self {
+    pub fn new(gmm_config: G, cube_count: (u32, u32, u32), quantized: bool) -> Self {
         Self {
             gmm_config,
             cube_count,
+            quantized,
             _c: PhantomData,
         }
     }

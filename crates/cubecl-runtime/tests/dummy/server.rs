@@ -1,5 +1,8 @@
 use cubecl_common::ExecutionMode;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
+use cubecl_runtime::{
+    TimestampsError, TimestampsResult,
+    server::{BindingWithMeta, ConstBinding},
+};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,6 +65,14 @@ impl ComputeServer for DummyServer {
         async move { bytes.into_iter().map(|b| b.read().to_vec()).collect() }
     }
 
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<BindingWithMeta>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + 'static {
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
+        self.read(bindings)
+    }
+
     fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
@@ -78,28 +89,63 @@ impl ComputeServer for DummyServer {
         handle
     }
 
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: &[usize],
+        _elem_size: usize,
+    ) -> (Handle, Vec<usize>) {
+        let rank = shape.len();
+        let mut strides = vec![1; rank];
+        for i in (0..rank - 1).rev() {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        let handle = self.create(data);
+
+        (handle, strides)
+    }
+
     fn empty(&mut self, size: usize) -> Handle {
         Handle::new(
-            self.memory_management.reserve(size as u64),
+            self.memory_management.reserve(size as u64, None),
             None,
             None,
             size as u64,
         )
     }
 
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+        let rank = shape.len();
+        let mut strides = vec![1; rank];
+        for i in (0..rank - 1).rev() {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        let size = (shape.iter().product::<usize>() * elem_size) as u64;
+        let handle = Handle::new(self.memory_management.reserve(size, None), None, None, size);
+        (handle, strides)
+    }
+
     unsafe fn execute(
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         _mode: ExecutionMode,
     ) {
-        let bind_resources = bindings
+        let mut resources = constants
             .into_iter()
-            .map(|binding| self.get_resource(binding))
+            .map(|it| match it {
+                ConstBinding::TensorMap { binding, .. } => self.get_resource(binding),
+            })
             .collect::<Vec<_>>();
+        resources.extend(
+            bindings
+                .into_iter()
+                .map(|binding| self.get_resource(binding)),
+        );
 
-        let mut resources: Vec<_> = bind_resources.iter().map(|x| x.resource()).collect();
+        let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
 
         kernel.compute(&mut resources);
     }

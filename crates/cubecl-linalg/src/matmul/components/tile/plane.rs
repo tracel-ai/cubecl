@@ -19,10 +19,11 @@ use super::Tile;
 ///  - When loading perpendicular to the lines, too much data is loaded from in comparison to what is used.
 ///    A solution could be to always load the stage with lhs in row-major and rhs in col-major, using only parallel fill
 ///  - If not vec4, there are patches in read_output that may harm performance
+#[derive(CubeType, Clone)]
 pub struct PlaneMma;
 
 impl TileMatmulFamily for PlaneMma {
-    type Matmul<I: Numeric, O: Numeric> = Self;
+    type Matmul<MP: MatmulPrecision> = Self;
 
     fn tile_shape(config: &Self::Config) -> MatmulSize {
         config.size
@@ -34,11 +35,11 @@ impl TileMatmulFamily for PlaneMma {
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
+impl<MP: MatmulPrecision> TileMatmul<MP> for PlaneMma {
     type Config = Config;
-    type Lhs = Array<I>;
-    type Rhs = Array<I>;
-    type Accumulator = Array<O>;
+    type Lhs = Array<MP::ES>;
+    type Rhs = Array<MP::ES>;
+    type Accumulator = Array<MP::EA>;
 
     fn execute(
         lhs: &Self::Lhs,
@@ -65,8 +66,8 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
                 #[unroll]
                 for n_iter in 0..compute_width {
                     let unit_to_read = k_inner * config.size.n + n_iter + unit_offset;
-                    let b_kn = plane_broadcast::<I>(b_kp, unit_to_read);
-                    out[n_iter] += O::cast_from(a_pk * b_kn);
+                    let b_kn = plane_broadcast::<MP::ES>(b_kp, unit_to_read);
+                    out[n_iter] += MP::EA::cast_from(a_pk * b_kn);
                 }
             }
         }
@@ -80,7 +81,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         Array::new(config.size.k * config.size.n / config.plane_dim())
     }
 
-    fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         match config.matrix_layout(Ident::Lhs) {
             MatrixLayout::RowMajor => fill_parallel_lhs(
                 &tile.slice,
@@ -105,7 +106,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         match comptime!(config.matrix_layout(Ident::Rhs)) {
             MatrixLayout::RowMajor => fill_perpendicular_rhs(
                 &tile.slice,
@@ -130,7 +131,11 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
         }
     }
 
-    fn fill_accumulator(tile: &Tile<O>, acc: &mut Self::Accumulator, #[comptime] config: Config) {
+    fn fill_accumulator(
+        tile: &Tile<MP::EA>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Config,
+    ) {
         let unit = UNIT_POS_X;
         let n = config.size.n;
         let line_size = config.line_size(Ident::Out);
@@ -151,7 +156,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
             let line = tile.slice[offset];
 
             acc[m_iter] = if comptime!(line_size == 1) {
-                O::cast_from(line)
+                MP::EA::cast_from(line)
             } else {
                 line[line_idx]
             };
@@ -224,7 +229,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for PlaneMma {
 
         #[unroll]
         for i in 0..len {
-            acc[i] = O::from_int(0);
+            acc[i] = MP::EA::from_int(0);
         }
     }
 }
@@ -390,17 +395,17 @@ impl MatmulConfigFactory for PlaneMma {
         client: &ComputeClient<R::Server, R::Channel>,
         _config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MP::EG::as_elem_native_unchecked();
-        let o_elem = MP::EG::as_elem_native_unchecked();
+        let es = MP::ES::as_elem_native_unchecked();
+        let ea = MP::EA::as_elem_native_unchecked();
 
         if !client.properties().feature_enabled(Feature::Plane) {
             return Err(MatmulAvailabilityError::PlaneOperationsUnavailable);
         }
 
-        if !MP::EG::is_supported(client) {
+        if !MP::ES::is_supported(client) || !MP::EA::is_supported(client) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
-                input: i_elem,
-                output: o_elem,
+                input: es,
+                output: ea,
             });
         }
 

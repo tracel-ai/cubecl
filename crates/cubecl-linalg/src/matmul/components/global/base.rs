@@ -8,7 +8,12 @@ use crate::matmul::components::{
     stage::{self, StageWriter},
     tile,
 };
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
+
+use super::IndexedQuantization;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -41,7 +46,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type AccumulatorLoader: CubeType;
-    type Out: OutputLoader<MP::EG>;
+    type Out: OutputLoader<MP::EO>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -56,32 +61,36 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     );
 
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         m_offset: u32,
         k_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         k_offset: u32,
         n_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
     /// Initialize the unloader at row m and column n
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
+        nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out;
 
@@ -95,14 +104,14 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
+pub trait AccumulatorLoader<MP: MatmulPrecision, G: stage::StageConfig>:
     CubeType + 'static + Send + Sync
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
     /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
-    fn load<I: Numeric, Tile: tile::TileMatmul<I, Acc>>(
+    fn load<Tile: tile::TileMatmul<MP>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
         tile_n: u32,
@@ -117,8 +126,8 @@ pub trait AccumulatorLoader<O: Numeric, Acc: Numeric, G: stage::StageConfig>:
 ///
 /// It is only a wrapper over the stage writer because there is no K for the output.
 /// Could be deleted in favor of having only the StageWriter
-pub trait OutputLoader<EG: Numeric>: CubeType + 'static + Send + Sync {
-    type StageWriter: StageWriter<EG>;
+pub trait OutputLoader<EO: Numeric>: CubeType + 'static + Send + Sync {
+    type StageWriter: StageWriter<EO>;
 
     fn as_stage_writer<G: GlobalConfig>(unloader: Self) -> Self::StageWriter;
 }

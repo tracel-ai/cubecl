@@ -1,15 +1,18 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global;
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
-use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
+use crate::matmul::components::{
+    Ident, MatmulPrecision,
+    global::{
+        self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        multi_stage::{
+            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
+        },
+        output_loader::Unloader,
+    },
+    stage::{
+        StageMatmul,
+        single_buffer::{LhsBufferReader, RhsBufferReader},
+    },
 };
-use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
@@ -51,12 +54,8 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SpecializedMatmul<
-        MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        SpecializedMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for SpecializedMatmulFamily<SMM, LL, RL>
@@ -123,7 +122,7 @@ where
 /// Both roles alternate the buffer (tile index in dimension k) they are working on
 pub struct SpecializedMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: StageMatmul<MP>,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 > {
@@ -138,9 +137,7 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for SpecializedMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,
@@ -148,10 +145,10 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -160,8 +157,15 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
@@ -176,10 +180,10 @@ where
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
-        let lhs_buffer_reader_a = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::A);
-        let rhs_buffer_reader_a = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::A);
-        let lhs_buffer_reader_b = Self::LhsLoader::as_stage_reader(&lhs_loader, BufferId::B);
-        let rhs_buffer_reader_b = Self::RhsLoader::as_stage_reader(&rhs_loader, BufferId::B);
+        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader, BufferId::A);
+        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader, BufferId::A);
+        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader, BufferId::B);
+        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         for _ in 0..num_loops {
             Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
@@ -194,6 +198,7 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
+                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -210,6 +215,7 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
+                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -222,6 +228,7 @@ where
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
+                CubeOption::new_None(),
                 config.to_smm_config(),
                 config,
             );
@@ -229,9 +236,10 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
@@ -246,9 +254,10 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
@@ -263,9 +272,10 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        _nth_batch: u32,
         batch_offset: u32,
     ) -> Self::Out {
         Self::Out::new(out, x_offset, y_offset, batch_offset)
@@ -284,9 +294,7 @@ where
 impl<
     MP: MatmulPrecision,
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,

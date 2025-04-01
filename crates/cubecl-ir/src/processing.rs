@@ -258,11 +258,6 @@ impl ScopeProcessing {
                     }
                     Operator::Cast(_) => {}
                     Operator::Bitcast(_) => {}
-                    Operator::ConditionalRead(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
-                        sanitize_constant_scalar_ref_var(&mut op.slice, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_var(&mut op.fallback, &inst.out.unwrap());
-                    }
                 },
                 Operation::Atomic(op) => match op {
                     AtomicOp::Load(_) => {}
@@ -358,6 +353,9 @@ impl ScopeProcessing {
                     // Nothing to do
                 }
                 Operation::Barrier(_) => {
+                    // Nothing to do
+                }
+                Operation::Tma(_) => {
                     // Nothing to do
                 }
             });

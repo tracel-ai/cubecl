@@ -49,16 +49,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 {
     type StageReader = LhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         LhsBufferReader::new(this.stage, buffer.to_u32())
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: Config<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
     }
 }
 
@@ -109,16 +105,12 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 {
     type StageReader = RhsBufferReader<ES, L::TilingLayout>;
 
-    fn as_stage_reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
+    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         RhsBufferReader::new(this.stage, buffer.to_u32())
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset, Ident::Rhs);
-    }
-
-    fn clear_stage(this: &mut Self, #[comptime] config: Config<S>) {
-        this.stage.clear::<S>(Ident::Rhs, config.to_smm_config())
     }
 }
 

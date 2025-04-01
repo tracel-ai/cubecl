@@ -1,4 +1,7 @@
-use crate::ir::{Scope, Synchronization};
+use crate::{
+    ir::{Scope, Synchronization},
+    unexpanded,
+};
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
 
@@ -30,5 +33,19 @@ pub mod sync_storage {
 
     pub fn expand(scope: &mut Scope) {
         scope.register(Synchronization::SyncStorage)
+    }
+}
+
+/// `sync_proxy_shared` is a synchronization fence for the experimental SM 9.0+ CTA proxy functions
+/// (i.e. TMA tensor copy). Experimental and subject to change.
+pub fn sync_proxy_shared() {
+    unexpanded!()
+}
+
+pub mod sync_proxy_shared {
+    use super::*;
+
+    pub fn expand(scope: &mut Scope) {
+        scope.register(Synchronization::SyncProxyShared)
     }
 }

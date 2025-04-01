@@ -36,7 +36,7 @@ fn matmul_kernel<N: Numeric>(
 
     let mut offset_lhs = 0;
     let mut offset_rhs = 0;
-    let offset_out = n_rows * n_cols * batch_pos;
+    let offset_out = batch_pos * out.stride(rank - 2) * out.shape(rank - 2);
 
     #[unroll(unroll)]
     for i in 0..end {
@@ -54,13 +54,13 @@ fn matmul_kernel<N: Numeric>(
     k /= line_size.runtime();
 
     for i in 0..k {
-        let lhs_index = row * k + i + offset_lhs;
-        let rhs_index = col * k + i + offset_rhs;
+        let lhs_index = row * lhs.stride(rank - 2) / line_size + i + offset_lhs;
+        let rhs_index = col * rhs.stride(rank - 1) / line_size + i + offset_rhs;
 
         sum += lhs[lhs_index] * rhs[rhs_index];
     }
 
-    let mut out_index = row * n_cols + col;
+    let mut out_index = row * out.stride(rank - 2) + col;
     out_index += offset_out;
 
     let unroll_sum = line_size != 1;
@@ -80,20 +80,20 @@ fn matmul_kernel<N: Numeric>(
 }
 
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
+#[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
-    let lhs =
-        TensorHandle::<R, E>::new(lhs.shape.to_vec(), lhs.strides.to_vec(), lhs.handle.clone());
-    let rhs =
-        TensorHandle::<R, E>::new(rhs.shape.to_vec(), rhs.strides.to_vec(), rhs.handle.clone());
+    let lhs = TensorHandle::<R, E>::from_ref(lhs);
+    let rhs = TensorHandle::<R, E>::from_ref(rhs);
 
     launch(client, lhs, rhs, out)
 }
 
+#[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, E: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: TensorHandle<R, E>,
@@ -118,11 +118,14 @@ pub fn launch<R: Runtime, E: Numeric>(
     // consecutive elements of a column in the original rhs tensor will now be stored
     // consecutively in memory, which allows to fetch them with fewer memory instructions
     let correct_rhs_layout = |mut rhs: TensorHandle<R, E>| {
-        let rhs_original_shape = rhs.shape.clone();
+        let rhs_original_shape = rhs.shape.to_vec();
         rhs.strides.swap(dim1, dim2);
         rhs.shape.swap(dim1, dim2);
 
-        let rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+        let mut rhs = into_contiguous::<R, E>(client, &rhs.as_ref());
+
+        rhs.strides.swap(dim1, dim2);
+        rhs.shape.swap(dim1, dim2);
 
         (rhs_original_shape, rhs)
     };
@@ -134,7 +137,7 @@ pub fn launch<R: Runtime, E: Numeric>(
             batch_swap,
         } => {
             if transposed && !batch_swap {
-                let rhs_original_shape = rhs.shape.clone();
+                let rhs_original_shape = rhs.shape.to_vec();
                 (rhs_original_shape, rhs)
             } else {
                 correct_rhs_layout(rhs)
@@ -162,12 +165,7 @@ pub fn launch<R: Runtime, E: Numeric>(
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
             lhs.as_arg(vectorization_factor),
-            TensorArg::from_raw_parts::<E>(
-                &rhs.handle,
-                &rhs.strides,
-                &rhs_original_shape, // We need the original shape.
-                vectorization_factor,
-            ),
+            rhs.as_arg(vectorization_factor),
             out.as_tensor_arg(1),
             Some(ndims as u32 - 2),
         );
@@ -176,6 +174,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn simple_cube_count(
     lhs_shape: &[usize],
     rhs_shape: &[usize],

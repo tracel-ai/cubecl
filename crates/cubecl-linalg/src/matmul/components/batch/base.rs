@@ -1,10 +1,17 @@
+use crate::matmul::components::{
+    Ident, MatmulLaunch, MatmulPrecision, Quantized, TilingDimensions,
+    config::MatmulConfig,
+    global::{
+        self, Quantization,
+        args::{self, MatmulArgs, TensorInput, TensorOutput},
+    },
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use crate::matmul::components::global::args::{self, MatmulArgs, TensorInput, TensorOutput};
-use crate::matmul::components::{Ident, MatmulLaunch, config::MatmulConfig, global};
-use crate::matmul::components::{MatmulPrecision, TilingDimensions};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
 pub trait BatchMatmulFamily: 'static + Send + Sync + MatmulLaunch<Config: BatchConfig> {
@@ -34,9 +41,11 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        size_k: u32,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -60,32 +69,54 @@ pub trait BatchConfig: MatmulConfig {
 
     /// Returns the largest number of batches supported with these configs
     fn max_batches(&self) -> u32;
+
+    /// Returns true if the matmul is quantized.
+    fn quantized(&self) -> bool;
 }
 
-type Input<Args, EG> = <Args as MatmulArgs>::Input<EG>;
-type Output<Args, EG> = <Args as MatmulArgs>::Output<EG>;
+type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
+type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 #[cube(launch_unchecked)]
 pub(crate) fn matmul<
-    EG: Numeric,
+    Args: MatmulArgs,
+    EI: Numeric,
     ES: Numeric,
     EA: Numeric,
-    Args: MatmulArgs,
+    EO: Numeric,
     BMM: BatchMatmulFamily,
 >(
-    inputs: &Input<Args, EG>,
-    output: &mut Output<Args, EG>,
+    inputs: &Input<Args, EI>,
+    output: &mut Output<Args, EO>,
+    size_k: u32,
     #[comptime] config: BMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EG, Args>::new(&state, args::TensorInputIdent::Rhs);
-    let mut out = TensorOutput::<EG, Args>::new(&mut state);
+    let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Rhs);
+    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
 
-    let lhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&lhs);
-    let rhs = VirtualTensor::<EG>::new::<TensorInput<EG, Args>>(&rhs);
-    let out = VirtualTensor::<EG, ReadWrite>::new::<TensorOutput<EG, Args>>(&mut out);
+    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
+    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
+    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
 
-    BMM::Matmul::<(EG, ES, EA)>::execute(lhs, rhs, out, config);
+    let quantization = if config.quantized() {
+        CubeOption::new_Some(Args::quantization(&state))
+    } else {
+        CubeOption::new_None()
+    };
+
+    if comptime![config.quantized()] {
+        BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
+            lhs,
+            rhs,
+            out,
+            size_k,
+            quantization,
+            config,
+        );
+    } else {
+        BMM::Matmul::<(EI, ES, EA, EO)>::execute(lhs, rhs, out, size_k, quantization, config);
+    }
 }
