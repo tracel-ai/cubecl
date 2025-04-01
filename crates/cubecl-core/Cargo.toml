@@ -18,6 +18,7 @@ default = ["cubecl-runtime/default"]
 export_tests = []
 std = ["cubecl-runtime/std"]
 template = []
+debug-symbols = ["cubecl-macros/debug-symbols"]
 
 [dependencies]
 cubecl-ir = { path = "../cubecl-ir", version = "0.5.0", default-features = false, features = [

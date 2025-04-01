@@ -1,60 +1,75 @@
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote, quote_spanned};
+use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch},
-    paths::{core_type, frontend_type, prelude_path, prelude_type},
+    paths::{core_type, prelude_path, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
-        // let debug_source = frontend_type("debug_source_expand");
-        // let cube_debug = frontend_type("CubeDebug");
-        // let src_file = self.src_file.as_ref().map(|file| file.value());
-        #[cfg(nightly)]
-        let src_file = {
-            src_file.or_else(|| {
-                let span: proc_macro::Span = self.span.unwrap();
-                let source_path = span.source_file().path();
-                let source_file = source_path.file_name();
-                source_file.map(|file| file.to_string_lossy().into())
-            })
-        };
-
-        // let source_text = match src_file {
-        //     Some(file) => quote![include_str!(#file)],
-        //     None => quote![""],
-        // };
-
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
             KernelBody::Block(block) => &block.to_tokens(&mut self.context),
             KernelBody::Verbatim(tokens) => tokens,
         };
-        // let name = &self.full_name;
-        // let debug_source = quote_spanned! {self.span=>
-        //     #debug_source(context, #name, file!(), #source_text, line!(), column!())
-        // };
-        // let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
-        //     let name_str = name.to_string();
-        //     // quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
-        // });
 
-        let out = quote! {
-            #vis #sig {
-                // #debug_source;
-                // #(#debug_params)*
-                use #prelude_path::IntoRuntime as _;
+        #[cfg(feature = "debug-symbols")]
+        {
+            use crate::frontend_type;
+            use quote::quote_spanned;
 
-                #body
+            let debug_source = frontend_type("debug_source_expand");
+            let cube_debug = frontend_type("CubeDebug");
+            let src_file = self.src_file.as_ref().map(|file| file.value());
+            #[cfg(nightly)]
+            let src_file = {
+                src_file.or_else(|| {
+                    let span: proc_macro::Span = self.span.unwrap();
+                    let source_path = span.source_file().path();
+                    let source_file = source_path.file_name();
+                    source_file.map(|file| file.to_string_lossy().into())
+                })
+            };
+
+            let source_text = match src_file {
+                Some(file) => quote![include_str!(#file)],
+                None => quote![""],
+            };
+
+            let name = &self.full_name;
+            let debug_source = quote_spanned! {self.span=>
+                #debug_source(context, #name, file!(), #source_text, line!(), column!())
+            };
+            let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
+                let name_str = name.to_string();
+                quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
+            });
+
+            quote! {
+                #vis #sig {
+                    #debug_source;
+                    #(#debug_params)*
+                    use #prelude_path::IntoRuntime as _;
+
+                    #body
+                }
             }
-        };
+        }
+        #[cfg(not(feature = "debug-symbols"))]
+        {
+            quote! {
+                #vis #sig {
+                    use #prelude_path::IntoRuntime as _;
 
-        out
+                    #body
+                }
+            }
+        }
     }
 }
 

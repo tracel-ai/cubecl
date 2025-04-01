@@ -19,6 +19,7 @@ proc-macro = true
 [features]
 default = []
 nightly = []
+debug-symbols = []
 std = []
 
 [dependencies]
