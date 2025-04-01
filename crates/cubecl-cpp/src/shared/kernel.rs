@@ -84,10 +84,18 @@ impl<D: Dialect> ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut flags = self.flags.clone();
+        if self
+            .constants
+            .iter()
+            .any(|c| matches!(c, ConstBinding::TensorMap))
+        {
+            flags.inst_tma = true;
+        }
 
         // Program Scope -----------------------------------------------------
-        D::compile_includes(f, &self.flags)?;
-        D::compile_type_definitions(f, &self.items, &self.flags)?;
+        D::compile_includes(f, &flags)?;
+        D::compile_type_definitions(f, &self.items, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
         // Kernel signature --------------------------------------------------

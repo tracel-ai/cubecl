@@ -1,14 +1,12 @@
 use std::collections::HashSet;
 use std::fmt::Display;
 
-use cubecl_core::{compute::ConstBinding, prelude::SharedMemory};
+use cubecl_core::compute::ConstBinding;
 
 use crate::{
-    Dialect,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
-        DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, Variable,
-    },
+        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, SharedMemory, Variable
+    }, Dialect
 };
 
 use super::{Extension, arch::CudaArchitecture, mma::CudaWmmaCompiler};
@@ -26,44 +24,32 @@ impl DialectIncludes<Self> for CudaDialect {
     type Extension = Extension;
 
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
-        let mut tma = self.tma;
-        if self
-            .constants
-            .iter()
-            .any(|c| matches!(c, ConstBinding::TensorMap))
-        {
-            tma = true;
+        f.write_str("#include <cuda_runtime.h>\n")?;
+        if flags.elem_bf16 {
+            f.write_str("#include <cuda_bf16.h>\n")?;
         }
-
-        if self.bf16 {
-            D::include_bf16(f)?;
+        if flags.elem_f16 {
+            f.write_str("#include <cuda_fp16.h>\n")?;
         }
-
-        if self.f16 {
-            D::include_f16(f)?;
+        if flags.inst_wmma {
+            Self::compile_wmma_includes(f)?;
         }
-
-        if self.wmma_activated {
-            D::wmma_includes(f)?;
-        }
-
-        if self.pipeline {
+        if flags.op_pipeline {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
         }
-        if self.barrier || tma {
+        if flags.op_barrier || flags.inst_tma {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
-        if tma {
+        if flags.inst_tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
 alignas(64) unsigned long long int opaque[16];
 } CUtensorMap;\n",
             )?;
         }
-
         Ok(())
     }
 
