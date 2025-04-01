@@ -260,7 +260,7 @@ impl ComputeServer for HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
         let info = self.create(bytemuck::cast_slice(&metadata.data));
-        let scalars: Vec<_> = scalars.iter().map(|s| self.create(s.data())).collect();
+        let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
 
         let (ctx, logger) = self.get_context_with_logger();
 
