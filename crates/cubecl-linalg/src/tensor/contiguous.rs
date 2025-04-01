@@ -51,15 +51,15 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
     offset / tensor.line_size()
 }
 
-/// Index for tensor that may or may not be strided on the last dimension. Efficiently translates
+/// Layout for tensor that may or may not be strided on the last dimension. Efficiently translates
 /// the absolute index to strided index.
 #[derive(CubeType, CubeLaunch)]
-pub enum StridedIndex {
+pub enum StridedLayout {
     Pitched(FastDivmod),
     None,
 }
 
-impl<R: Runtime> StridedIndexArgs<'_, R> {
+impl<R: Runtime> StridedLayoutArgs<'_, R> {
     /// Last dimension is contiguous in second last dimension
     pub fn none() -> Self {
         Self::None
@@ -72,17 +72,17 @@ impl<R: Runtime> StridedIndexArgs<'_, R> {
 }
 
 #[cube]
-impl StridedIndex {
+impl StridedLayout {
     /// Translates absolute index to strided index if applicable
     pub fn index<T: CubePrimitive>(&self, tensor: &Tensor<Line<T>>, index: u32) -> u32 {
         match self {
-            StridedIndex::Pitched(divmod) => {
+            StridedLayout::Pitched(divmod) => {
                 let offset_abs = index * tensor.line_size();
                 let (y, x) = divmod.div_mod(offset_abs);
                 let offset = y * tensor.stride(tensor.rank() - 2) + x;
                 offset / tensor.line_size()
             }
-            StridedIndex::None => index,
+            StridedLayout::None => index,
         }
     }
 }
@@ -91,7 +91,7 @@ impl StridedIndex {
 fn into_contiguous_kernel<N: CubePrimitive>(
     input: &Tensor<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    out_stride: StridedIndex,
+    out_layout: StridedLayout,
     #[comptime] rank: Option<u32>,
     #[comptime] elems_per_thread: u32,
 ) {
@@ -106,7 +106,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
         registers[i] = input[offset_input];
     }
 
-    let offset_output = out_stride.index(output, offset_output);
+    let offset_output = out_layout.index(output, offset_output);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -210,9 +210,9 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
         num_elems_per_unit /= 2;
     }
 
-    let pitch = match is_padded {
-        true => StridedIndexArgs::strided(client, last_dim as u32),
-        false => StridedIndexArgs::none(),
+    let out_layout = match is_padded {
+        true => StridedLayoutArgs::strided(client, last_dim as u32),
+        false => StridedLayoutArgs::none(),
     };
 
     let cube_dim = CubeDim::default();
@@ -225,7 +225,7 @@ pub fn into_contiguous_prefetch<R: Runtime, E: CubePrimitive>(
         cube_dim,
         input.as_tensor_arg(vectorization_factor),
         output.as_ref().as_tensor_arg(vectorization_factor),
-        pitch,
+        out_layout,
         Some(rank as u32),
         elems_per_unit,
     );

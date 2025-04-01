@@ -83,7 +83,7 @@ pub fn register_types(props: &mut DeviceProperties<Feature>, adapter: &wgpu::Ada
         register(Elem::UInt(UIntKind::U64));
     }
     if feats.contains(wgpu::Features::SHADER_F64) {
-        register(Elem::Float(FloatKind::F32));
+        register(Elem::Float(FloatKind::F64));
     }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         register(Elem::AtomicFloat(FloatKind::F32));
