@@ -11,7 +11,6 @@ use crate::matmul::components::global::single_stage::AsyncRhsLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::global::single_stage::Loader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::{LhsReader, RhsReader};
 
 use barrier::Barrier;
 use cubecl_core::Feature;
@@ -25,7 +24,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
-        stage::{self, LhsReaderFamily, RhsReaderFamily},
+        stage,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -43,7 +42,7 @@ pub struct SimpleBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
@@ -109,7 +108,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP>,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 > {
@@ -122,11 +121,7 @@ pub struct SimpleBarrierMatmul<
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {

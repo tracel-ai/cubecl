@@ -6,7 +6,6 @@ use crate::matmul::components::global::single_stage::{
 };
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily};
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -35,7 +34,7 @@ pub struct DoubleBufferingBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
@@ -108,7 +107,7 @@ where
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
 pub struct DoubleBufferingBarrierMatmul<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
+    SMM: stage::StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 > {
@@ -122,11 +121,7 @@ pub struct DoubleBufferingBarrierMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingBarrierMatmul<MP, SMM, LL, RL>
 where
-    SMM: stage::StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: stage::StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
@@ -160,12 +155,12 @@ where
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
         // Buffer A
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader);
+        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader);
 
         // Buffer B
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader);
+        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader);
 
         let barrier_level = LL::barrier_level();
         comptime!(assert!(barrier_level == RL::barrier_level()));
@@ -198,8 +193,8 @@ where
 
             barrier_a.wait();
             SMM::execute(
-                &lhs_buffer_reader_a,
-                &rhs_buffer_reader_a,
+                &lhs_reader_a,
+                &rhs_reader_a,
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
@@ -210,8 +205,8 @@ where
 
             barrier_b.wait();
             SMM::execute(
-                &lhs_buffer_reader_b,
-                &rhs_buffer_reader_b,
+                &lhs_reader_b,
+                &rhs_reader_b,
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
@@ -255,8 +250,8 @@ where
 
         barrier_a.wait();
         SMM::execute(
-            &lhs_buffer_reader_a,
-            &rhs_buffer_reader_a,
+            &lhs_reader_a,
+            &rhs_reader_a,
             &mut lhs_tile_a,
             &mut rhs_tile_a,
             acc,
@@ -267,8 +262,8 @@ where
 
         barrier_b.wait();
         SMM::execute(
-            &lhs_buffer_reader_b,
-            &rhs_buffer_reader_b,
+            &lhs_reader_b,
+            &rhs_reader_b,
             &mut lhs_tile_b,
             &mut rhs_tile_b,
             acc,

@@ -7,7 +7,7 @@ use crate::matmul::components::{
             AsyncLhsLoader, AsyncLoader, AsyncLoadingStrategy, AsyncRhsLoader, Config, Loader,
         },
     },
-    stage::{LhsReader, RhsReader, StageMatmul},
+    stage::StageMatmul,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -22,7 +22,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, LhsReaderFamily, RhsReaderFamily},
+        stage,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -39,7 +39,7 @@ pub struct SimplePipelinedMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {
@@ -105,7 +105,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct SimplePipelinedMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP>,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 > {
@@ -118,11 +118,7 @@ pub struct SimplePipelinedMatmul<
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmul<MP, SMM, LL, RL>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: AsyncLoadingStrategy,
     RL: AsyncLoadingStrategy,
 {

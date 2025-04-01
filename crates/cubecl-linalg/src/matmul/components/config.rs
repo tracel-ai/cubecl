@@ -83,6 +83,7 @@ impl Ident {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum InputIdent {
     Lhs,
     Rhs,

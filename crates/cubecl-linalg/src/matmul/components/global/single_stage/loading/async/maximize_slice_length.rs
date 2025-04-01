@@ -26,7 +26,7 @@ impl LoadingValidation for MaximizeSliceLengthLoading {
 impl AsyncLoadingStrategy for MaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,

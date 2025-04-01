@@ -38,7 +38,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 impl<T: TilingOrder> AsyncLoadingStrategy for CyclicWindowLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,

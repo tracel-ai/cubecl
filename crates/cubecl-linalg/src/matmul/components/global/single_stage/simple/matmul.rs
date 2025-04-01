@@ -7,7 +7,7 @@ use crate::matmul::components::{
             Config, Loader, SyncLhsLoader, SyncLoader, SyncLoadingStrategy, SyncRhsLoader,
         },
     },
-    stage::{LhsReader, RhsReader, StageMatmul},
+    stage::StageMatmul,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -19,7 +19,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, LhsReaderFamily, RhsReaderFamily},
+        stage,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -36,7 +36,7 @@ pub struct SimpleMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
@@ -96,7 +96,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP>,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 > {
@@ -109,11 +109,7 @@ pub struct SimpleMatmul<
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {

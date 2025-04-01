@@ -5,7 +5,7 @@ use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::single_stage::{Loader, SyncLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::{LhsReader, RhsReader};
+use crate::matmul::components::stage::StageReader;
 use crate::matmul::components::stage::{Stage, TilingLayout};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
@@ -17,7 +17,7 @@ pub trait SyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
-    /// Load the full stage
+    /// Load the stage
     fn load<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
@@ -46,10 +46,13 @@ pub struct SyncRhsLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStr
 impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> Loader<MP, G>
     for SyncLhsLoader<MP, G, L>
 {
-    type StageReader = LhsReader<MP::ES, L::TilingLayout>;
+    type TilingLayout = L::TilingLayout;
 
-    fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Lhs,
+        }
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -90,10 +93,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> SyncLhsLoader
 impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> Loader<MP, G>
     for SyncRhsLoader<MP, G, L>
 {
-    type StageReader = RhsReader<MP::ES, L::TilingLayout>;
+    type TilingLayout = L::TilingLayout;
 
-    fn reader(this: &Self) -> Self::StageReader {
-        RhsReader::new(this.stage)
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Rhs,
+        }
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {

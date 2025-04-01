@@ -7,7 +7,7 @@ use crate::matmul::components::{
         output_loader::Unloader,
         single_stage::{SyncLhsLoader, SyncLoadingStrategy, SyncRhsLoader},
     },
-    stage::{LhsReader, RhsReader, StageMatmul},
+    stage::StageMatmul,
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -23,7 +23,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, LhsReaderFamily, RhsReaderFamily},
+        stage,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -40,7 +40,7 @@ pub struct SpecializedMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
@@ -109,10 +109,10 @@ where
 /// - First n planes are used in the stage matmul computation, with n the number of planes needed by the underlying stage matmul
 /// - Remaining planes load data to the stage
 ///
-/// Both roles alternate the buffer (tile index in dimension k) they are working on
+/// Both roles alternate the buffer they are working on
 pub struct SpecializedMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP>,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 > {
@@ -126,11 +126,7 @@ pub struct SpecializedMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for SpecializedMatmul<MP, SMM, LL, RL>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
@@ -275,11 +271,7 @@ where
 #[cube]
 impl<
     MP: MatmulPrecision,
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 > SpecializedMatmul<MP, SMM, LL, RL>

@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::single_stage::{Loader, SyncLoader},
-    stage::{ContiguousTilingLayout, LhsReader, RowMajorTilingOrder},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageReader},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -25,14 +25,17 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> Loader<MP, G> for SimpleIm2colLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type TilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Lhs,
+        }
+    }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset);
-    }
-
-    fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
     }
 }
 

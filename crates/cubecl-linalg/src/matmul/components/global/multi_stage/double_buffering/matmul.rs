@@ -1,4 +1,3 @@
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
     Loader, SyncLhsLoader, SyncLoader, SyncLoadingStrategy, SyncRhsLoader,
@@ -6,9 +5,8 @@ use crate::matmul::components::global::single_stage::{
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::global::{GlobalMatmulFamily, IndexedQuantization};
-use crate::matmul::components::stage::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{LhsReaderFamily, StageEvent};
-use crate::matmul::components::stage::{RhsReaderFamily, StageEventListener};
+use crate::matmul::components::stage::StageEvent;
+use crate::matmul::components::stage::StageEventListener;
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
 };
@@ -31,7 +29,7 @@ pub struct DoubleBufferingMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
@@ -96,7 +94,7 @@ where
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
+    SMM: stage::StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 > {
@@ -110,11 +108,7 @@ pub struct DoubleBufferingMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL>
 where
-    SMM: stage::StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
-        >,
+    SMM: stage::StageMatmul<MP, LL::TilingLayout, RL::TilingLayout>,
     LL: SyncLoadingStrategy,
     RL: SyncLoadingStrategy,
 {
@@ -154,11 +148,11 @@ where
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
 
         // Buffer A
-        let lhs_buffer_reader_a = Self::LhsLoader::reader(&lhs_loader);
-        let rhs_buffer_reader_a = Self::RhsLoader::reader(&rhs_loader);
+        let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_reader_a = Self::RhsLoader::reader(&rhs_loader);
         // Buffer B
-        let lhs_buffer_reader_b = Self::LhsLoader::reader(&lhs_loader);
-        let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader);
+        let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader);
+        let rhs_reader_b = Self::RhsLoader::reader(&rhs_loader);
 
         // Buffer A
         Self::LhsLoader::fill_stage(&mut lhs_loader, config);
@@ -170,14 +164,14 @@ where
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
-                &lhs_buffer_reader_a,
-                &rhs_buffer_reader_a,
+                &lhs_reader_a,
+                &rhs_reader_a,
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(&lhs_loader, &rhs_loader, config),
             );
 
             sync_units();
@@ -188,14 +182,14 @@ where
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
             >(
-                &lhs_buffer_reader_b,
-                &rhs_buffer_reader_b,
+                &lhs_reader_b,
+                &rhs_reader_b,
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
                 CubeOption::new_None(),
                 config.to_smm_config(),
-                DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
+                DoubleBufferingEventListener::new(&lhs_loader, &rhs_loader, config),
             );
             sync_units();
         }
@@ -203,21 +197,21 @@ where
         SMM::execute_with_listener::<
             DoubleBufferingEventListener<Self::LhsLoader, Self::RhsLoader, Self::Config>,
         >(
-            &lhs_buffer_reader_a,
-            &rhs_buffer_reader_a,
+            &lhs_reader_a,
+            &rhs_reader_a,
             &mut lhs_tile_a,
             &mut rhs_tile_a,
             acc,
             CubeOption::new_None(),
             config.to_smm_config(),
-            DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
+            DoubleBufferingEventListener::new(&lhs_loader, &rhs_loader, config),
         );
 
         sync_units();
 
         SMM::execute(
-            &lhs_buffer_reader_b,
-            &rhs_buffer_reader_b,
+            &lhs_reader_b,
+            &rhs_reader_b,
             &mut lhs_tile_b,
             &mut rhs_tile_b,
             acc,
@@ -277,8 +271,6 @@ where
 
 #[derive(CubeType)]
 struct DoubleBufferingEventListener<Lhs: CubeType, Rhs: CubeType, G: GlobalConfig> {
-    #[cube(comptime)]
-    buffer_id: BufferId,
     loader_lhs: Lhs,
     loader_rhs: Rhs,
     #[cube(comptime)]
@@ -290,13 +282,11 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, G: GlobalConfig>
     DoubleBufferingEventListener<Lhs, Rhs, G>
 {
     pub fn new(
-        #[comptime] buffer_id: BufferId,
         loader_lhs: &Lhs,
         loader_rhs: &Rhs,
         #[comptime] config: G,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
-            buffer_id,
             loader_lhs: comptime![loader_lhs.clone()],
             loader_rhs: comptime![loader_rhs.clone()],
             config,

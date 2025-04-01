@@ -53,7 +53,7 @@ impl LoadingValidation for MaximizeUnitCountLoading {
 impl AsyncLoadingStrategy for MaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
+    fn load<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,

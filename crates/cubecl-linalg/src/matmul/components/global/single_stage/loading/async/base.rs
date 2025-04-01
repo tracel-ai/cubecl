@@ -3,8 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::global::single_stage::{AsyncLoader, Loader};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
-use crate::matmul::components::stage::{LhsReader, RhsReader};
-use crate::matmul::components::stage::{Stage, TilingLayout};
+use crate::matmul::components::stage::{Stage, StageReader, TilingLayout};
 use crate::matmul::components::{Ident, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -16,8 +15,8 @@ pub trait AsyncLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidatio
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
 
-    /// Load the full stage
-    fn load_full<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
+    /// Load the stage
+    fn load<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
         read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
@@ -54,7 +53,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLoader<
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        L::load_full::<MP::EI, MP::ES, G, CM>(
+        L::load::<MP::EI, MP::ES, G, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -73,10 +72,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLoader<
 impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> Loader<MP, G>
     for AsyncLhsLoader<MP, G, L>
 {
-    type StageReader = LhsReader<MP::ES, L::TilingLayout>;
+    type TilingLayout = L::TilingLayout;
 
-    fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Lhs,
+        }
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -118,10 +120,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLhsLoad
 impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> Loader<MP, G>
     for AsyncRhsLoader<MP, G, L>
 {
-    type StageReader = RhsReader<MP::ES, L::TilingLayout>;
+    type TilingLayout = L::TilingLayout;
 
-    fn reader(this: &Self) -> Self::StageReader {
-        RhsReader::new(this.stage)
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Rhs,
+        }
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -138,7 +143,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> AsyncLoader<
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        L::load_full::<MP::EI, MP::ES, G, CM>(
+        L::load::<MP::EI, MP::ES, G, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
