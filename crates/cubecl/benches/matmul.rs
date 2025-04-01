@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::components::{I8Float, MatmulPrecision};
+use cubecl_linalg::matmul::components::MatmulPrecision;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
 use std::marker::PhantomData;
 
@@ -90,26 +90,27 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // );
+
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
@@ -135,12 +136,12 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        // run_benches::<cubecl::cuda::CudaRuntime, half::bf16>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::bf16>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
-        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();
-        run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, f32, half::f16)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, f32, half::f16)>();
     }
 }

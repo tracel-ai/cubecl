@@ -48,6 +48,14 @@ impl MatmulPrecision for f16 {
     type EO = f16;
 }
 
+impl MatmulPrecision for f64 {
+    const QUANTIZED: bool = false;
+    type EI = f64;
+    type ES = f64;
+    type EA = f64;
+    type EO = f64;
+}
+
 impl MatmulPrecision for flex32 {
     const QUANTIZED: bool = false;
     type EI = flex32;
