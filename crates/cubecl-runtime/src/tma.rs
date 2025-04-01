@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use serde::{Deserialize, Serialize};
 
 /// Format of [`TensorMap`]
@@ -42,7 +43,11 @@ pub enum TensorMapFormat {
 }
 
 /// Interleave setting for [`TensorMap`]
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[cfg_attr(
+    any(target_os = "windows", target_os = "linux", target_os = "macos"),
+    derive(Serialize, Deserialize)
+)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapInterleave {
     /// No interleaving
     #[default]
@@ -61,7 +66,11 @@ pub enum TensorMapInterleave {
 /// can be loaded to shared memory with shuffling across shared memory banks. When interleave is
 /// [`TensorMapInterleave::B32`], swizzle must be [`TensorMapSwizzle::B32`].
 /// Other interleave modes can have any swizzling pattern.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[cfg_attr(
+    any(target_os = "windows", target_os = "linux", target_os = "macos"),
+    derive(Serialize, Deserialize)
+)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapSwizzle {
     /// No swizzling
     #[default]
@@ -76,7 +85,11 @@ pub enum TensorMapSwizzle {
 
 /// Additional prefetching to perform during load
 /// Specifies L2 fetch size which indicates the byte granularity at which L2 requests are filled from DRAM
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[cfg_attr(
+    any(target_os = "windows", target_os = "linux", target_os = "macos"),
+    derive(Serialize, Deserialize)
+)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum TensorMapPrefetch {
     /// No extra prefetch
     #[default]
@@ -90,7 +103,11 @@ pub enum TensorMapPrefetch {
 }
 
 /// What value to use when filling out of bounds values
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[cfg_attr(
+    any(target_os = "windows", target_os = "linux", target_os = "macos"),
+    derive(Serialize, Deserialize)
+)]
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
 pub enum OobFill {
     /// Fill zeroes
     #[default]
