@@ -143,6 +143,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
 
     let comp_opts = CompilationOptions {
         warp_size: arch.warp_size(),
+        supports_clusters: false,
     };
     let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
     let server = HipServer::new(hip_ctx);
