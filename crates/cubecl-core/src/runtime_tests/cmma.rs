@@ -267,167 +267,47 @@ pub fn test_simple_1<R: Runtime>(
     assert_eq!(expected, actual);
 }
 
-pub fn test_simple_2<R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
-    cube_dimensions: CubeDim,
-) {
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F16),
-        m: 8,
-        k: 8,
-        n: 8,
-    }) {
-        // We can't execute the test, skip.
-        return;
-    }
+// pub fn test_simple_2<R: Runtime>(
+//     client: ComputeClient<R::Server, R::Channel>,
+//     cube_dimensions: CubeDim,
+// ) {
+//     if !client.properties().feature_enabled(Feature::Cmma {
+//         a: Elem::Float(FloatKind::F16),
+//         b: Elem::Float(FloatKind::F16),
+//         c: Elem::Float(FloatKind::F16),
+//         m: 8,
+//         k: 8,
+//         n: 8,
+//     }) {
+//         // We can't execute the test, skip.
+//         return;
+//     }
 
-    let lhs: Vec<f16> = (0..64).map(|i| f16::from_f32(i as f32)).collect();
-    let rhs: Vec<f16> = (0..64).map(|i| f16::from_f32((i % 8) as f32)).collect();
+//     let lhs: Vec<f16> = (0..64).map(|i| f16::from_f32(i as f32)).collect();
+//     let rhs: Vec<f16> = (0..64).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let mut out = vec![half::f16::from_int(0); 64];
-    for i in 0..8 {
-        for j in 0..8 {
-            for k_ in 0..8 {
-                let lhs_value = lhs[i * 8 + k_];
-                let rhs_value = rhs[j + k_ * 8];
+//     let lhs = client.create(f16::as_bytes(&lhs));
+//     let rhs = client.create(f16::as_bytes(&rhs));
+//     let out = client.empty(core::mem::size_of::<f16>() * 64);
 
-                let result = lhs_value * rhs_value;
+//     unsafe {
+//         kernel_simple_2::launch::<R>(
+//             &client,
+//             CubeCount::Static(1, 1, 1),
+//             cube_dimensions,
+//             ArrayArg::from_raw_parts::<f16>(&lhs, 64, 1),
+//             ArrayArg::from_raw_parts::<f16>(&rhs, 64, 1),
+//             ArrayArg::from_raw_parts::<f16>(&out, 64, 1),
+//         )
+//     };
 
-                out[i * 8 + j] += result;
-            }
-        }
-    }
-    println!("EXPECTED: {out:?}");
+//     let actual = client.read_one(out.binding());
+//     let actual = f16::from_bytes(&actual);
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f16>() * 64);
+//     let expected: [f16; 64] = [0.0, 28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 0.0, 92.0, 184.0, 276.0, 368.0, 460.0, 552.0, 644.0, 0.0, 156.0, 312.0, 468.0, 624.0, 780.0, 936.0, 1092.0, 0.0, 220.0, 440.0, 660.0, 880.0, 1100.0, 1320.0, 1540.0, 0.0, 284.0, 568.0, 852.0, 1136.0, 1420.0, 1704.0, 1988.0, 0.0, 348.0, 696.0, 1044.0, 1392.0, 1740.0, 2088.0, 2436.0, 0.0, 412.0, 824.0, 1236.0, 1648.0, 2060.0, 2472.0, 2884.0, 0.0, 476.0, 952.0, 1428.0, 1904.0, 2380.0, 2856.0, 3332.0].map(|e| f16::from_f64(e));
 
-    unsafe {
-        kernel_simple_2::launch::<R>(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, 64, 1),
-            ArrayArg::from_raw_parts::<f16>(&rhs, 64, 1),
-            ArrayArg::from_raw_parts::<f16>(&out, 64, 1),
-        )
-    };
-
-    let actual = client.read_one(out.binding());
-    let actual = f16::from_bytes(&actual);
-
-    println!("RESULT: {actual:?}");
-
-    // let expected = [
-    //     504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504.,
-    //     504., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400.,
-    //     1400., 1400., 1400., 1400., 2296., 2296., 2296., 2296., 2296., 2296., 2296., 2296., 2296.,
-    //     2296., 2296., 2296., 2296., 2296., 2296., 2296., 3192., 3192., 3192., 3192., 3192., 3192.,
-    //     3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 4088., 4088., 4088.,
-    //     4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088.,
-    //     4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984.,
-    //     4984., 4984., 4984., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880.,
-    //     5880., 5880., 5880., 5880., 5880., 5880., 6776., 6776., 6776., 6776., 6776., 6776., 6776.,
-    //     6776., 6776., 6776., 6776., 6776., 6776., 6776., 6776., 6776., 7672., 7672., 7672., 7672.,
-    //     7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 8568.,
-    //     8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568.,
-    //     8568., 8568., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464.,
-    //     9464., 9464., 9464., 9464., 9464., 10360., 10360., 10360., 10360., 10360., 10360., 10360.,
-    //     10360., 10360., 10360., 10360., 10360., 10360., 10360., 10360., 10360., 11256., 11256.,
-    //     11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256.,
-    //     11256., 11256., 11256., 12152., 12152., 12152., 12152., 12152., 12152., 12152., 12152.,
-    //     12152., 12152., 12152., 12152., 12152., 12152., 12152., 12152., 13048., 13048., 13048.,
-    //     13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048.,
-    //     13048., 13048., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944.,
-    //     13944., 13944., 13944., 13944., 13944., 13944., 13944.,
-    // ];
-
-    // assert_eq!(expected, actual);
-}
-
-pub fn test_simple_3<R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
-    cube_dimensions: CubeDim,
-) {
-    if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
-        m: 8,
-        k: 8,
-        n: 8,
-    }) {
-        // We can't execute the test, skip.
-        return;
-    }
-
-    let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
-    let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
-
-    // let mut out = vec![half::f16::from_int(0); 256];
-    // for i in 0..16 {
-    //     for j in 0..16 {
-    //         for k_ in 0..16 {
-    //             let lhs_value = lhs[i * 16 + k_];
-    //             let rhs_value = rhs[j + k_ * 16];
-
-    //             let result = lhs_value * rhs_value;
-
-    //             out[i * 16 + j] += result;
-    //         }
-    //     }
-    // }
-    // println!("EXPECTED: {out:?}");
-
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<f32>() * 256);
-
-    unsafe {
-        kernel_simple_3::launch::<R>(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            cube_dimensions,
-            ArrayArg::from_raw_parts::<f16>(&lhs, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&rhs, 256, 1),
-            ArrayArg::from_raw_parts::<f16>(&out, 256, 1),
-        )
-    };
-
-    let actual = client.read_one(out.binding());
-    let actual = f32::from_bytes(&actual);
-
-    println!("RESULT: {actual:?}");
-
-    // let expected = [
-    //     504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504., 504.,
-    //     504., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400., 1400.,
-    //     1400., 1400., 1400., 1400., 2296., 2296., 2296., 2296., 2296., 2296., 2296., 2296., 2296.,
-    //     2296., 2296., 2296., 2296., 2296., 2296., 2296., 3192., 3192., 3192., 3192., 3192., 3192.,
-    //     3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 3192., 4088., 4088., 4088.,
-    //     4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088., 4088.,
-    //     4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984., 4984.,
-    //     4984., 4984., 4984., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880., 5880.,
-    //     5880., 5880., 5880., 5880., 5880., 5880., 6776., 6776., 6776., 6776., 6776., 6776., 6776.,
-    //     6776., 6776., 6776., 6776., 6776., 6776., 6776., 6776., 6776., 7672., 7672., 7672., 7672.,
-    //     7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 7672., 8568.,
-    //     8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568., 8568.,
-    //     8568., 8568., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464., 9464.,
-    //     9464., 9464., 9464., 9464., 9464., 10360., 10360., 10360., 10360., 10360., 10360., 10360.,
-    //     10360., 10360., 10360., 10360., 10360., 10360., 10360., 10360., 10360., 11256., 11256.,
-    //     11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256., 11256.,
-    //     11256., 11256., 11256., 12152., 12152., 12152., 12152., 12152., 12152., 12152., 12152.,
-    //     12152., 12152., 12152., 12152., 12152., 12152., 12152., 12152., 13048., 13048., 13048.,
-    //     13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048., 13048.,
-    //     13048., 13048., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944., 13944.,
-    //     13944., 13944., 13944., 13944., 13944., 13944., 13944.,
-    // ];
-
-    // assert_eq!(expected, actual);
-}
+//     assert_eq!(expected, actual);
+// }
 
 pub fn test_cmma_cast_f16<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
@@ -705,27 +585,16 @@ macro_rules! testgen_cmma {
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
 
-        #[test]
-        fn test_cmma_simple_2() {
-            let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            #[cfg(feature = "is_hip")]
-            let cube_dimensions = CubeDim::new(32, 1, 1);
-            #[cfg(not(feature = "is_hip"))]
-            let cube_dimensions = CubeDim::new(32, 1, 1);
-            cubecl_core::runtime_tests::cmma::test_simple_2::<TestRuntime>(client, cube_dimensions);
-        }
-
-        #[test]
-        fn test_cmma_simple_3() {
-            let client = TestRuntime::client(&Default::default());
-            // In HIP the thread block size must be 32
-            #[cfg(feature = "is_hip")]
-            let cube_dimensions = CubeDim::new(32, 1, 1);
-            #[cfg(not(feature = "is_hip"))]
-            let cube_dimensions = CubeDim::new(32, 1, 1);
-            cubecl_core::runtime_tests::cmma::test_simple_3::<TestRuntime>(client, cube_dimensions);
-        }
+        // #[test]
+        // fn test_cmma_simple_2() {
+        //     let client = TestRuntime::client(&Default::default());
+        //     // In HIP the thread block size must be 32
+        //     #[cfg(feature = "is_hip")]
+        //     let cube_dimensions = CubeDim::new(32, 1, 1);
+        //     #[cfg(not(feature = "is_hip"))]
+        //     let cube_dimensions = CubeDim::new(32, 1, 1);
+        //     cubecl_core::runtime_tests::cmma::test_simple_2::<TestRuntime>(client, cube_dimensions);
+        // }
 
         #[test]
         fn test_cmma_simple_tf32() {

@@ -110,7 +110,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         )?;
 
         // Body --------------------------------------------------------------
-        f.write_str(" {")?;
+        writeln!(f, " {{")?;
         compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
         write!(f, "{}", self.body)?;
         f.write_str("\n}")?;

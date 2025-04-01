@@ -99,45 +99,45 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // mod t16x16x16 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         MatmulSize {
-        //             m: 16,
-        //             n: 16,
-        //             k: 16
-        //         }
-        //     );
-        // }
+        mod t16x16x16 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize {
+                    m: 16,
+                    n: 16,
+                    k: 16
+                }
+            );
+        }
 
-        // mod t32x8x16 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         MatmulSize { m: 32, n: 8, k: 16 }
-        //     );
-        // }
+        mod t32x8x16 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 32, n: 8, k: 16 }
+            );
+        }
 
-        // mod t8x32x16 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         MatmulSize { m: 8, n: 32, k: 16 }
-        //     );
-        // }
+        mod t8x32x16 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 32, k: 16 }
+            );
+        }
 
-        // mod t16x16x8 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         MatmulSize { m: 16, n: 16, k: 8 }
-        //     );
-        // }
+        mod t16x16x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 16, n: 16, k: 8 }
+            );
+        }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
@@ -183,95 +183,95 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
-        // mod p16x16x16 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 16,
-        //             n: 16,
-        //             k: 16
-        //         }
-        //     );
-        // }
+        mod p16x16x16 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 16,
+                    n: 16,
+                    k: 16
+                }
+            );
+        }
 
-        // mod p32x32x32 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 32,
-        //             n: 32,
-        //             k: 32
-        //         }
-        //     );
-        // }
+        mod p32x32x32 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 32,
+                    n: 32,
+                    k: 32
+                }
+            );
+        }
 
-        // mod p64x32x32 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 64,
-        //             n: 32,
-        //             k: 32
-        //         }
-        //     );
-        // }
+        mod p64x32x32 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 64,
+                    n: 32,
+                    k: 32
+                }
+            );
+        }
 
-        // mod p32x32x64 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 32,
-        //             n: 32,
-        //             k: 64
-        //         }
-        //     );
-        // }
+        mod p32x32x64 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 32,
+                    n: 32,
+                    k: 64
+                }
+            );
+        }
 
-        // mod p100x100x100 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 100,
-        //             n: 100,
-        //             k: 100
-        //         }
-        //     );
-        // }
+        mod p100x100x100 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 100,
+                    n: 100,
+                    k: 100
+                }
+            );
+        }
 
-        // mod p20x20x16 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 20,
-        //             n: 20,
-        //             k: 16
-        //         }
-        //     );
-        // }
+        mod p20x20x16 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 20,
+                    n: 20,
+                    k: 16
+                }
+            );
+        }
 
         mod p23x1x17 {
             use super::*;
@@ -284,20 +284,20 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // mod p256x256x256 {
-        //     use super::*;
-        //     $crate::matmul_standard_tests!(
-        //         $lhs_layout,
-        //         $rhs_layout,
-        //         $tile,
-        //         $stage,
-        //         MatmulSize {
-        //             m: 256,
-        //             n: 256,
-        //             k: 256
-        //         }
-        //     );
-        // }
+        mod p256x256x256 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                $tile,
+                $stage,
+                MatmulSize {
+                    m: 256,
+                    n: 256,
+                    k: 256
+                }
+            );
+        }
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {

@@ -11,6 +11,7 @@ use std::fmt::Display;
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressSpace {
     Constant,
+    ConstDevice,
     Device,
     Thread,
     ThreadGroup,
@@ -20,8 +21,10 @@ pub enum AddressSpace {
 impl AddressSpace {
     pub fn attribute(&self) -> BufferAttribute {
         match self {
-            Self::Constant | Self::Device => BufferAttribute::Buffer,
-            Self::ThreadGroup => BufferAttribute::ThreadGroup,
+            AddressSpace::Constant | AddressSpace::ConstDevice | AddressSpace::Device => {
+                BufferAttribute::Buffer
+            }
+            AddressSpace::ThreadGroup => BufferAttribute::ThreadGroup,
             _ => BufferAttribute::None,
         }
     }
@@ -30,11 +33,12 @@ impl AddressSpace {
 impl Display for AddressSpace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Constant => f.write_str("constant"),
-            Self::Device => f.write_str("device"),
-            Self::ThreadGroup => f.write_str("threadgroup"),
-            Self::Thread => f.write_str("thread"),
-            Self::None => Ok(()),
+            AddressSpace::Constant => f.write_str("constant"),
+            AddressSpace::ConstDevice => f.write_str("const device"),
+            AddressSpace::Device => f.write_str("device"),
+            AddressSpace::ThreadGroup => f.write_str("threadgroup"),
+            AddressSpace::Thread => f.write_str("thread"),
+            AddressSpace::None => Ok(()),
         }
     }
 }
@@ -51,7 +55,7 @@ impl From<AddressSpace> for Visibility {
 impl<D: Dialect> From<&Binding<D>> for AddressSpace {
     fn from(value: &Binding<D>) -> Self {
         match value.vis {
-            Visibility::Read => AddressSpace::Constant,
+            Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => match value.location {
                 Location::Storage => AddressSpace::Device,
                 Location::Cube => AddressSpace::ThreadGroup,
@@ -85,11 +89,11 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::CubeCountZ
             | Variable::PlaneDim
             | Variable::UnitPosPlane => AddressSpace::None,
-            Variable::GlobalInputArray(..) => AddressSpace::Constant,
+            Variable::GlobalInputArray(..) => AddressSpace::ConstDevice,
             Variable::GlobalOutputArray(..) => AddressSpace::Device,
             Variable::GlobalScalar(..) => {
                 if value.is_const() {
-                    AddressSpace::Constant
+                    AddressSpace::ConstDevice
                 } else {
                     AddressSpace::Device
                 }
