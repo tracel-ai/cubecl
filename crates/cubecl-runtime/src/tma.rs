@@ -2,7 +2,11 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 /// Format of [`TensorMap`]
-#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(
+    any(target_os = "windows", target_os = "linux", target_os = "macos"),
+    derive(Serialize, Deserialize)
+)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub enum TensorMapFormat {
     /// Simple tiling
     Tiled {
