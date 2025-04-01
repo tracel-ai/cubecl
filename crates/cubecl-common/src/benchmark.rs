@@ -4,7 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
 
-use super::stub::Duration;
+use core::time::Duration;
 
 /// How a benchmark's execution times are measured.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
