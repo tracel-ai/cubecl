@@ -1,7 +1,7 @@
 use super::{Body, Component, Dialect, Elem, Flags, Item, Variable};
 use cubecl_core::{
     CubeDim,
-    compute::{Location, Visibility},
+    compute::{ConstBinding, Location, Visibility},
     ir::Id,
 };
 use std::{collections::HashSet, fmt::Display};
@@ -19,6 +19,7 @@ pub struct SharedMemory<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
     pub size: u32,
+    pub align: Option<u32>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -43,8 +44,13 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32) -> Self {
-        Self { index, item, size }
+    pub fn new(index: Id, item: Item<D>, size: u32, align: Option<u32>) -> Self {
+        Self {
+            index,
+            item,
+            size,
+            align,
+        }
     }
 }
 
@@ -55,10 +61,11 @@ pub struct ComputeKernel<D: Dialect> {
     pub extensions: Vec<D::Extension>,
     pub flags: Flags,
     pub inputs: Vec<Binding<D>>,
-    pub items: HashSet<super::Item<D>>,
-    pub kernel_name: String,
     pub named: Vec<(String, Binding<D>)>,
     pub outputs: Vec<Binding<D>>,
+    pub constants: Vec<ConstBinding>,
+    pub items: HashSet<super::Item<D>>,
+    pub kernel_name: String,
 }
 
 impl<D: Dialect> ComputeKernel<D> {
@@ -77,6 +84,7 @@ impl<D: Dialect> ComputeKernel<D> {
 
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &self.flags)?;
         D::compile_type_definitions(f, &self.items, &self.flags)?;
@@ -84,17 +92,74 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 
         // Kernel signature --------------------------------------------------
         D::compile_kernel_signature(
-            f,
-            &self.kernel_name,
-            &self.inputs,
-            &self.outputs,
-            &self.named,
-            &self.flags,
-        )?;
 
         // Body --------------------------------------------------------------
-        f.write_str(" {\n")?;
+        f.write_str(" {")?;
         compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
+=======
+        let num_bindings =
+            self.constants.len() + self.inputs.len() + self.outputs.len() + self.named.len();
+        let mut binding_index = 0;
+        for (index, binding) in self.constants.iter().enumerate() {
+            binding_index += 1;
+            match binding {
+                ConstBinding::TensorMap => {
+                    write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
+                }
+            }
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
+        for (index, binding) in self.inputs.iter().enumerate() {
+            binding_index += 1;
+            match binding.vis {
+                Visibility::Read => {
+                    write!(f, "{} input_{}[]", binding.item, index)?;
+                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                    // we should have multiple pointer types to enable that optimization.
+                    //
+                    // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+                }
+                Visibility::ReadWrite => {
+                    write!(f, "{} input_{}[]", binding.item, index)?;
+                }
+            }
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
+        for (index, binding) in self.outputs.iter().enumerate() {
+            binding_index += 1;
+            write!(f, "{} output_{}[]", binding.item, index)?;
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
+        for (name, binding) in self.named.iter() {
+            binding_index += 1;
+
+            match binding.vis {
+                Visibility::Read => {
+                    write!(f, "{} {}[]", binding.item, name)?;
+                    // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+                    // we should have multiple pointer types to enable that optimization.
+                    //
+                    // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
+                }
+                Visibility::ReadWrite => {
+                    write!(f, "{} {}[]", binding.item, name)?;
+                }
+            }
+
+            if binding_index < num_bindings {
+                f.write_str(",")?;
+            }
+        }
+
+        f.write_str("\n) {")?;
+
+>>>>>>> origin/main
         write!(f, "{}", self.body)?;
         f.write_str("\n}")?;
 
@@ -103,11 +168,16 @@ impl<D: Dialect> Display for ComputeKernel<D> {
 }
 
 pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    writeln!(f, "typedef unsigned char {};", Elem::<D>::U8)?;
-    writeln!(f, "typedef unsigned short {};", Elem::<D>::U16)?;
-    writeln!(f, "typedef unsigned int {};", Elem::<D>::U32)?;
-    writeln!(f, "typedef unsigned long long int {};", Elem::<D>::U64)?;
-    writeln!(f, "typedef long long int {};", Elem::<D>::I64)?;
+    writeln!(f, "typedef unsigned int uint;")?;
+    writeln!(f, "typedef unsigned char uint8;")?;
+    writeln!(f, "typedef unsigned short uint16;")?;
+    writeln!(f, "typedef unsigned int uint32;")?;
+    writeln!(f, "typedef unsigned long long int uint64;")?;
+
+    writeln!(f, "typedef signed char int8;")?;
+    writeln!(f, "typedef signed short int16;")?;
+    writeln!(f, "typedef signed int int32;")?;
+    writeln!(f, "typedef signed long long int int64;")?;
     Ok(())
 }
 
@@ -134,7 +204,7 @@ struct __align__({alignment}) {item} {{"
                 )?;
             }
 
-            f.write_str("\n};\n")?;
+            f.write_str("\n};")?;
         }
     }
     Ok(())

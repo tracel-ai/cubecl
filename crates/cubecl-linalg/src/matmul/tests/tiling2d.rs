@@ -74,7 +74,14 @@ fn test_tiling2d<R: Runtime, F: Float + CubeElement + Display + Sample>(
         Default::default(),
     );
 
-    if let Err(e) = assert_equals_approx::<R, F>(&client, out.handle, &expected, 0.01) {
+    if let Err(e) = assert_equals_approx::<R, F>(
+        &client,
+        out.handle,
+        &out.shape,
+        &out.strides,
+        &expected,
+        0.01,
+    ) {
         panic!("{}", e);
     }
 }

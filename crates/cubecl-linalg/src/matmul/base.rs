@@ -1,10 +1,10 @@
 use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
-use cubecl_std::MaybeQuantized;
 
 use crate::tensor::TensorHandle;
 
 use super::{
     components::{
+        MatmulPrecision,
         global::single_stage::{
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
             StridedCoalescedLoading, WindowCooperativeLoading,
@@ -15,9 +15,10 @@ use super::{
     kernels::{
         MatmulLaunchError,
         matmul::{
-            self, double_buffering::DoubleBufferingAlgorithm, simple::SimpleAlgorithm,
+            self, double_buffering::DoubleBufferingAlgorithm,
+            double_buffering_barrier::DoubleBufferingBarrierAlgorithm, simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm, simple_pipelined::SimplePipelinedAlgorithm,
-            specialized::SpecializedAlgorithm,
+            simple_tma::SimpleTmaAlgorithm, specialized::SpecializedAlgorithm,
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
@@ -30,6 +31,7 @@ pub enum Strategy {
     SimpleBarrier(AsyncLoadingStrategy),
     SimplePipelined,
     DoubleBuffering,
+    DoubleBufferingBarrier,
     Specialized,
     #[cfg(any(test, feature = "export_tests"))]
     // Very slow, only use for testing.
@@ -52,16 +54,18 @@ pub enum AsyncLoadingStrategy {
     Cyclic,
     MaximizeSliceLength,
     MaximizeUnitCount,
+    Tma,
 }
 
-pub fn launch<R: Runtime, EG: MaybeQuantized>(
+#[allow(clippy::result_large_err)]
+pub fn launch<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, EG::Numeric>,
-    rhs: TensorHandle<R, EG::Numeric>,
-    out: TensorHandle<R, EG::Numeric>,
+    lhs: TensorHandle<R, MP::EI>,
+    rhs: TensorHandle<R, MP::EI>,
+    out: TensorHandle<R, MP::EO>,
 ) -> Result<(), MatmulLaunchError> {
-    launch_ref::<R, EG>(
+    launch_ref::<R, MP>(
         strategy,
         client,
         &lhs.as_ref(),
@@ -70,7 +74,8 @@ pub fn launch<R: Runtime, EG: MaybeQuantized>(
     )
 }
 
-pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
+#[allow(clippy::result_large_err)]
+pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<R>,
@@ -80,70 +85,83 @@ pub fn launch_ref<R: Runtime, EG: MaybeQuantized>(
     match strategy {
         Strategy::Simple(loading_strategy) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {
-                matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
+                matmul::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
             }
             SyncLoadingStrategy::Strided => matmul::launch_ref::<
                 R,
-                EG,
+                MP,
                 SimpleAlgorithm<Accelerated, StridedCoalescedLoading, StridedCoalescedLoading>,
             >(client, lhs, rhs, out),
         },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
             AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<
                 R,
-                EG,
+                MP,
                 SimpleBarrierAlgorithm<Accelerated, WindowCooperativeLoading>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::Cyclic => matmul::launch_ref::<
                 R,
-                EG,
+                MP,
                 SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
                 R,
-                EG,
+                MP,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeSliceLengthLoading>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
                 R,
-                EG,
+                MP,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,
             >(client, lhs, rhs, out),
+            AsyncLoadingStrategy::Tma => {
+                matmul::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out,
+                )
+            }
         },
         Strategy::SimplePipelined => {
-            matmul::launch_ref::<R, EG, SimplePipelinedAlgorithm<Accelerated>>(
+            matmul::launch_ref::<R, MP, SimplePipelinedAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,
             )
         }
         Strategy::DoubleBuffering => {
-            matmul::launch_ref::<R, EG, DoubleBufferingAlgorithm<Accelerated>>(
+            matmul::launch_ref::<R, MP, DoubleBufferingAlgorithm<Accelerated>>(
+                client, lhs, rhs, out,
+            )
+        }
+        Strategy::DoubleBufferingBarrier => {
+            matmul::launch_ref::<R, MP, DoubleBufferingBarrierAlgorithm<Accelerated>>(
                 client, lhs, rhs, out,
             )
         }
         Strategy::Specialized => {
-            matmul::launch_ref::<R, EG, SpecializedAlgorithm<Accelerated>>(client, lhs, rhs, out)
+            matmul::launch_ref::<R, MP, SpecializedAlgorithm<Accelerated>>(client, lhs, rhs, out)
         }
         #[cfg(any(test, feature = "export_tests"))]
         Strategy::PlaneMma => {
-            matmul::launch_ref::<R, EG, SimpleAlgorithm<super::components::tile::plane::PlaneMma>>(
+            matmul::launch_ref::<R, MP, SimpleAlgorithm<super::components::tile::plane::PlaneMma>>(
                 client, lhs, rhs, out,
             )
         }
         Strategy::Tiling2D(config) => {
-            tiling2d::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out, config.clone());
+            // TODO Implement tiling2d with EI and EO
+            tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());
             Ok(())
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, EG::Numeric>(client, lhs, rhs, out)?;
+            // TODO Implement naive with EI and EO
+            naive::launch_ref::<R, MP::EI>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {
             if let Err(err) =
-                matmul::launch_ref::<R, EG, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
+                matmul::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
             {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
-                        tiling2d::launch_ref::<R, EG::Numeric>(
+                        // TODO Implement naive with EI and EO
+                        tiling2d::launch_ref::<R, MP::EI>(
                             client,
                             lhs,
                             rhs,

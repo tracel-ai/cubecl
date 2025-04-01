@@ -7,8 +7,10 @@ use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::{
-    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions, compute::DebugInformation,
-    prelude::*, server::Binding,
+    Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
+    compute::DebugInformation,
+    prelude::*,
+    server::{Binding, BindingWithMeta, ConstBinding, Handle},
 };
 use cubecl_runtime::{
     TimestampsError, TimestampsResult,
@@ -137,7 +139,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn get_resource(&mut self, binding: Binding) -> BindingResource<WgpuResource> {
-        let resource = self.stream.get_resource(binding.clone());
+        let resource = self.stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
 
@@ -158,6 +160,7 @@ impl ComputeServer for WgpuServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
+        constants: Vec<ConstBinding>,
         bindings: Vec<Binding>,
         mode: ExecutionMode,
     ) {
@@ -182,7 +185,7 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-        self.stream.register(pipeline, bindings, &count);
+        self.stream.register(pipeline, constants, bindings, &count);
 
         // If profiling, write out results.
         if let Some(level) = profile_level {
@@ -252,11 +255,11 @@ impl ComputeServer for WgpuServer {
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.stream.memory_usage()
+        self.stream.mem_manage.memory_usage()
     }
 
     fn memory_cleanup(&mut self) {
-        self.stream.memory_cleanup();
+        self.stream.mem_manage.memory_cleanup(true);
     }
 
     fn enable_timestamps(&mut self) {
@@ -269,6 +272,32 @@ impl ComputeServer for WgpuServer {
             self.stream.timestamps.disable();
         }
     }
+
+    fn read_tensor(
+        &mut self,
+        bindings: Vec<BindingWithMeta>,
+    ) -> impl Future<Output = Vec<Vec<u8>>> + Send + 'static {
+        let bindings = bindings.into_iter().map(|it| it.binding).collect();
+        self.read(bindings)
+    }
+
+    fn create_tensor(
+        &mut self,
+        data: &[u8],
+        shape: &[usize],
+        _elem_size: usize,
+    ) -> (Handle, Vec<usize>) {
+        let strides = contiguous_strides(shape);
+        let handle = self.create(data);
+        (handle, strides)
+    }
+
+    fn empty_tensor(&mut self, shape: &[usize], elem_size: usize) -> (Handle, Vec<usize>) {
+        let strides = contiguous_strides(shape);
+        let size = shape.iter().product::<usize>() * elem_size;
+        let handle = self.empty(size);
+        (handle, strides)
+    }
 }
 
 fn compiler(backend: wgpu::Backend) -> AutoCompiler {
@@ -279,4 +308,13 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
         wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
+}
+
+fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
+    let rank = shape.len();
+    let mut strides = vec![1; rank];
+    for i in (0..rank - 1).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
 }

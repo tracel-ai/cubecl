@@ -5,7 +5,7 @@ use cubecl_core::{
     client::ComputeClient,
     flex32,
     prelude::{Float, Numeric},
-    server::Handle,
+    server::{self},
     tf32,
 };
 
@@ -37,7 +37,9 @@ pub trait TestPrecision {
         rhs: &[Self::EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     );
 }
 
@@ -61,7 +63,9 @@ where
         rhs: &[EG],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     ) {
         let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
             a: ES::as_elem_native().expect("To be a native type"),
@@ -83,7 +87,9 @@ where
             .map(|x| x.cast_into())
             .collect::<Vec<EG>>();
 
-        if let Err(e) = assert_equals_approx::<R, EG>(client, out, &expected, epsilon) {
+        if let Err(e) =
+            assert_equals_approx::<R, EG>(client, out, shape, strides, &expected, epsilon)
+        {
             panic!("{}", e);
         }
     }
@@ -92,11 +98,17 @@ where
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
     client: &ComputeClient<R::Server, R::Channel>,
-    output: Handle,
+    output: server::Handle,
+    shape: &[usize],
+    strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one(output.binding());
+    let actual = client.read_one_tensor(output.binding_with_meta(
+        shape.to_vec(),
+        strides.to_vec(),
+        size_of::<F>(),
+    ));
     let actual = F::from_bytes(&actual);
 
     // println!("RESULT: {actual:?}");
@@ -160,9 +172,15 @@ impl TestPrecision for SymQ8 {
         rhs: &[u8],
         problem: &MatmulProblem,
         client: &ComputeClient<R::Server, R::Channel>,
-        out: Handle,
+        out: server::Handle,
+        shape: &[usize],
+        strides: &[usize],
     ) {
-        let out = client.read_one(out.binding());
+        let out = client.read_one_tensor(out.binding_with_meta(
+            shape.to_vec(),
+            strides.to_vec(),
+            size_of::<Self::EG>(),
+        ));
         let out = u8::from_bytes(&out);
 
         let (lhs_scaling, lhs_offset) = read_quantized_metadata(lhs);
@@ -512,8 +530,16 @@ impl MatmulTestCase {
         rhs: &TensorHandle<R, F>,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Vec<F> {
-        let lhs_binding = &client.read_one(lhs.handle.clone().binding());
-        let rhs_binding = &client.read_one(rhs.handle.clone().binding());
+        let lhs_binding = &client.read_one_tensor(lhs.handle.clone().binding_with_meta(
+            lhs.shape.clone(),
+            lhs.strides.clone(),
+            size_of::<F>(),
+        ));
+        let rhs_binding = &client.read_one_tensor(rhs.handle.clone().binding_with_meta(
+            rhs.shape.clone(),
+            rhs.strides.clone(),
+            size_of::<F>(),
+        ));
 
         let lhs = F::from_bytes(lhs_binding);
         let rhs = F::from_bytes(rhs_binding);
@@ -563,10 +589,7 @@ impl MatmulTestCase {
         &self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> TensorHandle<R, F> {
-        TensorHandle::new_contiguous(
-            vec![self.batch, self.m, self.n],
-            self.create_empty::<R>(client, self.batch * self.m, self.n),
-        )
+        TensorHandle::empty(client, vec![self.batch, self.m, self.n])
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
@@ -575,16 +598,8 @@ impl MatmulTestCase {
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
         let data = F::sample(shape.iter().product(), 999);
-        let handle = client.create(bytemuck::cast_slice(&data));
-        TensorHandle::new_contiguous(shape, handle)
-    }
-
-    pub(crate) fn create_empty<R: Runtime>(
-        &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-        x: usize,
-        y: usize,
-    ) -> Handle {
-        client.empty(x * y * core::mem::size_of::<f32>())
+        let (handle, strides) =
+            client.create_tensor(bytemuck::cast_slice(&data), &shape, size_of::<F>());
+        TensorHandle::new(handle, shape, strides)
     }
 }

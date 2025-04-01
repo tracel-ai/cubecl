@@ -6,7 +6,8 @@ use super::{
 };
 use crate::matmul::{
     components::{
-        CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize, tile::TileMatmulFamily,
+        CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize, stage,
+        tile::TileMatmulFamily,
     },
     kernels::matmul::find_instruction_shape,
 };
@@ -16,7 +17,7 @@ pub struct ConvSelection {
 }
 
 pub trait ConvSelector<A: Algorithm> {
-    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
+    fn select_kernel<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
@@ -33,7 +34,7 @@ pub struct Balanced;
 type Tile<A> = <A as Algorithm>::TileMatmul;
 
 impl ConvSelector<ImplicitCmmaConv> for Large {
-    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
+    fn select_kernel<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
@@ -42,7 +43,7 @@ impl ConvSelector<ImplicitCmmaConv> for Large {
         <ImplicitCmmaConv as Algorithm>::Input,
     ) {
         let selection = MatmulSelection {
-            tile_shape: find_instruction::<R, Tile<ImplicitCmmaConv>, CS>(client, problem),
+            tile_shape: find_instruction::<R, Tile<ImplicitCmmaConv>, MP>(client, problem),
             tile_count: MatmulSize { m: 8, n: 4, k: 2 },
             plane_dim,
         };
@@ -53,12 +54,13 @@ impl ConvSelector<ImplicitCmmaConv> for Large {
 
         let selection = ConvSelection { matmul: selection };
 
-        (selection, config_input)
+        // TODO Allows to select double buffering
+        (selection, (config_input, stage::Buffering::Single))
     }
 }
 
 impl ConvSelector<ImplicitCmmaConv> for Balanced {
-    fn select_kernel<R: Runtime, CS: MatmulPrecision>(
+    fn select_kernel<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
@@ -67,7 +69,7 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
         <ImplicitCmmaConv as Algorithm>::Input,
     ) {
         let selection = MatmulSelection {
-            tile_shape: find_instruction::<R, Tile<ImplicitCmmaConv>, CS>(client, problem),
+            tile_shape: find_instruction::<R, Tile<ImplicitCmmaConv>, MP>(client, problem),
             tile_count: MatmulSize { m: 4, n: 2, k: 4 },
             plane_dim,
         };
@@ -78,11 +80,12 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
 
         let selection = ConvSelection { matmul: selection };
 
-        (selection, config_input)
+        // TODO support selection of double buffering
+        (selection, (config_input, stage::Buffering::Single))
     }
 }
 
-fn find_instruction<R: Runtime, TMM: TileMatmulFamily, CS: MatmulPrecision>(
+fn find_instruction<R: Runtime, TMM: TileMatmulFamily, MP: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &ConvolutionProblem,
 ) -> MatmulSize {
@@ -91,9 +94,9 @@ fn find_instruction<R: Runtime, TMM: TileMatmulFamily, CS: MatmulPrecision>(
             Some((
                 client.properties(),
                 (
-                    CS::ES::as_elem_native_unchecked(),
-                    CS::ES::as_elem_native_unchecked(),
-                    CS::EA::as_elem_native_unchecked(),
+                    MP::ES::as_elem_native_unchecked(),
+                    MP::ES::as_elem_native_unchecked(),
+                    MP::EA::as_elem_native_unchecked(),
                 ),
             ))
         } else {

@@ -236,6 +236,13 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     ) -> ExpandElementTyped<Slice<Line<P::In>>> {
         panic!("Unsupported")
     }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        _scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<P::In>> {
+        todo!()
+    }
 }
 
 impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
@@ -292,6 +299,13 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
         _end: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<Slice<Line<P::Out>>> {
         panic!("Unsupported")
+    }
+
+    fn __expand_as_tensor_map_method(
+        &self,
+        _scope: &mut Scope,
+    ) -> ExpandElementTyped<TensorMap<P::Out>> {
+        todo!()
     }
 }
 

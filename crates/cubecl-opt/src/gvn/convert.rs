@@ -87,6 +87,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::Builtin(builtin) => Value::Builtin(builtin),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
         VariableKind::Barrier { .. } => panic!("Barrier is not supported"),
+        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
 }

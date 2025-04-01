@@ -34,3 +34,6 @@ pub use cubecl_common::benchmark;
 pub use feature_set::*;
 /// Debugging utilities.
 pub mod debug;
+
+/// TMA-related runtime types
+pub mod tma;

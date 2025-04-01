@@ -52,7 +52,7 @@ impl<N: Numeric> Loader<N> for TileLoader<N> {
     ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
-        let gm_stride = dims.m;
+        let gm_stride = lhs.stride(lhs.rank() - 1);
 
         let load_indices = LoadIndices {
             offset: coordinates.skip_row + load_info.k * gm_stride + load_info.batch_offset,
@@ -76,7 +76,7 @@ impl<N: Numeric> Loader<N> for TileLoader<N> {
     ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
-        let gm_stride = dims.k;
+        let gm_stride = lhs.stride(lhs.rank() - 2);
 
         let load_indices = LoadIndices {
             offset: coordinates.skip_row * gm_stride + load_info.k + load_info.batch_offset,
@@ -100,7 +100,7 @@ impl<N: Numeric> Loader<N> for TileLoader<N> {
     ) {
         let coordinates = load_info.coordinates;
         let dims = load_info.dims;
-        let gm_stride = dims.n;
+        let gm_stride = rhs.stride(rhs.rank() - 2);
 
         let load_indices = LoadIndices {
             offset: coordinates.skip_col + load_info.k * gm_stride + load_info.batch_offset,
@@ -124,7 +124,7 @@ impl<N: Numeric> Loader<N> for TileLoader<N> {
     ) {
         let dims = load_info.dims;
         let coordinates = load_info.coordinates;
-        let gm_stride = dims.k;
+        let gm_stride = rhs.stride(rhs.rank() - 1);
 
         let load_indices = LoadIndices {
             offset: coordinates.skip_col * gm_stride + load_info.k + load_info.batch_offset,

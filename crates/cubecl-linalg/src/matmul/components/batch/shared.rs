@@ -12,20 +12,20 @@ use cubecl_std::{CubeOption, CubeOptionExpand, div_ceil};
 /// Execute global matmul on lhs, rhs, writing in out.
 /// x and y offsets are absolute rows and columns
 pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<MP::EG>,
-    rhs: VirtualTensor<MP::EG>,
-    out: VirtualTensor<MP::EG, ReadWrite>,
+    lhs: VirtualTensor<MP::EI>,
+    rhs: VirtualTensor<MP::EI>,
+    out: VirtualTensor<MP::EO, ReadWrite>,
     x_offset: u32,
     y_offset: u32,
     nth_batch: u32,
     acc: &mut GMM::Accumulator,
     k_range: (u32, u32),
-    quantization: CubeOption<Quantization<MP::EG>>,
+    quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
     #[comptime] config: GMM::Config,
 ) {
     let rank = out.rank();
 
-    let batch_out = nth_batch * out.shape(rank - 2) * out.shape(rank - 1);
+    let batch_out = nth_batch * out.stride(rank - 2) * out.shape(rank - 2);
     let mut batch_lhs = 0u32.runtime();
     let mut batch_rhs = 0u32.runtime();
     for axis in 0..rank - 2 {
@@ -111,9 +111,9 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     };
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, batch_lhs, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, batch_rhs, config),
-        GMM::init_unloader(out, x_offset, y_offset, batch_out),
+        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, batch_lhs, config),
+        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, config),
+        GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,
         indexed_quantization,

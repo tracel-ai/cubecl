@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
-use syn::{Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
+use syn::{GenericArgument, Ident, Member, Pat, Path, PathArguments, spanned::Spanned};
 
 use crate::{
     expression::{Block, Expression, MatchArm},
@@ -446,11 +446,24 @@ impl Expression {
                 let cube_type = prelude_type("CubeType");
                 let fields = init_fields(fields, context);
                 let path_last = path.segments.last().unwrap();
-                let turbofish = path_last.arguments.clone();
-                let generics = match &turbofish {
+                let turbofish = &path_last.arguments;
+
+                let generics = match turbofish {
                     PathArguments::None => None,
                     PathArguments::AngleBracketed(params) => {
-                        let params = params.args.iter();
+                        let params = params.args.iter().map(|p| match p {
+                            GenericArgument::Type(syn::Type::Path(ty)) => {
+                                if let Some(segment) = ty.path.segments.last() {
+                                    GenericArgument::Type(syn::Type::Path(syn::TypePath {
+                                        qself: ty.qself.clone(),
+                                        path: syn::Path::from(segment.clone()),
+                                    }))
+                                } else {
+                                    p.clone()
+                                }
+                            }
+                            _ => p.clone(),
+                        });
                         Some(quote![<#(#params),*>])
                     }
                     args => {
@@ -461,9 +474,20 @@ impl Expression {
                     }
                 };
 
+                let mut path_simplified = path.clone();
+                if let PathArguments::AngleBracketed(params) =
+                    &mut path_simplified.segments.last_mut().unwrap().arguments
+                {
+                    params.args.iter_mut().for_each(|p| {
+                        if let GenericArgument::Type(syn::Type::Path(ty)) = p {
+                            ty.path = syn::Path::from(ty.path.segments.last().unwrap().clone());
+                        }
+                    });
+                }
+
                 quote! {
                     {
-                        type _Ty #generics = <#path as #cube_type>::ExpandType;
+                        type _Ty #generics = <#path_simplified as #cube_type>::ExpandType;
                         _Ty #turbofish { #(#fields),* }
                     }
                 }

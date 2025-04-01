@@ -1,6 +1,10 @@
+use super::reader::{LhsReader, RhsReader};
+use super::{LhsReaderFamily, RhsReaderFamily};
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
+use crate::matmul::components::stage::shared::{RhsTile, RhsTileExpand};
+use crate::matmul::components::stage::{Buffering, StageEventListener};
 use crate::matmul::components::stage::{StageConfig, StageMatmul, StageMatmulFamily, TilingLayout};
 use crate::matmul::components::tile::TileMatmul;
 use crate::matmul::components::tile::{TileConfig, TileMatmulFamily};
@@ -20,9 +24,6 @@ use cubecl_reduce::primitives::reduce_slice_shared;
 use cubecl_reduce::primitives::reduce_tree;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::reader::{LhsReader, RhsReader};
-use super::{LhsReaderFamily, RhsReaderFamily};
-
 pub struct MultiBufferMatmulFamily<TMM: TileMatmulFamily> {
     _instruction: PhantomData<TMM>,
 }
@@ -38,12 +39,12 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
 
     type LhsReader = LhsReaderFamily;
     type RhsReader = RhsReaderFamily;
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
-        MultiBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
+        MultiBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
 }
 
 impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM> {
-    type Input = CompleteStageTiling;
+    type Input = (CompleteStageTiling, Buffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -68,8 +69,8 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let tile_shape = input.tile_shape;
-        let tile_count = input.tile_count;
+        let tile_shape = input.0.tile_shape;
+        let tile_count = input.0.tile_count;
 
         let tmm_config = TMM::make_config(tile_shape, problem, cube_dim, cube_count, quantized);
 
@@ -78,7 +79,7 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
             tile_count,
         };
 
-        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized)
+        CommonStageConfig::new(tmm_config, tiling, cube_dim.y, quantized, input.1)
     }
 }
 
@@ -89,82 +90,93 @@ impl<TMM: TileMatmulFamily> MatmulConfigFactory for MultiBufferMatmulFamily<TMM>
 /// # Assumptions
 /// - There are as many planes as the stage size in m
 pub struct MultiBufferMatmul<
-    I: Numeric,
-    O: Numeric,
-    EA: Numeric,
-    TMM: tile::TileMatmul<I, EA>,
+    MP: MatmulPrecision,
+    TMM: tile::TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 > {
-    _input_precision: PhantomData<I>,
-    _output_precision: PhantomData<O>,
-    _accumulator_precision: PhantomData<EA>,
-    _instruction: PhantomData<TMM>,
-    _tiling_layout_lhs: PhantomData<TL>,
-    _tiling_layout_rhs: PhantomData<TR>,
+    _phantom: PhantomData<(MP, TMM, TL, TR)>,
 }
 
 #[cube]
-impl<ES, EG, EA, TMM, TL, TR> StageMatmul<ES, EG, EA> for MultiBufferMatmul<ES, EG, EA, TMM, TL, TR>
+impl<MP, TMM, TL, TR> StageMatmul<MP> for MultiBufferMatmul<MP, TMM, TL, TR>
 where
-    ES: Numeric,
-    EG: Numeric,
-    EA: Numeric,
-    TMM: tile::TileMatmul<ES, EA>,
+    MP: MatmulPrecision,
+    TMM: tile::TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
 
-    type LhsReader = LhsReader<ES, TL>;
-    type RhsReader = RhsReader<ES, TR>;
-    type Accumulator = StageAcc<ES, EA, TMM>;
+    type LhsReader = LhsReader<MP::ES, TL>;
+    type RhsReader = RhsReader<MP::ES, TR>;
+    type Accumulator = StageAcc<MP, TMM>;
     type LhsTile = TMM::Lhs;
-    type RhsTile = TMM::Rhs;
+    type RhsTile = RhsTile<TMM::Rhs>;
 
     fn execute(
-        lhs_reader: &LhsReader<ES, TL>,
-        rhs_reader: &RhsReader<ES, TR>,
-        lhs_tile: &mut Self::LhsTile,
-        rhs_tile: &mut Self::RhsTile,
+        lhs_reader: &LhsReader<MP::ES, TL>,
+        rhs_reader: &RhsReader<MP::ES, TR>,
+        lhs_fragment: &mut Self::LhsTile,
+        rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
-        #[unroll]
-        for buffer_iter in 0..config.tile_count().k {
-            let tile_lhs =
-                LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
-            TMM::fill_lhs(&tile_lhs, lhs_tile, config.to_tmm_config());
-
-            #[unroll]
-            for accumulator_iter in 0..acc.tmm_accumulators.len() {
-                let tile_rhs = RhsReader::read_tile::<TMM::Config>(
-                    rhs_reader,
-                    buffer_iter,
-                    accumulator_iter,
-                    config,
-                );
-                TMM::fill_rhs(&tile_rhs, rhs_tile, config.to_tmm_config());
-
-                let accumulator = acc.tmm_accumulators.index_mut(accumulator_iter);
-                TMM::execute(lhs_tile, rhs_tile, accumulator, config.to_tmm_config());
-            }
+        match rhs_fragments {
+            RhsTile::Single(rhs_fragment) => Self::execute_single_buffer(
+                lhs_reader,
+                rhs_reader,
+                lhs_fragment,
+                rhs_fragment,
+                acc,
+                scaling,
+                config,
+            ),
+            RhsTile::Double(rhs_fragments) => Self::execute_double_buffer(
+                lhs_reader,
+                rhs_reader,
+                lhs_fragment,
+                rhs_fragments,
+                acc,
+                scaling,
+                config,
+            ),
         }
-        acc.accumulate_dequantized_if_quantized(scaling, config);
     }
 
-    fn init_tile_inputs(#[comptime] config: Self::Config) -> (TMM::Lhs, TMM::Rhs) {
+    fn execute_with_listener<SEL: StageEventListener>(
+        _lhs_reader: &LhsReader<MP::ES, TL>,
+        _rhs_reader: &RhsReader<MP::ES, TR>,
+        _lhs_fragment: &mut Self::LhsTile,
+        _rhs_fragments: &mut Self::RhsTile,
+        _acc: &mut Self::Accumulator,
+        _scaling: CubeOption<f32>,
+        #[comptime] _config: Self::Config,
+        _task: SEL,
+    ) {
+        // Should be merged with single_buffer soon
+        comptime!(unimplemented!());
+    }
+
+    fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
+        let tmm_config = config.to_tmm_config();
         (
-            TMM::allocate_lhs(config.to_tmm_config()),
-            TMM::allocate_rhs(config.to_tmm_config()),
+            TMM::allocate_lhs(tmm_config),
+            match config.buffering() {
+                Buffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
+                Buffering::Double => RhsTile::new_Double((
+                    TMM::allocate_rhs(tmm_config),
+                    TMM::allocate_rhs(tmm_config),
+                )),
+            },
         )
     }
 
-    fn read_accumulator<SW: StageWriter<EG>, G: global::GlobalConfig>(
+    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -197,7 +209,7 @@ where
                 }
             }
             _ => {
-                let mut out_smem = SharedMemory::<EG>::new_lined(
+                let mut out_smem = SharedMemory::<MP::EO>::new_lined(
                     num_tile_lines * stage_config.num_planes(),
                     out_smem_line_size,
                 );
@@ -211,7 +223,7 @@ where
                         &mut smem_slice,
                         stage_config.to_tmm_config(),
                     );
-                    SW::write::<EG, G>(
+                    SW::write::<MP::EO, G>(
                         out,
                         smem_slice.to_slice(),
                         UNIT_POS_Y,
@@ -234,15 +246,15 @@ where
         let quantization_memories = if config.quantized {
             let line_size = config.line_size(Ident::Out);
             let mem_size = config.tiling_dimensions(Ident::Out).total_size() / line_size;
-            CubeOption::new_Some(QuantizationMemories::<EA> {
-                quantized: SharedMemory::<EA>::new_lined(mem_size, line_size),
+            CubeOption::new_Some(QuantizationMemories::<MP::EA> {
+                quantized: SharedMemory::<MP::EA>::new_lined(mem_size, line_size),
                 dequantized: SharedMemory::<f32>::new_lined(mem_size, line_size),
             })
         } else {
             CubeOption::new_None()
         };
 
-        StageAcc::<ES, EA, TMM> {
+        StageAcc::<MP, TMM> {
             tmm_accumulators,
             quantization_memories,
         }
@@ -255,7 +267,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<EG, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -263,7 +275,7 @@ where
         #[unroll]
         for i in 0..config.tile_count().n {
             let acc = acc.tmm_accumulators.index_mut(i);
-            L::load::<ES, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 }
@@ -278,6 +290,115 @@ fn check_num_planes(
     }
 
     Ok(())
+}
+
+#[cube]
+impl<MP, TMM, TL, TR> MultiBufferMatmul<MP, TMM, TL, TR>
+where
+    MP: MatmulPrecision,
+    TMM: TileMatmul<MP>,
+    TL: TilingLayout,
+    TR: TilingLayout,
+{
+    // Execute stage matmul with a single buffer for rhs.
+    fn execute_single_buffer(
+        lhs_reader: &LhsReader<MP::ES, TL>,
+        rhs_reader: &RhsReader<MP::ES, TR>,
+        lhs_fragment: &mut TMM::Lhs,
+        rhs_fragment: &mut TMM::Rhs,
+        acc: &mut <Self as StageMatmul<MP>>::Accumulator,
+        scaling: CubeOption<f32>,
+        #[comptime] config: <Self as StageMatmul<MP>>::Config,
+    ) {
+        for buffer_iter in 0..config.tile_count().k {
+            let tile_lhs =
+                LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
+            TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
+
+            #[unroll]
+            for accumulator_iter in 0..acc.tmm_accumulators.len() {
+                let rhs_tile_next = RhsReader::read_tile::<TMM::Config>(
+                    rhs_reader,
+                    buffer_iter,
+                    accumulator_iter,
+                    config,
+                );
+                TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
+
+                let accumulator = acc.tmm_accumulators.index_mut(accumulator_iter);
+                TMM::execute(
+                    lhs_fragment,
+                    rhs_fragment,
+                    accumulator,
+                    config.to_tmm_config(),
+                );
+            }
+        }
+        acc.accumulate_dequantized_if_quantized(scaling, config);
+    }
+
+    // Execute stage matmul with two alternating buffers for rhs.
+    fn execute_double_buffer(
+        lhs_reader: &LhsReader<MP::ES, TL>,
+        rhs_reader: &RhsReader<MP::ES, TR>,
+        lhs_fragment: &mut TMM::Lhs,
+        rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
+        acc: &mut <Self as StageMatmul<MP>>::Accumulator,
+        scaling: CubeOption<f32>,
+        #[comptime] config: <Self as StageMatmul<MP>>::Config,
+    ) {
+        for buffer_iter in 0..config.tile_count().k {
+            let tile_lhs =
+                LhsReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, buffer_iter, config);
+            TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
+
+            let mut accumulator_iter = comptime![0];
+
+            let rhs_tile_first = RhsReader::read_tile::<TMM::Config>(
+                rhs_reader,
+                buffer_iter,
+                accumulator_iter,
+                config,
+            );
+            TMM::fill_rhs(
+                &rhs_tile_first,
+                &mut rhs_fragments.0,
+                config.to_tmm_config(),
+            );
+
+            #[unroll]
+            for _ in 1..acc.tmm_accumulators.len() {
+                let (current, next) = if comptime! {accumulator_iter % 2 == 0} {
+                    (&mut rhs_fragments.0, &mut rhs_fragments.1)
+                } else {
+                    (&mut rhs_fragments.1, &mut rhs_fragments.0)
+                };
+
+                let rhs_tile_next = RhsReader::read_tile::<TMM::Config>(
+                    rhs_reader,
+                    buffer_iter,
+                    comptime![accumulator_iter + 1],
+                    config,
+                );
+                TMM::fill_rhs(&rhs_tile_next, next, config.to_tmm_config());
+
+                let accumulator = acc.tmm_accumulators.index_mut(accumulator_iter);
+                TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
+
+                comptime![accumulator_iter += 1];
+            }
+
+            let last = if comptime! {accumulator_iter % 2 == 0} {
+                &mut rhs_fragments.0
+            } else {
+                &mut rhs_fragments.1
+            };
+
+            let accumulator = acc.tmm_accumulators.index_mut(accumulator_iter);
+            TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
+        }
+        acc.accumulate_dequantized_if_quantized(scaling, config);
+    }
 }
 
 // Given a slice of f32 data, we compute the maximum absolute value (M).
@@ -299,14 +420,14 @@ fn check_num_planes(
 // This currently assumes that EG is i8.
 // The types are generics simply to please the rust type system.
 #[cube]
-fn requantize<EG: Numeric, TMM: TileConfig>(
+fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
     slice: SliceMut<Line<f32>>,
-    mut quantization: IndexedQuantization<EG>,
+    mut quantization: IndexedQuantization<EI, EO>,
     #[comptime] config: CommonStageConfig<TMM>,
 ) {
-    if comptime!(TypeId::of::<EG>() != TypeId::of::<i8>()) {
+    if comptime!(TypeId::of::<EI>() != TypeId::of::<i8>()) {
         comptime!(panic!(
-            "invalid types for requantization (expected EG = i8)"
+            "invalid types for requantization (expected EI = i8)"
         ));
     }
 
@@ -383,9 +504,9 @@ fn rescale(
 /// since pair of lhs and rhs stages may have different scaling parameters.
 /// See the [accumulated_dequantized_if_quantized] method.
 #[derive(CubeType, Clone)]
-pub struct StageAcc<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> {
+pub struct StageAcc<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     tmm_accumulators: Sequence<TMM::Accumulator>,
-    quantization_memories: CubeOption<QuantizationMemories<EA>>,
+    quantization_memories: CubeOption<QuantizationMemories<MP::EA>>,
 }
 
 // Each memory is stored as a single SharedMemory big enough to accommodate all tmm accumulators.
@@ -446,7 +567,7 @@ impl<EA: Numeric> QuantizationMemories<EA> {
 }
 
 #[cube]
-impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> StageAcc<ES, EA, TMM> {
+impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> StageAcc<MP, TMM> {
     // Read the tmm_accumulator into the quantized memory.
     // Then convert the element from the quantized memory to f32
     // and multiply them by scaling before adding the result to the dequantized memory.
@@ -465,6 +586,7 @@ impl<ES: Numeric, EA: Numeric, TMM: TileMatmul<ES, EA>> StageAcc<ES, EA, TMM> {
         #[allow(clippy::single_match)]
         match (quantization_memories, scaling) {
             (CubeOption::Some(memories), CubeOption::Some(scaling)) => {
+                #[unroll]
                 for acc_index in 0..acc.len() {
                     let mut slice = memories.clone().quantized_slice_mut(acc_index, config);
                     TMM::read_accumulator(acc.index(acc_index), &mut slice, config.to_tmm_config());

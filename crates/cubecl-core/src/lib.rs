@@ -5,6 +5,8 @@ extern crate derive_new;
 
 /// Cube Frontend Types.
 pub mod frontend;
+/// Input Output utilities.
+pub mod io;
 
 /// Some future utilities that work across environments.
 pub use cubecl_common::{PLANE_DIM_APPROX, future};
@@ -84,7 +86,7 @@ pub fn tensor_line_size(factors: &[u8], shape: &[usize], strides: &[usize], dim:
 ///
 /// Currently, this checks that the stride of the axis is 1, that it's shape is
 /// divisible by a candidate line size and that the smallest stride that is not 1
-/// is equal to the shape of the axis.
+/// is divisible by the vectorization.
 /// The last condition ensure that the current axis is contiguous within the next stride.
 pub fn tensor_line_size_parallel(
     supported_line_sizes: impl Iterator<Item = u8>,
@@ -106,16 +108,16 @@ pub fn tensor_line_size_parallel(
         None => return 1,
     };
 
-    let next_stride = strides.iter().filter(|stride| **stride > 1).min();
-
-    if let Some(next_stride) = next_stride {
-        if next_stride != axis_shape {
-            return 1;
-        }
-    }
+    let next_stride = *strides
+        .iter()
+        .filter(|stride| **stride > 1)
+        .min()
+        .unwrap_or(&0);
 
     supported_line_sizes
-        .filter(|line_size| axis_shape % *line_size as usize == 0)
+        .filter(|line_size| {
+            axis_shape % *line_size as usize == 0 && next_stride % *line_size as usize == 0
+        })
         .max()
         .unwrap_or(1)
 }

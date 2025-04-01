@@ -4,11 +4,11 @@ use crate::matmul::components::batch::span::{Span, SpanDim, SpanMatmul};
 use crate::matmul::components::global::GlobalMatmulFamily;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
-    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
+    Args, EA, EI, EO, ES, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem,
+    MatmulSpec, OutputRuntimeArg,
 };
 use crate::matmul::components::{
-    InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
-    OutputRuntimeArg,
+    Ident, MatmulConfigFactory, MatmulLaunch, TilingDimensions, batch, config::MatmulConfig, global,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -74,11 +74,12 @@ impl<GMM: GlobalMatmulFamily, S: SpanMatmul, C: CubeDispatch> MatmulLaunch
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
+        size_k: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
-            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
-                client, cube_count, cube_dim, input, output, config,
+            super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
+                client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
     }
@@ -108,10 +109,11 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
-        quantization: CubeOption<Quantization<MP::EG>>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
+        _size_k: u32,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();

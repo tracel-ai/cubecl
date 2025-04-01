@@ -47,13 +47,6 @@ pub enum Instruction {
         or_else: Variable,
         out: Variable,
     },
-    ConditionalRead {
-        cond: Variable,
-        slice: Variable,
-        index: Variable,
-        fallback: Variable,
-        out: Variable,
-    },
     Switch {
         value: Variable,
         instructions_default: Vec<Instruction>,
@@ -76,13 +69,6 @@ pub enum Instruction {
         out: Variable,
     },
     // Index handles casting to correct local variable.
-    CheckedIndex {
-        len: Variable,
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    // Assign handle casting to correct output variable.
     Assign {
         input: Variable,
         out: Variable,
@@ -510,22 +496,6 @@ impl Display for Instruction {
                     index_assign(f, lhs, rhs, out, None)
                 }
             }
-            Instruction::CheckedIndex { len, lhs, rhs, out } => match lhs {
-                Variable::Slice { item, .. } => {
-                    let offset = Variable::Named {
-                        name: format!("{lhs}_offset"),
-                        item: Item::Scalar(Elem::U32),
-                        is_array: false,
-                    };
-                    let lhs = Variable::Named {
-                        name: format!("(*{lhs}_ptr)"),
-                        item: *item,
-                        is_array: true,
-                    };
-                    index(f, &lhs, rhs, out, Some(offset), Some(len))
-                }
-                _ => index(f, lhs, rhs, out, None, Some(len)),
-            },
             Instruction::Copy {
                 input,
                 in_index,
@@ -781,7 +751,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
 
                         writeln!(f, "select({or_elsei}, {theni}, {condi}),")?;
                     }
-
                     writeln!(f, ");")
                 } else {
                     writeln!(f, "{out} = select({or_else}, {then}, {cond});")
@@ -994,42 +963,6 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "/* {content} */")
                 } else {
                     writeln!(f, "// {content}")
-                }
-            }
-            Instruction::ConditionalRead {
-                cond,
-                slice,
-                index,
-                fallback,
-                out,
-            } => {
-                let vf_slice = slice.item().vectorization_factor();
-                let vf_fallback = fallback.item().vectorization_factor();
-                let vf_out = out.item().vectorization_factor();
-                let vf_cond = cond.item().vectorization_factor();
-                let vf = usize::max(vf_cond, vf_out);
-                let vf = usize::max(vf, vf_slice);
-                let vf = usize::max(vf, vf_fallback);
-
-                let out = out.fmt_left();
-                if vf != vf_slice || vf != vf_fallback || vf != vf_cond || vf != vf_out {
-                    writeln!(f, "{out} = vec{vf}(")?;
-                    for i in 0..vf {
-                        let fallbacki = fallback.index(i);
-                        let condi = cond.index(i);
-
-                        writeln!(
-                            f,
-                            "select({fallbacki}, (*{slice}_ptr)[{index} + {slice}_offset + i], {condi}),"
-                        )?;
-                    }
-
-                    writeln!(f, ");")
-                } else {
-                    writeln!(
-                        f,
-                        "{out} = select({fallback}, (*{slice}_ptr)[{index} + {slice}_offset], {cond});"
-                    )
                 }
             }
         }

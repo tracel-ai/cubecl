@@ -3,8 +3,8 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        CompleteStageTiling, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
-        MatmulSpec, OutputRuntimeArg, tile::TileMatmulFamily,
+        CompleteStageTiling, EA, ES, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
+        MatmulSpec, OutputRuntimeArg, stage, tile::TileMatmulFamily,
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
@@ -15,6 +15,7 @@ const NUM_SM_APPROX: usize = 50;
 const NUM_TENSOR_CORES_APPROX: usize = 8;
 
 /// Select which kernel to launch for the given Algorithm.
+#[allow(clippy::result_large_err)]
 pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
@@ -34,7 +35,7 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         input,
         output,
         problem,
-        config_input,
+        (config_input, stage::Buffering::Double), // TODO support double buffering
         selection,
         quantized,
     )
@@ -117,7 +118,7 @@ pub(crate) fn find_stage_size_m_n(
     }
 }
 
-fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
+pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -127,9 +128,9 @@ fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
             Some((
                 client.properties(),
                 (
-                    MS::ES::as_elem_native_unchecked(),
-                    MS::ES::as_elem_native_unchecked(),
-                    MS::EA::as_elem_native_unchecked(),
+                    ES::<MS>::as_elem_native_unchecked(),
+                    ES::<MS>::as_elem_native_unchecked(),
+                    EA::<MS>::as_elem_native_unchecked(),
                 ),
             ))
         } else {

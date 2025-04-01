@@ -2,15 +2,16 @@ use crate::matmul::components::config::InputIdent;
 use crate::matmul::components::global;
 use crate::matmul::components::{Ident, MatrixLayout};
 use cubecl_core as cubecl;
+use cubecl_core::io::read_masked;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
-#[derive(CubeType)]
+#[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<E: Numeric> {
-    pub tensor: VirtualTensor<E>,
+pub struct TensorReader<EG: Numeric> {
+    pub tensor: VirtualTensor<EG>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -22,10 +23,20 @@ pub struct TensorReader<E: Numeric> {
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
+/// Uses a [`TensorMap`] to actually execute the load.
+pub struct MappedTensorReader<EG: Numeric> {
+    pub tensor: TensorMap<EG>,
+    pub tile_x: u32,
+    pub tile_y: u32,
+    pub batch: u32,
+}
+
+#[derive(CubeType)]
+/// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<E: Numeric> {
-    pub tensor: VirtualTensor<E, ReadWrite>,
+pub struct TensorWriter<EG: Numeric> {
+    pub tensor: VirtualTensor<EG, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -35,15 +46,45 @@ pub struct TensorWriter<E: Numeric> {
     pub batch_offset: u32,
 }
 
-unsafe impl<E: Numeric> Sync for TensorReader<E> {}
-unsafe impl<E: Numeric> Send for TensorReader<E> {}
-unsafe impl<E: Numeric> Sync for TensorWriter<E> {}
-unsafe impl<E: Numeric> Send for TensorWriter<E> {}
+unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
+unsafe impl<EG: Numeric> Send for TensorReader<EG> {}
+unsafe impl<EG: Numeric> Sync for MappedTensorReader<EG> {}
+unsafe impl<EG: Numeric> Send for MappedTensorReader<EG> {}
+unsafe impl<EG: Numeric> Sync for TensorWriter<EG> {}
+unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 
 #[derive(CubeType)]
+/// Contiguous slice wrapper for memcpy_async loading
 pub struct Window<EG: Numeric> {
+    /// Contiguous slice containing all and only data of window
     pub slice: Slice<Line<EG>>,
+    /// Number of lines
     pub size: u32,
+}
+
+#[cube]
+impl<EG: Numeric> MappedTensorReader<EG> {
+    /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
+    pub fn new(tensor: TensorMap<EG>, tile_x: u32, tile_y: u32, batch: u32) -> Self {
+        MappedTensorReader::<EG> {
+            tensor,
+            tile_x,
+            tile_y,
+            batch,
+        }
+    }
+
+    /// Advance the view along the k dimension by a specified offset, `k_offset`.
+    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
+        match ident.as_input() {
+            InputIdent::Lhs => {
+                self.tile_y += k_offset;
+            }
+            InputIdent::Rhs => {
+                self.tile_x += k_offset;
+            }
+        }
+    }
 }
 
 #[cube]
@@ -294,23 +335,23 @@ impl<EG: Numeric> TensorReader<EG> {
             config.check_row_bounds(ident),
             config.check_col_bounds(ident)
         )) {
-            (true, true) => conditional_read::<Line<EG>, u32>(
+            (true, true) => read_masked::<Line<EG>>(
                 view_x < self.shape_x && view_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
-            (true, false) => conditional_read::<Line<EG>, u32>(
+            (true, false) => read_masked::<Line<EG>>(
                 view_x < self.shape_x,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
-            (false, true) => conditional_read::<Line<EG>, u32>(
+            (false, true) => read_masked::<Line<EG>>(
                 view_y < self.shape_y,
                 self.tensor.as_slice(0, self.tensor.len()),
                 read_pos,
-                Line::empty(line_size).fill(EG::from_int(0)),
+                Line::cast_from(0),
             ),
             (false, false) => self.tensor.read(read_pos),
         }

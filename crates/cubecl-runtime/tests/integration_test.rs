@@ -44,6 +44,7 @@ fn execute_elementwise_addition() {
     client.execute(
         Arc::new(DummyElementwiseAddition),
         CubeCount::Static(1, 1, 1),
+        Vec::new(),
         vec![lhs.binding(), rhs.binding(), out.clone().binding()],
     );
 

@@ -1,18 +1,19 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+// TODO Support EI and EO
 /// Store the quantization meta-parameters.
 /// For now, we only support symmetric quantization,
 /// thus we only store the scaling.
 #[derive(CubeType, Clone, Copy)]
-pub struct Quantization<EG: Numeric> {
-    pub(crate) lhs: Slice<Line<EG>>,
-    pub(crate) rhs: Slice<Line<EG>>,
-    pub(crate) out: SliceMut<Line<EG>>,
+pub struct Quantization<EI: Numeric, EO: Numeric> {
+    pub lhs: Slice<Line<EI>>,
+    pub rhs: Slice<Line<EI>>,
+    pub out: SliceMut<Line<EO>>,
 }
 
 #[cube]
-impl<EG: Numeric> Quantization<EG> {
+impl<EI: Numeric, EO: Numeric> Quantization<EI, EO> {
     pub fn read_scale_lhs(&self, index: u32, #[comptime] line_size: u32) -> f32 {
         read_f32(self.lhs, index, line_size)
     }
@@ -41,22 +42,22 @@ impl IndexRange {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct IndexedQuantization<EG: Numeric> {
-    pub quantization: Quantization<EG>,
+pub struct IndexedQuantization<EI: Numeric, EO: Numeric> {
+    pub quantization: Quantization<EI, EO>,
     pub range_lhs: IndexRange,
     pub range_rhs: IndexRange,
     pub index_out: u32,
 }
 
 #[cube]
-impl<EG: Numeric> IndexedQuantization<EG> {
+impl<EI: Numeric, EO: Numeric> IndexedQuantization<EI, EO> {
     pub fn new(
-        quantization: Quantization<EG>,
+        quantization: Quantization<EI, EO>,
         range_lhs: IndexRange,
         range_rhs: IndexRange,
         index_out: u32,
-    ) -> IndexedQuantization<EG> {
-        IndexedQuantization::<EG> {
+    ) -> IndexedQuantization<EI, EO> {
+        IndexedQuantization::<EI, EO> {
             quantization,
             range_lhs,
             range_rhs,
