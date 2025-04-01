@@ -502,4 +502,3 @@ fn fn_associated_type(path: &Expression) -> Option<(Path, PathSegment)> {
         _ => None,
     }
 }
-

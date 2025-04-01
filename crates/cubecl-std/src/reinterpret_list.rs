@@ -3,6 +3,9 @@ use core::{cmp::Ordering, marker::PhantomData};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+/// This struct allows to take a list of `Line<From>` and reinterpret it
+/// as a list of `To`. Semantically, this is equivalent to bitcasting the list of `Line<From>`
+/// to a list of `To`. When indexing, the index is valid in the casted list.
 #[derive(CubeType)]
 pub struct ReinterpretList<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> {
     list: L,
@@ -57,7 +60,6 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
     #[allow(clippy::comparison_chain)]
     pub fn read(&self, index: u32) -> To {
         if comptime!(self.num_bytes_line_from == self.num_bytes_to) {
-            // panic!("PATH 1");
             To::bitcast_from(self.list.read(index))
         } else if comptime!(self.num_bytes_line_from < self.num_bytes_to) {
             self.read_smaller_lines(index)
@@ -66,7 +68,7 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
         }
     }
 
-    pub fn read_smaller_lines(&self, index: u32) -> To {
+    fn read_smaller_lines(&self, index: u32) -> To {
         let num_lines_to_read = comptime!(self.num_bytes_to / self.num_bytes_line_from);
 
         // This will contains the content of `num_lines_to_read` lines merged
@@ -86,7 +88,7 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
         To::bitcast_from(merged_lines)
     }
 
-    pub fn read_larger_lines(&self, index: u32) -> To {
+    fn read_larger_lines(&self, index: u32) -> To {
         let num_outputs_per_line = comptime!(self.num_bytes_line_from / self.num_bytes_to);
 
         if comptime!(num_outputs_per_line > self.line_size) {
