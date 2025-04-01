@@ -138,7 +138,7 @@ fn main() {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
         run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
         run_benches::<cubecl::cuda::CudaRuntime, half::bf16>();
-        run_benches::<cubecl::cuda::CudaRuntime, f32>();
+        // run_benches::<cubecl::cuda::CudaRuntime, f32>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();

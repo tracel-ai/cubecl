@@ -11,9 +11,9 @@ use crate::{
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
-        let debug_source = frontend_type("debug_source_expand");
-        let cube_debug = frontend_type("CubeDebug");
-        let src_file = self.src_file.as_ref().map(|file| file.value());
+        // let debug_source = frontend_type("debug_source_expand");
+        // let cube_debug = frontend_type("CubeDebug");
+        // let src_file = self.src_file.as_ref().map(|file| file.value());
         #[cfg(nightly)]
         let src_file = {
             src_file.or_else(|| {
@@ -23,10 +23,11 @@ impl KernelFn {
                 source_file.map(|file| file.to_string_lossy().into())
             })
         };
-        let source_text = match src_file {
-            Some(file) => quote![include_str!(#file)],
-            None => quote![""],
-        };
+
+        // let source_text = match src_file {
+        //     Some(file) => quote![include_str!(#file)],
+        //     None => quote![""],
+        // };
 
         let vis = &self.vis;
         let sig = &self.sig;
@@ -45,7 +46,7 @@ impl KernelFn {
 
         let out = quote! {
             #vis #sig {
-                #debug_source;
+                // #debug_source;
                 // #(#debug_params)*
                 use #prelude_path::IntoRuntime as _;
 
