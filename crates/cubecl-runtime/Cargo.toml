@@ -37,6 +37,7 @@ derive-new = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
 variadics_please = { workspace = true }
+serde = { workspace = true }
 
 # Persistent cache deps - has to match the autotune_persistent_cache cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
@@ -45,7 +46,6 @@ cubecl-common = { path = "../cubecl-common", version = "0.5.0", default-features
     "serde",
 ] }
 md5 = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
