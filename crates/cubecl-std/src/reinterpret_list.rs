@@ -28,7 +28,6 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
     pub fn new(list: L, #[comptime] line_size: u32) -> ReinterpretList<From, To, L> {
         let num_bytes_line_from = comptime!(core::mem::size_of::<From>() as u32 * line_size);
         let num_bytes_to = comptime!(core::mem::size_of::<To>() as u32);
-        // panic!("FROM {num_bytes_line_from} TO {num_bytes_to}");
 
         comptime! {
             match num_bytes_line_from.cmp(&num_bytes_to) {
