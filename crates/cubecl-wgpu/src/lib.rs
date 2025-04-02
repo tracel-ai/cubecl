@@ -22,7 +22,10 @@ pub use runtime::*;
 #[cfg(feature = "spirv")]
 pub use backend::vulkan;
 
-#[cfg(all(test, not(feature = "spirv")))]
+#[cfg(feature = "msl")]
+pub use backend::metal;
+
+#[cfg(all(test, not(feature = "spirv"), not(feature = "msl")))]
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::WgpuRuntime;
@@ -47,6 +50,22 @@ mod tests_spirv {
     cubecl_linalg::testgen_matmul_plane!([f16, f32]);
     cubecl_linalg::testgen_matmul_tiling2d!([f16, f32, f64]);
     cubecl_linalg::testgen_matmul_simple!([f32]);
+    cubecl_linalg::testgen_matmul_accelerated!([f16]);
+    cubecl_reduce::testgen_reduce!();
+    cubecl_reduce::testgen_shared_sum!([f32]);
+}
+
+#[cfg(all(test, feature = "msl"))]
+#[allow(unexpected_cfgs)]
+mod tests_msl {
+    pub type TestRuntime = crate::WgpuRuntime;
+    use cubecl_core::flex32;
+    use half::f16;
+
+    cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    cubecl_linalg::testgen_matmul_plane!([f16, f32]);
+    cubecl_linalg::testgen_matmul_tiling2d!([f16, f32]);
+    cubecl_linalg::testgen_matmul_simple!([f16, f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f16]);
     cubecl_reduce::testgen_reduce!();
     cubecl_reduce::testgen_shared_sum!([f32]);

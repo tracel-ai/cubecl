@@ -599,7 +599,7 @@ impl MatmulArgs for TensorMapArgs {
     ) -> Line<EI> {
         comptime!(unimplemented!("Can't directly read from TensorMap"));
         #[allow(unreachable_code)]
-        Line::empty(1)
+        Line::empty(1_u32)
     }
 
     fn read_rhs<EI: Numeric, EO: Numeric>(
@@ -608,7 +608,7 @@ impl MatmulArgs for TensorMapArgs {
     ) -> Line<EI> {
         comptime!(unimplemented!("Can't directly read from TensorMap"));
         #[allow(unreachable_code)]
-        Line::empty(1)
+        Line::empty(1_u32)
     }
 
     #[allow(unused)]

@@ -49,6 +49,76 @@ pub fn kernel_simple_1(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::RowMajor,
+        &lhs.to_slice(),
+        8,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::ColMajor,
+        &rhs.to_slice(),
+        8,
+    );
+    let c = cmma::Matrix::<f16>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::Undefined,
+        half::f16::from_int(0),
+    );
+
+    cmma::execute::<f16, f16, f16, f16>(&a, &b, &c, &c);
+
+    cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+}
+
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+    let a = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::A,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::RowMajor,
+        &lhs.to_slice(),
+        8,
+    );
+    let b = cmma::Matrix::<f16>::from_slice(
+        cmma::MatrixIdent::B,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::ColMajor,
+        &rhs.to_slice(),
+        8,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        8,
+        8,
+        8,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+
+    cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+}
+
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<f32>) {
     let a = cmma::Matrix::<tf32>::from_slice(
         cmma::MatrixIdent::A,
@@ -196,6 +266,48 @@ pub fn test_simple_1<R: Runtime>(
 
     assert_eq!(expected, actual);
 }
+
+// pub fn test_simple_2<R: Runtime>(
+//     client: ComputeClient<R::Server, R::Channel>,
+//     cube_dimensions: CubeDim,
+// ) {
+//     if !client.properties().feature_enabled(Feature::Cmma {
+//         a: Elem::Float(FloatKind::F16),
+//         b: Elem::Float(FloatKind::F16),
+//         c: Elem::Float(FloatKind::F16),
+//         m: 8,
+//         k: 8,
+//         n: 8,
+//     }) {
+//         // We can't execute the test, skip.
+//         return;
+//     }
+
+//     let lhs: Vec<f16> = (0..64).map(|i| f16::from_f32(i as f32)).collect();
+//     let rhs: Vec<f16> = (0..64).map(|i| f16::from_f32((i % 8) as f32)).collect();
+
+//     let lhs = client.create(f16::as_bytes(&lhs));
+//     let rhs = client.create(f16::as_bytes(&rhs));
+//     let out = client.empty(core::mem::size_of::<f16>() * 64);
+
+//     unsafe {
+//         kernel_simple_2::launch::<R>(
+//             &client,
+//             CubeCount::Static(1, 1, 1),
+//             cube_dimensions,
+//             ArrayArg::from_raw_parts::<f16>(&lhs, 64, 1),
+//             ArrayArg::from_raw_parts::<f16>(&rhs, 64, 1),
+//             ArrayArg::from_raw_parts::<f16>(&out, 64, 1),
+//         )
+//     };
+
+//     let actual = client.read_one(out.binding());
+//     let actual = f16::from_bytes(&actual);
+
+//     let expected: [f16; 64] = [0.0, 28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 0.0, 92.0, 184.0, 276.0, 368.0, 460.0, 552.0, 644.0, 0.0, 156.0, 312.0, 468.0, 624.0, 780.0, 936.0, 1092.0, 0.0, 220.0, 440.0, 660.0, 880.0, 1100.0, 1320.0, 1540.0, 0.0, 284.0, 568.0, 852.0, 1136.0, 1420.0, 1704.0, 1988.0, 0.0, 348.0, 696.0, 1044.0, 1392.0, 1740.0, 2088.0, 2436.0, 0.0, 412.0, 824.0, 1236.0, 1648.0, 2060.0, 2472.0, 2884.0, 0.0, 476.0, 952.0, 1428.0, 1904.0, 2380.0, 2856.0, 3332.0].map(|e| f16::from_f64(e));
+
+//     assert_eq!(expected, actual);
+// }
 
 pub fn test_cmma_cast_f16<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
@@ -472,6 +584,17 @@ macro_rules! testgen_cmma {
             let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_simple_1::<TestRuntime>(client, cube_dimensions);
         }
+
+        // #[test]
+        // fn test_cmma_simple_2() {
+        //     let client = TestRuntime::client(&Default::default());
+        //     // In HIP the thread block size must be 32
+        //     #[cfg(feature = "is_hip")]
+        //     let cube_dimensions = CubeDim::new(32, 1, 1);
+        //     #[cfg(not(feature = "is_hip"))]
+        //     let cube_dimensions = CubeDim::new(32, 1, 1);
+        //     cubecl_core::runtime_tests::cmma::test_simple_2::<TestRuntime>(client, cube_dimensions);
+        // }
 
         #[test]
         fn test_cmma_simple_tf32() {
