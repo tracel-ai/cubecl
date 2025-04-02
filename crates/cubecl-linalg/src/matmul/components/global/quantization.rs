@@ -97,56 +97,56 @@ fn read_f32<EG: Numeric>(slice: Slice<Line<EG>>, index: u32, #[comptime] line_si
         1 => {
             // Each item is a 1 byte value, we need four of them.
             let start = index * 4;
-            let mut bytes = Line::empty(4);
+            let mut bytes = Line::empty(4_u32);
             #[unroll]
             for k in 0..4 {
                 bytes[k] = slice[start + k][0];
             }
-            f32::bitcast_from(bytes)
+            f32::reinterpret(bytes)
         }
         2 => {
             // Each item is a 2 bytes value, we need two of them.
             let start = index * 2;
-            let mut bytes = Line::empty(2); // This is either a line of two lines of u8 / i8 or a line of two f16 / u16 / i16.
+            let mut bytes = Line::empty(2_u32); // This is either a line of two lines of u8 / i8 or a line of two f16 / u16 / i16.
             #[unroll]
             for k in 0..2 {
                 bytes[k] = slice[start + k][0];
             }
-            f32::bitcast_from(bytes)
+            f32::reinterpret(bytes)
         }
-        4 => f32::bitcast_from(slice[index]), // Each item is a 4 bytes value, we need one of them.
+        4 => f32::reinterpret(slice[index]), // Each item is a 4 bytes value, we need one of them.
         8 => {
             // Each item is a 8 bytes value, we need half of one.
             let outer = index / 2;
             let inner = index % 2;
-            let mut bytes = Line::empty(line_size / 2);
+            let mut bytes = Line::empty(comptime!(line_size / 2));
             #[unroll]
             for k in 0..line_size / 2 {
                 bytes[k] = slice[outer][inner + k];
             }
-            f32::bitcast_from(bytes)
+            f32::reinterpret(bytes)
         }
         16 => {
             // Each item is a 16 bytes value, we need a quarter of one.
             let outer = index / 4;
             let inner = index % 4;
-            let mut bytes = Line::empty(line_size / 4);
+            let mut bytes = Line::empty(comptime!(line_size / 4));
             #[unroll]
             for k in 0..line_size / 4 {
                 bytes[k] = slice[outer][inner + k];
             }
-            f32::bitcast_from(bytes)
+            f32::reinterpret(bytes)
         }
         32 => {
             // Each item is a 32 bytes value, we need an eight of one.
             let outer = index / 8;
             let inner = index % 8;
-            let mut bytes = Line::empty(line_size / 8);
+            let mut bytes = Line::empty(comptime!(line_size / 8));
             #[unroll]
             for k in 0..line_size / 8 {
                 bytes[k] = slice[outer][inner + k];
             }
-            f32::bitcast_from(bytes)
+            f32::reinterpret(bytes)
         }
         _ => comptime!(panic!("invalid number of bytes")), // unreachable
     }
@@ -163,7 +163,7 @@ fn write_f32<EG: Numeric>(
     value: f32,
     #[comptime] line_size: u32,
 ) {
-    let bytes = Line::<EG>::bitcast_from(value);
+    let bytes = Line::<EG>::reinterpret(value);
     let num_bytes_line_eg = comptime!(core::mem::size_of::<EG>() as u32) * line_size;
     match num_bytes_line_eg {
         1 => {
@@ -180,14 +180,14 @@ fn write_f32<EG: Numeric>(
             #[unroll]
             for k in 0..2 {
                 // We build a line from the first / last two bytes.
-                let mut line = Line::<EG>::empty(2);
+                let mut line = Line::<EG>::empty(2_u32);
                 line[0] = bytes[2 * k];
                 line[1] = bytes[2 * k + 1];
 
-                slice[start + k] = Line::<EG>::bitcast_from(line);
+                slice[start + k] = Line::<EG>::reinterpret(line);
             }
         }
-        4 => slice[index] = Line::<EG>::bitcast_from(value), // Each item is a 4 bytes value, we need one of them.
+        4 => slice[index] = Line::<EG>::reinterpret(value), // Each item is a 4 bytes value, we need one of them.
         8 => {
             // Each item is a 8 bytes value, we need half of one.
             let outer = index / 2;
@@ -196,9 +196,9 @@ fn write_f32<EG: Numeric>(
             // We convert the item to a pair of f32.
             // Then we overwrite one of the two f32 by the given value.
             // Finally, we convert back to a Line<EG> that we write in the slice.
-            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            let mut line = Line::<f32>::reinterpret(slice[outer]);
             line[inner] = value;
-            slice[outer] = Line::<EG>::bitcast_from(line);
+            slice[outer] = Line::<EG>::reinterpret(line);
         }
         16 => {
             // Each item is a 16 bytes value, we need a quarter of one.
@@ -208,9 +208,9 @@ fn write_f32<EG: Numeric>(
             // We convert the item to four f32.
             // Then we overwrite one of the four f32 by the given value.
             // Finally, we convert back to a Line<EG> that we write in the slice.
-            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            let mut line = Line::<f32>::reinterpret(slice[outer]);
             line[inner] = value;
-            slice[outer] = Line::<EG>::bitcast_from(line);
+            slice[outer] = Line::<EG>::reinterpret(line);
         }
         32 => {
             // Each item is a 32 bytes value, we need an eight of one.
@@ -220,9 +220,9 @@ fn write_f32<EG: Numeric>(
             // We convert the item to eight f32.
             // Then we overwrite one of the eight f32 by the given value.
             // Finally, we convert back to a Line<EG> that we write in the slice.
-            let mut line = Line::<f32>::bitcast_from(slice[outer]);
+            let mut line = Line::<f32>::reinterpret(slice[outer]);
             line[inner] = value;
-            slice[outer] = Line::<EG>::bitcast_from(line);
+            slice[outer] = Line::<EG>::reinterpret(line);
         }
         _ => comptime!(panic!("invalid number of bytes")), // unreachable
     }

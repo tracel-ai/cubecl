@@ -451,12 +451,13 @@ impl Variable {
     pub fn index(&self) -> Option<Id> {
         match self.kind {
             VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::TensorMap(id)
             | VariableKind::GlobalScalar(id)
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
             | VariableKind::Slice { id, .. }
-            | VariableKind::GlobalOutputArray(id)
             | VariableKind::ConstantArray { id, .. }
             | VariableKind::SharedMemory { id, .. }
             | VariableKind::LocalArray { id, .. }

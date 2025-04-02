@@ -175,7 +175,7 @@ pub(crate) fn load_plain<N: Numeric, L: BlockLoader<N>>(
     let mut sm = load_info.shared_memory;
 
     if write_row < sm_dim_vertical {
-        if comment![line_size == tile_size] {
+        if comptime![line_size == tile_size] {
             L::load_tile_plain::<MatchingVectorization>(
                 tensor,
                 &mut sm,

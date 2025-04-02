@@ -34,16 +34,15 @@ impl<P: CubePrimitive> Cast for P {
     }
 }
 
-/// Enables reinterpet-casting/bitcasting from any floating point value to any integer value and vice
-/// versa
-pub trait BitCast: CubePrimitive {
+/// Enables reinterpetring the bits from any value to any other type of the same size.
+pub trait Reinterpret: CubePrimitive {
     /// Reinterpret the bits of another primitive as this primitive without conversion.
     #[allow(unused_variables)]
-    fn bitcast_from<From: CubePrimitive>(value: From) -> Self {
+    fn reinterpret<From: CubePrimitive>(value: From) -> Self {
         unexpanded!()
     }
 
-    fn __expand_bitcast_from<From: CubePrimitive>(
+    fn __expand_reinterpret<From: CubePrimitive>(
         scope: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
@@ -68,4 +67,4 @@ pub trait BitCast: CubePrimitive {
     }
 }
 
-impl<P: CubePrimitive> BitCast for P {}
+impl<P: CubePrimitive> Reinterpret for P {}

@@ -5,20 +5,49 @@ use wgpu::DeviceDescriptor;
 use crate::WgslCompiler;
 
 pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize, Visibility)> {
-    repr.inputs
+    let mut bindings = repr
+        .buffers
         .iter()
-        .chain(repr.outputs.iter())
-        .chain(repr.named.iter().map(|it| &it.1))
-        .enumerate()
-        .map(|it| (it.0, it.1.visibility))
-        .collect()
+        .map(|it| it.visibility)
+        .collect::<Vec<_>>();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
-    adapter
-        .request_device(
-            &DeviceDescriptor {
+    #[cfg(not(all(feature = "msl", target_os = "macos")))]
+    {
+        adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: None,
+                    required_features: adapter.features(),
+                    required_limits: limits,
+                    // The default is MemoryHints::Performance, which tries to do some bigger
+                    // block allocations. However, we already batch allocations, so we
+                    // can use MemoryHints::MemoryUsage to lower memory usage.
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                },
+                None,
+            )
+            .await
+            .map_err(|err| {
+                format!(
+                    "Unable to request the device with the adapter {:?}, err {:?}",
+                    adapter.get_info(),
+                    err
+                )
+            })
+            .unwrap()
+    }
+    #[cfg(all(feature = "msl", target_os = "macos"))]
+    {
+        adapter
+            .request_device(&DeviceDescriptor {
                 label: None,
                 required_features: adapter.features(),
                 required_limits: limits,
@@ -26,18 +55,18 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
                 // block allocations. However, we already batch allocations, so we
                 // can use MemoryHints::MemoryUsage to lower memory usage.
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
-            },
-            None,
-        )
-        .await
-        .map_err(|err| {
-            format!(
-                "Unable to request the device with the adapter {:?}, err {:?}",
-                adapter.get_info(),
-                err
-            )
-        })
-        .unwrap()
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(|err| {
+                format!(
+                    "Unable to request the device with the adapter {:?}, err {:?}",
+                    adapter.get_info(),
+                    err
+                )
+            })
+            .unwrap()
+    }
 }
 
 pub fn register_types(props: &mut DeviceProperties<Feature>) {

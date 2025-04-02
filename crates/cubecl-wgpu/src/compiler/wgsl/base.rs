@@ -24,6 +24,7 @@ pub enum Variable {
         id: Id,
         item: Item,
     },
+    // TODO: Potential cleanup, seems that variable is not used at all
     LocalScalar {
         id: Id,
         elem: Elem,
@@ -272,7 +273,7 @@ impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => {
-                write!(f, "input_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
@@ -280,7 +281,7 @@ impl Display for Variable {
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice { id, .. } => write!(f, "slice_{id}"),
             Variable::GlobalOutputArray(number, _) => {
-                write!(f, "output_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")

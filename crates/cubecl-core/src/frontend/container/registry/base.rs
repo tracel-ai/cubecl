@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, ExpandElementTyped, Init};
+use crate::prelude::{CubeDebug, CubeType, Init};
 
 /// It is similar to a map, but where the keys are stored at comptime, but the values can be runtime
 /// variables.
@@ -21,13 +21,6 @@ pub trait RegistryQuery<K>: Into<K> {}
 
 // We provide default implementations for some types.
 impl RegistryQuery<u32> for u32 {}
-impl RegistryQuery<u32> for ExpandElementTyped<u32> {}
-
-impl From<ExpandElementTyped<u32>> for u32 {
-    fn from(val: ExpandElementTyped<u32>) -> Self {
-        val.constant().unwrap().as_u32()
-    }
-}
 
 impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V> {
     /// Create a new registry.

@@ -3,7 +3,9 @@ use std::{ffi::CStr, mem::MaybeUninit, str::FromStr};
 use cubecl_cpp::{
     hip::HipDialect,
     register_supported_types,
-    shared::{Architecture, CompilationOptions, CppCompiler, WmmaCompiler, register_wmma_features},
+    shared::{
+        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_wmma_features,
+    },
 };
 
 use cubecl_core::{
@@ -43,7 +45,7 @@ pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 type Server = HipServer;
 type Channel = MutexComputeChannel<Server>;
 
-fn create_client<M: WmmaCompiler<HipDialect<M>>>(
+fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &HipDevice,
     options: RuntimeOptions,
 ) -> ComputeClient<Server, Channel> {
@@ -143,6 +145,7 @@ fn create_client<M: WmmaCompiler<HipDialect<M>>>(
 
     let comp_opts = CompilationOptions {
         warp_size: arch.warp_size(),
+        grid_constants: false,
         supports_clusters: false,
     };
     let hip_ctx = HipContext::new(memory_management, comp_opts, stream);

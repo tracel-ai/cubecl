@@ -1,7 +1,7 @@
+use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_linalg::matmul::components::MatmulPrecision;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, SyncLoadingStrategy};
-use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::future;

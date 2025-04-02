@@ -1,7 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_runtime::{
     TimestampsError, TimestampsResult,
-    server::{BindingWithMeta, ConstBinding},
+    server::{BindingWithMeta, Bindings},
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -129,21 +129,23 @@ impl ComputeServer for DummyServer {
         &mut self,
         kernel: Self::Kernel,
         _count: CubeCount,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         _mode: ExecutionMode,
     ) {
-        let mut resources = constants
+        let mut resources: Vec<_> = bindings
+            .buffers
             .into_iter()
-            .map(|it| match it {
-                ConstBinding::TensorMap { binding, .. } => self.get_resource(binding),
-            })
+            .map(|b| self.get_resource(b))
+            .collect();
+        let metadata = self.create(bytemuck::cast_slice(&bindings.metadata.data));
+        resources.push(self.get_resource(metadata.binding()));
+
+        let scalars = bindings
+            .scalars
+            .into_values()
+            .map(|s| self.create(s.data()))
             .collect::<Vec<_>>();
-        resources.extend(
-            bindings
-                .into_iter()
-                .map(|binding| self.get_resource(binding)),
-        );
+        resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
 
         let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
 
