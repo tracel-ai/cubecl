@@ -338,10 +338,6 @@ impl<MP: MatmulPrecision, LL: SyncLoadingStrategy, RL: SyncLoadingStrategy, G: G
     for DoubleBufferingEventListener<SyncLoader<MP, G, LL>, SyncLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
-        // if let StageEvent::Begin = event {
-        //     SyncLoader::fill_stage(&mut this.loader_lhs, this.config);
-        //     SyncLoader::fill_stage(&mut this.loader_rhs, this.config);
-        // };
         if let StageEvent::TmmCompleted { current, total } = event {
             if comptime![should_handle_event_ratio(0.25, current, total)] {
                 SyncLoader::fill_stage(&mut this.loader_lhs, this.config);
