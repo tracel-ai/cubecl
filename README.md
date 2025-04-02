@@ -181,10 +181,10 @@ Therefore, each kind of variable also has its own axis-independent variable, whi
 | UNIT_POS_X     | threadIdx.x | local_invocation_id.x  | thread_position_in_threadgroup.x |
 | UNIT_POS_Y     | threadIdx.y | local_invocation_id.y  | thread_position_in_threadgroup.y |
 | UNIT_POS_Z     | threadIdx.z | local_invocation_id.z  | thread_position_in_threadgroup.z |
-| PLANE_POS      | N/A         | subgroup_size          | threads_per_simdgroup            |
+| PLANE_POS      | N/A         | subgroup_id            | simdgroup_index_in_threadgroup   |
 | PLANE_DIM      | warpSize    | subgroup_size          | threads_per_simdgroup            |
 | UNIT_POS_PLANE | N/A         | subgroup_invocation_id | thread_index_in_simdgroup        |
-| ABSOLUTE_POS   | N/A         | N/A                    | thread_index_in_grid                              |
+| ABSOLUTE_POS   | N/A         | N/A                    | thread_index_in_grid             |
 | ABSOLUTE_POS_X | N/A         | global_id.x            | thread_position_in_grid.x        |
 | ABSOLUTE_POS_Y | N/A         | global_id.y            | thread_position_in_grid.y        |
 | ABSOLUTE_POS_Z | N/A         | global_id.z            | thread_position_in_grid.z        |
