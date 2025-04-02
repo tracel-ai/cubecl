@@ -185,6 +185,7 @@ pub struct KernelFn {
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub full_name: String,
+    pub debug_symbols: bool,
     pub span: Span,
     pub context: Context,
     pub src_file: Option<LitStr>,
@@ -366,12 +367,13 @@ impl KernelFn {
         mut block: syn::Block,
         full_name: String,
         src_file: Option<LitStr>,
+        debug_symbols: bool,
     ) -> syn::Result<Self> {
         let span = Span::call_site();
         let sig = KernelSignature::from_signature(sig)?;
         Desugar.visit_block_mut(&mut block);
 
-        let mut context = Context::new(sig.returns.ty());
+        let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
         let (block, _) = context.in_scope(|ctx| Block::from_block(block, ctx))?;
 
@@ -383,6 +385,7 @@ impl KernelFn {
             span,
             src_file,
             context,
+            debug_symbols,
         })
     }
 }
@@ -404,6 +407,7 @@ impl Launch {
             *function.block,
             full_name,
             args.src_file.clone(),
+            args.debug_symbols.is_present(),
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.

@@ -51,10 +51,11 @@ pub struct Context {
     scopes: Vec<ManagedScope>,
     level: usize,
     mut_scope_idx: usize,
+    pub debug_symbols: bool,
 }
 
 impl Context {
-    pub fn new(return_type: Type) -> Self {
+    pub fn new(return_type: Type, debug_symbols: bool) -> Self {
         let mut root_scope = ManagedScope::default();
         root_scope.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -75,6 +76,7 @@ impl Context {
             scopes: vec![root_scope],
             level: 0,
             mut_scope_idx: 0,
+            debug_symbols,
         }
     }
 

@@ -168,11 +168,11 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
 
 #[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub fn register_features(
-    _adapter: &Adapter,
+    adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
-    _comp_options: &mut WgpuCompilationOptions,
+    comp_options: &mut WgpuCompilationOptions,
 ) {
-    wgsl::register_types(props);
+    wgsl::register_wgsl_features(adapter, props, comp_options);
 }
 
 #[cfg(feature = "spirv")]
@@ -184,7 +184,7 @@ pub fn register_features(
     if is_vulkan(adapter) {
         vulkan::register_vulkan_features(adapter, props, comp_options);
     } else {
-        wgsl::register_types(props);
+        wgsl::register_wgsl_features(adapter, props, comp_options);
     }
 }
 

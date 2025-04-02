@@ -1,6 +1,9 @@
 use std::num::NonZero;
 
-use crate::frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped};
+use crate::{
+    frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped},
+    prelude::MulHi,
+};
 use crate::{
     ir::{Arithmetic, BinaryOperator, Elem, Instruction, Item, Scope},
     prelude::{Dot, Numeric, binary_expand_fixed_output},
@@ -326,3 +329,5 @@ impl<N: Numeric> Dot for Line<N> {
         binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }
+
+impl<N: MulHi + CubePrimitive> MulHi for Line<N> {}

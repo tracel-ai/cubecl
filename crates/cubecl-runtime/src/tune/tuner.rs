@@ -295,7 +295,7 @@ impl<K: AutotuneKey> Tuner<K> {
 }
 
 #[cfg(feature = "autotune-checks")]
-pub fn check_autotune_outputs<O: AutotuneOutput>(
+pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<Result<O, AutotuneError>>,
 ) {
     let reference = checks_outputs.remove(checks_outputs.len() - 1);
