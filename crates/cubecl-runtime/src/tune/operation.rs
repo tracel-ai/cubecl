@@ -35,6 +35,14 @@ pub struct TunableSet<K: AutotuneKey, Inputs: Send + 'static, Output: 'static> {
 impl<K: AutotuneKey, Inputs: Clone + Send + 'static, Output: 'static>
     TunableSet<K, Inputs, Output>
 {
+    /// The number of tunables in the set.
+    pub fn len(&self) -> usize {
+        self.tunables.len()
+    }
+    /// If the tunable set is empty.
+    pub fn is_empty(&self) -> bool {
+        self.tunables.len() == 0
+    }
     /// Create a tunable set from a key generator and an input generator
     pub fn new<KMarker, IMarker>(
         key_gen: impl IntoKeyGenerator<K, Inputs, KMarker>,

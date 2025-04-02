@@ -14,7 +14,7 @@ use super::Tile;
 pub struct Accelerated;
 
 impl TileMatmulFamily for Accelerated {
-    type Matmul<I: Numeric, O: Numeric> = Accelerated;
+    type Matmul<MP: MatmulPrecision> = Accelerated;
 
     fn tile_shape(config: &Self::Config) -> MatmulSize {
         config.size
@@ -26,11 +26,11 @@ impl TileMatmulFamily for Accelerated {
 }
 
 #[cube]
-impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
+impl<MP: MatmulPrecision> TileMatmul<MP> for Accelerated {
     type Config = Config;
-    type Lhs = cmma::Matrix<I>;
-    type Rhs = cmma::Matrix<I>;
-    type Accumulator = cmma::Matrix<O>;
+    type Lhs = cmma::Matrix<MP::ES>;
+    type Rhs = cmma::Matrix<MP::ES>;
+    type Accumulator = cmma::Matrix<MP::EA>;
 
     fn execute(
         lhs: &Self::Lhs,
@@ -38,14 +38,14 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         out: &mut Self::Accumulator,
         #[comptime] _config: Config,
     ) {
-        cmma::execute::<I, I, O, O>(lhs, rhs, out, out);
+        cmma::execute::<MP::ES, MP::ES, MP::EA, MP::EA>(lhs, rhs, out, out);
     }
 
     fn allocate_lhs(#[comptime] config: Config) -> Self::Lhs {
         let size = config.size;
         let layout = config.matrix_layout(Ident::Lhs);
         unsafe {
-            cmma::Matrix::<I>::uninitialized(
+            cmma::Matrix::<MP::ES>::uninitialized(
                 cmma::MatrixIdent::A, // Check versus Ident
                 size.m,
                 size.n,
@@ -59,7 +59,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         let size = config.size;
         let layout = config.matrix_layout(Ident::Rhs);
         unsafe {
-            cmma::Matrix::<I>::uninitialized(
+            cmma::Matrix::<MP::ES>::uninitialized(
                 cmma::MatrixIdent::B,
                 size.m,
                 size.n,
@@ -69,17 +69,21 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         }
     }
 
-    fn fill_lhs(tile: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
+    fn fill_lhs(tile: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Config) {
         let (slice, stride) = tile.as_unlined::<Config>(Ident::Lhs, config);
         cmma::load(lhs, &slice, stride);
     }
 
-    fn fill_rhs(tile: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
+    fn fill_rhs(tile: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Config) {
         let (slice, stride) = tile.as_unlined::<Config>(Ident::Rhs, config);
         cmma::load(rhs, &slice, stride);
     }
 
-    fn fill_accumulator(tile: &Tile<O>, acc: &mut Self::Accumulator, #[comptime] config: Config) {
+    fn fill_accumulator(
+        tile: &Tile<MP::EA>,
+        acc: &mut Self::Accumulator,
+        #[comptime] config: Config,
+    ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(Ident::Out)));
         let (slice, stride) = tile.as_unlined::<Config>(Ident::Out, config);
         cmma::load_with_layout(acc, &slice, stride, layout);
@@ -90,14 +94,14 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Config,
     ) {
-        let acc = cmma::cast::<O, C>(out);
+        let acc = cmma::cast::<MP::EA, C>(out);
         cmma::store(slice, &acc, config.size.n, cmma::MatrixLayout::RowMajor);
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         let size = config.size;
         unsafe {
-            cmma::Matrix::<O>::uninitialized(
+            cmma::Matrix::<MP::EA>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
                 size.m,
                 size.n,
@@ -108,7 +112,7 @@ impl<I: Numeric, O: Numeric> TileMatmul<I, O> for Accelerated {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        cmma::fill(acc, O::from_int(0));
+        cmma::fill(acc, MP::EA::from_int(0));
     }
 }
 
@@ -129,41 +133,43 @@ impl MatmulConfigFactory for Accelerated {
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
-        let i_elem = MP::ES::as_elem_native().expect("to be a native type");
-        let o_elem = MP::EG::as_elem_native().expect("to be a native type");
+        let es = MP::ES::as_elem_native().expect("to be a native type");
+        let ea = MP::EA::as_elem_native().expect("to be a native type");
 
-        let i_elem = match i_elem {
+        let es = match es {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => i_elem,
+            _ => es,
         };
 
-        let o_elem = match o_elem {
+        let ea = match ea {
             Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
-            _ => o_elem,
+            _ => ea,
         };
 
         let size = config.size;
         if !client.properties().feature_enabled(Feature::Cmma {
-            a: i_elem,
-            b: i_elem,
-            c: o_elem,
+            a: es,
+            b: es,
+            c: ea,
             m: size.m as u8,
             k: size.k as u8,
             n: size.n as u8,
         }) {
             return Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
-                input: i_elem,
-                output: o_elem,
-                m: size.m,
-                n: size.n,
-                k: size.k,
+                input: es,
+                output: ea,
+                shape: Some(MatmulSize {
+                    m: size.m,
+                    n: size.n,
+                    k: size.k,
+                }),
             });
         }
 
-        if !(MP::ES::is_supported(client) && MP::EG::is_supported(client)) {
+        if !(MP::ES::is_supported(client) && MP::EA::is_supported(client)) {
             return Err(MatmulAvailabilityError::TypesUnavailable {
-                input: i_elem,
-                output: o_elem,
+                input: es,
+                output: ea,
             });
         }
 

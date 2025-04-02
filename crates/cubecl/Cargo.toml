@@ -11,6 +11,7 @@ repository = "https://github.com/tracel-ai/cubecl"
 version.workspace = true
 
 [features]
+autotune-checks = ["cubecl-runtime/autotune-checks"]
 default = [
     "std",
     "linalg",
@@ -31,6 +32,7 @@ hip = ["cubecl-hip"]
 hip-intrinsic = ["hip", "cubecl-hip/wmma-intrinsics"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
+wgpu-cpp-msl = ["wgpu", "cubecl-wgpu/msl"]
 
 [dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.5.0", default-features = false }
@@ -39,6 +41,7 @@ cubecl-hip = { path = "../cubecl-hip", version = "0.5.0", default-features = fal
 cubecl-linalg = { path = "../cubecl-linalg", version = "0.5.0", default-features = false, optional = true }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.5.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.5.0", default-features = false }
+cubecl-std = { version = "0.5.0", path = "../cubecl-std" }
 cubecl-wgpu = { path = "../cubecl-wgpu", version = "0.5.0", default-features = false, optional = true }
 half = { workspace = true }
 

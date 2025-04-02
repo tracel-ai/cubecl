@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory, MatmulLaunch, MatmulPrecision,
-    MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingDimensions,
+    Args, EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulConfigFactory,
+    MatmulLaunch, MatmulPrecision, MatmulProblem, MatmulSpec, OutputRuntimeArg, TilingDimensions,
     batch::{self, shared::gmm_execute},
     config::MatmulConfig,
     global::{self, GlobalMatmul, GlobalMatmulFamily, Quantization},
@@ -71,7 +71,7 @@ impl<GMM: GlobalMatmulFamily, C: CubeDispatch> MatmulLaunch for OneToOneMatmulFa
         config: Self::Config,
     ) {
         unsafe {
-            super::matmul::launch_unchecked::<MS::EG, MS::ES, MS::EA, MS::Args, Self, R>(
+            super::matmul::launch_unchecked::<Args<MS>, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, R>(
                 client, cube_count, cube_dim, input, output, size_k, config,
             );
         }
@@ -96,11 +96,11 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
     type Config = Config<GMM::Config, C>;
 
     fn execute(
-        lhs: VirtualTensor<MP::EG>,
-        rhs: VirtualTensor<MP::EG>,
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        lhs: VirtualTensor<MP::EI>,
+        rhs: VirtualTensor<MP::EI>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         size_k: u32,
-        quantization: CubeOption<Quantization<MP::EG>>,
+        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();

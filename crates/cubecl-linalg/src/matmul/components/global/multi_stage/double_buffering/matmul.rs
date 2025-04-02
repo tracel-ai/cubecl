@@ -44,12 +44,8 @@ where
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
-        MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for DoubleBufferingMatmulFamily<SMM, LL, RL>
@@ -109,7 +105,7 @@ where
 /// they trigger a computation event from tensor cores on buffer B. Then buffers are switched.
 pub struct DoubleBufferingMatmul<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: stage::StageMatmul<MP>,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 > {
@@ -124,9 +120,7 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL>
 where
     SMM: stage::StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
         >,
@@ -134,10 +128,10 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -146,7 +140,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         comptime! {
@@ -247,7 +241,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -258,7 +252,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -269,7 +263,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

@@ -46,9 +46,7 @@ where
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
         SMM::Matmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             ContiguousTilingLayout<RowMajorTilingOrder>,
             ContiguousTilingLayout<RowMajorTilingOrder>,
         >,
@@ -110,7 +108,7 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG, MP::EA>> {
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -119,18 +117,16 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP::ES, MP::EG,
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
             RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
         >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP::EG, MP::ES, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP::EG, MP::ES, SMM::Config>;
+    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
+    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -139,7 +135,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -185,7 +181,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -202,7 +198,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -219,7 +215,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

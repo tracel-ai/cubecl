@@ -159,33 +159,35 @@ In this example, the total number of working units would be 27 x 27 = 729._
 
 Since all topology variables are constant within the kernel entry point, we chose to use the Rust constant syntax with capital letters.
 Often when creating kernels, we don't always care about the relative position of a unit within a cube along each axis, but often we only care about its position in general.
-Therefore, each kind of variable also has its own axis-independent variable, which is often not present in other languages, except WebGPU with `local_invocation_index`.
+Therefore, each kind of variable also has its own axis-independent variable, which is often not present in other languages.
 
 <br />
 
-| CubeCL         | CUDA        | WebGPU                 |
-| -------------- | ----------- | ---------------------- |
-| CUBE_COUNT     | N/A         | N/A                    |
-| CUBE_COUNT_X   | gridDim.x   | num_workgroups.x       |
-| CUBE_COUNT_Y   | gridDim.y   | num_workgroups.y       |
-| CUBE_COUNT_Z   | gridDim.z   | num_workgroups.z       |
-| CUBE_POS       | N/A         | N/A                    |
-| CUBE_POS_X     | blockIdx.x  | workgroup.x            |
-| CUBE_POS_Y     | blockIdx.y  | workgroup.y            |
-| CUBE_POS_Z     | blockIdx.z  | workgroup.z            |
-| CUBE_DIM       | N/A         | N/A                    |
-| CUBE_DIM_X     | blockDim.x  | workgroup_size.x       |
-| CUBE_DIM_Y     | blockDim.y  | workgroup_size.y       |
-| CUBE_DIM_Z     | blockDim.z  | workgroup_size.z       |
-| UNIT_POS       | N/A         | local_invocation_index |
-| UNIT_POS_X     | threadIdx.x | local_invocation_id.x  |
-| UNIT_POS_Y     | threadIdx.y | local_invocation_id.y  |
-| UNIT_POS_Z     | threadIdx.z | local_invocation_id.z  |
-| PLANE_DIM      | warpSize    | subgroup_size          |
-| ABSOLUTE_POS   | N/A         | N/A                    |
-| ABSOLUTE_POS_X | N/A         | global_id.x            |
-| ABSOLUTE_POS_Y | N/A         | global_id.y            |
-| ABSOLUTE_POS_Z | N/A         | global_id.z            |
+| CubeCL         | CUDA        | WebGPU                 | Metal                            |
+|----------------|-------------|------------------------|----------------------------------|
+| CUBE_COUNT     | N/A         | N/A                    | N/A                              |
+| CUBE_COUNT_X   | gridDim.x   | num_workgroups.x       | threadgroups_per_grid.x          |
+| CUBE_COUNT_Y   | gridDim.y   | num_workgroups.y       | threadgroups_per_grid.y          |
+| CUBE_COUNT_Z   | gridDim.z   | num_workgroups.z       | threadgroups_per_grid.z          |
+| CUBE_POS       | N/A         | N/A                    | N/A                              |
+| CUBE_POS_X     | blockIdx.x  | workgroup_id.x         | threadgroup_position_in_grid.x   |
+| CUBE_POS_Y     | blockIdx.y  | workgroup_id.y         | threadgroup_position_in_grid.y   |
+| CUBE_POS_Z     | blockIdx.z  | workgroup_id.z         | threadgroup_position_in_grid.z   |
+| CUBE_DIM       | N/A         | N/A                    | N/A                              |
+| CUBE_DIM_X     | blockDim.x  | workgroup_size.x       | threads_per_threadgroup.x        |
+| CUBE_DIM_Y     | blockDim.y  | workgroup_size.y       | threads_per_threadgroup.y        |
+| CUBE_DIM_Z     | blockDim.z  | workgroup_size.z       | threads_per_threadgroup.z        |
+| UNIT_POS       | N/A         | local_invocation_index | thread_index_in_threadgroup      |
+| UNIT_POS_X     | threadIdx.x | local_invocation_id.x  | thread_position_in_threadgroup.x |
+| UNIT_POS_Y     | threadIdx.y | local_invocation_id.y  | thread_position_in_threadgroup.y |
+| UNIT_POS_Z     | threadIdx.z | local_invocation_id.z  | thread_position_in_threadgroup.z |
+| PLANE_POS      | N/A         | subgroup_id            | simdgroup_index_in_threadgroup   |
+| PLANE_DIM      | warpSize    | subgroup_size          | threads_per_simdgroup            |
+| UNIT_POS_PLANE | N/A         | subgroup_invocation_id | thread_index_in_simdgroup        |
+| ABSOLUTE_POS   | N/A         | N/A                    | thread_index_in_grid             |
+| ABSOLUTE_POS_X | N/A         | global_id.x            | thread_position_in_grid.x        |
+| ABSOLUTE_POS_Y | N/A         | global_id.y            | thread_position_in_grid.y        |
+| ABSOLUTE_POS_Z | N/A         | global_id.z            | thread_position_in_grid.z        |
 
 </details>
 

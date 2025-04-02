@@ -33,7 +33,6 @@ hashbrown = "0.14.5"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 spin = { version = "0.9.8", features = ["mutex", "spin_mutex"] }
 
-getrandom = { version = "0.3.1", default-features = false }
 rand = { version = "0.9.0", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
@@ -51,7 +50,7 @@ rstest = "0.19.0"
 serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
-half = { version = "2.4.1", features = [
+half = { version = "2.5", features = [
     "alloc",
     "num-traits",
     "serde",

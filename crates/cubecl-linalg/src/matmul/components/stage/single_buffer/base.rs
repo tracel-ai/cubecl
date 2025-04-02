@@ -38,8 +38,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> 
 
     type LhsReader = LhsBufferReaderFamily;
     type RhsReader = RhsBufferReaderFamily;
-    type Matmul<I: Numeric, O: Numeric, Acc: Numeric, TL: TilingLayout, TR: TilingLayout> =
-        SingleBufferMatmul<I, O, Acc, TMM::Matmul<I, Acc>, TL, TR>;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
+        SingleBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
 }
 
 impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
@@ -90,34 +90,25 @@ where
 /// # Assumptions
 /// - There are at least as many planes as the stage size in m
 pub struct SingleBufferMatmul<
-    I: Numeric,
-    O: Numeric,
-    EA: Numeric,
-    TMM: TileMatmul<I, EA>,
+    MP: MatmulPrecision,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 > {
-    _input_precision: PhantomData<I>,
-    _output_precision: PhantomData<O>,
-    _accumulator_precision: PhantomData<EA>,
-    _instruction: PhantomData<TMM>,
-    _tiling_layout_lhs: PhantomData<TL>,
-    _tiling_layout_rhs: PhantomData<TR>,
+    _phantom: PhantomData<(MP, TMM, TL, TR)>,
 }
 
 #[cube]
-impl<I, O, EA, TMM, TL, TR> StageMatmul<I, O, EA> for SingleBufferMatmul<I, O, EA, TMM, TL, TR>
+impl<MP, TMM, TL, TR> StageMatmul<MP> for SingleBufferMatmul<MP, TMM, TL, TR>
 where
-    I: Numeric,
-    O: Numeric,
-    EA: Numeric,
-    TMM: TileMatmul<I, EA>,
+    MP: MatmulPrecision,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
-    type LhsReader = LhsBufferReader<I, TL>;
-    type RhsReader = RhsBufferReader<I, TR>;
+    type LhsReader = LhsBufferReader<MP::ES, TL>;
+    type RhsReader = RhsBufferReader<MP::ES, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = RhsTile<TMM::Rhs>;
@@ -212,7 +203,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<O, EA, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -220,14 +211,14 @@ where
         #[unroll]
         for i in 0..config.tile_count().n {
             let acc = acc.index_mut(i);
-            L::load::<I, TMM>(loader, acc, i, config.to_tmm_config());
+            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
         }
     }
 
-    fn read_accumulator<SW: StageWriter<O>, G: global::GlobalConfig>(
+    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<O>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -242,7 +233,7 @@ where
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<O>::new_lined(
+        let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -252,7 +243,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<O, G>(
+            SW::write::<MP::EO, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,
@@ -264,23 +255,21 @@ where
 }
 
 #[cube]
-impl<I, O, EA, TMM, TL, TR> SingleBufferMatmul<I, O, EA, TMM, TL, TR>
+impl<MP, TMM, TL, TR> SingleBufferMatmul<MP, TMM, TL, TR>
 where
-    I: Numeric,
-    O: Numeric,
-    EA: Numeric,
-    TMM: TileMatmul<I, EA>,
+    MP: MatmulPrecision,
+    TMM: TileMatmul<MP>,
     TL: TilingLayout,
     TR: TilingLayout,
 {
     // Execute stage matmul with a single buffer for rhs.
     fn execute_single_buffer<SEL: StageEventListener>(
-        lhs_reader: &LhsBufferReader<I, TL>,
-        rhs_reader: &RhsBufferReader<I, TR>,
+        lhs_reader: &LhsBufferReader<MP::ES, TL>,
+        rhs_reader: &RhsBufferReader<MP::ES, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragment: &mut TMM::Rhs,
-        acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
-        #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
+        acc: &mut <Self as StageMatmul<MP>>::Accumulator,
+        #[comptime] config: <Self as StageMatmul<MP>>::Config,
         mut task: SEL,
     ) {
         let mut current = comptime![0u32];
@@ -328,12 +317,12 @@ where
 
     // Execute stage matmul with two alternating buffers for rhs.
     fn execute_double_buffer<SEL: StageEventListener>(
-        lhs_reader: &LhsBufferReader<I, TL>,
-        rhs_reader: &RhsBufferReader<I, TR>,
+        lhs_reader: &LhsBufferReader<MP::ES, TL>,
+        rhs_reader: &RhsBufferReader<MP::ES, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
-        acc: &mut <Self as StageMatmul<I, O, EA>>::Accumulator,
-        #[comptime] config: <Self as StageMatmul<I, O, EA>>::Config,
+        acc: &mut <Self as StageMatmul<MP>>::Accumulator,
+        #[comptime] config: <Self as StageMatmul<MP>>::Config,
         mut listener: SEL,
     ) {
         let mut current_event = comptime![0u32];

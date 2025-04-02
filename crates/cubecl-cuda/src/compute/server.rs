@@ -629,7 +629,7 @@ impl CudaContext {
 
         let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
         let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = compute_kernel.fast_math;
+        let fast_math = compute_kernel.flags.inst_fast_math;
         let arch = format!("--gpu-architecture=sm_{}", self.arch);
 
         let include_path = include_path();

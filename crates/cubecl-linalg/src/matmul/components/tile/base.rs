@@ -2,14 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulConfigFactory, MatmulSize, MatrixLayout, config::MatmulConfig,
+    Ident, InputIdent, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout,
+    config::MatmulConfig,
 };
 
 pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: TileConfig> {
     fn tile_shape(config: &Self::Config) -> MatmulSize;
     fn requires_tensor_cores() -> bool;
 
-    type Matmul<I: Numeric, O: Numeric>: TileMatmul<I, O, Config = Self::Config>;
+    type Matmul<MP: MatmulPrecision>: TileMatmul<MP, Config = Self::Config>;
 }
 
 /// Provides matrix multiplication operations at the tile level.
@@ -25,7 +26,7 @@ pub trait TileMatmulFamily: MatmulConfigFactory<Input = MatmulSize, Config: Tile
 ///    should be done on smaller sizes than M, N and K, padding with zeros must be done beforehand.
 ///  - Enough units are present to perform the whole computation
 #[cube]
-pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
+pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: TileConfig;
     /// Contains LHS data that can be split across the units
     type Lhs: CubeType;
@@ -59,20 +60,21 @@ pub trait TileMatmul<I: Numeric, O: Numeric>: 'static + Send + Sync {
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of LHS with data
-    fn fill_lhs(slice: &Tile<I>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs(slice: &Tile<MP::ES>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
 
     /// Fill the container of RHS with data
-    fn fill_rhs(slice: &Tile<I>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs(slice: &Tile<MP::ES>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
     fn fill_accumulator(
-        tile: &Tile<O>,
+        tile: &Tile<MP::EA>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
 
     /// Write the content of the output container to the given slice
     fn read_accumulator<C: Numeric>(
+        // TODO is this always MP::EG?
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<C>>,
         #[comptime] config: Self::Config,

@@ -50,12 +50,8 @@ where
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
-        MP,
-        SMM::Matmul<MP::ES, MP::EG, MP::EA, LL::TilingLayout, RL::TilingLayout>,
-        LL,
-        RL,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
 }
 
 impl<SMM, LL, RL> MatmulConfigFactory for SimpleBarrierMatmulFamily<SMM, LL, RL>
@@ -116,7 +112,7 @@ where
 /// - All planes are used in the stage matmul computation
 pub struct SimpleBarrierMatmul<
     MP: MatmulPrecision,
-    SMM: StageMatmul<MP::ES, MP::EG, MP::EA>,
+    SMM: StageMatmul<MP>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 > {
@@ -130,9 +126,7 @@ pub struct SimpleBarrierMatmul<
 impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
 where
     SMM: StageMatmul<
-            MP::ES,
-            MP::EG,
-            MP::EA,
+            MP,
             LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
             RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
         >,
@@ -140,10 +134,10 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -152,7 +146,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         comptime! {
@@ -216,7 +210,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -227,7 +221,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -238,7 +232,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
