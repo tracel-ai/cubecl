@@ -2,14 +2,14 @@ use cubecl_core::{
     CubeCount, MemoryConfiguration,
     server::{Binding, Bindings, Handle},
 };
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, num::NonZero, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
 use cubecl_runtime::{
     TimestampsError, TimestampsResult, memory_management::MemoryDeviceProperties,
 };
-use wgpu::{BufferSize, ComputePipeline};
+use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuStream {
@@ -372,20 +372,21 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        if data.len() < aligned_len as usize {
-            let mut buffer_view = self
+        if aligned_len > data.len() as u64 {
+            let mut buffer = self
                 .queue
                 .write_buffer_with(
                     resource.buffer(),
                     resource.offset(),
-                    BufferSize::new(aligned_len).unwrap(),
+                    NonZero::new(aligned_len).unwrap(),
                 )
                 .unwrap();
-            buffer_view[0..data.len()].copy_from_slice(data);
+            buffer[0..data.len()].copy_from_slice(data);
         } else {
             self.queue
                 .write_buffer(resource.buffer(), resource.offset(), data);
         }
+
         self.flush_if_needed();
 
         alloc
