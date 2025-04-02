@@ -26,8 +26,7 @@ pub struct DoubleBufferingBarrierMatmulFamily<
     RL: AsyncLoadingStrategy,
 > {
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
+    _phantom: PhantomData<(LL, RL)>,
 }
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
@@ -111,8 +110,7 @@ pub struct DoubleBufferingBarrierMatmul<
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
-    _lhs_loading: PhantomData<LL>,
-    _rhs_loading: PhantomData<RL>,
+    _phantom: PhantomData<(LL, RL)>,
 }
 
 #[cube]
