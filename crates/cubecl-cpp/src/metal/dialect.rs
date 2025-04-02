@@ -679,6 +679,11 @@ impl DialectInstructions<Self> for MslDialect {
         }
     }
 
+    // others
+    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "pow")
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,

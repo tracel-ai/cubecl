@@ -514,6 +514,11 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
+    // others
+    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "powf")
+    }
+
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
@@ -542,6 +547,7 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         _output: &Variable<D>,
     ) -> std::fmt::Result;
+
 }
 
 // Coop Matrices dialect

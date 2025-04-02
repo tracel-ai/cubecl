@@ -177,9 +177,14 @@ impl<D: Dialect> Binary<D> for Powf {
         let elem = item.elem;
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{elem}(powf(float({lhs}), float({rhs})))")
+                write!(f, "{elem}(")?;
+                D::compile_instruction_powf(f)?;
+                write!(f, "(float({lhs}), float({rhs})))")
             }
-            _ => write!(f, "powf({lhs}, {rhs})"),
+            _ => {
+                D::compile_instruction_powf(f)?;
+                write!(f, "({lhs}, {rhs})")
+            }
         }
     }
 
