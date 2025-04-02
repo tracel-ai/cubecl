@@ -210,6 +210,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
     quote![{ #tokens }].into()
 }
+
 /// Implements display and initialization for autotune keys.
 ///
 /// # Helper

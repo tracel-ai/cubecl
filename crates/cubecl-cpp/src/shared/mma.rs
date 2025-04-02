@@ -2,7 +2,6 @@ use cubecl_core::Feature;
 use cubecl_core::ir::{self as gpu};
 use cubecl_runtime::DeviceProperties;
 use std::fmt::Display;
-use std::hash::Hash;
 use std::str::FromStr;
 use std::{fmt::Debug, marker::PhantomData};
 
@@ -14,38 +13,6 @@ pub trait Architecture: FromStr<Err = String> {
     fn warp_size(&self) -> u32;
     fn is_wmma_capable(&self) -> bool;
     fn is_mfma_capable(&self) -> bool;
-}
-
-pub trait WmmaCompiler<D: Dialect>:
-    Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
-{
-    type Architecture: Architecture;
-
-    fn wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn deftypes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-
-    fn compile_fragment_ident(
-        ident: &FragmentIdent<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_fragment_layout(
-        layout: &FragmentLayout<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_fragment(
-        fragment: &Fragment<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn compile_instruction(
-        instruction: &WmmaInstruction<D>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result;
-
-    fn supported_wmma_combinations(arch: &Self::Architecture) -> SupportedWmmaCombinations;
 }
 
 pub fn register_wmma_features(

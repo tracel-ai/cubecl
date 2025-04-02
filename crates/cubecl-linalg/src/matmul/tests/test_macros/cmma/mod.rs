@@ -19,7 +19,7 @@ macro_rules! testgen_matmul_accelerated {
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
-                    $crate::testgen_matmul_accelerated!($float, half::f16);
+                    $crate::testgen_matmul_accelerated!($float, $float);
                 })*
             }
         }

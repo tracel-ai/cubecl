@@ -538,6 +538,9 @@ impl Expression {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(context, #content)]
             }
+            Expression::RustMacro { ident, tokens } => {
+                quote![#ident!(#tokens)]
+            }
             Expression::Terminate => {
                 quote![cubecl::frontend::branch::return_expand(context);]
             }
@@ -642,7 +645,11 @@ impl Block {
         let ret = if let Some(ret) = self.ret.as_ref() {
             let as_const = ret.as_const(context);
             if let Some(as_const) = as_const {
-                quote![#as_const.__expand_runtime_method(context)]
+                if ret.is_verbatim() {
+                    quote![panic!()]
+                } else {
+                    quote![#as_const.__expand_runtime_method(context)]
+                }
             } else {
                 ret.to_tokens(context)
             }
