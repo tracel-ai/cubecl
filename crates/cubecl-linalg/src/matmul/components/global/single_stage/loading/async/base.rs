@@ -115,11 +115,11 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: AsyncLoadingStrategy> Loader<MP, G
     fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
         StageReader::<MP::ES, Self::TilingLayout> {
             stage: this.stage,
-            ident: Ident::Lhs,
+            ident: comptime!(this.ident),
         }
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Lhs);
+        this.tensor_view.update_view(k_offset, this.ident);
     }
 }
