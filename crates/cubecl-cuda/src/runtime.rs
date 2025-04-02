@@ -126,7 +126,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
 
-        //comp_opts.grid_constants = true;
+        comp_opts.grid_constants = true;
     }
     if arch.version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
