@@ -464,7 +464,7 @@ where
                 TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
-                    comptime!(StageEvent::RhsLoaded {
+                    comptime!(StageEvent::TmmCompleted {
                         current: current_event,
                         total: acc_total_iterations
                     }),

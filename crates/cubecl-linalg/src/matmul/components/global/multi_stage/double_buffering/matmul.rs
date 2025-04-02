@@ -11,8 +11,8 @@ use crate::matmul::components::{
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 pub struct DoubleBufferingMatmulFamily<
@@ -23,6 +23,8 @@ pub struct DoubleBufferingMatmulFamily<
     _stage_matmul: PhantomData<SMM>,
     _phantom: PhantomData<(LL, RL)>,
 }
+
+const NUM_BUFFERS: u32 = 2;
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
@@ -71,7 +73,7 @@ where
             smm_config,
             problem.m as u32 % stage_shape.m != 0,
             problem.n as u32 % stage_shape.n != 0,
-            problem.k as u32 % stage_shape.k != 0,
+            problem.k as u32 % (NUM_BUFFERS * stage_shape.k) != 0,
             problem.lhs_layout,
             problem.rhs_layout,
             problem.lhs_line_size as u32,
@@ -132,21 +134,22 @@ where
             }
         }
 
-        let num_buffers = 2;
-        let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
-        let k_step = num_buffers * buffer_step;
+        let (mut lhs_loader_a, mut lhs_loader_b) = lhs_loader;
+        let (mut rhs_loader_a, mut rhs_loader_b) = rhs_loader;
+
+        let k_width = config.tiling_dimensions(Ident::Lhs).total_col();
+
+        SyncLoader::advance_view(&mut lhs_loader_b, k_width);
+        SyncLoader::advance_view(&mut rhs_loader_b, k_width);
 
         let range = k_range.1 - k_range.0;
-        let num_stages = (range + k_step - 1) / k_step;
-        let num_loops = num_stages;
+        let advance_step = NUM_BUFFERS * k_width;
+        let num_loops = div_ceil(div_ceil(range, k_width), NUM_BUFFERS) - 1;
 
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         let (mut lhs_tile_a, mut rhs_tile_a) = SMM::init_tile_inputs(config.to_smm_config());
         let (mut lhs_tile_b, mut rhs_tile_b) = SMM::init_tile_inputs(config.to_smm_config());
-
-        let (mut lhs_loader_a, mut lhs_loader_b) = lhs_loader;
-        let (mut rhs_loader_a, mut rhs_loader_b) = rhs_loader;
 
         let lhs_reader_a = SyncLoader::reader(&lhs_loader_a);
         let rhs_reader_a = SyncLoader::reader(&rhs_loader_a);
@@ -155,12 +158,13 @@ where
 
         SyncLoader::fill_stage(&mut lhs_loader_a, config);
         SyncLoader::fill_stage(&mut rhs_loader_a, config);
-        SyncLoader::advance_view(&mut lhs_loader_a, k_step);
-        SyncLoader::advance_view(&mut rhs_loader_a, k_step);
 
         sync_units();
 
-        for _ in 1..num_loops {
+        SyncLoader::advance_view(&mut lhs_loader_a, advance_step);
+        SyncLoader::advance_view(&mut rhs_loader_a, advance_step);
+
+        for _ in 0..num_loops {
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<
                     SyncLoader<MP, Self::Config, LL>,
@@ -180,8 +184,8 @@ where
 
             sync_units();
 
-            SyncLoader::advance_view(&mut lhs_loader_b, k_step);
-            SyncLoader::advance_view(&mut rhs_loader_b, k_step);
+            SyncLoader::advance_view(&mut lhs_loader_b, advance_step);
+            SyncLoader::advance_view(&mut rhs_loader_b, advance_step);
 
             SMM::execute_with_listener::<
                 DoubleBufferingEventListener<
@@ -201,6 +205,9 @@ where
             );
 
             sync_units();
+
+            SyncLoader::advance_view(&mut lhs_loader_a, advance_step);
+            SyncLoader::advance_view(&mut rhs_loader_a, advance_step);
         }
 
         SMM::execute_with_listener::<
@@ -249,17 +256,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let buffer_offset = config.tiling_dimensions(Ident::Lhs).total_col();
         (
             SyncLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config),
-            SyncLoader::new(
-                lhs,
-                x_offset,
-                y_offset + buffer_offset,
-                batch_offset,
-                Ident::Lhs,
-                config,
-            ),
+            SyncLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config),
         )
     }
 
@@ -271,17 +270,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let buffer_offset = config.tiling_dimensions(Ident::Lhs).total_col();
         (
             SyncLoader::new(rhs, x_offset, y_offset, batch_offset, Ident::Rhs, config),
-            SyncLoader::new(
-                rhs,
-                x_offset + buffer_offset,
-                y_offset,
-                batch_offset,
-                Ident::Rhs,
-                config,
-            ),
+            SyncLoader::new(rhs, x_offset, y_offset, batch_offset, Ident::Rhs, config),
         )
     }
 
@@ -334,7 +325,11 @@ fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> b
 }
 
 fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
-    should_handle_event(f32::ceil(ratio * total as f32) as u32, current_event, total)
+    should_handle_event(
+        f32::floor(ratio * total as f32) as u32,
+        current_event,
+        total,
+    )
 }
 
 #[cube]
@@ -343,6 +338,10 @@ impl<MP: MatmulPrecision, LL: SyncLoadingStrategy, RL: SyncLoadingStrategy, G: G
     for DoubleBufferingEventListener<SyncLoader<MP, G, LL>, SyncLoader<MP, G, RL>, G>
 {
     fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
+        // if let StageEvent::Begin = event {
+        //     SyncLoader::fill_stage(&mut this.loader_lhs, this.config);
+        //     SyncLoader::fill_stage(&mut this.loader_rhs, this.config);
+        // };
         if let StageEvent::TmmCompleted { current, total } = event {
             if comptime![should_handle_event_ratio(0.25, current, total)] {
                 SyncLoader::fill_stage(&mut this.loader_lhs, this.config);
