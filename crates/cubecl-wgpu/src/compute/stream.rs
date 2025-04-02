@@ -9,7 +9,7 @@ use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimes
 use cubecl_runtime::{
     TimestampsError, TimestampsResult, memory_management::MemoryDeviceProperties,
 };
-use wgpu::{BufferSize, ComputePipeline};
+use wgpu::ComputePipeline;
 
 #[derive(Debug)]
 pub struct WgpuStream {
