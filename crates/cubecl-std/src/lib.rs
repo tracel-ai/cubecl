@@ -3,6 +3,9 @@
 mod fast_math;
 pub use fast_math::*;
 
+mod reinterpret_list;
+pub use reinterpret_list::*;
+
 mod quantization;
 pub use quantization::*;
 
@@ -13,6 +16,9 @@ pub mod tensor;
 
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+
+#[cfg(feature = "export_tests")]
+pub mod tests;
 
 #[cube]
 #[allow(clippy::manual_div_ceil)]

@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
@@ -18,33 +17,13 @@ use cubecl_runtime::DeviceProperties;
 use super::barrier::BarrierOps;
 use super::pipeline::PipelineOps;
 use super::{
-    AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Elem, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction,
-    Variable, VariableSettings, WarpInstruction, WmmaCompiler, WmmaInstruction,
+    AtomicKind, BinaryInstruction, Binding, Body, ComputeKernel, ConstArray, Dialect, Elem,
+    Fragment, FragmentIdent, FragmentLayout, Instruction, Item, LocalArray, SharedMemory,
+    UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
 };
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
-
-pub trait Dialect:
-    WmmaCompiler<Self> + Default + Clone + Copy + Debug + Send + Sync + Eq + Hash + 'static
-{
-    // includes
-    fn include_f16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn include_bf16(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn include_runtime(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    // types
-    fn bfloat16_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn bfloat162_type_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    // warp instructions (all threads participating)
-    fn warp_shuffle(var: &str, source: &str) -> String;
-    fn warp_shuffle_xor(var: &str, offset: &str) -> String;
-    fn warp_shuffle_up(var: &str, offset: &str) -> String;
-    fn warp_shuffle_down(var: &str, offset: &str) -> String;
-    fn warp_all(var: &str) -> String;
-    fn warp_any(var: &str) -> String;
-    fn warp_ballot(var: &str) -> String;
-}
 
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
@@ -57,31 +36,57 @@ impl Default for CompilationOptions {
     }
 }
 
+/// Cube indexes flags.
+/// When true the corresponding index is declared and computed as needed in the kernel.
+#[derive(Debug, Clone, Default)]
+pub struct CubeIndexFlags {
+    pub absolute_pos: bool,
+    pub absolute_pos_tuple: bool,
+    pub cube_count: bool,
+    pub cube_count_tuple: bool,
+    pub cube_dim: bool,
+    pub cube_dim_tuple: bool,
+    pub cube_pos: bool,
+    pub cube_pos_tuple: bool,
+    pub plane_dim: bool,
+    pub plane_dim_checked: bool,
+    pub plane_index: bool,
+    pub unit_pos: bool,
+    pub unit_pos_tuple: bool,
+    pub unit_pos_plane: bool,
+}
+
+/// Flags gathered during Cube IR translation for the kernel compilation.
+#[derive(Debug, Clone, Default)]
+pub struct Flags {
+    pub elem_bf16: bool,
+    pub elem_f16: bool,
+    pub indexes: CubeIndexFlags,
+    pub op_barrier: bool,
+    pub op_pipeline: bool,
+    pub inst_fast_math: bool,
+    pub inst_tma: bool,
+    pub inst_wmma: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<D: Dialect> {
-    shared_memories: Vec<SharedMemory<D>>,
-    pipelines: Vec<PipelineOps<D>>,
     barriers: Vec<BarrierOps<D>>,
+    compilation_options: CompilationOptions,
     const_arrays: Vec<ConstArray<D>>,
+    ext_meta_positions: Vec<u32>,
+    extensions: Vec<D::Extension>,
+    flags: Flags,
+    items: HashSet<Item<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
-    warp_size_checked: bool,
-    wmma: bool,
-    pipeline: bool,
-    barrier: bool,
-    tma: bool,
-    bf16: bool,
-    f16: bool,
-    printf: bool,
     num_inputs: usize,
     num_outputs: usize,
-    ext_meta_positions: Vec<u32>,
-    items: HashSet<Item<D>>,
-    strategy: ExecutionMode,
-    settings: VariableSettings,
-    compilation_options: CompilationOptions,
+    pipelines: Vec<PipelineOps<D>>,
+    shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
+    strategy: ExecutionMode,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
@@ -133,6 +138,21 @@ impl<D: Dialect> CppCompiler<D> {
             .map(|(name, binding)| (name, self.compile_binding(binding)))
             .collect();
 
+        // translation flags
+        let flags = Flags {
+            indexes: D::builtin_rules(&self.flags.indexes),
+            inst_wmma: self.flags.inst_wmma,
+            op_pipeline: self.flags.op_pipeline,
+            op_barrier: self.flags.op_barrier,
+            elem_bf16: self.flags.elem_bf16,
+            elem_f16: self.flags.elem_f16,
+            inst_fast_math: value
+                .options
+                .fp_math_mode
+                .contains(FastMath::ReducedPrecision),
+            inst_tma: self.flags.inst_tma,
+        };
+
         let body = Body {
             instructions,
             shared_memories: self.shared_memories,
@@ -140,28 +160,17 @@ impl<D: Dialect> CppCompiler<D> {
             barriers: self.barriers,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
-            warp_size_checked: self.warp_size_checked,
-            settings: self.settings,
         };
-        let fast_math = value
-            .options
-            .fp_math_mode
-            .contains(FastMath::ReducedPrecision);
 
         ComputeKernel {
+            body,
+            cube_dim: value.cube_dim,
+            extensions: self.extensions,
+            flags,
             constants,
             inputs,
-            outputs,
             named,
-            cube_dim: value.cube_dim,
-            body,
-            wmma_activated: self.wmma,
-            pipeline: self.pipeline,
-            barrier: self.barrier,
-            tma: self.tma,
-            bf16: self.bf16,
-            f16: self.f16,
-            fast_math,
+            outputs,
             items: self.items,
             kernel_name: value.options.kernel_name,
         }
@@ -257,12 +266,12 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncUnits => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncProxyShared => {
-                    self.tma = true;
+                    self.flags.inst_tma = true;
                     instructions.push(Instruction::ProxySharedFence)
                 }
             },
             gpu::Operation::Plane(op) => {
-                self.warp_size_checked = true;
+                self.flags.indexes.plane_dim_checked = true;
                 let out = self.compile_variable(out.unwrap());
                 match op {
                     gpu::Plane::Sum(op) => {
@@ -272,35 +281,35 @@ impl<D: Dialect> CppCompiler<D> {
                         }))
                     }
                     gpu::Plane::InclusiveSum(op) => {
-                        self.settings.idx_global = true;
+                        self.flags.indexes.unit_pos_plane = true;
                         instructions.push(Instruction::Warp(WarpInstruction::InclusiveSum {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
+                    gpu::Plane::InclusiveProd(op) => {
+                        self.flags.indexes.unit_pos_plane = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveProd {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
                     gpu::Plane::ExclusiveSum(op) => {
-                        self.settings.idx_global = true;
+                        self.flags.indexes.unit_pos_plane = true;
                         instructions.push(Instruction::Warp(WarpInstruction::ExclusiveSum {
+                            input: self.compile_variable(op.input),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ExclusiveProd(op) => {
+                        self.flags.indexes.unit_pos_plane = true;
+                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
                     }
                     gpu::Plane::Prod(op) => {
                         instructions.push(Instruction::Warp(WarpInstruction::ReduceProd {
-                            input: self.compile_variable(op.input),
-                            out,
-                        }))
-                    }
-                    gpu::Plane::InclusiveProd(op) => {
-                        self.settings.idx_global = true;
-                        instructions.push(Instruction::Warp(WarpInstruction::InclusiveProd {
-                            input: self.compile_variable(op.input),
-                            out,
-                        }))
-                    }
-                    gpu::Plane::ExclusiveProd(op) => {
-                        self.settings.idx_global = true;
-                        instructions.push(Instruction::Warp(WarpInstruction::ExclusiveProd {
                             input: self.compile_variable(op.input),
                             out,
                         }))
@@ -352,16 +361,13 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::NonSemantic::Print {
                     format_string,
                     args,
-                } => {
-                    self.printf = true;
-                    instructions.push(Instruction::Printf {
-                        format_string,
-                        args: args
-                            .into_iter()
-                            .map(|arg| self.compile_variable(arg))
-                            .collect(),
-                    })
-                }
+                } => instructions.push(Instruction::Printf {
+                    format_string,
+                    args: args
+                        .into_iter()
+                        .map(|arg| self.compile_variable(arg))
+                        .collect(),
+                }),
                 gpu::NonSemantic::Comment { content } => {
                     instructions.push(Instruction::Comment { content })
                 }
@@ -501,7 +507,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             },
             gpu::Operation::Tma(tma_ops) => {
-                self.tma = true;
+                self.flags.inst_tma = true;
                 match tma_ops {
                     gpu::TmaOps::MemCopyAsyncTensorToGlobal {
                         source,
@@ -581,14 +587,18 @@ impl<D: Dialect> CppCompiler<D> {
                 mat,
                 stride,
                 layout,
-            } => Instruction::Wmma(WmmaInstruction::Store {
-                output: out,
-                frag: self.compile_variable(mat),
-                stride: self.compile_variable(stride),
-                layout: self
-                    .compile_matrix_layout(layout)
-                    .expect("Layout required for store instruction"),
-            }),
+            } => {
+                self.flags.indexes.unit_pos = true;
+                self.flags.indexes.plane_index = true;
+                Instruction::Wmma(WmmaInstruction::Store {
+                    output: out,
+                    frag: self.compile_variable(mat),
+                    stride: self.compile_variable(stride),
+                    layout: self
+                        .compile_matrix_layout(layout)
+                        .expect("Layout required for store instruction"),
+                })
+            }
             gpu::CoopMma::Cast { input } => Instruction::Wmma(WmmaInstruction::Cast {
                 input: self.compile_variable(input),
                 output: out,
@@ -815,7 +825,9 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Erf(op) => {
-                instructions.push(Instruction::Erf(self.compile_unary(op, out)))
+                let instruction = Instruction::Erf(self.compile_unary(op, out));
+                D::register_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Max(op) => {
                 instructions.push(Instruction::Max(self.compile_binary(op, out)))
@@ -1112,7 +1124,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
             }
             gpu::VariableKind::TensorMap(id) => {
-                self.tma = true;
+                self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
             gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
@@ -1155,53 +1167,92 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::Builtin(builtin) => match builtin {
                 gpu::Builtin::AbsolutePos => {
-                    self.settings.idx_global = true;
-                    Variable::IdxGlobal
+                    self.flags.indexes.absolute_pos = true;
+                    Variable::AbsolutePos
                 }
-                gpu::Builtin::UnitPos => {
-                    self.settings.thread_idx_global = true;
-                    Variable::ThreadIdxGlobal
-                }
-                gpu::Builtin::UnitPosX => Variable::ThreadIdxX,
-                gpu::Builtin::UnitPosY => Variable::ThreadIdxY,
-                gpu::Builtin::UnitPosZ => Variable::ThreadIdxZ,
-                gpu::Builtin::CubePosX => Variable::BlockIdxX,
-                gpu::Builtin::CubePosY => Variable::BlockIdxY,
-                gpu::Builtin::CubePosZ => Variable::BlockIdxZ,
                 gpu::Builtin::AbsolutePosX => {
-                    self.settings.absolute_idx.0 = true;
-                    Variable::AbsoluteIdxX
+                    self.flags.indexes.absolute_pos_tuple = true;
+                    Variable::AbsolutePosX
                 }
                 gpu::Builtin::AbsolutePosY => {
-                    self.settings.absolute_idx.1 = true;
-                    Variable::AbsoluteIdxY
+                    self.flags.indexes.absolute_pos_tuple = true;
+                    Variable::AbsolutePosY
                 }
                 gpu::Builtin::AbsolutePosZ => {
-                    self.settings.absolute_idx.2 = true;
-                    Variable::AbsoluteIdxZ
-                }
-                gpu::Builtin::CubeDimX => Variable::BlockDimX,
-                gpu::Builtin::CubeDimY => Variable::BlockDimY,
-                gpu::Builtin::CubeDimZ => Variable::BlockDimZ,
-                gpu::Builtin::CubeCountX => Variable::GridDimX,
-                gpu::Builtin::CubeCountY => Variable::GridDimY,
-                gpu::Builtin::CubeCountZ => Variable::GridDimZ,
-                gpu::Builtin::CubePos => {
-                    self.settings.block_idx_global = true;
-                    Variable::BlockIdxGlobal
+                    self.flags.indexes.absolute_pos_tuple = true;
+                    Variable::AbsolutePosZ
                 }
                 gpu::Builtin::CubeDim => {
-                    self.settings.block_dim_global = true;
-                    Variable::BlockDimGlobal
+                    self.flags.indexes.cube_dim = true;
+                    Variable::CubeDim
+                }
+                gpu::Builtin::CubeDimX => {
+                    self.flags.indexes.cube_dim_tuple = true;
+                    Variable::CubeDimX
+                }
+                gpu::Builtin::CubeDimY => {
+                    self.flags.indexes.cube_dim_tuple = true;
+                    Variable::CubeDimY
+                }
+                gpu::Builtin::CubeDimZ => {
+                    self.flags.indexes.cube_dim_tuple = true;
+                    Variable::CubeDimZ
+                }
+                gpu::Builtin::CubePos => {
+                    self.flags.indexes.cube_pos = true;
+                    Variable::CubePos
+                }
+                gpu::Builtin::CubePosX => {
+                    self.flags.indexes.cube_pos_tuple = true;
+                    Variable::CubePosX
+                }
+                gpu::Builtin::CubePosY => {
+                    self.flags.indexes.cube_pos_tuple = true;
+                    Variable::CubePosY
+                }
+                gpu::Builtin::CubePosZ => {
+                    self.flags.indexes.cube_pos_tuple = true;
+                    Variable::CubePosZ
                 }
                 gpu::Builtin::CubeCount => {
-                    self.settings.grid_dim_global = true;
-                    Variable::GridDimGlobal
+                    self.flags.indexes.cube_count = true;
+                    Variable::CubeCount
                 }
-                gpu::Builtin::PlaneDim => Variable::WarpSize,
+                gpu::Builtin::CubeCountX => {
+                    self.flags.indexes.cube_count_tuple = true;
+                    Variable::CubeCountX
+                }
+                gpu::Builtin::CubeCountY => {
+                    self.flags.indexes.cube_count_tuple = true;
+                    Variable::CubeCountY
+                }
+                gpu::Builtin::CubeCountZ => {
+                    self.flags.indexes.cube_count_tuple = true;
+                    Variable::CubeCountZ
+                }
+                gpu::Builtin::UnitPos => {
+                    self.flags.indexes.unit_pos = true;
+                    Variable::UnitPos
+                }
+                gpu::Builtin::UnitPosX => {
+                    self.flags.indexes.unit_pos_tuple = true;
+                    Variable::UnitPosX
+                }
+                gpu::Builtin::UnitPosY => {
+                    self.flags.indexes.unit_pos_tuple = true;
+                    Variable::UnitPosY
+                }
+                gpu::Builtin::UnitPosZ => {
+                    self.flags.indexes.unit_pos_tuple = true;
+                    Variable::UnitPosZ
+                }
+                gpu::Builtin::PlaneDim => {
+                    self.flags.indexes.plane_dim = true;
+                    Variable::PlaneDim
+                }
                 gpu::Builtin::UnitPosPlane => {
-                    self.settings.thread_idx_global = true;
-                    Variable::ThreadIdxWarp
+                    self.flags.indexes.unit_pos_plane = true;
+                    Variable::UnitPosPlane
                 }
             },
             gpu::VariableKind::LocalArray { id, length } => {
@@ -1212,7 +1263,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Variable::LocalArray(id, item, length)
             }
             gpu::VariableKind::Matrix { id, mat } => {
-                self.wmma = true;
+                self.flags.inst_wmma = true;
                 Variable::WmmaFragment {
                     id,
                     frag: self.compile_matrix(mat),
@@ -1223,7 +1274,7 @@ impl<D: Dialect> CppCompiler<D> {
                 item,
                 num_stages,
             } => {
-                self.pipeline = true;
+                self.flags.op_pipeline = true;
                 let pipeline = Variable::Pipeline {
                     id,
                     item: self.compile_item(item),
@@ -1237,11 +1288,11 @@ impl<D: Dialect> CppCompiler<D> {
                 pipeline
             }
             gpu::VariableKind::Barrier { id, item, level } => {
-                self.barrier = true;
+                self.flags.op_barrier = true;
                 match level {
                     gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
-                        self.settings.block_dim_global = true;
-                        self.settings.thread_idx_global = true;
+                        self.flags.indexes.cube_dim = true;
+                        self.flags.indexes.unit_pos = true;
                     }
                     _ => {}
                 }
@@ -1284,6 +1335,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
             item: self.compile_item(binding.item),
+            location: binding.location,
             size: binding.size,
             vis: binding.visibility,
         }
@@ -1293,6 +1345,7 @@ impl<D: Dialect> CppCompiler<D> {
         let item = Item::new(
             self.compile_elem(item.elem),
             item.vectorization.map(NonZero::get).unwrap_or(1).into(),
+            false,
         );
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);
@@ -1311,11 +1364,11 @@ impl<D: Dialect> CppCompiler<D> {
         match value {
             gpu::Elem::Float(kind) => match kind {
                 gpu::FloatKind::F16 => {
-                    self.f16 = true;
+                    self.flags.elem_f16 = true;
                     Elem::F16
                 }
                 gpu::FloatKind::BF16 => {
-                    self.bf16 = true;
+                    self.flags.elem_bf16 = true;
                     Elem::BF16
                 }
                 gpu::FloatKind::TF32 => Elem::TF32,

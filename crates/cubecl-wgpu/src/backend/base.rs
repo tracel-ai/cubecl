@@ -9,9 +9,15 @@ use wgpu::{
 
 use crate::{AutoCompiler, AutoRepresentation, WgpuServer};
 
+use super::wgsl;
+
 #[cfg(feature = "spirv")]
 use super::vulkan;
-use super::wgsl;
+
+#[cfg(feature = "msl")]
+use super::metal;
+#[cfg(feature = "msl")]
+use cubecl_cpp::metal as cpp_metal;
 
 impl WgpuServer {
     pub fn create_pipeline(
@@ -29,6 +35,24 @@ impl WgpuServer {
                             label: Some(&kernel.entrypoint_name),
                             source: Cow::Borrowed(&spirv),
                         })
+                }
+            }
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => {
+                // TODO remove the panic once metal passthrough is available in wgpu
+                // panic!("cubecl msl compiler not yet supported in wgpu");
+                let source = &kernel.source;
+                unsafe {
+                    self.device.create_shader_module_passthrough(
+                        &wgpu::ShaderModuleDescriptorPassthrough::Msl(
+                            &wgpu::ShaderModuleDescriptorMsl {
+                                entry_point: kernel.entrypoint_name.clone(),
+                                label: Some(&kernel.entrypoint_name),
+                                source: Cow::Borrowed(source),
+                                num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                            },
+                        ),
+                    )
                 }
             }
             _ => {
@@ -58,6 +82,8 @@ impl WgpuServer {
         };
         let bindings = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            #[cfg(feature = "msl")]
+            Some(AutoRepresentation::Msl(repr)) => Some(cpp_metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
             _ => None,
@@ -98,24 +124,24 @@ impl WgpuServer {
                 })
         });
 
-        Arc::new(
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&kernel.entrypoint_name),
-                    layout: layout.as_ref(),
-                    module: &module,
-                    entry_point: Some(&kernel.entrypoint_name),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory: false,
-                        ..Default::default()
-                    },
-                    cache: None,
-                }),
-        )
+        let pipeline = Arc::new(self.device.create_compute_pipeline(
+            &wgpu::ComputePipelineDescriptor {
+                label: Some(&kernel.entrypoint_name),
+                layout: layout.as_ref(),
+                module: &module,
+                entry_point: Some(&kernel.entrypoint_name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
+                cache: None,
+            },
+        ));
+        pipeline
     }
 }
 
-#[cfg(not(feature = "spirv"))]
+#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     wgsl::request_device(adapter).await
 }
@@ -129,7 +155,18 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     }
 }
 
-#[cfg(not(feature = "spirv"))]
+#[cfg(feature = "msl")]
+pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+    use super::metal;
+
+    if is_metal(adapter) {
+        metal::request_metal_device(adapter).await
+    } else {
+        panic!("metal device not found!");
+    }
+}
+
+#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
@@ -151,7 +188,25 @@ pub fn register_features(
     }
 }
 
+#[cfg(feature = "msl")]
+pub fn register_features(
+    adapter: &Adapter,
+    props: &mut DeviceProperties<Feature>,
+    comp_options: &mut WgpuCompilationOptions,
+) {
+    if is_metal(adapter) {
+        metal::register_metal_features(adapter, props, comp_options);
+    } else {
+        panic!("metal device not found!");
+    }
+}
+
 #[cfg(feature = "spirv")]
 fn is_vulkan(adapter: &Adapter) -> bool {
     unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
+}
+
+#[cfg(feature = "msl")]
+fn is_metal(adapter: &Adapter) -> bool {
+    unsafe { adapter.as_hal::<wgpu::hal::api::Metal, _, _>(|adapter| adapter.is_some()) }
 }

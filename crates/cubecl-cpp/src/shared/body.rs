@@ -10,96 +10,16 @@ pub struct Body<D: Dialect> {
     pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
     pub local_arrays: Vec<super::LocalArray<D>>,
-    pub warp_size_checked: bool,
-    pub settings: VariableSettings,
-}
-
-/// The settings to generate the right variables.
-#[derive(Debug, Clone, Default)]
-pub struct VariableSettings {
-    pub idx_global: bool,
-    pub thread_idx_global: bool,
-    pub absolute_idx: (bool, bool, bool),
-    pub block_idx_global: bool,
-    pub block_dim_global: bool,
-    pub grid_dim_global: bool,
 }
 
 impl<D: Dialect> Display for Body<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.settings.idx_global
-            || self.settings.absolute_idx.0
-            || self.settings.absolute_idx.1
-            || self.settings.absolute_idx.2
-        {
-            f.write_str(
-                "
-    int3 absoluteIdx = make_int3(
-        blockIdx.x * blockDim.x + threadIdx.x,
-        blockIdx.y * blockDim.y + threadIdx.y,
-        blockIdx.z * blockDim.z + threadIdx.z
-    );
-",
-            )?;
-        }
-
-        if self.settings.idx_global {
-            f.write_str(
-                "
-    uint idxGlobal = (absoluteIdx.z * gridDim.x * blockDim.x * gridDim.y * blockDim.y) + (absoluteIdx.y * gridDim.x * blockDim.x) + absoluteIdx.x;
-",
-            )?;
-        }
-
-        if self.settings.thread_idx_global {
-            f.write_str(
-                "
-    int threadIdxGlobal = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * (blockDim.x * blockDim.y);
-            ",
-            )?;
-        }
-        if self.settings.block_idx_global {
-            f.write_str(
-                "
-    int blockIdxGlobal = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * (gridDim.x * gridDim.y);
-            ",
-            )?;
-        }
-
-        if self.settings.block_dim_global {
-            f.write_str(
-                "
-    int blockDimGlobal = blockDim.x * blockDim.y * blockDim.z;
-            ",
-            )?;
-        }
-
-        if self.settings.grid_dim_global {
-            f.write_str(
-                "
-    int gridDimGlobal = gridDim.x * gridDim.y * gridDim.z;
-            ",
-            )?;
-        }
-
-        if self.warp_size_checked {
-            f.write_str(
-                "
- int warpSizeChecked = min(warpSize, blockDim.x * blockDim.y * blockDim.z);
-",
-            )?;
-        }
-
         for shared in self.shared_memories.iter() {
-            let align = match shared.align {
-                Some(alignment) => format!("alignas({alignment})"),
-                None => "".to_string(),
-            };
-            writeln!(
-                f,
-                "__shared__ {align} {} shared_memory_{}[{}];",
-                shared.item, shared.index, shared.size
-            )?;
+            let item = &shared.item;
+            let index = &shared.index;
+            let size = &shared.size;
+            D::compile_shared_memory_qualifier(f, shared)?;
+            writeln!(f, " {item} shared_memory_{index}[{size}];",)?;
         }
 
         for pipeline in self.pipelines.iter() {
@@ -134,7 +54,7 @@ impl<D: Dialect> Display for Body<D> {
             )?;
         }
 
-        D::local_variables(f)?;
+        D::compile_local_variables(f)?;
 
         for ops in self.instructions.iter() {
             write!(f, "{ops}")?;

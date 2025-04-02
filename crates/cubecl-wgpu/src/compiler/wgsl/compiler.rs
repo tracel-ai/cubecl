@@ -25,6 +25,7 @@ pub struct WgslCompiler {
     ext_meta_pos: Vec<u32>,
     local_invocation_index: bool,
     local_invocation_id: bool,
+    // TODO: possible cleanup, this bool seems to not be used
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,

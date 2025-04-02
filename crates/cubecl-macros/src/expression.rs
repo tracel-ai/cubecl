@@ -156,6 +156,10 @@ pub enum Expression {
     Comment {
         content: LitStr,
     },
+    RustMacro {
+        ident: Ident,
+        tokens: TokenStream,
+    },
     Terminate,
 }
 
@@ -209,6 +213,7 @@ impl Expression {
             Expression::CompilerIntrinsic { .. } => None,
             Expression::Match { .. } => None,
             Expression::Comment { .. } => None,
+            Expression::RustMacro { .. } => None,
             Expression::Terminate => None,
         }
     }
@@ -271,6 +276,13 @@ impl Expression {
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             _ => None,
         }
+    }
+
+    pub fn is_verbatim(&self) -> bool {
+        matches!(
+            self,
+            Expression::Verbatim { .. } | Expression::VerbatimTerminated { .. }
+        )
     }
 
     pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
