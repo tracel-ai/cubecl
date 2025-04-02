@@ -363,8 +363,19 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        self.queue
-            .write_buffer(resource.buffer(), resource.offset(), data);
+
+        if data.len() as u64 == aligned_len {
+            self.queue
+                .write_buffer(resource.buffer(), resource.offset(), data);
+        } else {
+            self.queue
+                .write_buffer_with(
+                    resource.buffer(),
+                    resource.offset(),
+                    core::num::NonZeroU64::new(aligned_len).unwrap(),
+                )
+                .map(|mut view| view[0..data.len()].copy_from_slice(data));
+        }
         self.flush_if_needed();
 
         alloc
