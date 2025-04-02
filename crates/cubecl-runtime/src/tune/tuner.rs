@@ -295,14 +295,17 @@ impl<K: AutotuneKey> Tuner<K> {
 }
 
 #[cfg(feature = "autotune-checks")]
-pub fn check_autotune_outputs<O: AutotuneOutput>(
+pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<Result<O, AutotuneError>>,
 ) {
     let reference = checks_outputs.remove(checks_outputs.len() - 1);
 
     if let Ok(reference) = reference {
-        for other in checks_outputs.into_iter().flatten() {
-            reference.check_equivalence(other);
+        for (i, other) in checks_outputs.into_iter().enumerate() {
+            println!("Checking {i}.. ");
+            if let Ok(other) = other {
+                reference.check_equivalence(other);
+            }
         }
     }
 }
