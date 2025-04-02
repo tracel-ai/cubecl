@@ -164,3 +164,6 @@ pub enum Buffering {
     Single,
     Double,
 }
+
+// TODO support selecting double buffering
+pub const STAGE_BUFFERING: Buffering = Buffering::Double;
