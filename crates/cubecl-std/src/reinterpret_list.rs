@@ -60,7 +60,7 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
     #[allow(clippy::comparison_chain)]
     pub fn read(&self, index: u32) -> To {
         if comptime!(self.num_bytes_line_from == self.num_bytes_to) {
-            To::bitcast_from(self.list.read(index))
+            To::reinterpret(self.list.read(index))
         } else if comptime!(self.num_bytes_line_from < self.num_bytes_to) {
             self.read_smaller_lines(index)
         } else {
@@ -85,7 +85,7 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
                 merged_lines[i * self.line_size + j] = line[j]
             }
         }
-        To::bitcast_from(merged_lines)
+        To::reinterpret(merged_lines)
     }
 
     fn read_larger_lines(&self, index: u32) -> To {
@@ -113,6 +113,6 @@ impl<From: CubePrimitive, To: CubePrimitive, L: List<Line<From>>> ReinterpretLis
         for j in 0..num_elems_to_read {
             line_segment[j] = line[index_in_line * num_elems_to_read + j]
         }
-        To::bitcast_from(line_segment)
+        To::reinterpret(line_segment)
     }
 }
