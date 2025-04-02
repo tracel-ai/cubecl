@@ -159,6 +159,7 @@ fn register_features(
     log::debug!("Supported Vulkan features: {extended_feat:#?}");
 
     register_types(props, &extended_feat);
+    comp_options.supports_u64 = true;
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
