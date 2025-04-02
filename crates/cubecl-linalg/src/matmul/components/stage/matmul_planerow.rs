@@ -307,6 +307,7 @@ where
     TR: TilingLayout,
 {
     // Execute stage matmul with a single buffer for rhs.
+    #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener>(
         lhs_reader: &StageReader<MP::ES, TL>,
         rhs_reader: &StageReader<MP::ES, TR>,
@@ -385,6 +386,7 @@ where
     }
 
     // Execute stage matmul with two alternating buffers for rhs.
+    #[allow(clippy::too_many_arguments)]
     fn execute_double_buffer<SEL: StageEventListener>(
         lhs_reader: &StageReader<MP::ES, TL>,
         rhs_reader: &StageReader<MP::ES, TR>,
