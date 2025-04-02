@@ -88,12 +88,37 @@ impl WgpuServer {
         let mut compile = compiler.compile(self, kernel, mode);
 
         if self.logger.is_activated() {
-            compile.debug_info = Some(DebugInformation::new("wgsl", kernel_id.clone()));
+            compile.debug_info = Some(DebugInformation::new(
+                compiler.lang_tag(),
+                kernel_id.clone(),
+            ));
         }
-
         let compile = self.logger.debug(compile);
-        let pipeline = self.create_pipeline(compile, mode);
+        // TODO This is usefull while working purely on the compiler without the runtime part
+        // Also the errors are printed nicely which is no the case when this is the runtime
+        // that does it.
+        // We can delete this once the compiler is mature and hopefully we can make the runtime
+        // to pretty print the compilation error.
+        // println!("SOURCE:\n{}", compile.source);
+        // {
+        //     // Write shader in metal file then compile it for error
+        //     std::fs::write("shader.metal", &compile.source).expect("should write to file");
+        //     let _status = std::process::Command::new("xcrun")
+        //         .args(vec![
+        //             "-sdk",
+        //             "macosx",
+        //             "metal",
+        //             "-o",
+        //             "shader.ir",
+        //             "-c",
+        //             "shader.metal",
+        //         ])
+        //         .status()
+        //         .expect("should launch the command");
+        //     // std::process::exit(status.code().unwrap());
+        // }
 
+        let pipeline = self.create_pipeline(compile, mode);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 
         pipeline
@@ -278,6 +303,8 @@ fn compiler(backend: wgpu::Backend) -> AutoCompiler {
     match backend {
         #[cfg(feature = "spirv")]
         wgpu::Backend::Vulkan => AutoCompiler::SpirV(Default::default()),
+        #[cfg(feature = "msl")]
+        wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
         _ => AutoCompiler::Wgsl(Default::default()),
     }
 }

@@ -10,6 +10,9 @@ use std::{
     marker::PhantomData,
 };
 
+pub(crate) const INFO_NAME: &str = "info";
+pub(crate) const STATIC_INFO_NAME: &str = "static_info";
+
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
     pub lhs: Variable<D>,
@@ -239,8 +242,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
+                let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
-                writeln!(f, "{item} *{out} = {input} + {start};")
+                writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
             Instruction::CheckedSlice {
                 input,
@@ -250,8 +254,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 len,
             } => {
                 let item = out.item();
+                let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = min({len}, {end}) - {start};")?;
-                writeln!(f, "{item} *{out} = {input} + {start};")
+                writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
@@ -420,7 +425,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 match *split_meta {
                     true => writeln!(f, "{out} = static_info.x[{info_offset}];"),
-                    false => writeln!(f, "{out} = __ldg(&info[{info_offset}]);"),
+                    false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
                 }
             }
             Instruction::ExtendedMetadata {
@@ -434,11 +439,11 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 match *split_meta {
                     true => writeln!(
                         f,
-                        "{out} = __ldg(&info[static_info.x[{info_offset}] + {dim} - {static_offset}]);"
+                        "{out} = {INFO_NAME}[{STATIC_INFO_NAME}.x[{info_offset}] + {dim} - {static_offset}];"
                     ),
                     false => writeln!(
                         f,
-                        "{out} = __ldg(&info[__ldg(&info[{info_offset}]) + {dim}]);"
+                        "{out} = {INFO_NAME}[{INFO_NAME}[{info_offset}] + {dim}];"
                     ),
                 }
             }
@@ -470,7 +475,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 max_value,
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
-            Instruction::SyncThreads => f.write_str("__syncthreads();\n"),
+            Instruction::SyncThreads => D::compile_instruction_sync_threads(f),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
             Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
@@ -503,77 +508,41 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     )
                 }
             }
+            Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
+                D::compile_atomic_add(f, lhs, rhs, out)
+            }
+            Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
+                D::compile_atomic_and(f, lhs, rhs, out)
+            }
             Instruction::AtomicCAS {
                 input,
                 cmp,
                 val,
                 out,
-            } => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicCAS({input}, {cmp}, {val});")
-            }
-            Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicExch({lhs}, {rhs});")
-            }
-            Instruction::AtomicAdd(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                match rhs.elem() {
-                    Elem::I64 => {
-                        writeln!(
-                            f,
-                            "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}({rhs}));",
-                            uint = Elem::<D>::U64
-                        )
-                    }
-                    _ => writeln!(f, "{out} = atomicAdd({lhs}, {rhs});"),
-                }
-            }
-            Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                match rhs.elem() {
-                    Elem::U32 | Elem::I32 => {
-                        writeln!(f, "{out} = atomicSub({lhs}, {rhs});")
-                    }
-                    Elem::U64 => {
-                        writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});",)
-                    }
-                    Elem::I64 => {
-                        writeln!(
-                            f,
-                            "{out} = atomicAdd(reinterpret_cast<{uint}*>({lhs}), {uint}(-{rhs}));",
-                            uint = Elem::<D>::U64
-                        )
-                    }
-                    _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
-                }
+            } => D::compile_atomic_cas(f, input, cmp, val, out),
+            Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
+                D::compile_atomic_load(f, input, out)
             }
             Instruction::AtomicMax(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicMax({lhs}, {rhs});")
+                D::compile_atomic_max(f, lhs, rhs, out)
             }
             Instruction::AtomicMin(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicMin({lhs}, {rhs});")
-            }
-            Instruction::AtomicAnd(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicAnd({lhs}, {rhs});")
+                D::compile_atomic_min(f, lhs, rhs, out)
             }
             Instruction::AtomicOr(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicOr({lhs}, {rhs});")
-            }
-            Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
-            }
-            Instruction::AtomicLoad(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = atomicAdd({input}, 0);")
+                D::compile_atomic_or(f, lhs, rhs, out)
             }
             Instruction::AtomicStore(UnaryInstruction { input, out }) => {
-                writeln!(f, "atomicExch({out}, {input});")
+                D::compile_atomic_store(f, input, out)
+            }
+            Instruction::AtomicSub(BinaryInstruction { lhs, rhs, out }) => {
+                D::compile_atomic_sub(f, lhs, rhs, out)
+            }
+            Instruction::AtomicSwap(BinaryInstruction { lhs, rhs, out }) => {
+                D::compile_atomic_swap(f, lhs, rhs, out)
+            }
+            Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
+                D::compile_atomic_xor(f, lhs, rhs, out)
             }
             Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Neg(UnaryInstruction { input, out }) => {
@@ -595,15 +564,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Printf {
                 format_string,
                 args,
-            } => {
-                let format_string = escape_string(format_string);
-                let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
-                let args = match args.is_empty() {
-                    true => "".to_string(),
-                    false => format!(", {}", args.join(",")),
-                };
-                writeln!(f, "printf(\"{format_string}\"{args});")
-            }
+            } => D::compile_instruction_printf(f, format_string, args),
             Instruction::Comment { content } => {
                 if content.contains('\n') {
                     writeln!(f, "/* {content} */")
@@ -649,13 +610,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             }
         }
     }
-}
-
-fn escape_string(format_string: &str) -> String {
-    format_string
-        .replace("\t", "\\t")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
 }
 
 struct Fma<D: Dialect> {
