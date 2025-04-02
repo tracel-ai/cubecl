@@ -37,6 +37,7 @@ pub struct KernelOptions {
     pub kernel_name: String,
     pub debug_symbols: bool,
     pub fp_math_mode: FastMath,
+    pub cluster_dim: Option<CubeDim>,
 }
 
 impl KernelSettings {
@@ -63,6 +64,12 @@ impl KernelSettings {
     /// Set FP math mode
     pub fn fp_math_mode(mut self, mode: FastMath) -> Self {
         self.options.fp_math_mode = mode;
+        self
+    }
+
+    /// Set cluster dim
+    pub fn cluster_dim(mut self, cluster_dim: CubeDim) -> Self {
+        self.options.cluster_dim = Some(cluster_dim);
         self
     }
 }

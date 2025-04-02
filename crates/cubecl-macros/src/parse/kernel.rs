@@ -18,6 +18,7 @@ pub(crate) struct KernelArgs {
     pub fast_math: Option<Expr>,
     pub debug: Flag,
     pub create_dummy_kernel: Flag,
+    pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
 }
 

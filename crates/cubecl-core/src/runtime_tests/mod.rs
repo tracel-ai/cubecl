@@ -3,6 +3,7 @@ pub mod atomic;
 pub mod barrier;
 pub mod binary;
 pub mod branch;
+pub mod cluster;
 pub mod cmma;
 pub mod const_match;
 pub mod constants;
@@ -125,6 +126,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
         cubecl_core::testgen_binary_untyped!();
+        cubecl_core::testgen_cluster!();
 
         cubecl_core::testgen_enums!();
     };

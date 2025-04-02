@@ -66,6 +66,7 @@ pub struct ComputeKernel<D: Dialect> {
     pub meta_static_len: usize,
     pub body: Body<D>,
     pub cube_dim: CubeDim,
+    pub cluster_dim: Option<CubeDim>,
     pub extensions: Vec<D::Extension>,
     pub flags: Flags,
     pub items: HashSet<super::Item<D>>,
@@ -196,7 +197,7 @@ uint x[{}];
     Ok(())
 }
 
-pub fn compile_bindings_a<D: Dialect>(
+pub fn compile_bindings<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     tensor_maps: &[Id],
     buffers: &[Binding<D>],
@@ -360,6 +361,14 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(
             f,
             "{ty} {variable} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});"
+        )?;
+    }
+
+    if settings.indexes.cluster_pos {
+        f.write_str(
+            "
+cooperative_groups::cluster_group cluster = cooperative_groups::this_cluster();
+",
         )?;
     }
 

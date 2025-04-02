@@ -39,7 +39,7 @@ impl DialectIncludes<Self> for CudaDialect {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/pipeline>\n")?;
         }
-        if flags.op_barrier || flags.inst_tma {
+        if flags.op_barrier || flags.inst_tma || flags.indexes.cluster_pos {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
@@ -179,13 +179,19 @@ impl DialectBindings<Self> for CudaDialect {
             f,
             "
 
-extern \"C\" __global__ void {} (
-",
-            kernel_name
+extern \"C\" __global__ void "
         )?;
+        if let Some(cluster_dim) = flags.cluster_dim {
+            write!(
+                f,
+                "__cluster_dims__({}, {}, {}) ",
+                cluster_dim.x, cluster_dim.y, cluster_dim.z
+            )?;
+        }
+        writeln!(f, "{} (", kernel_name)?;
         let has_scalars =
             !scalars.is_empty() || (flags.use_grid_constants && flags.static_meta_length > 0);
-        shared::compile_bindings_a(f, tensor_maps, buffers, has_scalars, flags)?;
+        shared::compile_bindings(f, tensor_maps, buffers, has_scalars, flags)?;
         if flags.use_grid_constants {
             shared::compile_scalars_static(f, scalars, flags)?;
         } else {
@@ -199,7 +205,23 @@ extern \"C\" __global__ void {} (
 
 // Cube builtins dialect
 
-impl DialectCubeBuiltins<Self> for CudaDialect {}
+impl DialectCubeBuiltins<Self> for CudaDialect {
+    fn compile_cluster_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cluster.block_rank()")
+    }
+
+    fn compile_cluster_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cluster.block_index().x")
+    }
+
+    fn compile_cluster_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cluster.block_index().y")
+    }
+
+    fn compile_cluster_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cluster.block_index().z")
+    }
+}
 
 // Instructions
 
