@@ -240,14 +240,26 @@ void {}(",
                 flags.indexes.absolute_pos_tuple,
                 Variable::<Self>::AbsolutePosBaseName,
             ),
-            (flags.indexes.cube_dim_tuple, Variable::CubeDimBaseName),
-            (flags.indexes.cube_count_tuple, Variable::CubeCountBaseName),
-            (flags.indexes.unit_pos, Variable::UnitPos),
-            (flags.indexes.unit_pos_tuple, Variable::UnitPosBaseName),
-            (flags.indexes.cube_pos_tuple, Variable::CubePosBaseName),
-            (flags.indexes.unit_pos_plane, Variable::UnitPosPlane),
-            (flags.indexes.plane_dim, Variable::PlaneDim),
-            (flags.indexes.plane_index, Variable::PlanePos),
+            (
+                flags.indexes.cube_dim_tuple,
+                Variable::<Self>::CubeDimBaseName,
+            ),
+            (
+                flags.indexes.cube_count_tuple,
+                Variable::<Self>::CubeCountBaseName,
+            ),
+            (flags.indexes.unit_pos, Variable::<Self>::UnitPos),
+            (
+                flags.indexes.unit_pos_tuple,
+                Variable::<Self>::UnitPosBaseName,
+            ),
+            (
+                flags.indexes.cube_pos_tuple,
+                Variable::<Self>::CubePosBaseName,
+            ),
+            (flags.indexes.unit_pos_plane, Variable::<Self>::UnitPosPlane),
+            (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
+            (flags.indexes.plane_index, Variable::<Self>::PlanePos),
         ];
         let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
         builtins
@@ -266,20 +278,20 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     /// For instance in metal we have a built-in for the Unit plane position
     /// so we don't rely on other builtins.
     fn builtin_rules(flags: &CubeIndexFlags) -> CubeIndexFlags {
-        let plane_index = flags.plane_index;
-        let unit_pos_plane = flags.unit_pos_plane || plane_index;
-        let plane_dim_checked = flags.plane_dim_checked;
-        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
         let absolute_pos = flags.absolute_pos;
-        let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
-        let cube_dim = flags.cube_dim;
-        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
-        let unit_pos = flags.unit_pos;
-        let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         let cube_count = flags.cube_count;
-        let cube_count_tuple = flags.cube_count_tuple || absolute_pos;
+        let cube_dim = flags.cube_dim;
         let cube_pos = flags.cube_pos;
+        let plane_dim_checked = flags.plane_dim_checked;
+        let plane_index = flags.plane_index;
+        let unit_pos = flags.unit_pos;
+        let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
+        let cube_count_tuple = flags.cube_count_tuple || cube_count || cube_pos || absolute_pos;
+        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
         let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
+        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
+        let unit_pos_plane = flags.unit_pos_plane || plane_index;
+        let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         CubeIndexFlags {
             absolute_pos_tuple,
             absolute_pos,
@@ -379,7 +391,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_index_in_grid")
+        f.write_str("threadgroup_index_in_grid")
     }
 
     fn compile_cube_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -407,7 +419,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("tid")
+        f.write_str("thread_index_in_threadgroup")
     }
 
     fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
