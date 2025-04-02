@@ -400,8 +400,8 @@ where
         SEL::on_event(&mut listener, StageEvent::Begin);
 
         let k_iterations = config.tile_count().k;
-        let acc_iterations = acc.tmm_accumulators.len();
-        let acc_total_iterations = comptime![k_iterations * acc_iterations];
+        let num_accumulators = acc.tmm_accumulators.len();
+        let acc_total_iterations = comptime![k_iterations * num_accumulators];
 
         let mut k_iter = comptime![0u32];
 
@@ -433,15 +433,15 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
-                    current: k_iter * acc_iterations,
+                    current: k_iter * num_accumulators,
                     total: acc_total_iterations
                 }),
             );
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 1..acc_iterations {
-                let current_event = comptime![k_iter * acc_iterations + acc_iter + 1];
+            for _ in 1..num_accumulators {
+                let current_computation = comptime![k_iter * num_accumulators + acc_iter];
                 let (current, next) = if comptime! {acc_iter % 2 == 0} {
                     (&mut rhs_fragments.0, &mut rhs_fragments.1)
                 } else {
@@ -457,7 +457,7 @@ where
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
-                        current: current_event,
+                        current: current_computation + 1,
                         total: acc_total_iterations
                     }),
                 );
@@ -467,7 +467,7 @@ where
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::TmmCompleted {
-                        current: current_event,
+                        current: current_computation,
                         total: acc_total_iterations
                     }),
                 );
@@ -485,8 +485,8 @@ where
             TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
             SEL::on_event(
                 &mut listener,
-                comptime!(StageEvent::RhsLoaded {
-                    current: k_iter * acc_iterations + acc_iter + 1,
+                comptime!(StageEvent::TmmCompleted {
+                    current: k_iter * num_accumulators + acc_iter,
                     total: acc_total_iterations
                 }),
             );
