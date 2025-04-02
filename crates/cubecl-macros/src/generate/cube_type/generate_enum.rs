@@ -179,47 +179,47 @@ impl CubeTypeEnum {
         let generics = self.expanded_generics();
         let (generics, generic_names, where_clause) = generics.split_for_impl();
 
-        let branches = self
-            .variants
-            .iter()
-            .map(|variant| {
-                let variant_name = &variant.ident;
-                match variant.kind {
-                    VariantKind::Named => {
-                        let args = &variant.field_names;
-                        quote! {
-                            #name::#variant_name { #(#args),* } => {
-                                #(
-                                    #args.register(launcher);
-                                )*
+        let body = self.match_impl(
+            quote! {self},
+            self.variants
+                .iter()
+                .map(|variant| {
+                    let variant_name = &variant.ident;
+                    match variant.kind {
+                        VariantKind::Named => {
+                            let args = &variant.field_names;
+                            quote! {
+                                #name::#variant_name { #(#args),* } => {
+                                    #(
+                                        #args.register(launcher);
+                                    )*
+                                }
+                            }
+                        }
+                        VariantKind::Unnamed => {
+                            let args = variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
+                                .collect::<Vec<_>>();
+                            quote! {
+                                #name::#variant_name(#(#args),*) => {
+                                    #(
+                                        #args.register(launcher);
+                                    )*
+                                }
+                            }
+                        }
+                        VariantKind::Empty => {
+                            quote! {
+                                #name::#variant_name => {}
                             }
                         }
                     }
-                    VariantKind::Unnamed => {
-                        let args = variant
-                            .fields
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
-                            .collect::<Vec<_>>();
-                        quote! {
-                            #name::#variant_name(#(#args),*) => {
-                                #(
-                                    #args.register(launcher);
-                                )*
-                            }
-                        }
-                    }
-                    VariantKind::Empty => {
-                        quote! {
-                            #name::#variant_name => {}
-                        }
-                    }
-                }
-            })
-            .collect();
-
-        let body = self.match_impl(quote! {self}, branches);
+                })
+                .collect(),
+        );
 
         quote! {
             impl #generics #arg_settings<R> for #name #generic_names #where_clause {

@@ -305,7 +305,17 @@ impl Elem {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_item(&mut self, item: core::Item) -> Item {
-        let elem = match item.elem {
+        let elem = self.compile_elem(item.elem);
+        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
+        if vectorization == 1 {
+            Item::Scalar(elem)
+        } else {
+            Item::Vector(elem, vectorization as u32)
+        }
+    }
+
+    pub fn compile_elem(&mut self, elem: core::Elem) -> Elem {
+        match elem {
             core::Elem::Float(core::FloatKind::BF16) => panic!("BFloat16 not supported in SPIR-V"),
             core::Elem::Float(FloatKind::F16) => {
                 self.capabilities.insert(Capability::Float16);
@@ -388,12 +398,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Elem::Int(64, false)
             }
             core::Elem::Bool => Elem::Bool,
-        };
-        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
-        if vectorization == 1 {
-            Item::Scalar(elem)
-        } else {
-            Item::Vector(elem, vectorization as u32)
         }
     }
 

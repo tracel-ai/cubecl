@@ -210,20 +210,12 @@ impl Launch {
                 let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
-        for input in self.runtime_inputs() {
-            define.extend(expand_fn(
-                &input.name,
-                format_ident!("expand"),
-                input.ty_owned(),
-            ));
-        }
-
-        for output in self.runtime_outputs() {
-            define.extend(expand_fn(
-                &output.name,
-                format_ident!("expand_output"),
-                output.ty_owned(),
-            ));
+        for param in self.runtime_params() {
+            let expand_name = match param.is_mut {
+                true => format_ident!("expand_output"),
+                false => format_ident!("expand"),
+            };
+            define.extend(expand_fn(&param.name, expand_name, param.ty_owned()));
         }
 
         quote! {

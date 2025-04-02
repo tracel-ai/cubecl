@@ -20,10 +20,6 @@ impl LoadingValidation for StridedCoalescedLoading {
         let num_stage_lines = tiling.total_size() / line_size;
         let total_units = config.num_planes() * config.plane_dim();
 
-        println!("Plane dim: {}", config.plane_dim());
-        println!("Number of Planes: {}", config.num_planes());
-        println!("Config: {:?}", config);
-
         if num_stage_lines % total_units != 0 {
             return Err(Box::new(
                 "Too many data will be loaded, resulting in out of bounds.
