@@ -303,7 +303,6 @@ macro_rules! matmul_standard_tests {
         };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
-        use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
         use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
