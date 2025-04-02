@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use cubecl_core::{
-    compute::ConstBinding,
-    ir::{self as gpu},
+    compute::{Location, Visibility},
+    ir::{self as gpu, Id},
 };
 
 use super::{
@@ -82,6 +82,7 @@ impl DialectTypes<Self> for MslDialect {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &std::collections::HashSet<crate::shared::Item<Self>>,
+        _scalars: &[(Elem<Self>, usize)],
         _flags: &Flags,
     ) -> std::fmt::Result {
         for item in items.iter() {
@@ -187,10 +188,9 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        _constants: &[ConstBinding],
-        inputs: &[Binding<Self>],
-        outputs: &[Binding<Self>],
-        named: &[(String, Binding<Self>)],
+        tensor_maps: &[Id],
+        buffers: &[Binding<Self>],
+        scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result {
         write!(
@@ -202,18 +202,38 @@ void {}(",
         )?;
         // Global bindings args
         let mut buffer_idx = 0;
-        for (i, b) in inputs.iter().enumerate() {
-            format_global_binding_arg("in", b, Some(&i.to_string()), buffer_idx, f)?;
+        debug_assert!(
+            tensor_maps.is_empty(),
+            "Tensor maps aren't supported for metal"
+        );
+        for (i, b) in buffers.iter().enumerate() {
+            format_global_binding_arg("buffer", b, Some(&i.to_string()), buffer_idx, f)?;
             buffer_idx += 1;
         }
-        for (i, b) in outputs.iter().enumerate() {
-            format_global_binding_arg("out", b, Some(&i.to_string()), buffer_idx, f)?;
+        if flags.static_meta_length > 0 {
+            let binding = Binding {
+                id: 0,
+                item: Item::scalar(Elem::<Self>::U32, true),
+                location: Location::Storage,
+                size: None,
+                vis: Visibility::Read,
+            };
+            format_global_binding_arg("info", &binding, None, buffer_idx, f)?;
+        }
+        for (elem, _) in scalars.iter() {
+            let binding = Binding {
+                id: 0,
+                item: Item::scalar(*elem, true),
+                location: Location::Storage,
+                size: None,
+                vis: Visibility::Read,
+            };
+
+            let name = format!("scalars_{elem}");
+            format_global_binding_arg(&name, &binding, None, buffer_idx, f)?;
             buffer_idx += 1;
         }
-        for (name, b) in named.iter() {
-            format_global_binding_arg(name, b, None, buffer_idx, f)?;
-            buffer_idx += 1;
-        }
+
         // Global metal builtins args
         let builtins = vec![
             (
@@ -229,7 +249,7 @@ void {}(",
             (flags.indexes.plane_dim, Variable::PlaneDim),
             (flags.indexes.plane_index, Variable::PlanePos),
         ];
-        let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
+        let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
         builtins
             .iter()
             .filter(|(cond, _)| *cond)

@@ -56,7 +56,11 @@ pub enum Variable<D: Dialect> {
 
     GlobalInputArray(Id, Item<D>),
     GlobalOutputArray(Id, Item<D>),
-    GlobalScalar(Id, Elem<D>, gpu::Elem),
+    GlobalScalar {
+        id: Id,
+        elem: Elem<D>,
+        in_struct: bool,
+    },
     ConstantArray(Id, Item<D>, u32),
     ConstantScalar(ConstantScalarValue, Elem<D>),
     TensorMap(Id),
@@ -164,7 +168,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::ConstantScalar(_, e) => Item::scalar(*e, false),
-            Variable::GlobalScalar(_, e, _) => Item::scalar(*e, false),
+            Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
             Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { id: _, item } => *item,
@@ -181,19 +185,23 @@ impl<D: Dialect> Component<D> for Variable<D> {
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => f.write_fmt(format_args!("in_{number}")),
-
-            Variable::GlobalOutputArray(number, _) => write!(f, "out_{number}"),
-            Variable::TensorMap(id) => write!(f, "constant_{id}"),
+            Variable::GlobalInputArray(id, _) => f.write_fmt(format_args!("buffer_{id}")),
+            Variable::GlobalOutputArray(id, _) => write!(f, "buffer_{id}"),
+            Variable::TensorMap(id) => write!(f, "tensor_map_{id}"),
             Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
             Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
             Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalScalar(number, _, elem) => {
-                write!(f, "scalars_{elem}[{number}]")
-            }
+            Variable::GlobalScalar {
+                id,
+                elem,
+                in_struct,
+            } => match *in_struct {
+                true => write!(f, "scalars_{elem}.x[{id}]"),
+                false => write!(f, "scalars_{elem}[{id}]"),
+            },
             Variable::ConstantScalar(number, elem) => match number {
                 ConstantScalarValue::Int(val, kind) => match kind {
                     gpu::IntKind::I8 => write!(f, "{elem}({})", *val as i8),
@@ -393,7 +401,7 @@ impl<D: Dialect> Variable<D> {
             Variable::ConstantScalar(_, _) => true,
             Variable::GlobalInputArray(_, _) => false,
             Variable::GlobalOutputArray(_, _) => false,
-            Variable::GlobalScalar(_, _, _) => true,
+            Variable::GlobalScalar { .. } => true,
             Variable::LocalArray(_, _, _) => false,
             Variable::LocalConst { .. } => false,
             Variable::LocalMut { .. } => false,
@@ -423,7 +431,7 @@ impl<D: Dialect> Variable<D> {
         match self {
             Variable::GlobalInputArray(id, ..) => Some(*id),
             Variable::GlobalOutputArray(id, ..) => Some(*id),
-            Variable::GlobalScalar(id, ..) => Some(*id),
+            Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),

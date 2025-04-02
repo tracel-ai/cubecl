@@ -22,7 +22,7 @@ pub use runtime::*;
 #[cfg(feature = "spirv")]
 pub use backend::vulkan;
 
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 pub use backend::metal;
 
 #[cfg(all(test, not(feature = "spirv"), not(feature = "msl")))]
@@ -59,7 +59,6 @@ mod tests_spirv {
 #[allow(unexpected_cfgs)]
 mod tests_msl {
     pub type TestRuntime = crate::WgpuRuntime;
-    use cubecl_core::flex32;
     use half::f16;
 
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);

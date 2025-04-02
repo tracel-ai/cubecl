@@ -10,16 +10,16 @@ pub fn bindings(repr: &MslComputeKernel) -> Vec<(usize, Visibility)> {
     let mut bindings: Vec<(usize, Visibility)> = vec![];
     // must be in the same order as the compilation order: inputs, outputs and named
     let mut buffer_idx = 0;
-    for b in repr.inputs.iter() {
+    for b in repr.buffers.iter() {
         bindings.push((buffer_idx, b.vis));
         buffer_idx += 1;
     }
-    for b in repr.outputs.iter() {
-        bindings.push((buffer_idx, b.vis));
+    if repr.meta_static_len > 0 {
+        bindings.push((buffer_idx, Visibility::Read));
         buffer_idx += 1;
     }
-    for (_name, b) in repr.named.iter() {
-        bindings.push((buffer_idx, b.vis));
+    for _ in repr.scalars.iter() {
+        bindings.push((buffer_idx, Visibility::Read));
         buffer_idx += 1;
     }
     bindings

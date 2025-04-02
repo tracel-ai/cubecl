@@ -3,7 +3,7 @@ use hashbrown::HashMap;
 use rspirv::spirv::{
     self, AddressingModel, Capability, Decoration, ExecutionModel, MemoryModel, StorageClass, Word,
 };
-use std::fmt::Debug;
+use std::{fmt::Debug, iter};
 
 use crate::{
     SpirvCompiler, debug,
@@ -27,8 +27,8 @@ pub trait SpirvTarget:
         b: &mut SpirvCompiler<Self>,
         binding: Binding,
         name: String,
-        index: u32,
     ) -> Word;
+
     fn set_kernel_name(&mut self, name: impl Into<String>);
 }
 
@@ -61,9 +61,9 @@ impl SpirvTarget for GLCompute {
     ) {
         let interface: Vec<u32> = builtins
             .into_iter()
-            .chain(b.state.inputs.iter().copied())
-            .chain(b.state.outputs.iter().copied())
-            .chain(b.state.named.values().copied())
+            .chain(b.state.buffers.iter().copied())
+            .chain(iter::once(b.state.info))
+            .chain(b.state.scalar_bindings.values().copied())
             .chain(b.state.shared_memories.values().map(|it| it.id))
             .collect();
 
@@ -124,8 +124,8 @@ impl SpirvTarget for GLCompute {
         b: &mut SpirvCompiler<Self>,
         binding: Binding,
         name: String,
-        index: u32,
     ) -> Word {
+        let index = binding.id;
         let item = b.compile_item(binding.item);
         let item = match binding.size {
             Some(size) => Item::Array(Box::new(item), size as u32),

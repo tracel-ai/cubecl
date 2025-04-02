@@ -173,7 +173,7 @@ impl<'a, R: Runtime> TensorArg<'a, R> {
 
 impl<R: Runtime> ArgSettings<R> for TensorArg<'_, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
-        launcher.register_tensor(self)
+        launcher.register_tensor(self);
     }
 }
 

@@ -5,18 +5,21 @@ use wgpu::DeviceDescriptor;
 use crate::WgslCompiler;
 
 pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize, Visibility)> {
-    repr.inputs
+    let mut bindings = repr
+        .buffers
         .iter()
-        .chain(repr.outputs.iter())
-        .chain(repr.named.iter().map(|it| &it.1))
-        .enumerate()
-        .map(|it| (it.0, it.1.visibility))
-        .collect()
+        .map(|it| it.visibility)
+        .collect::<Vec<_>>();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
-    #[cfg(not(feature = "msl"))]
+    #[cfg(not(all(feature = "msl", target_os = "macos")))]
     {
         adapter
             .request_device(
@@ -41,7 +44,7 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
             })
             .unwrap()
     }
-    #[cfg(feature = "msl")]
+    #[cfg(all(feature = "msl", target_os = "macos"))]
     {
         adapter
             .request_device(&DeviceDescriptor {

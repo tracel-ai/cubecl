@@ -1,9 +1,9 @@
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::compute::ConstBinding;
+use cubecl_core::ir::Id;
 
-use crate::shared::{DialectInstructions, Instruction, SharedMemory, Variable};
+use crate::shared::{DialectInstructions, Elem, Instruction, SharedMemory, Variable};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -68,6 +68,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
+        _scalars: &[(Elem<Self>, usize)],
         _flags: &Flags,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
@@ -145,11 +146,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        constants: &[ConstBinding],
-        inputs: &[Binding<Self>],
-        outputs: &[Binding<Self>],
-        named: &[(String, Binding<Self>)],
-        _flags: &Flags,
+        tensor_maps: &[Id],
+        buffers: &[Binding<Self>],
+        scalars: &[(Elem<Self>, usize)],
+        flags: &Flags,
     ) -> std::fmt::Result {
         write!(
             f,
@@ -159,7 +159,8 @@ extern \"C\" __global__ void {}(
 ",
             kernel_name
         )?;
-        shared::compile_bindings::<Self>(f, constants, inputs, outputs, named)?;
+        shared::compile_bindings_a::<Self>(f, tensor_maps, buffers, !scalars.is_empty(), flags)?;
+        shared::compile_scalars_dynamic::<Self>(f, scalars)?;
         f.write_str("\n)")
     }
 }
