@@ -374,7 +374,8 @@ impl WgpuStream {
                     resource.offset(),
                     core::num::NonZeroU64::new(aligned_len).unwrap(),
                 )
-                .map(|mut view| view[0..data.len()].copy_from_slice(data));
+                .unwrap()[0..data.len()]
+                .copy_from_slice(data);
         }
         self.flush_if_needed();
 
