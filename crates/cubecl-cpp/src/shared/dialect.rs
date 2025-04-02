@@ -547,7 +547,6 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         _output: &Variable<D>,
     ) -> std::fmt::Result;
-
 }
 
 // Coop Matrices dialect

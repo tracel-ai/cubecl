@@ -355,7 +355,8 @@ impl<D: Dialect> Binary<D> for Index {
 
         let item_out = out.item();
         if let Elem::Atomic(inner) = item_out.elem {
-            write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+            let addr_space = D::address_space_for_variable(lhs);
+            writeln!(f, "{addr_space}{inner}* {out} = &{lhs}[{rhs}];")
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
