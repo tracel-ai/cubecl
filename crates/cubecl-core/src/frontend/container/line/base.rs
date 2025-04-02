@@ -103,19 +103,6 @@ mod empty {
 
         /// Expand function of [empty](Self::empty).
         pub fn __expand_empty(scope: &mut Scope, length: u32) -> ExpandElementTyped<Self> {
-            // let length = match length {
-            // Some(val) => match val {
-            // ConstantScalarValue::Int(val, _) => NonZero::new(val)
-            //     .map(|val| val.get() as u8)
-            //     .map(|val| NonZero::new(val).unwrap()),
-            // ConstantScalarValue::Float(val, _) => NonZero::new(val as i64)
-            //     .map(|val| val.get() as u8)
-            //     .map(|val| NonZero::new(val).unwrap()),
-            // ConstantScalarValue::UInt(val, _) => NonZero::new(val as u8),
-            // ConstantScalarValue::Bool(_) => None,
-            // // },
-            // None => panic!("line size must be known at compile time"),
-            // };
             let length = NonZero::new(length as u8);
             scope
                 .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
