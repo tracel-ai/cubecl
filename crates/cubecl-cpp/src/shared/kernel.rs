@@ -238,15 +238,15 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     settings: &Flags,
 ) -> core::fmt::Result {
-    if settings.builtins.absolute_pos_tuple {
+    if settings.indexes.absolute_pos_tuple {
         D::compile_absolute_pos_tuple_computation(f)?;
     }
 
-    if settings.builtins.unit_pos {
+    if settings.indexes.unit_pos {
         D::compile_unit_pos_computation(f)?;
     }
 
-    if settings.builtins.absolute_pos {
+    if settings.indexes.absolute_pos {
         let variable = Variable::<D>::AbsolutePos;
         let ty = variable.item();
         let absolute_pos_x = Variable::<D>::AbsolutePosX;
@@ -262,7 +262,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_dim {
+    if settings.indexes.cube_dim {
         let variable = Variable::<D>::CubeDim;
         let ty = variable.item();
         let cube_dim_x = Variable::<D>::CubeDimX;
@@ -274,7 +274,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_count {
+    if settings.indexes.cube_count {
         let variable = Variable::<D>::CubeCount;
         let ty = variable.item();
         let cube_count_x = Variable::<D>::CubeCountX;
@@ -286,7 +286,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.cube_pos {
+    if settings.indexes.cube_pos {
         let variable = Variable::<D>::CubePos;
         let ty = variable.item();
         let cube_pos_x = Variable::<D>::CubePosX;
@@ -300,7 +300,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         )?;
     }
 
-    if settings.builtins.plane_dim_checked {
+    if settings.indexes.plane_dim_checked {
         let plane_dim = Variable::<D>::PlaneDim;
         let variable = Variable::<D>::PlaneDimChecked;
         let ty = variable.item();

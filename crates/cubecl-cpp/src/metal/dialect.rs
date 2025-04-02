@@ -217,17 +217,17 @@ void {}(",
         // Global metal builtins args
         let builtins = vec![
             (
-                flags.builtins.absolute_pos_tuple,
+                flags.indexes.absolute_pos_tuple,
                 Variable::<Self>::AbsolutePosBaseName,
             ),
-            (flags.builtins.cube_dim_tuple, Variable::CubeDimBaseName),
-            (flags.builtins.cube_count_tuple, Variable::CubeCountBaseName),
-            (flags.builtins.unit_pos, Variable::UnitPos),
-            (flags.builtins.unit_pos_tuple, Variable::UnitPosBaseName),
-            (flags.builtins.cube_pos_tuple, Variable::CubePosBaseName),
-            (flags.builtins.unit_pos_plane, Variable::UnitPosPlane),
-            (flags.builtins.plane_dim, Variable::PlaneDim),
-            (flags.builtins.plane_index, Variable::PlanePos),
+            (flags.indexes.cube_dim_tuple, Variable::CubeDimBaseName),
+            (flags.indexes.cube_count_tuple, Variable::CubeCountBaseName),
+            (flags.indexes.unit_pos, Variable::UnitPos),
+            (flags.indexes.unit_pos_tuple, Variable::UnitPosBaseName),
+            (flags.indexes.cube_pos_tuple, Variable::CubePosBaseName),
+            (flags.indexes.unit_pos_plane, Variable::UnitPosPlane),
+            (flags.indexes.plane_dim, Variable::PlaneDim),
+            (flags.indexes.plane_index, Variable::PlanePos),
         ];
         let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
         builtins
