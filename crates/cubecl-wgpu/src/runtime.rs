@@ -215,6 +215,7 @@ pub(crate) fn create_client_on_setup(
     let fake_plane_info =
         adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
 
+    println!("ADAPTER: {:?}", setup.adapter.get_info());
     if features.contains(wgpu::Features::SUBGROUP)
         && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
         && !fake_plane_info

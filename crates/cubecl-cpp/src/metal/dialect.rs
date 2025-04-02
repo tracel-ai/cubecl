@@ -1,0 +1,869 @@
+use core::panic;
+use std::fmt::Display;
+
+use crate::{
+    Dialect,
+    shared::{
+        self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags,
+        FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory,
+        SupportedWmmaCombinations, Variable, WmmaInstruction,
+    },
+};
+use cubecl_core::{
+    compute::ConstBinding,
+    ir::{self as gpu},
+};
+
+use super::{
+    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
+    format_metal_builtin_binding_arg,
+};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MslDialect {}
+
+// Base dialect
+
+impl Dialect for MslDialect {}
+
+// Includes
+
+impl DialectIncludes<Self> for MslDialect {
+    type Extension = Extension<Self>;
+
+    fn compile_includes(f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+        write!(
+            f,
+            "
+#include <metal_stdlib>
+using namespace metal;
+"
+        )?;
+        Ok(())
+    }
+
+    fn compile_extensions(
+        f: &mut std::fmt::Formatter<'_>,
+        extensions: &[Self::Extension],
+    ) -> std::fmt::Result {
+        for extension in extensions {
+            match extension {
+                Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::NoExtension => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn register_extension(extensions: &mut Vec<Self::Extension>, instruction: &Instruction<Self>) {
+        let mut register_extension = |extension: Self::Extension| {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
+            }
+        };
+        #[allow(clippy::single_match)]
+        match instruction {
+            shared::Instruction::<Self>::Erf(instruction) => {
+                register_extension(Extension::Erf(instruction.input, instruction.out));
+            }
+            _ => {}
+        }
+    }
+}
+
+// Types
+
+impl DialectTypes<Self> for MslDialect {
+    fn item_can_be_optimized() -> bool {
+        false
+    }
+
+    fn compile_type_definitions(
+        f: &mut std::fmt::Formatter<'_>,
+        items: &std::collections::HashSet<crate::shared::Item<Self>>,
+        _flags: &Flags,
+    ) -> std::fmt::Result {
+        for item in items.iter() {
+            let elem = item.elem;
+            let size = item.vectorization;
+            let alignment = elem.size() * size;
+            if size > 1 {
+                write!(
+                    f,
+                    "
+struct alignas({alignment}) {item} {{"
+                )?;
+
+                for i in 0..size {
+                    write!(
+                        f,
+                        "
+    {elem} i_{i};"
+                    )?;
+                }
+
+                f.write_str("\n};\n")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_elem(
+        f: &mut std::fmt::Formatter<'_>,
+        elem: &shared::Elem<Self>,
+        _words: bool,
+    ) -> std::fmt::Result {
+        // we always use the word form of types
+        match elem {
+            shared::Elem::F16 => f.write_str("half"),
+            shared::Elem::F162 => panic!("type F162 not supported!"),
+            shared::Elem::F32 => f.write_str("float"),
+            shared::Elem::F64 => panic!("type double not supported!"),
+            shared::Elem::BF16 => f.write_str("bfloat"),
+            shared::Elem::BF162 => panic!("type BF162 not supported!"),
+            shared::Elem::TF32 => f.write_str("float"),
+            shared::Elem::I8 => f.write_str("char"),
+            shared::Elem::I16 => f.write_str("short"),
+            shared::Elem::I32 => f.write_str("int"),
+            shared::Elem::I64 => f.write_str("long"),
+            shared::Elem::U8 => f.write_str("uchar"),
+            shared::Elem::U16 => f.write_str("ushort"),
+            shared::Elem::U32 => f.write_str("uint"),
+            shared::Elem::U64 => f.write_str("uint64_t"), // or unsigned long
+            shared::Elem::Bool => f.write_str("bool"),
+            shared::Elem::Atomic(inner) => inner.fmt(f),
+            shared::Elem::_Dialect(_) => Ok(()),
+        }
+    }
+
+    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
+        if 1 == item.vectorization {
+            return write!(f, "{}", item.elem);
+        }
+        if item.native {
+            write!(f, "{}{}", item.elem, item.vectorization)
+        } else {
+            write!(f, "{}_{}", item.elem, item.vectorization)
+        }
+    }
+
+    fn compile_atomic_kind(
+        f: &mut std::fmt::Formatter<'_>,
+        kind: &AtomicKind<Self>,
+    ) -> std::fmt::Result {
+        match kind {
+            AtomicKind::I32 => write!(f, "atomic_int"),
+            AtomicKind::I64 => panic!("I64 atomic kind no supported."),
+            AtomicKind::U32 => write!(f, "atomic_uint"),
+            AtomicKind::U64 => write!(f, "atomic_ulong"),
+            AtomicKind::F16 => panic!("F16 atomic kind no supported."),
+            AtomicKind::BF16 => panic!("BF16 atomic kind no supported."),
+            AtomicKind::F32 => write!(f, "atomic_float"), // needs metal 3
+            AtomicKind::F64 => panic!("F64 atomic kind no supported."),
+            AtomicKind::_Dialect(_) => Ok(()),
+        }
+    }
+
+    fn address_space_for_variable(variable: &Variable<Self>) -> String {
+        format!("{} ", AddressSpace::from(variable))
+    }
+
+    fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "thread")
+    }
+
+    fn compile_shared_memory_qualifier(
+        f: &mut std::fmt::Formatter<'_>,
+        _shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "threadgroup")
+    }
+}
+
+// Kernel argument bindings
+
+impl DialectBindings<Self> for MslDialect {
+    fn compile_kernel_signature(
+        f: &mut std::fmt::Formatter<'_>,
+        kernel_name: &str,
+        _constants: &[ConstBinding],
+        inputs: &[Binding<Self>],
+        outputs: &[Binding<Self>],
+        named: &[(String, Binding<Self>)],
+        flags: &Flags,
+    ) -> std::fmt::Result {
+        write!(
+            (f),
+            "
+[[kernel]]
+void {}(",
+            kernel_name
+        )?;
+        // Global bindings args
+        let mut buffer_idx = 0;
+        for (i, b) in inputs.iter().enumerate() {
+            format_global_binding_arg("in", b, Some(&i.to_string()), buffer_idx, f)?;
+            buffer_idx += 1;
+        }
+        for (i, b) in outputs.iter().enumerate() {
+            format_global_binding_arg("out", b, Some(&i.to_string()), buffer_idx, f)?;
+            buffer_idx += 1;
+        }
+        for (name, b) in named.iter() {
+            format_global_binding_arg(name, b, None, buffer_idx, f)?;
+            buffer_idx += 1;
+        }
+        // Global metal builtins args
+        let builtins = vec![
+            (
+                flags.indexes.absolute_pos_tuple,
+                Variable::<Self>::AbsolutePosBaseName,
+            ),
+            (flags.indexes.cube_dim_tuple, Variable::CubeDimBaseName),
+            (flags.indexes.cube_count_tuple, Variable::CubeCountBaseName),
+            (flags.indexes.unit_pos, Variable::UnitPos),
+            (flags.indexes.unit_pos_tuple, Variable::UnitPosBaseName),
+            (flags.indexes.cube_pos_tuple, Variable::CubePosBaseName),
+            (flags.indexes.unit_pos_plane, Variable::UnitPosPlane),
+            (flags.indexes.plane_dim, Variable::PlaneDim),
+            (flags.indexes.plane_index, Variable::PlanePos),
+        ];
+        let comma = !inputs.is_empty() || !outputs.is_empty() || !named.is_empty();
+        builtins
+            .iter()
+            .filter(|(cond, _)| *cond)
+            .try_for_each(|(_, var)| format_metal_builtin_binding_arg(f, var, comma))?;
+        f.write_str("\n)")
+    }
+}
+
+// Cube builtins dialect
+
+impl DialectCubeBuiltins<Self> for MslDialect {
+    /// Depending on the dialect available built-in variables the
+    /// inclusion rules might change.
+    /// For instance in metal we have a built-in for the Unit plane position
+    /// so we don't rely on other builtins.
+    fn builtin_rules(flags: &CubeIndexFlags) -> CubeIndexFlags {
+        let plane_index = flags.plane_index;
+        let unit_pos_plane = flags.unit_pos_plane || plane_index;
+        let plane_dim_checked = flags.plane_dim_checked;
+        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
+        let absolute_pos = flags.absolute_pos;
+        let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
+        let cube_dim = flags.cube_dim;
+        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
+        let unit_pos = flags.unit_pos;
+        let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
+        let cube_count = flags.cube_count;
+        let cube_count_tuple = flags.cube_count_tuple || absolute_pos;
+        let cube_pos = flags.cube_pos;
+        let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
+        CubeIndexFlags {
+            absolute_pos_tuple,
+            absolute_pos,
+            cube_count_tuple,
+            cube_count,
+            cube_dim_tuple,
+            cube_dim,
+            cube_pos_tuple,
+            cube_pos,
+            plane_dim,
+            plane_dim_checked,
+            plane_index,
+            unit_pos_tuple,
+            unit_pos,
+            unit_pos_plane,
+        }
+    }
+
+    fn compile_absolute_pos_tuple_computation(
+        _f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        // no need to compute it on metal as there is y a built-in for it
+        Ok(())
+    }
+
+    fn compile_absolute_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("thread_pos_in_grid")
+    }
+
+    fn compile_absolute_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("thread_index_in_grid")
+    }
+
+    fn compile_absolute_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos_base_name(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_absolute_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos_base_name(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_absolute_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_absolute_pos_base_name(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_count_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threadgroups_per_grid")
+    }
+
+    fn compile_cube_count(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("total_threadgroups_in_grid")
+    }
+
+    fn compile_cube_count_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count_base_name(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_count_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count_base_name(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_count_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_count_base_name(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_dim_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threads_per_threadgroup")
+    }
+
+    fn compile_cube_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("total_thread_in_threadgroup")
+    }
+
+    fn compile_cube_dim_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim_base_name(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_dim_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim_base_name(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_dim_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_dim_base_name(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_cube_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threadgroup_pos_in_grid")
+    }
+
+    fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("thread_index_in_grid")
+    }
+
+    fn compile_cube_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos_base_name(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_cube_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos_base_name(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_cube_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_cube_pos_base_name(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_unit_pos_computation(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // no need to compute it on metal as there is y a built-in for it
+        Ok(())
+    }
+
+    fn compile_unit_pos_base_name(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("thread_pos_in_threadgroup")
+    }
+
+    fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("tid")
+    }
+
+    fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos_base_name(f)?;
+        write!(f, ".x")
+    }
+
+    fn compile_unit_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos_base_name(f)?;
+        write!(f, ".y")
+    }
+
+    fn compile_unit_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Self::compile_unit_pos_base_name(f)?;
+        write!(f, ".z")
+    }
+
+    fn compile_plane_dim(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("simd_size")
+    }
+
+    fn compile_plane_dim_checked(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("threads_per_simdgroup_checked")
+    }
+
+    fn compile_plane_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("simd_group_id")
+    }
+
+    fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("simd_lane_id")
+    }
+}
+
+// Instructions
+
+impl DialectInstructions<Self> for MslDialect {
+    // atomics
+    fn compile_atomic_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_add_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_and(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_and_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_cas(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        cmp: &Variable<Self>,
+        val: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_compare_exchange_weak_explicit({input}, &{cmp}, {val}, memory_order_relaxed, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_load(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_load_explicit({input}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_max(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_max_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_min(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_min_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_or(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_or_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_store(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        writeln!(
+            f,
+            "atomic_store_explicit({out}, {input}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_sub_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_swap(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_exchange_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    fn compile_atomic_xor(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &Variable<Self>,
+        rhs: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let out = out.fmt_left();
+        writeln!(
+            f,
+            "{out} = atomic_fetch_xor_explicit({lhs}, {rhs}, memory_order_relaxed);"
+        )
+    }
+
+    // debug
+    fn compile_instruction_printf(
+        f: &mut std::fmt::Formatter<'_>,
+        format_string: &str,
+        args: &[Variable<Self>],
+    ) -> std::fmt::Result {
+        let format_string = format_string
+            .replace("\t", "\\t")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r");
+        let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
+        let args = match args.is_empty() {
+            true => "".to_string(),
+            false => format!(", {}", args.join(",")),
+        };
+        writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
+    }
+
+    // sync
+    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
+    }
+
+    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
+    }
+
+    // unary
+    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "({output})(clz({input}))"),
+            Elem::I64 | Elem::U64 => {
+                panic!("leading_zeros instruction does not support 64-bit int")
+            }
+            elem => write!(
+                f,
+                "({output})(clz({})) - {}",
+                shared::unary::zero_extend(input),
+                (size_of::<u32>() - elem.size()) * 8
+            ),
+        }
+    }
+
+    fn compile_instruction_popcount_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::I32 | Elem::U32 => write!(f, "({output})(popcount({input}))"),
+            Elem::I64 | Elem::U64 => panic!("popcount instruction does not support 64-bit int"),
+            _ => write!(
+                f,
+                "({output})(popcount({}))",
+                shared::unary::zero_extend(input)
+            ),
+        }
+    }
+
+    fn compile_instruction_reverse_bits_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+        output: Elem<Self>,
+    ) -> std::fmt::Result {
+        match output {
+            Elem::I32 | Elem::U32 => write!(f, "reverse_bits({input})"),
+            Elem::I64 | Elem::U64 => panic!("reverse_bits instruction does not support 64-bit int"),
+            _ => write!(
+                f,
+                "{output}(reverse_bits({}) >> {})",
+                shared::unary::zero_extend(input),
+                (size_of::<u32>() - output.size()) * 8
+            ),
+        }
+    }
+
+    // Warp
+    fn compile_warp_shuffle(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        source: &str,
+    ) -> std::fmt::Result {
+        write!(f, "simd_shuffle({var}, {source})")
+    }
+
+    fn compile_warp_shuffle_xor(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
+    ) -> std::fmt::Result {
+        write!(f, "simd_shuffle_xor({var}, {offset})")
+    }
+
+    fn compile_warp_shuffle_up(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
+    ) -> std::fmt::Result {
+        write!(f, "simd_shuffle_up({var}, {offset})")
+    }
+
+    fn compile_warp_shuffle_down(
+        f: &mut std::fmt::Formatter<'_>,
+        var: &str,
+        offset: &str,
+    ) -> std::fmt::Result {
+        write!(f, "simd_shuffle_down({var}, {offset})")
+    }
+
+    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
+        write!(f, "simd_all({var})")
+    }
+
+    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
+        write!(f, "simd_any({var})")
+    }
+
+    fn compile_warp_ballot(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        output: &Variable<Self>,
+    ) -> std::fmt::Result {
+        // we need to be extra carreful here to be sure to replicate the exact same
+        // semantic as CUDA __ballot_sync.
+        // __ballot_sync returns a bitmaks of active threads that evaluated to true.
+        // simd_ballot returns a simd_vote class which contains the bits that represent
+        // all the thread as a private member, the bit is true if the thread evaluated to
+        // true. On this class the all() method returns true if all the ACTIVE thread
+        // evaluates to true.
+        let out_elem = output.item().elem;
+        write!(
+            f,
+            "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))"
+        )
+    }
+}
+
+// Coop Matrices dialect
+
+impl DialectWmmaCompiler<Self> for MslDialect {
+    type Architecture = MetalArchitecture;
+
+    fn compile_wmma_includes(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "#include <metal_simdgroup_matrix>")
+    }
+
+    fn compile_wmma_type_definitions(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_fragment_ident(
+        _ident: &FragmentIdent<Self>,
+        _f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_fragment_layout(
+        _layout: &FragmentLayout<Self>,
+        _f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        // not used
+        Ok(())
+    }
+
+    fn compile_fragment(
+        fragment: &Fragment<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let ty = fragment.elem;
+        // currently as of Metal 3.2 only fragments of 8x8x8 are supported
+        let m = fragment.m;
+        let n = fragment.n;
+        let k = fragment.k;
+        if m != 8 || n != 8 || k != 8 {
+            panic!("{m}x{n}x{k} fragments not supported. Only 8x8x8 fragemts are supported.");
+        }
+        write!(f, "simdgroup_{ty}8x8")
+    }
+
+    fn compile_instruction(
+        instruction: &WmmaInstruction<Self>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match instruction {
+            WmmaInstruction::Fill { frag, value } => {
+                match frag {
+                    Variable::WmmaFragment { .. } => {
+                        let ty = frag.elem();
+                        // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
+                        writeln!(
+                            f,
+                            "{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
+                        )
+                    }
+                    _ => panic!("should be a fragment"),
+                }
+            }
+            WmmaInstruction::Load {
+                frag,
+                value,
+                stride,
+                ..
+            } => {
+                let transpose = match frag {
+                    Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
+                        Some(FragmentLayout::RowMajor) => false,
+                        Some(FragmentLayout::ColMajor) => true,
+                        _ => panic!("unknown fragment layout!"),
+                    },
+                    _ => panic!("should be a fragment"),
+                };
+                writeln!(
+                    f,
+                    "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
+                )
+            }
+            WmmaInstruction::Execute {
+                frag_a: a,
+                frag_b: b,
+                frag_c: c,
+                frag_d: d,
+                ..
+            } => {
+                writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
+            }
+            WmmaInstruction::Store {
+                output,
+                frag,
+                stride,
+                ..
+            } => {
+                writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+            }
+            WmmaInstruction::Cast { input, output } => {
+                let ty = match output {
+                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                    _ => panic!("should be a fragment"),
+                };
+                match ty {
+                    Elem::BF16 => {
+                        let elem = Elem::<Self>::F16;
+                        // TODO: to test with benchmarks
+                        writeln!(
+                            f,
+                            "for(int e=0; e<8; e++) {{
+    {ty} elem = {ty}({input}.thread_elements()[e]);
+    {output}.thread_elements()[e] = *reinterpret_cast<{elem} *>(&elem);
+}}"
+                        )
+                    }
+                    _ => {
+                        writeln!(
+                            f,
+                            "for(int e=0; e<8; e++) {{
+    {output}.thread_elements()[e] = {ty}({input}.thread_elements()[e]);
+}}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fn supported_wmma_combinations(_arch: &Self::Architecture) -> SupportedWmmaCombinations {
+        vec![
+            (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                vec![(8, 8, 8)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::Elem::Float(gpu::FloatKind::BF16),
+                vec![(8, 8, 8)],
+            ),
+            (
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                vec![(8, 8, 8)],
+            ),
+        ]
+    }
+}
+
+// Coop Matrices dialect
