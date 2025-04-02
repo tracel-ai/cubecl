@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
+    compute::{Binding, Location, Visibility},
     ir::{self, Id, VariableKind},
     prelude::KernelDefinition,
 };
@@ -16,9 +17,9 @@ use crate::{
 
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
-    pub inputs: Vec<Word>,
-    pub outputs: Vec<Word>,
-    pub named: HashMap<String, Word>,
+    pub buffers: Vec<Word>,
+    pub scalar_bindings: HashMap<ir::Elem, Word>,
+    pub info: Word,
     pub cube_dims: Vec<Word>,
     pub cube_size: Word,
 
@@ -101,38 +102,47 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_state(&mut self, kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
-        self.state.inputs = kernel
-            .inputs
+        self.state.buffers = kernel
+            .buffers
             .into_iter()
-            .enumerate()
-            .map(|(i, binding)| {
-                let var = ir::Variable::new(VariableKind::GlobalInputArray(i as u32), binding.item);
-                let name = self.name_of_var(var);
-                target.generate_binding(self, binding, name.into(), i as u32)
-            })
-            .collect();
-        let offset = self.state.inputs.len() as u32;
-        self.state.outputs = kernel
-            .outputs
-            .into_iter()
-            .enumerate()
-            .map(|(i, binding)| {
+            .map(|binding| {
                 let var =
-                    ir::Variable::new(VariableKind::GlobalOutputArray(i as u32), binding.item);
+                    ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.item);
                 let name = self.name_of_var(var);
-                target.generate_binding(self, binding, name.into(), i as u32 + offset)
+                target.generate_binding(self, binding, name.into())
             })
             .collect();
-        let offset = offset + self.state.outputs.len() as u32;
-        self.state.named = kernel
-            .named
+
+        let mut offset = self.state.buffers.len() as u32;
+        let info_binding = Binding {
+            id: offset,
+            location: Location::Storage,
+            visibility: Visibility::Read,
+            item: ir::Item::new(ir::Elem::UInt(ir::UIntKind::U32)),
+            size: None,
+            has_extended_meta: false,
+        };
+        if self.metadata.static_len() > 0 {
+            self.state.info = target.generate_binding(self, info_binding, "info".to_string());
+            offset += 1;
+        }
+
+        self.state.scalar_bindings = kernel
+            .scalars
             .into_iter()
             .enumerate()
-            .map(|(i, (name, binding))| {
-                (
-                    name.clone(),
-                    target.generate_binding(self, binding, name, i as u32 + offset),
-                )
+            .map(|(i, binding)| {
+                let elem = binding.elem;
+                let binding = Binding {
+                    id: i as u32 + offset,
+                    location: Location::Storage,
+                    visibility: Visibility::Read,
+                    item: ir::Item::new(elem),
+                    size: Some(binding.count),
+                    has_extended_meta: false,
+                };
+                let name = format!("scalars({elem})");
+                (elem, target.generate_binding(self, binding, name))
             })
             .collect();
 
@@ -253,7 +263,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let current_block = self.selected_block();
             let setup = self.setup_block;
             self.select_block(Some(setup)).unwrap();
-            let arr_id = self.state.named[&format!("scalars_{elem}")];
+            let arr_id = self.state.scalar_bindings[&elem];
             let item = self.compile_item(ir::Item::new(elem));
             let arr = Variable::GlobalInputArray(arr_id, item.clone(), 0);
             let const_id = self.const_u32(id);

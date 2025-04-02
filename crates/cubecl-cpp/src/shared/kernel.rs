@@ -1,13 +1,17 @@
-use super::{Body, Component, Dialect, Flags, Item, Variable};
+use crate::shared::STATIC_INFO_NAME;
+
+use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
 use cubecl_core::{
     CubeDim,
-    compute::{ConstBinding, Location, Visibility},
+    compute::{Location, Visibility},
     ir::Id,
 };
+
 use std::{collections::HashSet, fmt::Display};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Binding<D: Dialect> {
+    pub id: Id,
     pub item: Item<D>,
     pub location: Location,
     pub size: Option<usize>,
@@ -56,14 +60,14 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
+    pub tensor_maps: Vec<Id>,
+    pub buffers: Vec<Binding<D>>,
+    pub scalars: Vec<(Elem<D>, usize)>,
+    pub meta_static_len: usize,
     pub body: Body<D>,
     pub cube_dim: CubeDim,
     pub extensions: Vec<D::Extension>,
     pub flags: Flags,
-    pub inputs: Vec<Binding<D>>,
-    pub named: Vec<(String, Binding<D>)>,
-    pub outputs: Vec<Binding<D>>,
-    pub constants: Vec<ConstBinding>,
     pub items: HashSet<super::Item<D>>,
     pub kernel_name: String,
 }
@@ -85,27 +89,22 @@ impl<D: Dialect> ComputeKernel<D> {
 impl<D: Dialect> Display for ComputeKernel<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut flags = self.flags.clone();
-        if self
-            .constants
-            .iter()
-            .any(|c| matches!(c, ConstBinding::TensorMap))
-        {
+        if !self.tensor_maps.is_empty() {
             flags.inst_tma = true;
         }
 
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &flags)?;
-        D::compile_type_definitions(f, &self.items, &flags)?;
+        D::compile_type_definitions(f, &self.items, &self.scalars, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
         // Kernel signature --------------------------------------------------
         D::compile_kernel_signature(
             f,
             &self.kernel_name,
-            &self.constants,
-            &self.inputs,
-            &self.outputs,
-            &self.named,
+            &self.tensor_maps,
+            &self.buffers,
+            &self.scalars,
             &self.flags,
         )?;
 
@@ -130,6 +129,7 @@ pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt
     writeln!(f, "typedef signed short int16;")?;
     writeln!(f, "typedef signed int int32;")?;
     writeln!(f, "typedef signed long long int int64;")?;
+
     Ok(())
 }
 
@@ -162,76 +162,126 @@ struct __align__({alignment}) {item} {{"
     Ok(())
 }
 
-pub fn compile_bindings<D: Dialect>(
+pub fn type_scalar_definitions<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
-    constants: &[ConstBinding],
-    inputs: &[Binding<D>],
-    outputs: &[Binding<D>],
-    named: &[(String, Binding<D>)],
+    scalars: &[(Elem<D>, usize)],
 ) -> std::fmt::Result {
-    let num_bindings = constants.len() + inputs.len() + outputs.len() + named.len();
-    let mut binding_index = 0;
-    write!(f, "    ")?;
-    for (index, binding) in constants.iter().enumerate() {
-        binding_index += 1;
-        match binding {
-            ConstBinding::TensorMap => {
-                write!(f, "const __grid_constant__ CUtensorMap constant_{}", index)?;
-            }
-        }
-        if binding_index < num_bindings {
-            f.write_str(", ")?;
-        }
-    }
-
-    for (index, binding) in inputs.iter().enumerate() {
-        binding_index += 1;
-        match binding.vis {
-            Visibility::Read => {
-                write!(f, "{} in_{}[]", binding.item, index)?;
-                // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                // we should have multiple pointer types to enable that optimization.
-                //
-                // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
-            }
-            Visibility::ReadWrite => {
-                write!(f, "{} in_{}[]", binding.item, index)?;
-            }
-        }
-        if binding_index < num_bindings {
-            f.write_str(", ")?;
-        }
-    }
-
-    for (index, binding) in outputs.iter().enumerate() {
-        binding_index += 1;
-        write!(f, "{} out_{}[]", binding.item, index)?;
-        if binding_index < num_bindings {
-            f.write_str(", ")?;
-        }
-    }
-
-    for (name, binding) in named.iter() {
-        binding_index += 1;
-
-        match binding.vis {
-            Visibility::Read => {
-                write!(f, "{} {}[]", binding.item, name)?;
-                // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
-                // we should have multiple pointer types to enable that optimization.
-                //
-                // write!(f, "const {}* __restrict__ {}", binding.item, name)?;
-            }
-            Visibility::ReadWrite => {
-                write!(f, "{} {}[]", binding.item, name)?;
-            }
-        }
-
-        if binding_index < num_bindings {
-            f.write_str(", ")?;
-        }
+    for (elem, count) in scalars.iter() {
+        writeln!(
+            f,
+            "
+struct scalars_{elem}_st {{
+{elem} x[{count}];
+}};"
+        )?;
     }
     Ok(())
+}
+
+pub fn type_info_definition<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    static_len: usize,
+) -> std::fmt::Result {
+    if static_len > 0 {
+        write!(
+            f,
+            "
+struct metadata_st {{
+uint x[{}];
+}};
+",
+            static_len
+        )?;
+    }
+    Ok(())
+}
+
+pub fn compile_bindings_a<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    tensor_maps: &[Id],
+    buffers: &[Binding<D>],
+    trailing_comma: bool,
+    flags: &Flags,
+) -> core::fmt::Result {
+    write!(f, "    ")?;
+
+    let mut args = Vec::new();
+
+    args.extend(
+        tensor_maps
+            .iter()
+            .map(|id| format!("const __grid_constant__ CUtensorMap tensor_map_{id}")),
+    );
+    args.extend(buffers.iter().map(|binding| match binding.vis {
+        Visibility::Read => {
+            format!("{} buffer_{}[]", binding.item, binding.id)
+            // TODO: It breaks slices, because we can't easily create pointer to __restrict__,
+            // we should have multiple pointer types to enable that optimization.
+            //
+            // write!(f, "const {}* __restrict__ input_{}", binding.item, index)?;
+        }
+        Visibility::ReadWrite => {
+            format!("{} buffer_{}[]", binding.item, binding.id)
+        }
+    }));
+    args.extend(
+        flags
+            .has_dynamic_meta
+            .then(|| format!("const uint32* __restrict__ {INFO_NAME}")),
+    );
+
+    write!(f, "{}", args.join(", "))?;
+    if trailing_comma {
+        f.write_str(", ")?;
+    }
+    Ok(())
+}
+
+pub fn compile_scalars_dynamic<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    scalars: &[(Elem<D>, usize)],
+) -> core::fmt::Result {
+    let scalar_inputs = scalars
+        .iter()
+        .map(|(elem, _)| format!("const {}* __restrict__ scalars_{}", elem, elem));
+    let scalar_inputs = scalar_inputs.collect::<Vec<String>>();
+
+    write!(f, "{}", scalar_inputs.join(","))
+}
+
+pub fn compile_scalars_static<D: Dialect>(
+    f: &mut std::fmt::Formatter<'_>,
+    scalars: &[(Elem<D>, usize)],
+    flags: &Flags,
+) -> core::fmt::Result {
+    let mut scalar_inputs = Vec::new();
+
+    // Need to sort elements because of alignment when packing
+    // Metadata is align 4 so it needs to be spliced in the middle.
+    let scalars_of_size = |scalar_inputs: &mut Vec<String>, size: usize| {
+        for (elem, _) in scalars.iter().filter(|it| it.0.size() == size) {
+            scalar_inputs.push(format!(
+                "const __grid_constant__ scalars_{elem}_st scalars_{elem}"
+            ));
+        }
+    };
+
+    // Pack 64-bit aligned types first, since metadata is 32-bit aligned
+    scalars_of_size(&mut scalar_inputs, 8);
+
+    // Pack metadata
+    if flags.static_meta_length > 0 {
+        scalar_inputs.push(format!(
+            "const __grid_constant__ metadata_st {STATIC_INFO_NAME}"
+        ));
+    }
+
+    // Pack remaining scalars that are 4 bytes or below
+    for size in [4, 2, 1] {
+        scalars_of_size(&mut scalar_inputs, size);
+    }
+
+    write!(f, "{}", scalar_inputs.join(", "))
 }
 
 fn compile_cube_builtin_bindings_decl<D: Dialect>(

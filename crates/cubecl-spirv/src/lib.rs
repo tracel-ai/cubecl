@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use cubecl_core::compute::Binding;
 use cubecl_opt::Optimizer;
+use item::Elem;
 use rspirv::{
     binary::{Assemble, Disassemble},
     dr::Module,
@@ -34,6 +35,8 @@ pub struct SpirvKernel {
     pub module: Module,
     pub optimizer: Optimizer,
     pub bindings: Vec<Binding>,
+    pub scalars: Vec<(Elem, usize)>,
+    pub has_metadata: bool,
 }
 
 impl Display for SpirvKernel {

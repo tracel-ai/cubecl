@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
-use cubecl_core::compute::ConstBinding;
+use cubecl_core::ir::Id;
 
 use crate::shared::FmtLeft;
 
@@ -76,6 +76,7 @@ pub trait DialectTypes<D: Dialect> {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<D>>,
+        scalars: &[(Elem<D>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
@@ -95,10 +96,9 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        constants: &[ConstBinding],
-        inputs: &[Binding<D>],
-        outputs: &[Binding<D>],
-        named: &[(String, Binding<D>)],
+        tensor_maps: &[Id],
+        buffers: &[Binding<D>],
+        scalars: &[(Elem<D>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result;
 }

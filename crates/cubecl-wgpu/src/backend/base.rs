@@ -14,9 +14,9 @@ use super::wgsl;
 #[cfg(feature = "spirv")]
 use super::vulkan;
 
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 use cubecl_cpp::metal as cpp_metal;
 
 impl WgpuServer {
@@ -37,7 +37,7 @@ impl WgpuServer {
                         })
                 }
             }
-            #[cfg(feature = "msl")]
+            #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentation::Msl(repr)) => {
                 // TODO remove the panic once metal passthrough is available in wgpu
                 // panic!("cubecl msl compiler not yet supported in wgpu");
@@ -82,7 +82,7 @@ impl WgpuServer {
         };
         let bindings = match &kernel.repr {
             Some(AutoRepresentation::Wgsl(repr)) => Some(wgsl::bindings(repr)),
-            #[cfg(feature = "msl")]
+            #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentation::Msl(repr)) => Some(cpp_metal::bindings(repr)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => Some(vulkan::bindings(repr)),
@@ -124,20 +124,20 @@ impl WgpuServer {
                 })
         });
 
-        let pipeline = Arc::new(self.device.create_compute_pipeline(
-            &wgpu::ComputePipelineDescriptor {
-                label: Some(&kernel.entrypoint_name),
-                layout: layout.as_ref(),
-                module: &module,
-                entry_point: Some(&kernel.entrypoint_name),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    zero_initialize_workgroup_memory: false,
-                    ..Default::default()
-                },
-                cache: None,
-            },
-        ));
-        pipeline
+        Arc::new(
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(&kernel.entrypoint_name),
+                    layout: layout.as_ref(),
+                    module: &module,
+                    entry_point: Some(&kernel.entrypoint_name),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory: false,
+                        ..Default::default()
+                    },
+                    cache: None,
+                }),
+        )
     }
 }
 
@@ -155,7 +155,7 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     }
 }
 
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
     use super::metal;
 
@@ -188,7 +188,7 @@ pub fn register_features(
     }
 }
 
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties<Feature>,
@@ -206,7 +206,7 @@ fn is_vulkan(adapter: &Adapter) -> bool {
     unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
 }
 
-#[cfg(feature = "msl")]
+#[cfg(all(feature = "msl", target_os = "macos"))]
 fn is_metal(adapter: &Adapter) -> bool {
     unsafe { adapter.as_hal::<wgpu::hal::api::Metal, _, _>(|adapter| adapter.is_some()) }
 }
