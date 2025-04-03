@@ -96,6 +96,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &flags)?;
         D::compile_type_definitions(f, &self.items, &self.scalars, &flags)?;
+        D::compile_polyfills(f, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
         // Kernel signature --------------------------------------------------
@@ -196,7 +197,7 @@ uint x[{}];
     Ok(())
 }
 
-pub fn compile_bindings_a<D: Dialect>(
+pub fn compile_bindings<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     tensor_maps: &[Id],
     buffers: &[Binding<D>],

@@ -14,7 +14,7 @@ fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     if UNIT_POS == 0 {
-        barrier.memcpy_async_tensor_to_shared_2d(input, &mut stage.to_slice_mut(), 0, 8);
+        barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
         barrier.arrive_tx(1, 32 * 16 * F::elem_size());
     } else {
         barrier.arrive();
@@ -36,10 +36,57 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
     sync_units();
 
     if UNIT_POS == 0 {
-        memcpy_async_tensor_to_global_2d(&shared.to_slice(), output, 16, 8);
-        memcpy_async_tensor_commit();
-        memcpy_async_tensor_wait_read(0u32);
+        tma_store_2d(&shared.to_slice(), output, 16, 8);
+        tma_group_commit();
+        tma_group_wait_read(0u32);
     }
+}
+
+#[cube(launch)]
+fn tensormap_im2col_load<F: Float>(
+    input: &TensorMap<F>,
+    output: &mut Tensor<Line<F>>,
+    #[comptime] tile_m: u32,
+    #[comptime] kernel_h: u16,
+    #[comptime] kernel_w: u16,
+    #[comptime] channels: u32,
+    #[comptime] pad_h: i32,
+    #[comptime] pad_w: i32,
+) {
+    let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
+    let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
+
+    let barrier = Barrier::<F>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
+
+    if UNIT_POS == 0 {
+        #[unroll]
+        for kernel_y in 0..kernel_h {
+            #[unroll]
+            for kernel_x in 0..kernel_w {
+                let kernel_idx = kernel_y * kernel_w + kernel_x;
+                let slice_start = kernel_idx as u32 * tile_width;
+                let slice_end = slice_start + tile_width;
+                let mut stage_slice = stage.slice_mut(slice_start, slice_end);
+                barrier.tma_load_im2col_4d(
+                    input,
+                    &mut stage_slice,
+                    0,
+                    -pad_h,
+                    -pad_w,
+                    0,
+                    kernel_y,
+                    kernel_x,
+                );
+            }
+        }
+        barrier.arrive_tx(1, tile_width * tile_k * F::elem_size());
+    } else {
+        barrier.arrive();
+    }
+    barrier.wait();
+
+    output[ABSOLUTE_POS] = stage[ABSOLUTE_POS];
 }
 
 #[cube(launch)]
@@ -149,6 +196,97 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected);
 }
 
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+) where
+    <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
+{
+    if !client
+        .properties()
+        .feature_enabled(Feature::Tma(TmaFeature::Base))
+    {
+        println!("Skipped test_tensormap_load due to unavailability");
+        return;
+    }
+
+    let n = 1;
+    let h = 3;
+    let w = 3;
+    let c = 4;
+
+    let kernel_h = 2;
+    let kernel_w = 2;
+
+    let pad_h = 1;
+    let pad_w = 1;
+    let corner_h = pad_h - (kernel_h as i32 - 1);
+    let corner_w = pad_w - (kernel_w as i32 - 1);
+
+    let out_h = 4;
+    let out_w = 4;
+
+    let tile_m = n * out_h * out_w;
+    let tile_k = kernel_h * kernel_w * c;
+    let out_size = tile_m * tile_k;
+
+    let values = (1..h * w * c + 1)
+        .map(|it| F::from_int(it as i64))
+        .collect::<Vec<_>>();
+    println!("{values:?}");
+    let shape = [n, h, w, c];
+    let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+    let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
+    let out_shape = [tile_k, tile_m];
+    let out_strides = [tile_m, 1];
+    let out = client.empty(out_size * size_of::<F>());
+
+    tensormap_im2col_load::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(tile_m as u32 * c as u32, kernel_h as u32 * kernel_w as u32),
+        TensorMapArg::new(
+            TensorMapFormat::Im2col {
+                pixel_box_lower_corner: vec![-pad_h, -pad_w],
+                pixel_box_upper_corner: vec![corner_h, corner_w],
+                channels_per_pixel: c as u32,
+                pixels_per_column: tile_m as u32,
+            },
+            input,
+            F::as_elem_native_unchecked(),
+        ),
+        unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
+        tile_m as u32,
+        kernel_h as u16,
+        kernel_w as u16,
+        c as u32,
+        pad_h,
+        pad_w,
+    );
+
+    let actual = client.read_one(out.binding());
+    let actual = F::from_bytes(&actual);
+
+    let mut expected = vec![0, 0, 0, 0, 0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9];
+    expected.extend([0, 0, 0, 0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9, 0]);
+    expected.extend([0, 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9, 0, 0, 0, 0]);
+    expected.extend([1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9, 0, 0, 0, 0, 0]);
+
+    let expected_actual: Vec<F> = expected
+        .iter()
+        .flat_map(|v| {
+            if *v == 0 {
+                vec![0, 0, 0, 0]
+            } else {
+                let ch_start = (*v - 1) * c + 1;
+                (ch_start..ch_start + c).collect()
+            }
+        })
+        .map(|v| F::from_int(v as i64))
+        .collect();
+
+    assert_eq!(actual, &expected_actual);
+}
+
 pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) where
@@ -210,6 +348,14 @@ macro_rules! testgen_tensormap {
         fn test_tensormap_load() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::tensormap::test_tensormap_load::<TestRuntime, FloatType>(
+                client,
+            );
+        }
+
+        #[test]
+        fn test_tensormap_load_im2col() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::tensormap::test_tensormap_load_im2col::<TestRuntime, FloatType>(
                 client,
             );
         }

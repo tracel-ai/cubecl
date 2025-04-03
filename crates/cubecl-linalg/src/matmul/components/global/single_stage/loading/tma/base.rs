@@ -48,7 +48,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
     ) {
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.memcpy_async_tensor_to_shared_3d(
+            this.barrier.tma_load_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,
@@ -134,7 +134,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
     ) {
         if UNIT_POS == 0 {
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.memcpy_async_tensor_to_shared_3d(
+            this.barrier.tma_load_3d(
                 &this.tensor_view.tensor,
                 &mut stage,
                 this.tensor_view.batch as i32,
