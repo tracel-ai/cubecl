@@ -29,7 +29,7 @@ pub struct KernelLauncher<R: Runtime> {
 }
 
 impl<R: Runtime> KernelLauncher<R> {
-    /// Register an input tensor to be launched.
+    /// Register a tensor to be launched.
     pub fn register_tensor(&mut self, tensor: &TensorArg<'_, R>) {
         self.tensors.push_tensor(tensor);
     }
