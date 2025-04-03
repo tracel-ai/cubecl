@@ -72,6 +72,8 @@ pub enum Feature {
     Barrier,
     /// Tensor Memory Accelerator features. Minimum H100/RTX 5000 series for base set
     Tma(TmaFeature),
+    /// Enables to change the line size of containers during kernel execution.
+    DynamicLineSize,
 }
 
 /// Atomic features that may be supported by a [cube runtime](Runtime).
