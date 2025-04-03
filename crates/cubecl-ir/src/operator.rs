@@ -18,6 +18,8 @@ pub enum Operator {
     #[operation(pure)]
     Slice(SliceOperator),
     #[operation(pure)]
+    ReinterpretSlice(ReinterpretSliceOperator),
+    #[operation(pure)]
     UncheckedIndex(BinaryOperator),
     IndexAssign(BinaryOperator),
     #[operation(pure)]
@@ -32,7 +34,7 @@ pub enum Operator {
     #[operation(pure)]
     Cast(UnaryOperator),
     #[operation(pure)]
-    Bitcast(UnaryOperator),
+    Reinterpret(UnaryOperator),
     /// A select statement/ternary
     #[operation(pure)]
     Select(Select),
@@ -51,6 +53,9 @@ impl Display for Operator {
                 op.input, op.in_index, op.out_index, op.len
             ),
             Operator::Slice(op) => write!(f, "{}[{}..{}]", op.input, op.start, op.end),
+            Operator::ReinterpretSlice(op) => {
+                write!(f, "with_line_size({}, {})", op.input, op.line_size)
+            }
             Operator::UncheckedIndex(op) => {
                 write!(f, "unchecked {}[{}]", op.lhs, op.rhs)
             }
@@ -73,7 +78,7 @@ impl Display for Operator {
                 write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
-            Operator::Bitcast(op) => write!(f, "bitcast({})", op.input),
+            Operator::Reinterpret(op) => write!(f, "bitcast({})", op.input),
         }
     }
 }
@@ -85,6 +90,14 @@ pub struct SliceOperator {
     pub input: Variable,
     pub start: Variable,
     pub end: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct ReinterpretSliceOperator {
+    pub input: Variable,
+    pub line_size: u32,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

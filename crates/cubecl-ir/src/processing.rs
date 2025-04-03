@@ -199,6 +199,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_elem(&mut op.start, Elem::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_elem(&mut op.end, Elem::UInt(UIntKind::U32));
                     }
+                    Operator::ReinterpretSlice(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Operator::Index(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(&mut op.rhs, Elem::UInt(UIntKind::U32));
@@ -257,7 +260,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
                     }
                     Operator::Cast(_) => {}
-                    Operator::Bitcast(_) => {}
+                    Operator::Reinterpret(_) => {}
                 },
                 Operation::Atomic(op) => match op {
                     AtomicOp::Load(_) => {}

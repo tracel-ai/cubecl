@@ -1,13 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::ReinterpretList;
+use crate::ReinterpretSlice;
 use half::f16;
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn kernel_read(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     let line_size = input.line_size();
-    let list = ReinterpretList::<i8, f16, &Array<Line<i8>>>::new(input, line_size);
+    let list = ReinterpretSlice::<i8, f16>::new(input.to_slice_mut(), line_size);
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
@@ -17,14 +17,15 @@ pub fn run_test_read<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, l
 
     let input = client.create(i8::as_bytes(&casted));
     let output = client.empty(4);
-
-    kernel_read::launch::<R>(
-        &client,
-        CubeCount::new_single(),
-        CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts::<i8>(&input, 4 / line_size, line_size as u8) },
-        unsafe { ArrayArg::from_raw_parts::<f16>(&output, 2, 1) },
-    );
+    unsafe {
+        kernel_read::launch_unchecked::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(2),
+            ArrayArg::from_raw_parts::<i8>(&input, 4 / line_size, line_size as u8),
+            ArrayArg::from_raw_parts::<f16>(&output, 2, 1),
+        );
+    }
 
     let actual = client.read_one(output.binding());
     let actual = f16::from_bytes(&actual);
@@ -32,10 +33,10 @@ pub fn run_test_read<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, l
     assert_eq!(actual, target);
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn kernel_write(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     let line_size = output.line_size();
-    let list = ReinterpretList::<i8, f16, &Array<Line<i8>>>::new(output, line_size);
+    let mut list = ReinterpretSlice::<i8, f16>::new(output.to_slice_mut(), line_size);
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 
@@ -46,13 +47,15 @@ pub fn run_test_write<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, 
     let output = client.empty(4);
     let input = client.create(f16::as_bytes(&source));
 
-    kernel_read::launch::<R>(
-        &client,
-        CubeCount::new_single(),
-        CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts::<i8>(&output, 4 / line_size, line_size as u8) },
-        unsafe { ArrayArg::from_raw_parts::<f16>(&input, 2, 1) },
-    );
+    unsafe {
+        kernel_write::launch_unchecked::<R>(
+            &client,
+            CubeCount::new_single(),
+            CubeDim::new_1d(2),
+            ArrayArg::from_raw_parts::<i8>(&output, 4 / line_size, line_size as u8),
+            ArrayArg::from_raw_parts::<f16>(&input, 2, 1),
+        );
+    }
 
     let actual = client.read_one(output.binding());
     let actual = i8::from_bytes(&actual);
