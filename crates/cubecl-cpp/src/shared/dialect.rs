@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
@@ -531,9 +532,24 @@ pub trait DialectInstructions<D: Dialect> {
     }
 
     // others
+    fn compile_instruction_max<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 | Elem::BF16 => "__hmax",
+            Elem::F162 | Elem::BF162 => "__hmax2",
+            _ => "max",
+        };
+        write!(f, "{max}({lhs}, {rhs})")
+    }
+
     fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "powf")
     }
+
 
     fn compile_instruction_half_function_name_prefix() -> &'static str { "h" }
 

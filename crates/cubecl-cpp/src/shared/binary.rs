@@ -221,13 +221,7 @@ impl<D: Dialect> Binary<D> for Max {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmax",
-            Elem::F162 | Elem::BF162 => "__hmax2",
-            _ => "max",
-        };
-
-        write!(f, "{max}({lhs}, {rhs})")
+        D::compile_instruction_max(f, lhs, rhs, item)
     }
 }
 
