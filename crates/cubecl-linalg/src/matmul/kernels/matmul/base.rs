@@ -6,7 +6,7 @@ use crate::matmul::components::{
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
-use crate::tensor::{MatrixTensorLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -52,12 +52,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     // }
 
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixTensorLayout::Contiguous => (false, false),
-        MatrixTensorLayout::MildlyPermuted {
+        MatrixBatchLayout::Contiguous => (false, false),
+        MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap: _,
         } => (false, transposed),
-        MatrixTensorLayout::HighlyPermuted => (true, false),
+        MatrixBatchLayout::HighlyPermuted => (true, false),
     };
 
     let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs);

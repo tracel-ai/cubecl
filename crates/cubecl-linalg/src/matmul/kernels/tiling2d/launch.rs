@@ -7,7 +7,7 @@ use crate::{
         base::tiling2d_cube_kernel,
         config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
     },
-    tensor::{MatrixTensorLayout, TensorHandle, into_contiguous, matrix_layout},
+    tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout},
 };
 
 use super::config::Tiling2dConfig;
@@ -42,12 +42,12 @@ pub fn matmul_tiling_2d_ref<R: Runtime, EG: Numeric>(
         "Shared memory limit will be busted. "
     );
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixTensorLayout::Contiguous => true,
-        MatrixTensorLayout::MildlyPermuted {
+        MatrixBatchLayout::Contiguous => true,
+        MatrixBatchLayout::MildlyPermuted {
             transposed: _,
             batch_swap: _,
         } => true,
-        MatrixTensorLayout::HighlyPermuted => false,
+        MatrixBatchLayout::HighlyPermuted => false,
     };
     let lhs_correct_layout = check_layout(lhs);
     let rhs_correct_layout = check_layout(rhs);
@@ -93,12 +93,12 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     let n = rhs.shape[rank - 1];
 
     let check_layout = |strides: &[usize]| match matrix_layout(strides) {
-        MatrixTensorLayout::Contiguous => false,
-        MatrixTensorLayout::MildlyPermuted {
+        MatrixBatchLayout::Contiguous => false,
+        MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap: _,
         } => transposed,
-        MatrixTensorLayout::HighlyPermuted => {
+        MatrixBatchLayout::HighlyPermuted => {
             panic!("Can't run on highly permuted tensor")
         }
     };
