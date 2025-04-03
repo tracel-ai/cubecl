@@ -623,7 +623,10 @@ impl DialectInstructions<Self> for MslDialect {
         f: &mut std::fmt::Formatter<'_>,
         input: T,
     ) -> std::fmt::Result {
-        write!(f, "log(1.0f + {input})")
+        match input.elem() {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => write!(f, "log(half(1.0f) + {input})"),
+            _ => write!(f, "log(1.0f + {input})"),
+        }
     }
 
     // sync

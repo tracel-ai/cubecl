@@ -91,10 +91,10 @@ pub trait FunctionFmt<D: Dialect> {
                 Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
-            return format!("{prefix}{}", Self::base_function_name());
+            format!("{prefix}{}", Self::base_function_name())
+        } else {
+            Self::base_function_name().into()
         }
-
-        Self::base_function_name().into()
     }
     fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
@@ -102,14 +102,14 @@ pub trait FunctionFmt<D: Dialect> {
         elem: Elem<D>,
     ) -> std::fmt::Result {
         if Self::half_support() {
-            return write!(f, "{}({input})", Self::function_name(elem));
-        }
-
-        match elem {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+            write!(f, "{}({input})", Self::function_name(elem))
+        } else {
+            match elem {
+                Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
-            _ => write!(f, "{}({input})", Self::function_name(elem)),
         }
     }
 
