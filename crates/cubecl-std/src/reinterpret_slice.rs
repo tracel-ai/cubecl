@@ -3,18 +3,6 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-// TODO Move to core
-#[derive(Clone)]
-pub struct Read;
-
-#[derive(Clone)]
-pub struct ReadWrite;
-
-pub trait CubeIO {}
-
-impl CubeIO for Read {}
-impl CubeIO for ReadWrite {}
-
 /// This struct allows to take a slice of `Line<S>` and reinterpret it
 /// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
 /// to a slice of `T`. When indexing, the index is valid in the casted list.
@@ -49,12 +37,6 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn read(&self, index: u32) -> T {
         T::reinterpret(self.slice[index])
     }
-
-    // #[allow(clippy::comparison_chain)]
-    // pub fn write(&mut self, index: u32, value: T) {
-    //     let reinterpreted = Line::<S>::reinterpret(value);
-    //     self.slice[index] = reinterpreted;
-    // }
 }
 
 /// This struct allows to take a mutable slice of `Line<S>` and reinterpret it
