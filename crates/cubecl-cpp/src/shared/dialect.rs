@@ -550,7 +550,6 @@ pub trait DialectInstructions<D: Dialect> {
         write!(f, "powf")
     }
 
-
     fn compile_instruction_half_function_name_prefix() -> &'static str { "h" }
 
     fn compile_instruction_half2_function_name_prefix() -> &'static str { "h2" }

@@ -724,10 +724,13 @@ impl<D: Dialect> Remainder<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let floor = |elem| match elem {
-            Elem::F16 | Elem::BF16 => "hfloor",
-            Elem::F162 | Elem::BF162 => "h2floor",
-            _ => "floor",
+        let floor = |elem| {
+            let prefix = match elem {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half_function_name_prefix(),
+                _ => "",
+            };
+            format!("{prefix}floor")
         };
 
         if out.item().vectorization == 1 {
