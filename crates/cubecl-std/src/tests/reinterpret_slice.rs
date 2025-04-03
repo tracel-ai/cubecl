@@ -64,45 +64,45 @@ pub fn run_test_write<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, 
 }
 
 #[macro_export]
-macro_rules! testgen_reinterpret_list {
+macro_rules! testgen_reinterpret_slice {
     () => {
-        mod reinterpret_list_f16 {
+        mod reinterpret_slice_f16 {
             use super::*;
 
             #[test]
             fn read_from_i8x1() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_read::<TestRuntime>(client, 1);
+                cubecl_std::tests::reinterpret_slice::run_test_read::<TestRuntime>(client, 1);
             }
 
             #[test]
             fn read_from_i8x2() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_read::<TestRuntime>(client, 2);
+                cubecl_std::tests::reinterpret_slice::run_test_read::<TestRuntime>(client, 2);
             }
 
             #[test]
             fn read_from_i8x4() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_read::<TestRuntime>(client, 4);
+                cubecl_std::tests::reinterpret_slice::run_test_read::<TestRuntime>(client, 4);
             }
 
             #[test]
             fn write_into_i8x1() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_write::<TestRuntime>(client, 1);
+                cubecl_std::tests::reinterpret_slice::run_test_write::<TestRuntime>(client, 1);
             }
 
             #[test]
             fn write_into_i8x2() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_write::<TestRuntime>(client, 2);
+                cubecl_std::tests::reinterpret_slice::run_test_write::<TestRuntime>(client, 2);
             }
 
             #[test]
             fn write_into_i8x4() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::reinterpret_list::run_test_write::<TestRuntime>(client, 4);
+                cubecl_std::tests::reinterpret_slice::run_test_write::<TestRuntime>(client, 4);
             }
         }
     };

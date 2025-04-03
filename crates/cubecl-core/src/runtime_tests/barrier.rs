@@ -45,7 +45,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
 
 #[cube(launch)]
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
-    let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
+    let lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
     let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
     sync_units();

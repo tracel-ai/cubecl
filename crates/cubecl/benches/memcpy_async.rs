@@ -463,7 +463,7 @@ fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     let mut acc = Array::<Line<E>>::new(config.acc_len);
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 
-    let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let barrier = Cpy::barrier();
 
     for i in 0..num_iterations {
@@ -494,8 +494,8 @@ fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     #[comptime] config: Config,
 ) {
     let data_count = input.shape(0);
-    let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
-    let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
+    let smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let mut acc = Array::<Line<E>>::new(config.acc_len);
     let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
 

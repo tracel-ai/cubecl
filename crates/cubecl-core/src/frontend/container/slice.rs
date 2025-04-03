@@ -71,7 +71,7 @@ mod metadata {
     impl<E: CubePrimitive> Slice<Line<E>> {
         /// Return a new Slice with updated line_size. This doesn't copy or move the data,
         /// it simply reinterpret how they are loaded and stored in memory.
-        /// 
+        ///
         /// # Warning
         ///
         /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
@@ -109,10 +109,9 @@ mod metadata {
     }
 
     impl<E: CubePrimitive> SliceMut<Line<E>> {
-
         /// Return a new SliceMut with updated line_size. This doesn't copy or move the data,
         /// it simply reinterpret how they are loaded and stored in memory.
-        /// 
+        ///
         /// # Warning
         ///
         /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
@@ -440,7 +439,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Reinterprete the current type as a read-write slice.
-    #[allow(unused_variables)]
+    #[allow(unused_variables, clippy::wrong_self_convention)]
     fn to_slice_mut(&self) -> SliceMut<E> {
         unexpanded!()
     }
