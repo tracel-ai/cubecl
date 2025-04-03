@@ -1,13 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::ReinterpretSlice;
+use crate::{ReinterpretSlice, ReinterpretSliceMut};
 use half::f16;
 
 #[cube(launch_unchecked)]
 fn kernel_read(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     let line_size = input.line_size();
-    let list = ReinterpretSlice::<i8, f16>::new(input.to_slice_mut(), line_size);
+    let list = ReinterpretSlice::<i8, f16>::new(input.to_slice(), line_size);
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
@@ -36,7 +36,7 @@ pub fn run_test_read<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, l
 #[cube(launch_unchecked)]
 fn kernel_write(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     let line_size = output.line_size();
-    let mut list = ReinterpretSlice::<i8, f16>::new(output.to_slice_mut(), line_size);
+    let mut list = ReinterpretSliceMut::<i8, f16>::new(output.to_slice_mut(), line_size);
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 

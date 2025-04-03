@@ -78,7 +78,7 @@ impl Display for Operator {
                 write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
-            Operator::Reinterpret(op) => write!(f, "bitcast({})", op.input),
+            Operator::Reinterpret(op) => write!(f, "reinterpret({})", op.input),
         }
     }
 }

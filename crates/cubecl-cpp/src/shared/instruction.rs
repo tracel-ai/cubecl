@@ -273,7 +273,6 @@ impl<D: Dialect> Display for Instruction<D> {
                 item.vectorization = *line_size as usize;
                 let addr_space = D::address_space_for_variable(input);
 
-                // writeln!(f, "const uint {out}_length = {input}_length;")?;
                 writeln!(
                     f,
                     "{addr_space}{item} *{out} = reinterpret_cast<{item}*>({input});"

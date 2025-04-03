@@ -440,7 +440,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
 
     /// Reinterprete the current type as a read-write slice.
     #[allow(unused_variables, clippy::wrong_self_convention)]
-    fn to_slice_mut(&self) -> SliceMut<E> {
+    fn to_slice_mut(&mut self) -> SliceMut<E> {
         unexpanded!()
     }
 
@@ -599,9 +599,6 @@ impl<T: CubePrimitive> ListMut<T> for SliceMut<T> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        println!("--------------------------------------------");
-        println!("HELLO: {:?}", this.expand.item);
-        println!("--------------------------------------------");
         index_assign::expand(scope, this, idx, value);
     }
 }
@@ -613,9 +610,6 @@ impl<T: CubePrimitive> ListMutExpand<T> for ExpandElementTyped<SliceMut<T>> {
         idx: ExpandElementTyped<u32>,
         value: ExpandElementTyped<T>,
     ) {
-        println!("--------------------------------------------");
-        println!("HELLO EXPAND: {:?}", self.expand.item);
-        println!("--------------------------------------------");
         index_assign::expand(scope, self, idx, value);
     }
 }
