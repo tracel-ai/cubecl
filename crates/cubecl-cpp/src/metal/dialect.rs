@@ -873,13 +873,14 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 };
                 match ty {
                     Elem::BF16 => {
+                        let addr_space = Self::address_space_for_variable(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{
     {ty} elem = {ty}({input}.thread_elements()[e]);
-    {output}.thread_elements()[e] = *reinterpret_cast<{elem} *>(&elem);
+    {output}.thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
 }}"
                         )
                     }

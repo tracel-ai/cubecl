@@ -523,9 +523,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
                 } else {
                     let out = out.fmt_left();
+                    let addr_space = D::address_space_for_variable(input);
                     writeln!(
                         f,
-                        "{out} = reinterpret_cast<{out_item}{qualifier}&>({input});"
+                        "{out} = reinterpret_cast<{addr_space}{out_item}{qualifier}&>({input});"
                     )
                 }
             }
@@ -771,12 +772,13 @@ impl<D: Dialect> Remainder<D> {
 
             write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
 
+            let addr_space = D::address_space_for_variable(&out_tmp);
             let qualifier = out.const_qualifier();
             let out = out.fmt_left();
 
             writeln!(
                 f,
-                "{out} = reinterpret_cast<{item_out_original}{qualifier}&>({out_tmp});\n"
+                "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
             )?;
 
             Ok(())
