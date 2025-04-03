@@ -134,7 +134,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         R::line_size_elem(&ei_elem),
         rhs.shape,
         rhs.strides,
-        match lhs_layout {
+        match rhs_layout {
             MatrixLayout::RowMajor => rank - 1,
             MatrixLayout::ColMajor => rank - 2,
         },
