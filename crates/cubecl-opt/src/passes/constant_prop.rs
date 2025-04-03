@@ -508,11 +508,12 @@ fn try_const_eval_operator(op: &mut Operator) -> Option<ConstantScalarValue> {
         | Operator::CopyMemory(_)
         | Operator::CopyMemoryBulk(_)
         | Operator::Slice(_)
+        | Operator::ReinterpretSlice(_)
         | Operator::UncheckedIndex(_)
         | Operator::IndexAssign(_)
         | Operator::InitLine(_)
         | Operator::UncheckedIndexAssign(_)
-        | Operator::Bitcast(_)
+        | Operator::Reinterpret(_)
         | Operator::Select(_) => None,
     }
 }

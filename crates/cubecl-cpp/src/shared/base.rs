@@ -1007,6 +1007,14 @@ impl<D: Dialect> CppCompiler<D> {
                     })
                 }
             }
+            gpu::Operator::ReinterpretSlice(op) => {
+                // TODO Do we need to add special behavior in checked mode?
+                instructions.push(Instruction::ReinterpretSlice {
+                    input: self.compile_variable(op.input),
+                    line_size: op.line_size,
+                    out: self.compile_variable(out),
+                })
+            }
             gpu::Operator::Index(op) => {
                 if matches!(self.strategy, ExecutionMode::Checked)
                     && op.lhs.has_length()
@@ -1090,7 +1098,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Cast(op) => {
                 instructions.push(Instruction::Assign(self.compile_unary(op, out)))
             }
-            gpu::Operator::Bitcast(op) => {
+            gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
         };

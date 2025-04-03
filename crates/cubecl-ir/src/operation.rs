@@ -123,7 +123,7 @@ impl Display for Instruction {
             Operation::Operator(Operator::Cast(op)) => {
                 write!(f, "{} = cast<{}>({})", self.out(), self.item(), op.input)
             }
-            Operation::Operator(Operator::Bitcast(op)) => {
+            Operation::Operator(Operator::Reinterpret(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)
             }
             _ => {

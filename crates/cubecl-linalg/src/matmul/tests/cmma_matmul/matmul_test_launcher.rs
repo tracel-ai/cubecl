@@ -51,13 +51,19 @@ pub fn test_matmul_algorithm<A, P, R>(
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &lhs.shape,
         &lhs.strides,
-        lhs.strides.len() - 1,
+        match problem.lhs_layout {
+            MatrixLayout::RowMajor => lhs.strides.len() - 1,
+            MatrixLayout::ColMajor => lhs.strides.len() - 2,
+        },
     );
     problem.rhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),
         &rhs.shape,
         &rhs.strides,
-        rhs.strides.len() - 1,
+        match problem.rhs_layout {
+            MatrixLayout::RowMajor => lhs.strides.len() - 1,
+            MatrixLayout::ColMajor => lhs.strides.len() - 2,
+        },
     );
     problem.out_line_size = tensor_line_size_parallel(
         R::line_size_elem(&P::EG::as_elem_native_unchecked()),

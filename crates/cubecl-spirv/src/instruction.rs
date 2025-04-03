@@ -223,6 +223,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     },
                 );
             }
+            Operator::ReinterpretSlice(_) => {
+                todo!()
+            }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(out);
@@ -255,7 +258,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.logical_not(ty, Some(out), input).unwrap();
                 });
             }
-            Operator::Bitcast(op) => {
+            Operator::Reinterpret(op) => {
                 self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                     b.bitcast(ty, Some(out), input).unwrap();
                 })
