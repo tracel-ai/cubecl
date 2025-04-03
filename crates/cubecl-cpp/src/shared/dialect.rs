@@ -463,6 +463,14 @@ pub trait DialectInstructions<D: Dialect> {
         writeln!(f, "printf(\"{format_string}\"{args});")
     }
 
+    // logs
+    fn compile_instruction_log1p_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "log1p({input})")
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;

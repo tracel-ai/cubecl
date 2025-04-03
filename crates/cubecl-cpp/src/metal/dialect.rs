@@ -618,6 +618,14 @@ impl DialectInstructions<Self> for MslDialect {
         writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
     }
 
+    // logs
+    fn compile_instruction_log1p_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "log(1.0f + {input})")
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")

@@ -148,7 +148,6 @@ macro_rules! function {
 }
 
 function!(Log, "log");
-function!(Log1p, "log1p", false);
 function!(Cos, "cos");
 function!(Sin, "sin");
 function!(Sqrt, "sqrt");
@@ -159,6 +158,18 @@ function!(Round, "rint");
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
+
+pub struct Log1p;
+
+impl<D: Dialect> Unary<D> for Log1p {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_log1p_scalar(f, input)
+    }
+}
 
 pub struct Tanh;
 
