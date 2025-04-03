@@ -30,11 +30,12 @@ mod features;
 pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
 
 pub fn bindings(repr: &SpirvKernel) -> Vec<(usize, Visibility)> {
-    repr.bindings
-        .iter()
-        .enumerate()
-        .map(|it| (it.0, it.1.visibility))
-        .collect()
+    let mut bindings: Vec<_> = repr.bindings.iter().map(|it| it.visibility).collect();
+    if repr.has_metadata {
+        bindings.push(Visibility::Read);
+    }
+    bindings.extend(repr.scalars.iter().map(|_| Visibility::Read));
+    bindings.into_iter().enumerate().collect()
 }
 
 pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
@@ -158,6 +159,7 @@ fn register_features(
     log::debug!("Supported Vulkan features: {extended_feat:#?}");
 
     register_types(props, &extended_feat);
+    comp_options.supports_u64 = true;
 
     if let Some(atomic_float) = &extended_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {

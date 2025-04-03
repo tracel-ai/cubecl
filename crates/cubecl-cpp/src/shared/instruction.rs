@@ -10,7 +10,8 @@ use std::{
     marker::PhantomData,
 };
 
-const INFO_NAME: &str = "info";
+pub(crate) const INFO_NAME: &str = "info";
+pub(crate) const STATIC_INFO_NAME: &str = "static_info";
 
 #[derive(Debug, Clone)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -29,11 +30,14 @@ pub struct UnaryInstruction<D: Dialect> {
 pub enum Instruction<D: Dialect> {
     Metadata {
         info_offset: Variable<D>,
+        split_meta: bool,
         out: Variable<D>,
     },
     ExtendedMetadata {
         info_offset: Variable<D>,
         dim: Variable<D>,
+        split_meta: bool,
+        static_offset: u32,
         out: Variable<D>,
     },
     ConstLength {
@@ -59,6 +63,7 @@ pub enum Instruction<D: Dialect> {
     Div(BinaryInstruction<D>),
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
+    HiMul(BinaryInstruction<D>),
     Index(BinaryInstruction<D>),
     IndexAssign(BinaryInstruction<D>),
     Assign(UnaryInstruction<D>),
@@ -257,6 +262,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
@@ -413,17 +419,35 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("}\n}\n")
             }
-            Instruction::Metadata { info_offset, out } => {
+            Instruction::Metadata {
+                info_offset,
+                split_meta,
+                out,
+            } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {INFO_NAME}[{info_offset}];")
+                match *split_meta {
+                    true => writeln!(f, "{out} = static_info.x[{info_offset}];"),
+                    false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
+                }
             }
             Instruction::ExtendedMetadata {
                 info_offset,
                 dim,
+                split_meta,
+                static_offset,
                 out,
             } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = {INFO_NAME}[info[{info_offset}] + {dim}];")
+                match *split_meta {
+                    true => writeln!(
+                        f,
+                        "{out} = {INFO_NAME}[{STATIC_INFO_NAME}.x[{info_offset}] + {dim} - {static_offset}];"
+                    ),
+                    false => writeln!(
+                        f,
+                        "{out} = {INFO_NAME}[{INFO_NAME}[{info_offset}] + {dim}];"
+                    ),
+                }
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),

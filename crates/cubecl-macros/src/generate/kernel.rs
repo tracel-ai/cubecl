@@ -11,22 +11,6 @@ use crate::{
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
         let prelude_path = prelude_path();
-        let debug_source = frontend_type("debug_source_expand");
-        let cube_debug = frontend_type("CubeDebug");
-        let src_file = self.src_file.as_ref().map(|file| file.value());
-        #[cfg(nightly)]
-        let src_file = {
-            src_file.or_else(|| {
-                let span: proc_macro::Span = self.span.unwrap();
-                let source_path = span.source_file().path();
-                let source_file = source_path.file_name();
-                source_file.map(|file| file.to_string_lossy().into())
-            })
-        };
-        let source_text = match src_file {
-            Some(file) => quote![include_str!(#file)],
-            None => quote![""],
-        };
 
         let vis = &self.vis;
         let sig = &self.sig;
@@ -35,13 +19,40 @@ impl KernelFn {
             KernelBody::Verbatim(tokens) => tokens,
         };
         let name = &self.full_name;
-        let debug_source = quote_spanned! {self.span=>
-            #debug_source(context, #name, file!(), #source_text, line!(), column!())
+
+        let (debug_source, debug_params) = if cfg!(debug_symbols) || self.debug_symbols {
+            let debug_source = frontend_type("debug_source_expand");
+            let cube_debug = frontend_type("CubeDebug");
+            let src_file = self.src_file.as_ref().map(|file| file.value());
+            #[cfg(nightly)]
+            let src_file = {
+                src_file.or_else(|| {
+                    let span: proc_macro::Span = self.span.unwrap();
+                    let source_path = span.source_file().path();
+                    let source_file = source_path.file_name();
+                    source_file.map(|file| file.to_string_lossy().into())
+                })
+            };
+            let source_text = match src_file {
+                Some(file) => quote![include_str!(#file)],
+                None => quote![""],
+            };
+
+            let debug_source = quote_spanned! {self.span=>
+                #debug_source(context, #name, file!(), #source_text, line!(), column!())
+            };
+            let debug_params = sig
+                .runtime_params()
+                .map(|it| &it.name)
+                .map(|name| {
+                    let name_str = name.to_string();
+                    quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
+                })
+                .collect();
+            (debug_source, debug_params)
+        } else {
+            (TokenStream::new(), Vec::new())
         };
-        let debug_params = sig.runtime_params().map(|it| &it.name).map(|name| {
-            let name_str = name.to_string();
-            quote! [#cube_debug::set_debug_name(&#name, context, #name_str);]
-        });
 
         let out = quote! {
             #vis #sig {
@@ -199,20 +210,12 @@ impl Launch {
                 let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
-        for input in self.runtime_inputs() {
-            define.extend(expand_fn(
-                &input.name,
-                format_ident!("expand"),
-                input.ty_owned(),
-            ));
-        }
-
-        for output in self.runtime_outputs() {
-            define.extend(expand_fn(
-                &output.name,
-                format_ident!("expand_output"),
-                output.ty_owned(),
-            ));
+        for param in self.runtime_params() {
+            let expand_name = match param.is_mut {
+                true => format_ident!("expand_output"),
+                false => format_ident!("expand"),
+            };
+            define.extend(expand_fn(&param.name, expand_name, param.ty_owned()));
         }
 
         quote! {

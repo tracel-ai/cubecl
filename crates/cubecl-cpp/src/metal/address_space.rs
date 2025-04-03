@@ -91,7 +91,7 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::UnitPosPlane => AddressSpace::None,
             Variable::GlobalInputArray(..) => AddressSpace::ConstDevice,
             Variable::GlobalOutputArray(..) => AddressSpace::Device,
-            Variable::GlobalScalar(..) => {
+            Variable::GlobalScalar { .. } => {
                 if value.is_const() {
                     AddressSpace::ConstDevice
                 } else {

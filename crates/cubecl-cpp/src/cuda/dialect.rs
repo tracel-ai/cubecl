@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
-use cubecl_core::compute::ConstBinding;
+use cubecl_core::ir::Id;
 
 use crate::{
     Dialect,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
-        DialectTypes, DialectWmmaCompiler, Flags, Instruction, Item, SharedMemory, Variable,
+        DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item, SharedMemory, Variable,
     },
 };
 
@@ -78,10 +78,15 @@ impl DialectTypes<Self> for CudaDialect {
     fn compile_type_definitions(
         f: &mut std::fmt::Formatter<'_>,
         items: &HashSet<Item<Self>>,
-        _flags: &Flags,
+        scalars: &[(Elem<Self>, usize)],
+        flags: &Flags,
     ) -> std::fmt::Result {
         shared::type_definitions::<Self>(f)?;
         shared::type_vectorized_definitions::<Self>(f, items)?;
+        if flags.use_grid_constants {
+            shared::type_scalar_definitions::<Self>(f, scalars)?;
+            shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
+        }
         Self::compile_wmma_type_definitions(f)?;
         Ok(())
     }
@@ -165,11 +170,10 @@ impl DialectBindings<Self> for CudaDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        constants: &[ConstBinding],
-        inputs: &[Binding<Self>],
-        outputs: &[Binding<Self>],
-        named: &[(String, Binding<Self>)],
-        _flags: &Flags,
+        tensor_maps: &[Id],
+        buffers: &[Binding<Self>],
+        scalars: &[(Elem<Self>, usize)],
+        flags: &Flags,
     ) -> std::fmt::Result {
         write!(
             f,
@@ -179,7 +183,14 @@ extern \"C\" __global__ void {} (
 ",
             kernel_name
         )?;
-        shared::compile_bindings::<Self>(f, constants, inputs, outputs, named)?;
+        let has_scalars =
+            !scalars.is_empty() || (flags.use_grid_constants && flags.static_meta_length > 0);
+        shared::compile_bindings_a(f, tensor_maps, buffers, has_scalars, flags)?;
+        if flags.use_grid_constants {
+            shared::compile_scalars_static(f, scalars, flags)?;
+        } else {
+            shared::compile_scalars_dynamic(f, scalars)?;
+        }
         f.write_str("\n)")?;
         //
         Ok(())

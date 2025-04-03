@@ -1,8 +1,8 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    server::{Binding, ConstBinding, Handle},
+    server::{Binding, Bindings, Handle},
 };
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, num::NonZero, pin::Pin, sync::Arc, time::Duration};
 use web_time::Instant;
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
@@ -70,8 +70,7 @@ impl WgpuStream {
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         dispatch: &CubeCount,
     ) {
         let dispatch_resource = match dispatch.clone() {
@@ -79,20 +78,30 @@ impl WgpuStream {
             CubeCount::Dynamic(binding) => Some(self.mem_manage.get_resource(binding)),
         };
 
+        let info = (!bindings.metadata.data.is_empty())
+            .then(|| self.create(bytemuck::cast_slice(&bindings.metadata.data)));
+        let scalars = bindings
+            .scalars
+            .values()
+            .map(|s| self.create(s.data()))
+            .collect::<Vec<_>>();
+
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources: Vec<_> = constants
+        let mut resources = bindings
+            .buffers
             .iter()
-            .map(|it| match it {
-                ConstBinding::TensorMap { .. } => {
-                    unimplemented!("Tensor map not supported on WGPU")
-                }
-            })
-            .collect();
+            .map(|b| self.mem_manage.get_resource(b.clone()))
+            .collect::<Vec<_>>();
+
+        if let Some(info) = info {
+            resources.push(self.mem_manage.get_resource(info.binding()));
+        }
+
         resources.extend(
-            bindings
+            scalars
                 .iter()
-                .map(|b| self.mem_manage.get_resource(b.clone())),
+                .map(|s| self.mem_manage.get_resource(s.clone().binding())),
         );
 
         // Start a new compute pass if needed. The forget_lifetime allows
@@ -363,8 +372,21 @@ impl WgpuStream {
         // write_buffer is the recommended way to write this data, as:
         // - On WebGPU, from WASM, this can save a copy to the JS memory.
         // - On devices with unified memory, this could skip the staging buffer entirely.
-        self.queue
-            .write_buffer(resource.buffer(), resource.offset(), data);
+        if aligned_len > data.len() as u64 {
+            let mut buffer = self
+                .queue
+                .write_buffer_with(
+                    resource.buffer(),
+                    resource.offset(),
+                    NonZero::new(aligned_len).unwrap(),
+                )
+                .unwrap();
+            buffer[0..data.len()].copy_from_slice(data);
+        } else {
+            self.queue
+                .write_buffer(resource.buffer(), resource.offset(), data);
+        }
+
         self.flush_if_needed();
 
         alloc

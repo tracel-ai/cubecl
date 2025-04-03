@@ -220,13 +220,17 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
                 MP::QUANTIZED,
             )
         } else {
-            let ea = MP::EA::as_elem_native_unchecked();
-            Err(MatmulAvailabilityError::CmmaInstructionUnavailable {
-                input: tf32::as_elem_native_unchecked(),
-                output: ea,
-                shape: None,
-            }
-            .into())
+            select_kernel::<ReplaceES<MP, half::f16>, R, A>(
+                client,
+                TensorInputsLaunch::new(
+                    lhs.as_tensor_arg(lhs_line_size),
+                    rhs.as_tensor_arg(rhs_line_size),
+                ),
+                out.as_tensor_arg(out_line_size),
+                problem,
+                plane_dim,
+                MP::QUANTIZED,
+            )
         }
     } else {
         select_kernel::<MP, R, A>(

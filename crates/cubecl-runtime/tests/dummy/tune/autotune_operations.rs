@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cubecl_runtime::{
     client::ComputeClient,
-    server::{Binding, CubeCount},
+    server::{Binding, Bindings, CubeCount},
     tune::{AutotuneError, Tunable},
 };
 use derive_new::new;
@@ -25,8 +25,7 @@ impl Tunable for OneKernelAutotuneOperation {
         self.client.execute(
             self.kernel.clone(),
             CubeCount::Static(1, 1, 1),
-            Vec::new(),
-            inputs,
+            Bindings::new().with_buffers(inputs),
         );
 
         Ok(())

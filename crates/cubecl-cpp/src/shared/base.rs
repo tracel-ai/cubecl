@@ -28,11 +28,15 @@ pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub grid_constants: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
-        Self { warp_size: 32 }
+        Self {
+            warp_size: 32,
+            grid_constants: false,
+        }
     }
 }
 
@@ -67,6 +71,9 @@ pub struct Flags {
     pub inst_fast_math: bool,
     pub inst_tma: bool,
     pub inst_wmma: bool,
+    pub use_grid_constants: bool,
+    pub static_meta_length: usize,
+    pub has_dynamic_meta: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -81,8 +88,6 @@ pub struct CppCompiler<D: Dialect> {
     items: HashSet<Item<D>>,
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
-    num_inputs: usize,
-    num_outputs: usize,
     pipelines: Vec<PipelineOps<D>>,
     shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
@@ -121,21 +126,15 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body);
-        let constants = value.consts;
-        let inputs = value
-            .inputs
+        let buffers = value
+            .buffers
             .into_iter()
             .map(|b| self.compile_binding(b))
             .collect();
-        let outputs = value
-            .outputs
+        let scalars = value
+            .scalars
             .into_iter()
-            .map(|b| self.compile_binding(b))
-            .collect();
-        let named = value
-            .named
-            .into_iter()
-            .map(|(name, binding)| (name, self.compile_binding(binding)))
+            .map(|binding| (self.compile_elem(binding.elem), binding.count))
             .collect();
 
         // translation flags
@@ -151,6 +150,11 @@ impl<D: Dialect> CppCompiler<D> {
                 .fp_math_mode
                 .contains(FastMath::ReducedPrecision),
             inst_tma: self.flags.inst_tma,
+            use_grid_constants: self.compilation_options.grid_constants,
+            // TODO: At some point we should only pass dymamic meta if tensors are present,
+            // not if only arrays are present. For now, leave like this
+            has_dynamic_meta: self.metadata.static_len() > 0,
+            static_meta_length: self.metadata.static_len() as usize,
         };
 
         let body = Body {
@@ -163,44 +167,46 @@ impl<D: Dialect> CppCompiler<D> {
         };
 
         ComputeKernel {
-            body,
+            tensor_maps: value.tensor_maps,
+            buffers,
+            scalars,
+            meta_static_len: self.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
+            body,
             extensions: self.extensions,
             flags,
-            constants,
-            inputs,
-            named,
-            outputs,
             items: self.items,
             kernel_name: value.options.kernel_name,
         }
     }
 
     fn build_metadata(&mut self, value: &KernelDefinition) {
-        self.num_inputs = value.inputs.len();
-        self.num_outputs = value.outputs.len();
-
         let mut num_ext = 0;
 
-        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+        let mut all_meta: Vec<_> = value
+            .buffers
+            .iter()
+            .map(|buf| (buf.id, buf.has_extended_meta))
+            .chain(value.tensor_maps.iter().map(|i| (*i, true)))
+            .collect();
+
+        all_meta.sort_by_key(|(id, _)| *id);
+
+        for (_, has_extended_meta) in &all_meta {
             self.ext_meta_positions.push(num_ext);
-            if binding.has_extended_meta {
+            if *has_extended_meta {
                 num_ext += 1;
             }
         }
 
-        let num_meta = self.num_inputs + self.num_outputs;
+        let num_meta = all_meta.len();
 
         self.metadata = cubecl_core::Metadata::new(num_meta as u32, num_ext);
     }
 
     pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
-        let pos = match var.kind {
-            gpu::VariableKind::GlobalInputArray(id) => id as usize,
-            gpu::VariableKind::GlobalOutputArray(id) => self.num_inputs + id as usize,
-            other => panic!("Only global arrays have metadata, got {other:?}"),
-        };
-        self.ext_meta_positions[pos]
+        let id = var.index().expect("Variable should have index");
+        self.ext_meta_positions[id as usize]
     }
 
     fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction<D>> {
@@ -619,6 +625,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -628,6 +636,8 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
+                    split_meta: self.compilation_options.grid_constants,
+                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
@@ -637,6 +647,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
+                    split_meta: self.compilation_options.grid_constants,
                     out,
                 }
             }
@@ -650,14 +661,11 @@ impl<D: Dialect> CppCompiler<D> {
                         Instruction::ConstLength { length, out }
                     }
                     _ => {
-                        let id = match input {
-                            Variable::GlobalInputArray(id, _) => id,
-                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
-                            _ => panic!("Can only get length of global array"),
-                        };
+                        let id = input.id().expect("Variable should have id");
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }
@@ -670,14 +678,11 @@ impl<D: Dialect> CppCompiler<D> {
                 match input {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
-                        let id = match input {
-                            Variable::GlobalInputArray(id, _) => id,
-                            Variable::GlobalOutputArray(id, _) => self.num_inputs as u32 + id,
-                            _ => panic!("Can only get buffer length of global array"),
-                        };
+                        let id = input.id().expect("Variable should have id");
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
+                            split_meta: self.compilation_options.grid_constants,
                             out,
                         }
                     }
@@ -790,6 +795,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::MulHi(op) => {
+                instructions.push(Instruction::HiMul(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Modulo(op) => {
                 instructions.push(Instruction::Modulo(self.compile_binary(op, out)))
@@ -1117,9 +1125,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalInputArray(id) => {
                 Variable::GlobalInputArray(id, self.compile_item(item))
             }
-            gpu::VariableKind::GlobalScalar(id) => {
-                Variable::GlobalScalar(id, self.compile_item(item).elem, item.elem)
-            }
+            gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
+                id,
+                elem: self.compile_elem(item.elem),
+                in_struct: self.compilation_options.grid_constants,
+            },
             gpu::VariableKind::TensorMap(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)
@@ -1331,6 +1341,7 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
+            id: binding.id,
             item: self.compile_item(binding.item),
             location: binding.location,
             size: binding.size,

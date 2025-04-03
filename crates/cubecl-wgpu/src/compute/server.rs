@@ -10,7 +10,7 @@ use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
     prelude::*,
-    server::{Binding, BindingWithMeta, ConstBinding, Handle},
+    server::{Binding, BindingWithMeta, Bindings, Handle},
 };
 use cubecl_runtime::{
     TimestampsError, TimestampsResult,
@@ -160,8 +160,7 @@ impl ComputeServer for WgpuServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        constants: Vec<ConstBinding>,
-        bindings: Vec<Binding>,
+        bindings: Bindings,
         mode: ExecutionMode,
     ) {
         // Check for any profiling work to be done before execution.
@@ -185,7 +184,7 @@ impl ComputeServer for WgpuServer {
 
         // Start execution.
         let pipeline = self.pipeline(kernel, mode);
-        self.stream.register(pipeline, constants, bindings, &count);
+        self.stream.register(pipeline, bindings, &count);
 
         // If profiling, write out results.
         if let Some(level) = profile_level {

@@ -347,7 +347,7 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, G: GlobalConfig>
 }
 
 fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
-    current_event == expected_event || (total < expected_event && current_event + 1 == total)
+    current_event == expected_event || (total <= expected_event && current_event + 1 == total)
 }
 
 fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
