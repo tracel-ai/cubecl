@@ -1,12 +1,12 @@
-use crate::matmul::components::{self, CompleteStageTiling, global::args::TensorInputsLaunch};
+use crate::matmul::components::{CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES, stage,
+    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES, stage,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
-use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixTensorLayout, TensorHandle, into_contiguous, matrix_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -52,12 +52,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     // }
 
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
-        MatrixLayout::Contiguous => (false, false),
-        MatrixLayout::MildlyPermuted {
+        MatrixTensorLayout::Contiguous => (false, false),
+        MatrixTensorLayout::MildlyPermuted {
             transposed,
             batch_swap: _,
         } => (false, transposed),
-        MatrixLayout::HighlyPermuted => (true, false),
+        MatrixTensorLayout::HighlyPermuted => (true, false),
     };
 
     let (lhs_make_contiguous, lhs_transposed) = check_layout(lhs);
@@ -111,17 +111,33 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
+    let lhs_layout = match transposed.0 {
+        true => MatrixLayout::ColMajor,
+        false => MatrixLayout::RowMajor,
+    };
+
+    let rhs_layout = match transposed.1 {
+        true => MatrixLayout::ColMajor,
+        false => MatrixLayout::RowMajor,
+    };
+
     let lhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         lhs.shape,
         lhs.strides,
-        rank - 1,
+        match lhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
     );
     let rhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         rhs.shape,
         rhs.strides,
-        rank - 1,
+        match lhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
     );
     let out_line_size = tensor_line_size_parallel(
         R::line_size_elem(&eo_elem),
@@ -138,14 +154,8 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             lhs.shape[..lhs.shape.len() - 2].to_vec(),
             rhs.shape[..rhs.shape.len() - 2].to_vec(),
         ),
-        lhs_layout: match transposed.0 {
-            true => matmul::components::MatrixLayout::ColMajor,
-            false => matmul::components::MatrixLayout::RowMajor,
-        },
-        rhs_layout: match transposed.1 {
-            true => matmul::components::MatrixLayout::ColMajor,
-            false => matmul::components::MatrixLayout::RowMajor,
-        },
+        lhs_layout,
+        rhs_layout,
         lhs_line_size,
         rhs_line_size,
         out_line_size,
@@ -261,17 +271,26 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
+    let lhs_layout = matmul::components::MatrixLayout::RowMajor;
+    let rhs_layout = matmul::components::MatrixLayout::RowMajor;
+
     let lhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         lhs.shape,
         lhs.strides,
-        rank - 1,
+        match lhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
     );
     let rhs_line_size = tensor_line_size_parallel(
         R::line_size_elem(&ei_elem),
         rhs.shape,
         rhs.strides,
-        rank - 1,
+        match rhs_layout {
+            MatrixLayout::RowMajor => rank - 1,
+            MatrixLayout::ColMajor => rank - 2,
+        },
     );
     let out_line_size = tensor_line_size_parallel(
         R::line_size_elem(&eo_elem),
@@ -288,8 +307,8 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
             lhs.shape[..lhs.shape.len() - 2].to_vec(),
             rhs.shape[..rhs.shape.len() - 2].to_vec(),
         ),
-        lhs_layout: matmul::components::MatrixLayout::RowMajor,
-        rhs_layout: matmul::components::MatrixLayout::RowMajor,
+        lhs_layout,
+        rhs_layout,
         lhs_line_size,
         rhs_line_size,
         out_line_size,
@@ -342,12 +361,12 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         let stage_n = selection.tile_count.n * selection.tile_shape.n;
         let stage_k = selection.tile_count.k * selection.tile_shape.k;
         let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+            MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
+            MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
         };
         let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+            MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
+            MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
         };
         let lhs = TensorMapArg::new(
             TensorMapFormat::Tiled {
