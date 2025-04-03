@@ -5,20 +5,24 @@ use crate::{ReinterpretSlice, ReinterpretSliceMut};
 use half::f16;
 
 #[cube(launch_unchecked)]
-fn kernel_read(input: &Array<Line<i8>>, output: &mut Array<f16>) {
+fn kernel_read_global(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     let line_size = input.line_size();
     let list = ReinterpretSlice::<i8, f16>::new(input.to_slice(), line_size);
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
+pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
+    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+        return; // can't run test
+    }
+
     let target = [f16::from_f32(1.0), f16::from_f32(-8.5)];
     let casted: [i8; 4] = unsafe { std::mem::transmute(target) };
 
     let input = client.create(i8::as_bytes(&casted));
     let output = client.empty(4);
     unsafe {
-        kernel_read::launch_unchecked::<R>(
+        kernel_read_global::launch_unchecked::<R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -34,13 +38,16 @@ pub fn run_test_read<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, l
 }
 
 #[cube(launch_unchecked)]
-fn kernel_write(output: &mut Array<Line<i8>>, input: &Array<f16>) {
+fn kernel_write_global(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     let line_size = output.line_size();
     let mut list = ReinterpretSliceMut::<i8, f16>::new(output.to_slice_mut(), line_size);
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 
-pub fn run_test_write<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
+pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
+    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+        return; // can't run test
+    }
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
     let casted: [i8; 4] = unsafe { std::mem::transmute(source) };
 
@@ -48,7 +55,7 @@ pub fn run_test_write<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, 
     let input = client.create(f16::as_bytes(&source));
 
     unsafe {
-        kernel_write::launch_unchecked::<R>(
+        kernel_write_global::launch_unchecked::<R>(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
