@@ -112,12 +112,7 @@ impl Launch {
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
 
-        let registers_in = self.runtime_inputs().map(|arg| {
-            let name = &arg.name;
-            quote![#name.register(&mut launcher);]
-        });
-
-        let registers_out = self.runtime_outputs().map(|arg| {
+        let registers = self.runtime_params().map(|arg| {
             let name = &arg.name;
             quote![#name.register(&mut launcher);]
         });
@@ -140,8 +135,7 @@ impl Launch {
 
             let mut launcher = #kernel_launcher::<__R>::default();
 
-            #(#registers_in)*
-            #(#registers_out)*
+            #(#registers)*
         }
     }
 

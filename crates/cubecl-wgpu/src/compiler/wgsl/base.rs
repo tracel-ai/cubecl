@@ -61,8 +61,10 @@ pub enum Elem {
     F32,
     AtomicF32,
     I32,
+    I64,
     AtomicI32,
     U32,
+    U64,
     AtomicU32,
     Bool,
 }
@@ -226,8 +228,10 @@ impl Elem {
             Self::F32 => core::mem::size_of::<f32>(),
             Self::AtomicF32 => core::mem::size_of::<f32>(),
             Self::I32 => core::mem::size_of::<i32>(),
+            Self::I64 => core::mem::size_of::<i64>(),
             Self::AtomicI32 => core::mem::size_of::<i32>(),
             Self::U32 => core::mem::size_of::<u32>(),
+            Self::U64 => core::mem::size_of::<u64>(),
             Self::AtomicU32 => core::mem::size_of::<u32>(),
             Self::Bool => core::mem::size_of::<bool>(),
         }
@@ -244,8 +248,10 @@ impl Display for Elem {
             Self::F32 => f.write_str("f32"),
             Self::AtomicF32 => f.write_str("atomic<f32>"),
             Self::I32 => f.write_str("i32"),
+            Self::I64 => f.write_str("i64"),
             Self::AtomicI32 => f.write_str("atomic<i32>"),
             Self::U32 => f.write_str("u32"),
+            Self::U64 => f.write_str("u64"),
             Self::AtomicU32 => f.write_str("atomic<u32>"),
             Self::Bool => f.write_str("bool"),
         }
@@ -273,7 +279,7 @@ impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Variable::GlobalInputArray(number, _) => {
-                write!(f, "input_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
@@ -281,7 +287,7 @@ impl Display for Variable {
             Variable::Named { name, .. } => f.write_str(name),
             Variable::Slice { id, .. } => write!(f, "slice_{id}"),
             Variable::GlobalOutputArray(number, _) => {
-                write!(f, "output_{number}_global")
+                write!(f, "buffer_{number}_global")
             }
             Variable::GlobalScalar(number, _, elem) => {
                 write!(f, "scalars_{elem}[{number}]")

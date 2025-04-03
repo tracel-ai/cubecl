@@ -39,7 +39,7 @@ impl<
 > TuneBenchmark<S, C, In, Out>
 {
     #[cfg(feature = "autotune-checks")]
-    pub fn output_for_checks(&self) -> Result<Out, AutotuneError> {
+    pub(crate) fn output_for_checks(&self) -> Result<Out, AutotuneError> {
         self.operation.clone().execute(self.inputs.clone())
     }
 

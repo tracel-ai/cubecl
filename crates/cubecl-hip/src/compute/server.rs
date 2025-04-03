@@ -6,8 +6,8 @@ use crate::runtime::HipCompiler;
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
-use cubecl_core::Feature;
 use cubecl_core::compute::DebugInformation;
+use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
@@ -45,7 +45,6 @@ struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
-    shared_mem_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -222,8 +221,7 @@ impl ComputeServer for HipServer {
         &mut self,
         kernel: Self::Kernel,
         count: CubeCount,
-        constants: Vec<server::ConstBinding>,
-        bindings: Vec<server::Binding>,
+        bindings: Bindings,
         mode: ExecutionMode,
     ) {
         let mut kernel_id = kernel.id();
@@ -252,28 +250,26 @@ impl ComputeServer for HipServer {
             }
         };
 
+        let Bindings {
+            buffers,
+            metadata,
+            scalars,
+            tensor_maps,
+        } = bindings;
+
+        debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
+        let info = self.create(bytemuck::cast_slice(&metadata.data));
+        let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
+
         let (ctx, logger) = self.get_context_with_logger();
 
         if !ctx.module_names.contains_key(&kernel_id) {
             ctx.compile_kernel(&kernel_id, kernel, logger, mode);
         }
 
-        let _ = constants
-            .iter()
-            .map(|it| match it {
-                server::ConstBinding::TensorMap { .. } => {
-                    panic!("TensorMap not supported in ROCm")
-                }
-            })
-            .collect::<Vec<()>>();
-        let resources = bindings
-            .into_iter()
-            .map(|binding| {
-                ctx.memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Couldn't find resource")
-            })
-            .collect::<Vec<_>>();
+        let mut resources: Vec<_> = buffers.into_iter().map(|b| find_resource(ctx, b)).collect();
+        resources.push(find_resource(ctx, info.clone().binding()));
+        resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
 
         if let Some(level) = profile_level {
             ctx.sync();
@@ -346,6 +342,12 @@ impl ComputeServer for HipServer {
             self.ctx.timestamps.disable();
         }
     }
+}
+
+fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {
+    ctx.memory_management
+        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+        .expect("Failed to find resource")
 }
 
 impl HipContext {
@@ -509,7 +511,6 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim: jitc_kernel.cube_dim,
-                shared_mem_bytes: jitc_kernel.repr.as_ref().unwrap().shared_memory_size(),
             },
         );
     }
@@ -537,7 +538,10 @@ impl HipContext {
                 cube_dim.x,
                 cube_dim.y,
                 cube_dim.z,
-                kernel.shared_mem_bytes as u32,
+                // Shared memory is specified statically in the kernel, and no dynamic shared
+                // memory is supported yet in the kernel, which would be that value for the
+                // current kernel launch.
+                0,
                 self.stream,
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),

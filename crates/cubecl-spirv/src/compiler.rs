@@ -126,20 +126,28 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
-        let bindings = value
-            .inputs
-            .clone()
-            .into_iter()
-            .chain(value.outputs.clone())
-            .chain(value.named.clone().into_iter().map(|it| it.1))
+        let bindings = value.buffers.clone();
+        let scalars = value
+            .scalars
+            .iter()
+            .map(|s| (self.compile_elem(s.elem), s.count))
             .collect();
-        let num_meta = value.inputs.len() + value.outputs.len();
         let mut ext_meta_pos = Vec::new();
         let mut num_ext = 0;
 
-        for binding in value.inputs.iter().chain(value.outputs.iter()) {
+        let mut all_meta: Vec<_> = value
+            .buffers
+            .iter()
+            .map(|buf| (buf.id, buf.has_extended_meta))
+            .chain(value.tensor_maps.iter().map(|id| (*id, true)))
+            .collect();
+        all_meta.sort_by_key(|(id, _)| *id);
+
+        let num_meta = all_meta.len();
+
+        for (_, has_extended_meta) in all_meta.iter() {
             ext_meta_pos.push(num_ext);
-            if binding.has_extended_meta {
+            if *has_extended_meta {
                 num_ext += 1;
             }
         }
@@ -154,6 +162,8 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             module,
             optimizer,
             bindings,
+            scalars,
+            has_metadata: self.metadata.static_len() > 0,
         }
     }
 

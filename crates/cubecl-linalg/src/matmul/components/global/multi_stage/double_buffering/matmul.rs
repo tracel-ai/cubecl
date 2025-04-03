@@ -311,7 +311,7 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
 }
 
 fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
-    current_event == expected_event || (total < expected_event && current_event + 1 == total)
+    current_event == expected_event || (total <= expected_event && current_event + 1 == total)
 }
 
 fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
@@ -338,7 +338,7 @@ impl<
                 SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
             }
 
-            if comptime![should_handle_event_ratio(0.5, current, total)] {
+            if comptime![should_handle_event_ratio(0.50, current, total)] {
                 SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
             }
         };

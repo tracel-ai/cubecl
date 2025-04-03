@@ -131,7 +131,7 @@ pub struct ScalarArg<T: Numeric> {
 }
 
 impl<T: Numeric, R: Runtime> ArgSettings<R> for ScalarArg<T> {
-    fn register(&self, launcher: &mut crate::compute::KernelLauncher<R>) {
+    fn register(&self, launcher: &mut KernelLauncher<R>) {
         self.elem.register(launcher);
     }
 }
