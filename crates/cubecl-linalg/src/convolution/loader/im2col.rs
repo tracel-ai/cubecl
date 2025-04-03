@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, MatmulPrecision,
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
+    global::single_stage::Loader,
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageReader},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -24,21 +24,24 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+impl<MP: MatmulPrecision, G: ConvGemmConfig> Loader<MP, G> for SimpleIm2colLoader<MP, G> {
+    type TilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+
+    fn reader(this: &Self) -> StageReader<MP::ES, Self::TilingLayout> {
+        StageReader::<MP::ES, Self::TilingLayout> {
+            stage: this.stage,
+            ident: Ident::Lhs,
+        }
+    }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset);
     }
-
-    fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
-    }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    fn fill_stage(this: &mut Self, #[comptime] config: G) {
+impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
+    pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
         SimpleIm2col::load_to_slice::<MP, G>(
             &this.tensor_view,
             &mut this.stage.as_slice_mut(),
@@ -46,10 +49,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2
             config,
         );
     }
-}
 
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
         shape_out_y: u32,

@@ -19,7 +19,9 @@ pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
 }
 
 #[cube]
-pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send + Sync {
+pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP, ConvTilingLayout, ConvTilingLayout>>:
+    'static + Send + Sync
+{
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type Config: ConvGemmConfig;

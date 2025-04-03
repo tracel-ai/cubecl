@@ -7,18 +7,15 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
+use crate::matmul::components::global::single_stage::{Loader, SyncLoader};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        single_stage::{self, CyclicCoalescedLoading},
     },
-    stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
-        multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
-    },
+    stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily},
 };
 use crate::{
     convolution::{
@@ -40,7 +37,7 @@ pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: StageMatmulFamily,
 {
     type Convolution<MP: MatmulPrecision> =
         ImplicitGemmConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
@@ -49,7 +46,10 @@ where
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct ImplicitGemmConvolution<MP: MatmulPrecision, SMM: stage::StageMatmul<MP>> {
+pub struct ImplicitGemmConvolution<
+    MP: MatmulPrecision,
+    SMM: stage::StageMatmul<MP, ConvTilingLayout, ConvTilingLayout>,
+> {
     _cs: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -57,16 +57,11 @@ pub struct ImplicitGemmConvolution<MP: MatmulPrecision, SMM: stage::StageMatmul<
 #[cube]
 impl<MP: MatmulPrecision, SMM> Convolution<MP, SMM> for ImplicitGemmConvolution<MP, SMM>
 where
-    SMM: stage::StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, ConvTilingLayout>,
-            RhsReader = RhsReader<MP::ES, ConvTilingLayout>,
-        >,
+    SMM: stage::StageMatmul<MP, ConvTilingLayout, ConvTilingLayout>,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader =
-        SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncLoader<MP, Self::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;
@@ -102,7 +97,7 @@ where
             sync_units();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, config.to_matmul_config());
+            Self::RhsLoader::fill_stage(&mut rhs_loader, config);
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
@@ -156,7 +151,7 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, Ident::Rhs, config)
     }
 
     fn init_bias_loader(
@@ -238,9 +233,7 @@ where
     }
 }
 
-impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
-    ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
-{
+impl<SMM: StageMatmulFamily> ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM> {
     unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,

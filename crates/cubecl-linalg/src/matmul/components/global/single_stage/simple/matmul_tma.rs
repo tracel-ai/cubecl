@@ -1,17 +1,12 @@
+use crate::matmul::components::Ident;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
-};
+use crate::matmul::components::global::single_stage::{Config, Loader};
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::{
-    MatmulPrecision,
-    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
-};
+use crate::matmul::components::{MatmulPrecision, global::single_stage::TmaLoader};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -27,10 +22,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage,
     },
     kernels::MatmulAvailabilityError,
 };
@@ -41,7 +33,7 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
@@ -105,10 +97,13 @@ where
     }
 }
 
+type LL = ContiguousTilingLayout<RowMajorTilingOrder>;
+type RL = ContiguousTilingLayout<RowMajorTilingOrder>;
+
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP, LL, RL>> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
@@ -116,15 +111,11 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-            RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-        >,
+    SMM: StageMatmul<MP, LL, RL>,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
+    type LhsLoader = TmaLoader<MP, SMM::Config>;
+    type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -193,6 +184,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            Ident::Lhs,
             config,
         )
     }
@@ -210,6 +202,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            Ident::Rhs,
             config,
         )
     }

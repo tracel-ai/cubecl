@@ -6,7 +6,8 @@ use super::{
 };
 use crate::matmul::{
     components::{
-        CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize, stage,
+        CompleteStageTiling, MatmulPrecision, MatmulSelection, MatmulSize,
+        stage::{self, STAGE_BUFFERING},
         tile::TileMatmulFamily,
     },
     kernels::matmul::find_instruction_shape,
@@ -80,8 +81,7 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
 
         let selection = ConvSelection { matmul: selection };
 
-        // TODO support selection of double buffering
-        (selection, (config_input, stage::Buffering::Single))
+        (selection, (config_input, STAGE_BUFFERING))
     }
 }
 

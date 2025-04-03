@@ -41,7 +41,7 @@ pub struct ImplicitCmmaConv;
 
 impl Algorithm for ImplicitCmmaConv {
     type TileMatmul = Accelerated;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = stage::PlaneRowMatmulFamily<Self::TileMatmul>;
     type GlobalConvolution = ImplicitGemmConvolutionFamily<Self::StageMatmul>;
     type Selection = ConvSelection;
     type Input = <Self::GlobalConvolution as ConvolutionConfigFactory>::Input;
