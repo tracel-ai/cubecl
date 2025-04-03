@@ -96,7 +96,7 @@ pub fn make_virtual_shared_memories<ES: Numeric, S: StageConfig>(
 }
 
 #[cube]
-pub fn make_virtual_shared_memories_testable<ES: Numeric>(
+fn make_virtual_shared_memories_testable<ES: Numeric>(
     #[comptime] sizes: Vec<u32>,
     #[comptime] layout: SharedMemoryLayout,
     #[comptime] ident: Ident,

@@ -6,6 +6,7 @@ use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::single_stage::Loader;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::StageReader;
+use crate::matmul::components::stage::VirtualSharedMemory;
 use crate::matmul::components::stage::{Stage, TilingLayout};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
@@ -65,10 +66,11 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncLoadingStrategy> SyncLoader<MP
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        v_smem: VirtualSharedMemory<MP::ES>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(ident, config.to_smm_config());
+        let stage = Stage::new::<G::SmmConfig>(v_smem, ident, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncLoader::<MP, G, L> {

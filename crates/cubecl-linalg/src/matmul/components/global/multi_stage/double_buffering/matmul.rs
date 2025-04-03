@@ -3,8 +3,8 @@ use crate::matmul::components::global::single_stage::{Loader, SyncLoader, SyncLo
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::global::{GlobalMatmulFamily, IndexedQuantization};
-use crate::matmul::components::stage::StageEvent;
-use crate::matmul::components::stage::StageEventListener;
+use crate::matmul::components::stage::{SharedMemoryLayout, StageEventListener};
+use crate::matmul::components::stage::{StageEvent, make_virtual_shared_memories};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
 };
@@ -256,9 +256,35 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let line_size = config.global_line_size(Ident::Lhs);
+        let stage_size =
+            config.tiling_dimensions(Ident::Lhs).total_size() / (NUM_BUFFERS * line_size);
+        let v_smems =
+            make_virtual_shared_memories::<MP::ES, <Self::Config as GlobalConfig>::SmmConfig>(
+                comptime!(vec![stage_size, stage_size]),
+                SharedMemoryLayout::SideBySide,
+                Ident::Lhs,
+                config.to_smm_config(),
+            );
         (
-            SyncLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config),
-            SyncLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config),
+            SyncLoader::new(
+                lhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                *v_smems.index(0),
+                Ident::Lhs,
+                config,
+            ),
+            SyncLoader::new(
+                lhs,
+                x_offset,
+                y_offset,
+                batch_offset,
+                *v_smems.index(1),
+                Ident::Lhs,
+                config,
+            ),
         )
     }
 
