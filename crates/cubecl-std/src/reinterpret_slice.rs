@@ -22,7 +22,6 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSlice<S, T> {
         let optimized = comptime!(optimize_line_size::<S, T>(line_size));
-        // panic!("OPTIMIZED {optimized}");
         let slice = if optimized != line_size {
             slice.with_line_size(optimized)
         } else {
