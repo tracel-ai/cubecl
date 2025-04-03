@@ -8,6 +8,26 @@ macro_rules! testgen_matmul_accelerated {
         type Precision = ($eg, $es);
 
         $crate::matmul_standard_tests!();
+
+        #[test]
+        pub fn virtual_smem_test_side_by_side_lhs() {
+            $crate::matmul::components::stage::virtual_smem_test_side_by_side::<TestRuntime>(TestRuntime::client(&Default::default()), $crate::matmul::components::Ident::Lhs);
+        }
+
+        #[test]
+        pub fn virtual_smem_test_interleaved_lhs() {
+            $crate::matmul::components::stage::virtual_smem_test_interleaved::<TestRuntime>(TestRuntime::client(&Default::default()), $crate::matmul::components::Ident::Lhs);
+        }
+
+        #[test]
+        pub fn virtual_smem_test_side_by_side_rhs() {
+            $crate::matmul::components::stage::virtual_smem_test_side_by_side::<TestRuntime>(TestRuntime::client(&Default::default()), $crate::matmul::components::Ident::Rhs);
+        }
+
+        #[test]
+        pub fn virtual_smem_test_interleaved_rhs() {
+            $crate::matmul::components::stage::virtual_smem_test_interleaved::<TestRuntime>(TestRuntime::client(&Default::default()), $crate::matmul::components::Ident::Rhs);
+        }
     };
 
     ([$($float:ident),*]) => {
