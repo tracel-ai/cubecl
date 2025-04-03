@@ -22,8 +22,9 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSlice<S, T> {
         let optimized = comptime!(optimize_line_size::<S, T>(line_size));
+        // panic!("OPTIMIZED {optimized}");
         let slice = if optimized != line_size {
-            slice.with_line_size(line_size)
+            slice.with_line_size(optimized)
         } else {
             slice
         };
@@ -59,7 +60,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     pub fn new(slice: SliceMut<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSliceMut<S, T> {
         let optimized = comptime!(optimize_line_size::<S, T>(line_size));
         let slice = if optimized != line_size {
-            slice.with_line_size(line_size)
+            slice.with_line_size(optimized)
         } else {
             slice
         };
@@ -93,13 +94,13 @@ fn optimize_line_size<S: CubePrimitive, T: CubePrimitive>(line_size: u32) -> u32
             let ratio = num_bytes_target / num_bytes_line_source;
             line_size * ratio
         }
-        std::cmp::Ordering::Equal => {
+        std::cmp::Ordering::Greater => {
             if num_bytes_line_source % num_bytes_target != 0 {
                 panic!("incompatible number of bytes");
             }
             let ratio = num_bytes_line_source / num_bytes_target;
             line_size / ratio
         }
-        std::cmp::Ordering::Greater => line_size,
+        std::cmp::Ordering::Equal => line_size,
     }
 }
