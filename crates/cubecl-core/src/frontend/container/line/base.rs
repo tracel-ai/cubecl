@@ -1,8 +1,11 @@
 use std::num::NonZero;
 
-use crate::frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped};
 use crate::{
-    ir::{Arithmetic, BinaryOperator, ConstantScalarValue, Elem, Instruction, Item, Scope},
+    frontend::{CubePrimitive, CubeType, ExpandElementBaseInit, ExpandElementTyped},
+    prelude::MulHi,
+};
+use crate::{
+    ir::{Arithmetic, BinaryOperator, Elem, Instruction, Item, Scope},
     prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
@@ -102,23 +105,8 @@ mod empty {
         }
 
         /// Expand function of [empty](Self::empty).
-        pub fn __expand_empty(
-            scope: &mut Scope,
-            length: ExpandElementTyped<u32>,
-        ) -> ExpandElementTyped<Self> {
-            let length = match length.expand.as_const() {
-                Some(val) => match val {
-                    ConstantScalarValue::Int(val, _) => NonZero::new(val)
-                        .map(|val| val.get() as u8)
-                        .map(|val| NonZero::new(val).unwrap()),
-                    ConstantScalarValue::Float(val, _) => NonZero::new(val as i64)
-                        .map(|val| val.get() as u8)
-                        .map(|val| NonZero::new(val).unwrap()),
-                    ConstantScalarValue::UInt(val, _) => NonZero::new(val as u8),
-                    ConstantScalarValue::Bool(_) => None,
-                },
-                None => None,
-            };
+        pub fn __expand_empty(scope: &mut Scope, length: u32) -> ExpandElementTyped<Self> {
+            let length = NonZero::new(length as u8);
             scope
                 .create_local_mut(Item::vectorized(Self::as_elem(scope), length))
                 .into()
@@ -341,3 +329,5 @@ impl<N: Numeric> Dot for Line<N> {
         binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }
+
+impl<N: MulHi + CubePrimitive> MulHi for Line<N> {}

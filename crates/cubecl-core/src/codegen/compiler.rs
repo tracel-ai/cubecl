@@ -23,7 +23,9 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
     fn extension(&self) -> &'static str;
 }
 
+// We cannot put this struct in cubecl-wgpu crate due to circular dependencies.
 #[derive(Clone, Debug, Default)]
 pub struct WgpuCompilationOptions {
     pub supports_fp_fast_math: bool,
+    pub supports_u64: bool,
 }

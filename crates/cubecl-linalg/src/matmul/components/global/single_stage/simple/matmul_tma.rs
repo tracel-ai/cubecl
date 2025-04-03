@@ -62,11 +62,11 @@ where
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
 
-        let eg_id = TypeId::of::<MP::EG>();
+        let ei_id = TypeId::of::<MP::EI>();
         let es_id = TypeId::of::<MP::ES>();
-        let is_tf32 = eg_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
 
-        if eg_id != es_id && !is_tf32 {
+        if ei_id != es_id && !is_tf32 {
             return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
@@ -126,7 +126,7 @@ where
     type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
     type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -135,7 +135,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -157,7 +157,7 @@ where
             if UNIT_POS == 0 {
                 let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
                     + config.tiling_dimensions(Ident::Lhs).total_size();
-                barrier.arrive_tx(1, total_stage * MP::EG::elem_size());
+                barrier.arrive_tx(1, total_stage * MP::ES::elem_size());
             } else {
                 barrier.arrive();
             }
@@ -191,7 +191,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -208,7 +208,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         nth_batch: u32,
@@ -225,7 +225,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

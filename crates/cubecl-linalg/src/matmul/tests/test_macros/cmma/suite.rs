@@ -142,6 +142,15 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident) => {
+        mod t8x8x8 {
+            use super::*;
+            $crate::matmul_standard_tests!(
+                $lhs_layout,
+                $rhs_layout,
+                MatmulSize { m: 8, n: 8, k: 8 }
+            );
+        }
+
         mod t16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -309,8 +318,8 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 MatmulSize {
-                    m: 65,
-                    n: 16,
+                    m: 20,
+                    n: 20,
                     k: 16
                 }
             );

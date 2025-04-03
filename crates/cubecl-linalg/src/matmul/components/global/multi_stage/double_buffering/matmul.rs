@@ -128,10 +128,10 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EG, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EG, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
-    type Out = Unloader<MP::EG>;
+    type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
@@ -140,7 +140,7 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         comptime! {
@@ -241,7 +241,7 @@ where
     }
 
     fn init_lhs_loader(
-        lhs: VirtualTensor<MP::EG>,
+        lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -252,7 +252,7 @@ where
     }
 
     fn init_rhs_loader(
-        rhs: VirtualTensor<MP::EG>,
+        rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -263,7 +263,7 @@ where
     }
 
     fn init_unloader(
-        out: VirtualTensor<MP::EG, ReadWrite>,
+        out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,
@@ -311,7 +311,7 @@ impl<Lhs: CubeType + Clone, Rhs: CubeType + Clone, S: StageConfig>
 }
 
 fn should_handle_event(expected_event: u32, current_event: u32, total: u32) -> bool {
-    current_event == expected_event || (total < expected_event && current_event + 1 == total)
+    current_event == expected_event || (total <= expected_event && current_event + 1 == total)
 }
 
 fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool {
@@ -338,7 +338,7 @@ impl<
                 SyncLhsBufferLoader::fill_stage(&mut this.loader_lhs, this.buffer_id, this.config);
             }
 
-            if comptime![should_handle_event_ratio(0.5, current, total)] {
+            if comptime![should_handle_event_ratio(0.50, current, total)] {
                 SyncRhsBufferLoader::fill_stage(&mut this.loader_rhs, this.buffer_id, this.config);
             }
         };

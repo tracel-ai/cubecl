@@ -6,6 +6,7 @@ use crate::{
     storage::{BindingResource, ComputeStorage},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
 use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
@@ -157,7 +158,7 @@ pub struct Bindings {
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
     /// Scalar bindings
-    pub scalars: Vec<ScalarBinding>,
+    pub scalars: BTreeMap<Elem, ScalarBinding>,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
@@ -174,21 +175,23 @@ impl Bindings {
         self
     }
 
-    /// Set the buffers to `bindings`
+    /// Extend the buffers with `bindings`
     pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
-        self.buffers = bindings;
+        self.buffers.extend(bindings);
         self
     }
 
     /// Add a scalar parameter
     pub fn with_scalar(mut self, elem: Elem, length: usize, data: Vec<u64>) -> Self {
-        self.scalars.push(ScalarBinding::new(elem, length, data));
+        self.scalars
+            .insert(elem, ScalarBinding::new(elem, length, data));
         self
     }
 
-    /// Set the scalars to `bindings`
+    /// Extend the scalars with `bindings`
     pub fn with_scalars(mut self, bindings: Vec<ScalarBinding>) -> Self {
-        self.scalars = bindings;
+        self.scalars
+            .extend(bindings.into_iter().map(|binding| (binding.elem, binding)));
         self
     }
 
@@ -198,9 +201,9 @@ impl Bindings {
         self
     }
 
-    /// Set the tensor maps to `bindings`
+    /// Extend the tensor maps with `bindings`
     pub fn with_tensor_maps(mut self, bindings: Vec<TensorMapBinding>) -> Self {
-        self.tensor_maps = bindings;
+        self.tensor_maps.extend(bindings);
         self
     }
 }

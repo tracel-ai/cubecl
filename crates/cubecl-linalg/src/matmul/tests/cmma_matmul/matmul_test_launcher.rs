@@ -82,7 +82,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         }
     };
 
-    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32)>(&client, &config) {
+    if let Err(err) = A::check_availability::<R, (P::EG, P::ES, f32, P::EG)>(&client, &config) {
         let msg = format!("Skipped - not supported: {:?}", err);
         if panic_on_launch_err {
             panic!("{msg}")
@@ -94,7 +94,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     }
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<(P::EG, P::ES, P::EA), R>(
+        A::BatchMatmul::launch_unchecked::<(P::EG, P::ES, P::EA, P::EG), R>(
             &client,
             cube_dim,
             cube_count,

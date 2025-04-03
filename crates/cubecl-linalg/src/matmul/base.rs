@@ -61,9 +61,9 @@ pub enum AsyncLoadingStrategy {
 pub fn launch<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, MP::EG>,
-    rhs: TensorHandle<R, MP::EG>,
-    out: TensorHandle<R, MP::EG>,
+    lhs: TensorHandle<R, MP::EI>,
+    rhs: TensorHandle<R, MP::EI>,
+    out: TensorHandle<R, MP::EO>,
 ) -> Result<(), MatmulLaunchError> {
     launch_ref::<R, MP>(
         strategy,
@@ -145,11 +145,13 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             )
         }
         Strategy::Tiling2D(config) => {
-            tiling2d::launch_ref::<R, MP::EG>(client, lhs, rhs, out, config.clone());
+            // TODO Implement tiling2d with EI and EO
+            tiling2d::launch_ref::<R, MP::EI>(client, lhs, rhs, out, config.clone());
             Ok(())
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, MP::EG>(client, lhs, rhs, out)?;
+            // TODO Implement naive with EI and EO
+            naive::launch_ref::<R, MP::EI>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {
@@ -158,7 +160,8 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             {
                 match err {
                     super::kernels::MatmulLaunchError::Unavailable(_) => {
-                        tiling2d::launch_ref::<R, MP::EG>(
+                        // TODO Implement naive with EI and EO
+                        tiling2d::launch_ref::<R, MP::EI>(
                             client,
                             lhs,
                             rhs,

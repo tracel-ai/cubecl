@@ -81,7 +81,8 @@ impl Optimizer {
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
-            | Arithmetic::Dot(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            | Arithmetic::Dot(binary_operator)
+            | Arithmetic::MulHi(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)

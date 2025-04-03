@@ -166,8 +166,6 @@ impl<R: Runtime> KernelLauncher<R> {
         self.scalar_f32.register(&mut bindings);
         self.scalar_f64.register(&mut bindings);
 
-        bindings.scalars.sort_by_key(|it| it.elem);
-
         bindings
     }
 }
@@ -329,7 +327,9 @@ impl<T: NoUninit + AnyBitPattern + CubePrimitive> ScalarState<T> {
             let slice = bytemuck::cast_slice_mut::<u64, T>(&mut data);
             slice[0..values.len()].copy_from_slice(values);
             let elem = T::as_elem_native_unchecked();
-            bindings.scalars.push(ScalarBinding::new(elem, len, data));
+            bindings
+                .scalars
+                .insert(elem, ScalarBinding::new(elem, len, data));
         }
     }
 }

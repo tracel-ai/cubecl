@@ -29,7 +29,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
 #[derive(CubeType)]
 pub struct SyncFullLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
 {
-    pub tensor_view: TensorReader<MP::EG>,
+    pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -40,7 +40,7 @@ pub struct SyncFullLhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: Sync
 #[derive(CubeType)]
 pub struct SyncFullRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
 {
-    pub tensor_view: TensorReader<MP::EG>,
+    pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -68,7 +68,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncFullLoader<MP, single_stage::Config<S>> for SyncFullLhsLoader<MP, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>>(
+        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Lhs,
@@ -82,7 +82,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncFullLhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -120,7 +120,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncFullLoader<MP, single_stage::Config<S>> for SyncFullRhsLoader<MP, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<MP::EG, MP::ES, single_stage::Config<S>>(
+        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             Ident::Rhs,
@@ -134,7 +134,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     SyncFullRhsLoader<MP, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
-        tensor: VirtualTensor<MP::EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

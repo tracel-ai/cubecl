@@ -1,14 +1,14 @@
+use core::marker::PhantomData;
 use cubecl::prelude::*;
-use cubecl_linalg::matmul::{self};
+use cubecl_linalg::matmul::{self, SyncLoadingStrategy};
 use cubecl_linalg::matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
-use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
-    type Args = (TensorHandle<R, MP::EG>, TensorHandle<R, MP::EG>);
+    type Args = (TensorHandle<R, MP::EI>, TensorHandle<R, MP::EI>);
 
     fn prepare(&self) -> Self::Args {
         let client = R::client(&self.device);
@@ -30,9 +30,12 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         let client = R::client(&self.device);
 
         format!(
-            "matmul-{}-{}-{:?}",
+            "matmul-{}-{}-{}-{}-{}-{:?}",
             R::name(&client),
-            MP::EG::as_elem_native_unchecked(),
+            MP::EI::as_elem_native_unchecked(),
+            MP::ES::as_elem_native_unchecked(),
+            MP::EA::as_elem_native_unchecked(),
+            MP::EO::as_elem_native_unchecked(),
             self.strategy
         )
         .to_lowercase()
@@ -86,31 +89,32 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
-    // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
-    // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
-    // );
+    run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
+
     // run::<R, MP>(
     //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-    );
 }
 
 fn main() {
@@ -133,6 +137,11 @@ fn main() {
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
         run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
-        //run_benches::<cubecl::cuda::CudaRuntime, flex32>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::bf16>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, f32, half::f16)>();
     }
 }

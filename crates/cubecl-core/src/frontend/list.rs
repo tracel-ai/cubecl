@@ -14,7 +14,7 @@ pub trait List<T: CubeType>: CubeType<ExpandType: ListExpand<T>> {
         scope: &mut Scope,
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T>;
+    ) -> T::ExpandType;
 }
 
 /// Expand version of [CubeRead].
@@ -23,7 +23,7 @@ pub trait ListExpand<T: CubeType> {
         self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<T>;
+    ) -> T::ExpandType;
 }
 
 /// Type for which we can read and write values in cube functions.
@@ -38,7 +38,7 @@ pub trait ListMut<T: CubeType>: CubeType<ExpandType: ListMutExpand<T>> + List<T>
         scope: &mut Scope,
         this: Self::ExpandType,
         index: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<T>,
+        value: T::ExpandType,
     );
 }
 
@@ -48,6 +48,80 @@ pub trait ListMutExpand<T: CubeType> {
         self,
         scope: &mut Scope,
         index: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<T>,
+        value: T::ExpandType,
     );
+}
+
+// Automatic implementation for mutable references to List.
+impl<'a, T: CubeType, L: List<T>> List<T> for &'a L
+where
+    &'a L: CubeType<ExpandType = L::ExpandType>,
+{
+    fn read(&self, index: u32) -> T {
+        L::read(self, index)
+    }
+
+    fn __expand_read(
+        scope: &mut Scope,
+        this: Self::ExpandType,
+        index: ExpandElementTyped<u32>,
+    ) -> <T as CubeType>::ExpandType {
+        L::__expand_read(scope, this, index)
+    }
+}
+
+// Automatic implementation for mutable references to List.
+impl<'a, T: CubeType, L: List<T>> List<T> for &'a mut L
+where
+    &'a mut L: CubeType<ExpandType = L::ExpandType>,
+{
+    fn read(&self, index: u32) -> T {
+        L::read(self, index)
+    }
+
+    fn __expand_read(
+        scope: &mut Scope,
+        this: Self::ExpandType,
+        index: ExpandElementTyped<u32>,
+    ) -> <T as CubeType>::ExpandType {
+        L::__expand_read(scope, this, index)
+    }
+}
+
+// Automatic implementation for references to ListMut.
+impl<'a, T: CubeType, L: ListMut<T>> ListMut<T> for &'a L
+where
+    &'a L: CubeType<ExpandType = L::ExpandType>,
+{
+    fn write(&self, index: u32, value: T) {
+        L::write(self, index, value);
+    }
+
+    fn __expand_write(
+        scope: &mut Scope,
+        this: Self::ExpandType,
+        index: ExpandElementTyped<u32>,
+        value: T::ExpandType,
+    ) {
+        L::__expand_write(scope, this, index, value);
+    }
+}
+
+// Automatic implementation for references to ListMut.
+impl<'a, T: CubeType, L: ListMut<T>> ListMut<T> for &'a mut L
+where
+    &'a mut L: CubeType<ExpandType = L::ExpandType>,
+{
+    fn write(&self, index: u32, value: T) {
+        L::write(self, index, value);
+    }
+
+    fn __expand_write(
+        scope: &mut Scope,
+        this: Self::ExpandType,
+        index: ExpandElementTyped<u32>,
+        value: T::ExpandType,
+    ) {
+        L::__expand_write(scope, this, index, value);
+    }
 }

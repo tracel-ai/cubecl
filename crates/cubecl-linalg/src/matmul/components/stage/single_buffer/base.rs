@@ -215,10 +215,10 @@ where
         }
     }
 
-    fn read_accumulator<SW: StageWriter<MP::EG>, G: global::GlobalConfig>(
+    fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<MP::EG>>,
+        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -233,7 +233,7 @@ where
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
 
         let start = num_tile_lines * UNIT_POS_Y;
-        let mut out_smem = SharedMemory::<MP::EG>::new_lined(
+        let mut out_smem = SharedMemory::<MP::EO>::new_lined(
             num_tile_lines * stage_config.num_planes(),
             out_smem_line_size,
         );
@@ -243,7 +243,7 @@ where
             let accumulator = acc.index(accumulator_iter);
             let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
-            SW::write::<MP::EG, G>(
+            SW::write::<MP::EO, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,

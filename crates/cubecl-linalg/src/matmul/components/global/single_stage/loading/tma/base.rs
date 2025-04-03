@@ -20,7 +20,7 @@ use crate::matmul::components::{global::CopyMechanism, stage::StridedTilingLayou
 
 #[derive(CubeType)]
 pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
-    pub tensor_view: MappedTensorReader<MP::EG>,
+    pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -28,7 +28,7 @@ pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 
 #[derive(CubeType)]
 pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
-    pub tensor_view: MappedTensorReader<MP::EG>,
+    pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -87,7 +87,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Co
 #[cube]
 impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
     pub fn new<G: global::GlobalConfig>(
-        tensor: TensorMap<MP::EG>,
+        tensor: TensorMap<MP::EI>,
         x: u32,
         y: u32,
         batch: u32,
@@ -158,7 +158,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 #[cube]
 impl<MP: MatmulPrecision, S: stage::StageConfig> TmaRhsLoader<MP, S> {
     pub fn new<G: global::GlobalConfig>(
-        tensor: TensorMap<MP::EG>,
+        tensor: TensorMap<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -1,14 +1,14 @@
-use crate::matmul::components::{
-    InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES,
-};
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
-use crate::matmul::kernels::{
-    MatmulAvailabilityError, MatmulLaunchError, MatmulUnimplementedError,
-};
+use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self};
-use crate::tensor::into_contiguous_pitched;
 use crate::tensor::{MatrixLayout, TensorHandle, matrix_layout};
+use crate::{
+    matmul::components::{
+        InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
+        MatmulSelection, MatmulSpec, OutputRuntimeArg, ReplaceES,
+    },
+    tensor::into_contiguous_pitched,
+};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -24,10 +24,10 @@ use super::{Algorithm, select_kernel};
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    lhs: TensorHandle<R, MP::EG>,
-    rhs: TensorHandle<R, MP::EG>,
-    out: TensorHandle<R, MP::EG>,
-) -> Result<TensorHandle<R, MP::EG>, MatmulLaunchError> {
+    lhs: TensorHandle<R, MP::EI>,
+    rhs: TensorHandle<R, MP::EI>,
+    out: TensorHandle<R, MP::EO>,
+) -> Result<TensorHandle<R, MP::EO>, MatmulLaunchError> {
     let result = launch_ref::<R, MP, A>(client, &lhs.as_ref(), &rhs.as_ref(), &out.as_ref());
 
     match result {
@@ -47,11 +47,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
-    if MP::QUANTIZED {
-        return Err(MatmulLaunchError::Unimplemented(
-            MatmulUnimplementedError::Quantization,
-        ));
-    }
+    // if MP::QUANTIZED {
+    //     return Err(MatmulLaunchError::Unimplemented(
+    //         MatmulUnimplementedError::Quantization,
+    //     ));
+    // }
 
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
         MatrixLayout::Contiguous => (false, false),
@@ -76,21 +76,21 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         (false, true) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
             lhs,
-            &into_contiguous_pitched::<R, MP::EG>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, false) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
-            &into_contiguous_pitched::<R, MP::EG>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
             rhs,
             out,
             (lhs_transposed, rhs_transposed),
         ),
         (true, true) => matmul_cmma_ref_no_check::<R, MP, A>(
             client,
-            &into_contiguous_pitched::<R, MP::EG>(client, lhs).as_ref(),
-            &into_contiguous_pitched::<R, MP::EG>(client, rhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EI>(client, lhs).as_ref(),
+            &into_contiguous_pitched::<R, MP::EI>(client, rhs).as_ref(),
             out,
             (lhs_transposed, rhs_transposed),
         ),
@@ -106,26 +106,27 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
-    let eg_elem = MP::EG::as_elem_native().expect("To be a native type");
+    let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
+    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
     let lhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
+        R::line_size_elem(&ei_elem),
         lhs.shape,
         lhs.strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
+        R::line_size_elem(&ei_elem),
         rhs.shape,
         rhs.strides,
         rank - 1,
     );
     let out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
+        R::line_size_elem(&eo_elem),
         out.shape,
         out.strides,
         rank - 1,
@@ -196,7 +197,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
     if <A::TileMatmul as TileMatmulFamily>::requires_tensor_cores()
-        && TypeId::of::<MP::EG>() == TypeId::of::<f32>()
+        && TypeId::of::<MP::EI>() == TypeId::of::<f32>()
     {
         if tf32::is_supported(client) {
             select_kernel::<ReplaceES<MP, tf32>, R, A>(
@@ -233,14 +234,14 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
     let rank = lhs.strides.len();
-    let eg_elem = MP::EG::as_elem_native().expect("To be a native type");
+    let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
     let n = rhs.shape[rank - 1] as u32;
 
     let out_line_size = tensor_line_size_parallel(
-        R::line_size_elem(&eg_elem),
+        R::line_size_elem(&eo_elem),
         out.shape,
         out.strides,
         rank - 1,
@@ -287,7 +288,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    if TypeId::of::<MP::EG>() == TypeId::of::<f32>() {
+    if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
         select_kernel::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client,
             lhs,

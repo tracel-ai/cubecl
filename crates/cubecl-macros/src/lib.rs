@@ -76,14 +76,22 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         }
         Item::Impl(item_impl) => {
             if item_impl.trait_.is_some() {
-                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl, args.src_file)?;
+                let mut expand_impl = CubeTraitImpl::from_item_impl(
+                    item_impl,
+                    args.src_file,
+                    args.debug_symbols.is_present(),
+                )?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {
                     #expand_impl
                 }))
             } else {
-                let mut expand_impl = CubeImpl::from_item_impl(item_impl, args.src_file)?;
+                let mut expand_impl = CubeImpl::from_item_impl(
+                    item_impl,
+                    args.src_file,
+                    args.debug_symbols.is_present(),
+                )?;
                 let expand_impl = expand_impl.to_tokens_mut();
 
                 Ok(TokenStream::from(quote! {
@@ -202,6 +210,7 @@ pub fn terminate(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
     quote![{ #tokens }].into()
 }
+
 /// Implements display and initialization for autotune keys.
 ///
 /// # Helper

@@ -26,7 +26,7 @@ pub fn matmul_tiling_2d<R: Runtime, F: Float>(
 }
 
 /// Matrix multiplication using tiling 2d algorithm.
-pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
+pub fn matmul_tiling_2d_ref<R: Runtime, EG: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
@@ -34,7 +34,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
     config: Tiling2dConfig,
 ) {
     assert!(
-        N::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
+        EG::size().unwrap() * config.block_size_k * max(config.block_size_m, config.block_size_n)
             <= client
                 .properties()
                 .hardware_properties()
@@ -53,25 +53,25 @@ pub fn matmul_tiling_2d_ref<R: Runtime, N: Numeric>(
     let rhs_correct_layout = check_layout(rhs);
 
     match (lhs_correct_layout, rhs_correct_layout) {
-        (true, true) => matmul_tiling_2d_ref_no_check::<R, N>(client, lhs, rhs, out, config),
-        (true, false) => matmul_tiling_2d_ref_no_check::<R, N>(
+        (true, true) => matmul_tiling_2d_ref_no_check::<R, EG>(client, lhs, rhs, out, config),
+        (true, false) => matmul_tiling_2d_ref_no_check::<R, EG>(
             client,
             lhs,
-            &into_contiguous::<R, N>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             config,
         ),
-        (false, true) => matmul_tiling_2d_ref_no_check::<R, N>(
+        (false, true) => matmul_tiling_2d_ref_no_check::<R, EG>(
             client,
-            &into_contiguous::<R, N>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG>(client, lhs).as_ref(),
             rhs,
             out,
             config,
         ),
-        (false, false) => matmul_tiling_2d_ref_no_check::<R, N>(
+        (false, false) => matmul_tiling_2d_ref_no_check::<R, EG>(
             client,
-            &into_contiguous::<R, N>(client, lhs).as_ref(),
-            &into_contiguous::<R, N>(client, rhs).as_ref(),
+            &into_contiguous::<R, EG>(client, lhs).as_ref(),
+            &into_contiguous::<R, EG>(client, rhs).as_ref(),
             out,
             config,
         ),

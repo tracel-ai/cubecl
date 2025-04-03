@@ -45,7 +45,6 @@ struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
-    shared_mem_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -260,7 +259,7 @@ impl ComputeServer for HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
         let info = self.create(bytemuck::cast_slice(&metadata.data));
-        let scalars: Vec<_> = scalars.iter().map(|s| self.create(s.data())).collect();
+        let scalars: Vec<_> = scalars.values().map(|s| self.create(s.data())).collect();
 
         let (ctx, logger) = self.get_context_with_logger();
 
@@ -512,7 +511,6 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim: jitc_kernel.cube_dim,
-                shared_mem_bytes: jitc_kernel.repr.as_ref().unwrap().shared_memory_size(),
             },
         );
     }
@@ -540,7 +538,10 @@ impl HipContext {
                 cube_dim.x,
                 cube_dim.y,
                 cube_dim.z,
-                kernel.shared_mem_bytes as u32,
+                // Shared memory is specified statically in the kernel, and no dynamic shared
+                // memory is supported yet in the kernel, which would be that value for the
+                // current kernel launch.
+                0,
                 self.stream,
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),

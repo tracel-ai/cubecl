@@ -19,10 +19,6 @@ serde = []
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
 cache = ["std", "serde_json", "hashbrown", "dirs", "sanitize-filename"]
 
-[target.'cfg(target_family = "wasm")'.dependencies]
-getrandom = { workspace = true, features = ["wasm_js"] }
-web-time = { workspace = true }
-
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
 bytemuck = { workspace = true, features = ["derive"] }
