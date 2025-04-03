@@ -221,7 +221,8 @@ impl<D: Dialect> Binary<D> for Max {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        D::compile_instruction_max(f, lhs, rhs, item)
+        D::compile_instruction_max_function_name(f, item)?;
+        write!(f, "({lhs}, {rhs})")
     }
 }
 
@@ -234,13 +235,8 @@ impl<D: Dialect> Binary<D> for Min {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let min = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmin",
-            Elem::F162 | Elem::BF162 => "__hmin2",
-            _ => "min",
-        };
-
-        write!(f, "{min}({lhs}, {rhs})")
+        D::compile_instruction_min_function_name(f, item)?;
+        write!(f, "({lhs}, {rhs})")
     }
 }
 

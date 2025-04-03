@@ -700,13 +700,18 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     // others
-    fn compile_instruction_max<Lhs: Display, Rhs: Display>(
+    fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: Lhs,
-        rhs: Rhs,
         item: Item<Self>
     ) -> std::fmt::Result {
-        write!(f, "max({lhs}, {rhs})")
+        write!(f, "max")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<Self>
+    ) -> std::fmt::Result {
+        write!(f, "min")
     }
 
     fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
