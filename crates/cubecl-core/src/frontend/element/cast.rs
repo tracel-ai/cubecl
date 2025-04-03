@@ -60,7 +60,7 @@ pub trait Reinterpret: CubePrimitive {
             NonZero::new(vectorization as u8),
         ));
         scope.register(Instruction::new(
-            Operator::Bitcast(UnaryOperator { input: *value }),
+            Operator::Reinterpret(UnaryOperator { input: *value }),
             *new_var.clone(),
         ));
         new_var.into()

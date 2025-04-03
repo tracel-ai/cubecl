@@ -1,4 +1,4 @@
-pub mod reinterpret_list;
+pub mod reinterpret_slice;
 
 #[macro_export]
 macro_rules! testgen {
@@ -6,7 +6,7 @@ macro_rules! testgen {
         mod test_cubecl_std {
             use super::*;
 
-            cubecl_std::testgen_reinterpret_list!();
+            cubecl_std::testgen_reinterpret_slice!();
         }
     };
 }
