@@ -157,9 +157,20 @@ function!(Ceil, "ceil");
 function!(Floor, "floor");
 function!(Round, "rint");
 
-function!(Tanh, "tanh", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
+
+pub struct Tanh;
+
+impl<D: Dialect> Unary<D> for Tanh {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_tanh_scalar(f, input)
+    }
+}
 
 pub fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
     match input.elem() {

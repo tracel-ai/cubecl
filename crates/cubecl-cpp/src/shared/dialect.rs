@@ -467,6 +467,14 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
 
+    // trigo
+    fn compile_instruction_tanh_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "tanh({input})")
+    }
+
     // unary
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,

@@ -16,8 +16,7 @@ use cubecl_core::{
 };
 
 use super::{
-    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
-    format_metal_builtin_binding_arg,
+    arch::MetalArchitecture, format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh, AddressSpace, Extension
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,6 +49,7 @@ using namespace metal;
         for extension in extensions {
             match extension {
                 Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::NoExtension => {}
             }
         }
@@ -66,6 +66,9 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
+            },
+            shared::Instruction::<Self>::Tanh(instruction) => {
+                register_extension(Extension::SafeTanh(instruction.input.item()));
             }
             _ => {}
         }
@@ -622,6 +625,14 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
+    }
+
+    // trigo
+    fn compile_instruction_tanh_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "safe_tanh_scalar({input})")
     }
 
     // unary
