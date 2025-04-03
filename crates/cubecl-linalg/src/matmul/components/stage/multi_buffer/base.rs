@@ -191,6 +191,7 @@ where
 
         match (quantization, quantization_memories) {
             (CubeOption::Some(quantization), CubeOption::Some(memories)) => {
+                #[allow(unused_mut)]
                 let mut mem_dequantized = memories.dequantized;
                 let slice_mut = mem_dequantized.to_slice_mut();
 

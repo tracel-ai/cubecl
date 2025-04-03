@@ -1,10 +1,9 @@
 //! Cubecl standard library.
 
+mod reinterpret_slice;
+pub use reinterpret_slice::*;
 mod fast_math;
 pub use fast_math::*;
-
-mod reinterpret_list;
-pub use reinterpret_list::*;
 
 mod quantization;
 pub use quantization::*;

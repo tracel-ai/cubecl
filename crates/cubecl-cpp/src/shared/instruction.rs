@@ -115,6 +115,11 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
         len: Variable<D>,
     },
+    ReinterpretSlice {
+        input: Variable<D>,
+        line_size: u32,
+        out: Variable<D>,
+    },
     Return,
     Break,
     Equal(BinaryInstruction<D>),
@@ -258,6 +263,20 @@ impl<D: Dialect> Display for Instruction<D> {
                 let addr_space = D::address_space_for_variable(input);
                 writeln!(f, "const uint {out}_length = min({len}, {end}) - {start};")?;
                 writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
+            }
+            Instruction::ReinterpretSlice {
+                input,
+                line_size,
+                out,
+            } => {
+                let mut item = out.item();
+                item.vectorization = *line_size as usize;
+                let addr_space = D::address_space_for_variable(input);
+
+                writeln!(
+                    f,
+                    "{addr_space}{item} *{out} = reinterpret_cast<{item}*>({input});"
+                )
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),

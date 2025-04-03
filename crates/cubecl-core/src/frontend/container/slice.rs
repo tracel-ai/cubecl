@@ -5,9 +5,10 @@ use crate::{
         Tensor, indexation::Index,
     },
     ir::{Instruction, Scope},
-    prelude::{List, ListExpand, ListMut, ListMutExpand, index, index_assign},
+    prelude::{CubeDebug, List, ListExpand, ListMut, ListMutExpand, index, index_assign},
     unexpanded,
 };
+use cubecl_common::tf32;
 use cubecl_ir::{ExpandElement, Operator};
 use std::marker::PhantomData;
 
@@ -31,7 +32,14 @@ pub struct SliceMut<E> {
     _e: PhantomData<E>,
 }
 
+#[allow(unused)]
 mod metadata {
+    use core::num::NonZero;
+
+    use cubecl_ir::{Item, NonSemantic};
+
+    use crate::prelude::cube_comment;
+
     use super::*;
 
     impl<E> Slice<E> {
@@ -42,7 +50,7 @@ mod metadata {
         }
 
         /// Returns the same slice, but with lines of length 1.
-        pub fn to_aligned(&self) -> Slice<Line<E>>
+        pub fn into_lined(&self) -> Slice<Line<E>>
         where
             E: CubePrimitive,
         {
@@ -61,6 +69,18 @@ mod metadata {
         }
     }
 
+    impl<E: CubePrimitive> Slice<Line<E>> {
+        /// Return a new Slice with updated line_size. This doesn't copy or move the data,
+        /// it simply reinterpret how they are loaded and stored in memory.
+        ///
+        /// # Warning
+        ///
+        /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+        pub fn with_line_size(&self, line_size: u32) -> Slice<Line<E>> {
+            unexpanded!()
+        }
+    }
+
     impl<E> SliceMut<E> {
         /// Get the length of the slice.
         #[allow(clippy::len_without_is_empty)]
@@ -69,7 +89,7 @@ mod metadata {
         }
 
         /// Returns the same slice, but with lines of length 1.
-        pub fn into_aligned(self) -> SliceMut<Line<E>>
+        pub fn into_lined(self) -> SliceMut<Line<E>>
         where
             E: CubePrimitive,
         {
@@ -89,20 +109,32 @@ mod metadata {
         }
     }
 
-    impl<C: CubeType> ExpandElementTyped<Slice<C>> {
+    impl<E: CubePrimitive> SliceMut<Line<E>> {
+        /// Return a new SliceMut with updated line_size. This doesn't copy or move the data,
+        /// it simply reinterpret how they are loaded and stored in memory.
+        ///
+        /// # Warning
+        ///
+        /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+        pub fn with_line_size(&self, line_size: u32) -> SliceMut<Line<E>> {
+            unexpanded!()
+        }
+    }
+
+    impl<E: CubePrimitive> ExpandElementTyped<Slice<E>> {
         // Expand method of [len](Slice::len).
         pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
         }
 
-        /// Expand method of [len](Slice::to_aligned).
-        pub fn __expand_to_aligned_method(
+        /// Expand method of [len](Slice::into_lined).
+        pub fn __expand_into_lined_method(
             self,
             _scope: &mut Scope,
-        ) -> ExpandElementTyped<Slice<Line<C>>>
+        ) -> ExpandElementTyped<Slice<Line<E>>>
         where
-            C: CubePrimitive,
+            E: CubePrimitive,
         {
             self.expand.into()
         }
@@ -113,38 +145,65 @@ mod metadata {
             scope: &mut Scope,
         ) -> ExpandElementTyped<Slice<T>>
         where
-            C: CubePrimitive,
+            E: CubePrimitive,
             T: CubePrimitive,
         {
-            if T::as_elem(scope) != C::as_elem(scope) {
+            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 
             self.expand.into()
         }
 
-        pub fn __expand_clone_method(self, _scope: &mut Scope) -> ExpandElementTyped<Slice<Line<C>>>
+        pub fn __expand_clone_method(self, _scope: &mut Scope) -> ExpandElementTyped<Slice<Line<E>>>
         where
-            C: CubePrimitive,
+            E: CubePrimitive,
         {
             self.expand.into()
         }
     }
 
-    impl<C: CubeType> ExpandElementTyped<SliceMut<C>> {
+    impl<E: CubePrimitive> ExpandElementTyped<Slice<Line<E>>> {
+        /// Expand method of [with_line_size](Slice::with_line_size).
+        pub fn __expand_with_line_size_method(
+            self,
+            scope: &mut Scope,
+            line_size: u32,
+        ) -> ExpandElementTyped<Slice<Line<E>>>
+        where
+            E: CubePrimitive,
+        {
+            let input = self.into_variable();
+            let mut item = input.item;
+            item.vectorization = NonZero::new(line_size as u8);
+            let out = scope.create_slice(item);
+
+            scope.register(Instruction::new(
+                Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
+                    input,
+                    line_size,
+                }),
+                *out,
+            ));
+
+            out.into()
+        }
+    }
+
+    impl<E: CubePrimitive> ExpandElementTyped<SliceMut<E>> {
         // Expand method of [len](SliceMut::len).
         pub fn __expand_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
             let elem: ExpandElementTyped<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
         }
 
-        /// Expand method of [len](SliceMut::into_aligned).
-        pub fn __expand_into_aligned_method(
+        /// Expand method of [len](SliceMut::into_lined).
+        pub fn __expand_into_lined_method(
             self,
             _scope: &mut Scope,
-        ) -> ExpandElementTyped<SliceMut<Line<C>>>
+        ) -> ExpandElementTyped<SliceMut<Line<E>>>
         where
-            C: CubePrimitive,
+            E: CubePrimitive,
         {
             self.expand.into()
         }
@@ -155,16 +214,51 @@ mod metadata {
             scope: &mut Scope,
         ) -> ExpandElementTyped<SliceMut<T>>
         where
-            C: CubePrimitive,
+            E: CubePrimitive,
             T: CubePrimitive,
         {
-            if T::as_elem(scope) != C::as_elem(scope) {
+            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 
             self.expand.into()
         }
     }
+
+    impl<E: CubePrimitive> ExpandElementTyped<SliceMut<Line<E>>> {
+        /// Expand method of [with_line_size](SliceMut::with_line_size).
+        pub fn __expand_with_line_size_method(
+            self,
+            scope: &mut Scope,
+            line_size: u32,
+        ) -> ExpandElementTyped<SliceMut<Line<E>>>
+        where
+            E: CubePrimitive,
+        {
+            let input = self.into_variable();
+            let mut item = input.item;
+            item.vectorization = NonZero::new(line_size as u8);
+            let out = scope.create_slice(item);
+
+            scope.register(Instruction::new(
+                Operator::ReinterpretSlice(cubecl_ir::ReinterpretSliceOperator {
+                    input,
+                    line_size,
+                }),
+                *out,
+            ));
+            out.into()
+        }
+    }
+}
+
+pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> bool {
+    let ty_c = C::as_elem(scope);
+    let ty_t = T::as_elem(scope);
+    let ty_f32 = f32::as_elem(scope);
+    let ty_tf32 = tf32::as_elem(scope);
+
+    (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }
 
 /// Module that contains the implementation details of the index functions.
@@ -355,7 +449,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 
     /// Reinterprete the current type as a read-write slice.
-    #[allow(unused_variables)]
+    #[allow(unused_variables, clippy::wrong_self_convention)]
     fn to_slice_mut(&mut self) -> SliceMut<E> {
         unexpanded!()
     }
@@ -369,7 +463,7 @@ pub trait SliceOperator<E: CubeType>: CubeType<ExpandType = Self::Expand> {
     }
 }
 
-pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone {
+pub trait SliceOperatorExpand<E: CubeType>: Into<ExpandElement> + Clone + Init + CubeDebug {
     fn slice_base<Start: Index, End: Index>(
         &self,
         scope: &mut Scope,

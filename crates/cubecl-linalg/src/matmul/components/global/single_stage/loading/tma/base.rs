@@ -1,11 +1,8 @@
 use core::marker::PhantomData;
 
-use cubecl_core::prelude::barrier::Barrier;
+use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 
-use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::CopyMechanism;
 use crate::matmul::components::{
     Ident,
     global::{
@@ -14,16 +11,17 @@ use crate::matmul::components::{
         tensor_view::MappedTensorReader,
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
+        self, Stage,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
+use crate::matmul::components::{MatmulPrecision, MatrixLayout};
+use crate::matmul::components::{global::CopyMechanism, stage::StridedTilingLayout};
 
 #[derive(CubeType)]
 pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub barrier: Barrier<MP::EI>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -31,8 +29,7 @@ pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 #[derive(CubeType)]
 pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub barrier: Barrier<MP::EI>,
-    pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+    pub stage: Stage<MP::ES, StridedTilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -43,26 +40,28 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
-        _mechanism: &CM,
+        barrier: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         if UNIT_POS == 0 {
+            // The tensor map is encoded as the transposed shape, so we need to swap coordinates
+            let (row, col) = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
+            };
+
+            let tensor = this.tensor_view.tensor.try_cast_unchecked();
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.tma_load_3d(
-                &this.tensor_view.tensor,
+
+            CM::tma_load_3d(
+                barrier,
+                &tensor,
                 &mut stage,
-                this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
-                this.tensor_view.tile_x as i32,
+                this.tensor_view.batch,
+                row,
+                col,
             );
-            this.barrier.arrive_tx(
-                1,
-                config.tiling_dimensions(Ident::Lhs).total_size() * MP::EI::elem_size(),
-            );
-        } else {
-            this.barrier.arrive();
         }
-        this.barrier.wait();
     }
 
     fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -74,7 +73,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = LhsReader<MP::ES, StridedTilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -97,11 +96,9 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
-        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         TmaLhsLoader::<MP, S> {
             tensor_view,
-            barrier,
             stage,
             _config: PhantomData::<S>,
         }
@@ -112,7 +109,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
-    type StageReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = RhsReader<MP::ES, StridedTilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -129,26 +126,28 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
-        _mechanism: &CM,
+        barrier: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
         if UNIT_POS == 0 {
+            // The tensor map is encoded as the transposed shape, so we need to swap coordinates
+            let (row, col) = match config.matrix_layout(Ident::Rhs) {
+                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
+            };
+
+            let tensor = this.tensor_view.tensor.try_cast_unchecked();
             let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
-            this.barrier.tma_load_3d(
-                &this.tensor_view.tensor,
+
+            CM::tma_load_3d(
+                barrier,
+                &tensor,
                 &mut stage,
-                this.tensor_view.batch as i32,
-                this.tensor_view.tile_y as i32,
-                this.tensor_view.tile_x as i32,
+                this.tensor_view.batch,
+                row,
+                col,
             );
-            this.barrier.arrive_tx(
-                1,
-                config.tiling_dimensions(Ident::Rhs).total_size() * MP::EI::elem_size(),
-            );
-        } else {
-            this.barrier.arrive();
         }
-        this.barrier.wait();
     }
 
     fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -168,11 +167,9 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaRhsLoader<MP, S> {
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);
-        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         TmaRhsLoader::<MP, S> {
             tensor_view,
-            barrier,
             stage,
             _config: PhantomData::<S>,
         }

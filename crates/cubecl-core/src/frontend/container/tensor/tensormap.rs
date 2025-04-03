@@ -15,8 +15,8 @@ pub use cubecl_runtime::tma::*;
 /// The tensormap is treated as an opaque type at runtime.
 ///
 pub struct TensorMapArg<'a, R: Runtime> {
-    pub(crate) tensor: TensorArg<'a, R>,
-    pub(crate) metadata: TensorMapMeta,
+    pub tensor: TensorArg<'a, R>,
+    pub metadata: TensorMapMeta,
 }
 
 impl<'a, R: Runtime> TensorMapArg<'a, R> {
@@ -313,6 +313,14 @@ mod metadata {
             unexpanded!()
         }
 
+        /// Try to cast the tensormap to the given type and panic if the type isn't the same.
+        ///
+        /// This function should only be used to satisfy the Rust type system, when two generic
+        /// types are supposed to be the same.
+        pub fn try_cast_unchecked<E: CubePrimitive>(&self) -> TensorMap<E> {
+            unexpanded!()
+        }
+
         // Expand function of [stride](Tensor::stride).
         pub fn __expand_stride<C: Index>(
             scope: &mut Scope,
@@ -454,6 +462,18 @@ mod metadata {
             let out = scope.create_local(Item::new(u32::as_elem(scope)));
             scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
+        }
+
+        /// Expand method of [try_cast_unchecked](Slice::try_cast_unchecked).
+        pub fn __expand_try_cast_unchecked_method<E: CubePrimitive>(
+            self,
+            scope: &mut Scope,
+        ) -> ExpandElementTyped<TensorMap<E>> {
+            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
+                panic!("Try cast unchecked should only be used to satisfy the rust type system.")
+            }
+
+            self.expand.into()
         }
     }
 }
