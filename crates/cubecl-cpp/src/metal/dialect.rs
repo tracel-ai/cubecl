@@ -207,8 +207,7 @@ void {}(",
             "Tensor maps aren't supported for metal"
         );
         for (i, b) in buffers.iter().enumerate() {
-            format_global_binding_arg("buffer", b, Some(&i.to_string()), buffer_idx, f)?;
-            buffer_idx += 1;
+            format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
         }
         if flags.static_meta_length > 0 {
             let binding = Binding {
@@ -218,7 +217,7 @@ void {}(",
                 size: None,
                 vis: Visibility::Read,
             };
-            format_global_binding_arg("info", &binding, None, buffer_idx, f)?;
+            format_global_binding_arg("info", &binding, None, &mut buffer_idx, f)?;
         }
         for (elem, _) in scalars.iter() {
             let binding = Binding {
@@ -230,8 +229,7 @@ void {}(",
             };
 
             let name = format!("scalars_{elem}");
-            format_global_binding_arg(&name, &binding, None, buffer_idx, f)?;
-            buffer_idx += 1;
+            format_global_binding_arg(&name, &binding, None, &mut buffer_idx, f)?;
         }
 
         // Global metal builtins args
