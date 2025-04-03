@@ -17,9 +17,9 @@ pub type HipDialectIntrinsic = hip::HipDialect<hip::mma::WmmaIntrinsicCompiler>;
 #[cfg(feature = "hip")]
 pub type HipDialectRocWmma = hip::HipDialect<hip::mma::RocWmmaCompiler>;
 
-#[cfg(feature = "cuda")]
+// #[cfg(feature = "cuda")]
 pub mod cuda;
-#[cfg(feature = "cuda")]
+// #[cfg(feature = "cuda")]
 pub type CudaCompiler = shared::CppCompiler<cuda::CudaDialect>;
 
 #[cfg(feature = "metal")]
