@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::tensor::{MatrixLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout};
 
 use super::MatmulLaunchError;
 
@@ -108,7 +108,7 @@ pub fn launch<R: Runtime, E: Numeric>(
     let lhs_layout = matrix_layout(&lhs.strides);
     let rhs_layout = matrix_layout(&rhs.strides);
 
-    let lhs = if !matches!(lhs_layout, MatrixLayout::Contiguous) {
+    let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
         into_contiguous::<R, E>(client, &lhs.as_ref())
     } else {
         lhs
@@ -131,8 +131,8 @@ pub fn launch<R: Runtime, E: Numeric>(
     };
 
     let (rhs_original_shape, rhs) = match rhs_layout {
-        MatrixLayout::Contiguous => correct_rhs_layout(rhs),
-        MatrixLayout::MildlyPermuted {
+        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs),
+        MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
         } => {
@@ -143,7 +143,7 @@ pub fn launch<R: Runtime, E: Numeric>(
                 correct_rhs_layout(rhs)
             }
         }
-        MatrixLayout::HighlyPermuted => correct_rhs_layout(rhs),
+        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs),
     };
 
     let cube_count = simple_cube_count(
