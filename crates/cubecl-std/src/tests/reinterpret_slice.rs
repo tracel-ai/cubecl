@@ -11,8 +11,14 @@ fn kernel_read_global(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
-    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+pub fn run_test_read_global<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    line_size: usize,
+) {
+    if !client
+        .properties()
+        .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
         return; // can't run test
     }
 
@@ -44,8 +50,14 @@ fn kernel_write_global(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 
-pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, line_size: usize) {
-    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+pub fn run_test_write_global<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    line_size: usize,
+) {
+    if !client
+        .properties()
+        .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
         return; // can't run test
     }
     let source = [f16::from_f32(1.0), f16::from_f32(-8.5)];
@@ -87,7 +99,10 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
 }
 
 pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+    if !client
+        .properties()
+        .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
         return; // can't run test
     }
 
@@ -120,7 +135,10 @@ fn kernel_write_shared_memory(output: &mut Array<Line<i8>>, input: &Array<f16>) 
 }
 
 pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.properties().feature_enabled(cubecl_core::Feature::DynamicLineSize) {
+    if !client
+        .properties()
+        .feature_enabled(cubecl_core::Feature::DynamicLineSize)
+    {
         return; // can't run test
     }
 
