@@ -86,11 +86,12 @@ pub trait FunctionFmt<D: Dialect> {
     fn base_function_name() -> &'static str;
     fn function_name(elem: Elem<D>) -> String {
         if Self::half_support() {
-            match elem {
-                Elem::F16 | Elem::BF16 => return format!("h{}", Self::base_function_name()),
-                Elem::F162 | Elem::BF162 => return format!("h2{}", Self::base_function_name()),
-                _ => (),
+            let prefix = match elem {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
+                _ => "",
             };
+            return format!("{prefix}{}", Self::base_function_name());
         }
 
         Self::base_function_name().into()

@@ -701,6 +701,10 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "pow")
     }
 
+    fn compile_instruction_half_function_name_prefix() -> &'static str { "" }
+
+    fn compile_instruction_half2_function_name_prefix() -> &'static str { "" }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
