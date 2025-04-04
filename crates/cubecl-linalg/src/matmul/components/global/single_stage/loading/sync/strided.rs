@@ -1,6 +1,7 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, StridedTilingLayout};
+use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use crate::matmul::components::{Ident, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -40,11 +41,11 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
         read_view: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        let tiling = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
         let num_stage_lines = tiling.total_size() / line_size;
         let unit_count = config.num_planes() * config.plane_dim();
         let num_loads_per_unit = comptime!(num_stage_lines / unit_count);
@@ -54,8 +55,11 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
         for i in 0..num_loads_per_unit {
             let unit_position = unit_base_position + i * unit_count;
 
-            let line_read =
-                read_view.load_coalesced_in_stage::<G>(unit_position * line_size, ident, config);
+            let line_read = read_view.load_coalesced_in_stage::<G>(
+                unit_position * line_size,
+                input_ident,
+                config,
+            );
 
             stage.as_slice_mut()[unit_position] = match quantization {
                 CubeOption::Some(quantization) => quantization.dequantize(line_read),

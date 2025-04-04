@@ -1,17 +1,11 @@
 use crate::matmul::components::{
-    MatmulPrecision,
+    InputIdent, MatmulPrecision,
     global::{
         GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
-        single_stage::{
-            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-            FullLoader,
-        },
+        single_stage::{AsyncFullLoadingStrategy, AsyncLoader, Config},
     },
-    stage::{
-        StageMatmul,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{StageMatmul, multi_buffer::FullReader},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -26,10 +20,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, multi_buffer::FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -46,7 +37,7 @@ pub struct SimplePipelinedMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
@@ -127,15 +118,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmu
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -221,6 +212,7 @@ where
             y_offset,
             batch_offset,
             quantization,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -240,6 +232,7 @@ where
             y_offset,
             batch_offset,
             quantization,
+            InputIdent::Rhs,
             config,
         )
     }

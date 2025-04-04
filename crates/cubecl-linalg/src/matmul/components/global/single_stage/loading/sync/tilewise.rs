@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::{FormattedConfigError, Ident, InvalidConfigError, MatmulPrecision};
+use crate::matmul::components::{FormattedConfigError, InputIdent, InvalidConfigError, MatmulPrecision};
 use crate::matmul::components::{
     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
@@ -55,11 +55,11 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
         read_view: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        let tiling = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
 
         let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
 
@@ -70,7 +70,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
 
         let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
             nth_tile,
-            ident,
+            input_ident.as_ident(),
             config.to_smm_config(),
         );
 
@@ -81,7 +81,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
                 tile_x,
                 tile_y,
                 pos_within_tile * line_size,
-                ident,
+                input_ident,
                 config,
             );
 

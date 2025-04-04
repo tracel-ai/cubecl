@@ -76,7 +76,7 @@ impl<EG: Numeric> MappedTensorReader<EG> {
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
     pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
-        match ident.as_input() {
+        match ident.as_input_ident() {
             InputIdent::Lhs => {
                 self.tile_y += k_offset;
             }
@@ -110,8 +110,8 @@ impl<EG: Numeric> TensorReader<EG> {
     }
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
-    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: Ident) {
-        match ident.as_input() {
+    pub fn update_view(&mut self, k_offset: u32, #[comptime] ident: InputIdent) {
+        match ident {
             InputIdent::Lhs => {
                 self.y_offset += k_offset;
             }
@@ -134,12 +134,12 @@ impl<EG: Numeric> TensorReader<EG> {
         &self,
         tile: (u32, u32),
         nth_window: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.global_line_size(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+        let matrix_layout = config.matrix_layout(input_ident);
 
         let tile_size_x = tiling_dimensions.tile_shape_row();
         let tile_size_y = tiling_dimensions.tile_shape_col();
@@ -153,7 +153,7 @@ impl<EG: Numeric> TensorReader<EG> {
             nth_window,
             (tile.0 * tile_size_x, tile.1 * tile_size_y),
             num_lines_in_window,
-            ident,
+            input_ident,
             config,
         )
     }
@@ -169,12 +169,12 @@ impl<EG: Numeric> TensorReader<EG> {
     pub fn load_window_in_stage<G: global::GlobalConfig>(
         &self,
         nth_window: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Window<EG> {
-        let line_size = config.global_line_size(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let matrix_layout = config.matrix_layout(ident);
+        let line_size = config.global_line_size(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+        let matrix_layout = config.matrix_layout(input_ident);
 
         let num_lines_in_window = comptime! {match matrix_layout {
             MatrixLayout::RowMajor =>
@@ -189,7 +189,7 @@ impl<EG: Numeric> TensorReader<EG> {
             nth_window,
             (0u32, 0u32).runtime(),
             num_lines_in_window,
-            ident,
+            input_ident,
             config,
         )
     }
@@ -199,7 +199,7 @@ impl<EG: Numeric> TensorReader<EG> {
         nth_window: u32,
         tile_offsets: (u32, u32),
         #[comptime] num_lines_in_window: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Window<EG> {
         let line_size = config.global_line_size(ident);
@@ -273,21 +273,25 @@ impl<EG: Numeric> TensorReader<EG> {
         tile_x: u32,
         tile_y: u32,
         position: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let tile_shape_x = config.tiling_dimensions(ident).tile_shape_row();
-        let tile_shape_y = config.tiling_dimensions(ident).tile_shape_col();
+        let tile_shape_x = config.tiling_dimensions(input_ident).tile_shape_row();
+        let tile_shape_y = config.tiling_dimensions(input_ident).tile_shape_col();
 
         let view_tile_x = tile_x * tile_shape_x;
         let view_tile_y = tile_y * tile_shape_y;
 
-        let (load_x, load_y) = match config.matrix_layout(ident) {
+        let (load_x, load_y) = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (position / tile_shape_y, position % tile_shape_y),
             MatrixLayout::ColMajor => (position % tile_shape_x, position / tile_shape_x),
         };
 
-        self.load_coalesced::<G>((load_x + view_tile_x, load_y + view_tile_y), ident, config)
+        self.load_coalesced::<G>(
+            (load_x + view_tile_x, load_y + view_tile_y),
+            input_ident,
+            config,
+        )
     }
 
     /// Reads data from the tensor view at the specified index within the whole view,
@@ -303,27 +307,27 @@ impl<EG: Numeric> TensorReader<EG> {
     pub fn load_coalesced_in_stage<G: global::GlobalConfig>(
         &self,
         position: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let stage_shape_x = config.tiling_dimensions(ident).total_row();
-        let stage_shape_y = config.tiling_dimensions(ident).total_col();
+        let stage_shape_x = config.tiling_dimensions(input_ident).total_row();
+        let stage_shape_y = config.tiling_dimensions(input_ident).total_col();
 
-        let load_offsets = match config.matrix_layout(ident) {
+        let load_offsets = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (position / stage_shape_y, position % stage_shape_y),
             MatrixLayout::ColMajor => (position % stage_shape_x, position / stage_shape_x),
         };
 
-        self.load_coalesced::<G>(load_offsets, ident, config)
+        self.load_coalesced::<G>(load_offsets, input_ident, config)
     }
 
     fn load_coalesced<G: global::GlobalConfig>(
         &self,
         load_offsets: (u32, u32),
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Line<EG> {
-        let line_size = config.global_line_size(ident);
+        let line_size = config.global_line_size(input_ident);
 
         let view_x = load_offsets.0 + self.x_offset;
         let view_y = load_offsets.1 + self.y_offset;
@@ -332,8 +336,8 @@ impl<EG: Numeric> TensorReader<EG> {
             (view_x * self.stride_x + view_y * self.stride_y + self.batch_offset) / line_size;
 
         match comptime!((
-            config.check_row_bounds(ident),
-            config.check_col_bounds(ident)
+            config.check_row_bounds(input_ident),
+            config.check_col_bounds(input_ident)
         )) {
             (true, true) => read_masked::<Line<EG>>(
                 view_x < self.shape_x && view_y < self.shape_y,

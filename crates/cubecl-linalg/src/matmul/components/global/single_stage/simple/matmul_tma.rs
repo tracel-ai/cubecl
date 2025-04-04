@@ -5,14 +5,16 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
     Config, FullLoader, loading::AsyncFullLoader,
 };
+use crate::matmul::components::InputIdent;
+use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::{
-    MatmulPrecision,
-    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
-};
+use crate::matmul::components::stage::multi_buffer::FullReader;
+use crate::matmul::components::{MatmulPrecision, global::single_stage::TmaLoader};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -28,10 +30,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, multi_buffer::FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -42,7 +41,7 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
@@ -119,13 +118,13 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-            RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            LhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            RhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
         >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
+    type LhsLoader = TmaLoader<MP, SMM::Config>;
+    type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -193,6 +192,7 @@ where
             y_offset,
             nth_batch,
             quantization,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -212,6 +212,7 @@ where
             y_offset,
             nth_batch,
             quantization,
+            InputIdent::Rhs,
             config,
         )
     }

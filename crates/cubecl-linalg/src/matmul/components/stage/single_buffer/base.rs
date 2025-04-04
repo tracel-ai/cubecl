@@ -5,7 +5,7 @@ use cubecl_core::prelude::*;
 
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
+    NoEvent, StageBuffering, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
     TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -19,7 +19,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 
-use super::{LhsBufferReader, LhsBufferReaderFamily, RhsBufferReader, RhsBufferReaderFamily};
+use super::{BufferReader, BufferReaderFamily};
 
 pub struct SingleBufferMatmulFamily<TMM: TileMatmulFamily> {
     _instruction: PhantomData<TMM>,
@@ -34,8 +34,8 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for SingleBufferMatmulFamily<TMM> 
         config.tiling.tile_count
     }
 
-    type LhsReader = LhsBufferReaderFamily;
-    type RhsReader = RhsBufferReaderFamily;
+    type LhsReader = BufferReaderFamily;
+    type RhsReader = BufferReaderFamily;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         SingleBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
 }
@@ -44,7 +44,7 @@ impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
 where
     TMM: TileMatmulFamily,
 {
-    type Input = (CompleteStageTiling, Buffering);
+    type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -105,8 +105,8 @@ where
     TR: TilingLayout,
 {
     type Config = CommonStageConfig<TMM::Config>;
-    type LhsReader = LhsBufferReader<MP::ES, TL>;
-    type RhsReader = RhsBufferReader<MP::ES, TR>;
+    type LhsReader = BufferReader<MP::ES, TL>;
+    type RhsReader = BufferReader<MP::ES, TR>;
     type Accumulator = Sequence<TMM::Accumulator>;
     type LhsTile = TMM::Lhs;
     type RhsTile = RhsTile<TMM::Rhs>;
@@ -165,8 +165,10 @@ where
         (
             TMM::allocate_lhs(config.to_tmm_config()),
             match config.buffering {
-                Buffering::Single => RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config())),
-                Buffering::Double => RhsTile::new_Double((
+                StageBuffering::Single => {
+                    RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config()))
+                }
+                StageBuffering::Double => RhsTile::new_Double((
                     TMM::allocate_rhs(config.to_tmm_config()),
                     TMM::allocate_rhs(config.to_tmm_config()),
                 )),
@@ -246,8 +248,8 @@ where
 {
     // Execute stage matmul with a single buffer for rhs.
     fn execute_single_buffer<SEL: StageEventListener>(
-        lhs_reader: &LhsBufferReader<MP::ES, TL>,
-        rhs_reader: &RhsBufferReader<MP::ES, TR>,
+        lhs_reader: &BufferReader<MP::ES, TL>,
+        rhs_reader: &BufferReader<MP::ES, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragment: &mut TMM::Rhs,
         acc: &mut <Self as StageMatmul<MP>>::Accumulator,
@@ -258,7 +260,7 @@ where
         let total = acc.len();
         SEL::on_event(&mut task, StageEvent::Begin);
 
-        let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
+        let lhs_tile = BufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
         SEL::on_event(
             &mut task,
@@ -271,7 +273,7 @@ where
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..total {
-            let rhs_tile = RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current, config);
+            let rhs_tile = BufferReader::read_tile::<TMM::Config>(rhs_reader, current, config);
             TMM::fill_rhs(&rhs_tile, rhs_fragment, config.to_tmm_config());
             SEL::on_event(
                 &mut task,
@@ -299,8 +301,8 @@ where
 
     // Execute stage matmul with two alternating buffers for rhs.
     fn execute_double_buffer<SEL: StageEventListener>(
-        lhs_reader: &LhsBufferReader<MP::ES, TL>,
-        rhs_reader: &RhsBufferReader<MP::ES, TR>,
+        lhs_reader: &BufferReader<MP::ES, TL>,
+        rhs_reader: &BufferReader<MP::ES, TR>,
         lhs_fragment: &mut TMM::Lhs,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut <Self as StageMatmul<MP>>::Accumulator,
@@ -311,7 +313,7 @@ where
         let total = acc.len();
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let lhs_tile = LhsBufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
+        let lhs_tile = BufferReader::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, config);
         TMM::fill_lhs(&lhs_tile, lhs_fragment, config.to_tmm_config());
         SEL::on_event(
             &mut listener,
@@ -322,7 +324,7 @@ where
         );
 
         let rhs_tile_first =
-            RhsBufferReader::read_tile::<TMM::Config>(rhs_reader, current_event, config);
+            BufferReader::read_tile::<TMM::Config>(rhs_reader, current_event, config);
         TMM::fill_rhs(
             &rhs_tile_first,
             &mut rhs_fragments.0,
@@ -345,7 +347,7 @@ where
                 (&mut rhs_fragments.1, &mut rhs_fragments.0)
             };
 
-            let rhs_tile_next = RhsBufferReader::read_tile::<TMM::Config>(
+            let rhs_tile_next = BufferReader::read_tile::<TMM::Config>(
                 rhs_reader,
                 comptime![current_event + 1],
                 config,

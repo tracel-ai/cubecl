@@ -1,31 +1,22 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::Quantization;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncFullLoader;
 use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage::AsyncLhsLoader;
-use crate::matmul::components::global::single_stage::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::single_stage::FullLoader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-
-use barrier::Barrier;
-use cubecl_core::Feature;
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl};
-use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
-use cubecl_std::tensor::r#virtual::ReadWrite;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-
+use crate::matmul::components::stage::multi_buffer::{FullReader, FullReaderFamily};
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
+        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
+        stage,
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
@@ -33,7 +24,14 @@ use crate::matmul::{
     },
     kernels::MatmulAvailabilityError,
 };
+use barrier::Barrier;
+use cubecl_core::Feature;
+use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl};
+use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -47,7 +45,7 @@ pub struct SimpleBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
@@ -128,15 +126,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -211,7 +209,15 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, quantization, config)
+        Self::LhsLoader::new::<Self::Config>(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -223,7 +229,15 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, quantization, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

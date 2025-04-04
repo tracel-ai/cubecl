@@ -1,17 +1,11 @@
 use crate::matmul::components::{
-    MatmulPrecision,
+    InputIdent, MatmulPrecision,
     global::{
         GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
-        single_stage::{
-            Config, FullLoader, SyncFullLhsLoader, SyncFullLoader, SyncFullLoadingStrategy,
-            SyncFullRhsLoader,
-        },
+        single_stage::{Config, SyncFullLoader, SyncFullLoadingStrategy},
     },
-    stage::{
-        StageMatmul,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{StageMatmul, multi_buffer::FullReader},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -23,10 +17,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, multi_buffer::FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -43,7 +34,7 @@ pub struct SimpleMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
@@ -118,15 +109,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsReader<MP::ES, RL::TilingLayout>,
+            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncFullLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = SyncFullRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = SyncFullLoader<MP, SMM::Config, LL>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -193,6 +184,7 @@ where
             y_offset,
             batch_offset,
             quantization,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -206,7 +198,15 @@ where
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, quantization, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

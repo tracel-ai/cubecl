@@ -29,7 +29,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
 
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
-        let num_tiles_in_buffer = comptime! {match ident.as_input() {
+        let num_tiles_in_buffer = comptime! {match ident.as_input_ident() {
             InputIdent::Lhs => tile_count_row,
             InputIdent::Rhs => tile_count_col,
         }};
@@ -63,11 +63,11 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
         buffer_index: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.stage_line_size(ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+        let line_size = config.stage_line_size(input_ident);
         let tile_size = tiling_dimensions.tile_size();
         let tile_count_row = tiling_dimensions.tile_count_row();
         let tile_count_col = tiling_dimensions.tile_count_col();
@@ -76,7 +76,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
         let total_units = config.plane_dim() * config.num_planes();
         let jump_length = total_units * line_size;
 
-        let num_tiles_in_buffer = comptime! {match ident.as_input() {
+        let num_tiles_in_buffer = comptime! {match input_ident {
             InputIdent::Lhs => tile_count_row,
             InputIdent::Rhs => tile_count_col,
         }};
@@ -95,7 +95,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let unit_pos_in_buffer = unit_position / tile_size;
             let pos_within_tile = unit_position % tile_size;
 
-            let (tile_x, tile_y) = match ident.as_input() {
+            let (tile_x, tile_y) = match input_ident {
                 InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
                 InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
             };
@@ -106,7 +106,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
                 tile_x,
                 tile_y,
                 pos_within_tile,
-                ident,
+                input_ident,
                 config,
             );
 

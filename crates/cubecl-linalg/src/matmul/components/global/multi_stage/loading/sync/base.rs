@@ -1,7 +1,7 @@
 use crate::matmul::components::global::{LoadingValidation, Quantization};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{global, Ident, MatmulPrecision};
+use crate::matmul::components::{global, InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
@@ -17,7 +17,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
         buffer_index: u32,
         quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     );
 }
