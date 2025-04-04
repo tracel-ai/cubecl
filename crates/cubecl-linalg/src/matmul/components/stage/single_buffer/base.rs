@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    StageBuffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
+    NoEvent, StageBuffering, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
     TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -176,7 +176,9 @@ where
         (
             TMM::allocate_lhs(config.to_tmm_config()),
             match config.buffering {
-                StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config())),
+                StageBuffering::Single => {
+                    RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config()))
+                }
                 StageBuffering::Double => RhsTile::new_Double((
                     TMM::allocate_rhs(config.to_tmm_config()),
                     TMM::allocate_rhs(config.to_tmm_config()),
