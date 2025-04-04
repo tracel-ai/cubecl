@@ -9,7 +9,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-/// Stage reader for RHS
 pub struct FullReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
     #[cube(comptime)]
