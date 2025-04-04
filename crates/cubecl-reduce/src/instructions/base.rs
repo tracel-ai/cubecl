@@ -6,6 +6,12 @@ pub trait ReduceFamily: Send + Sync + 'static + std::fmt::Debug {
     type Config: CubeComptime + Send + Sync;
 }
 
+#[derive(CubeType)]
+pub struct ReduceRequirements {
+    #[cube(comptime)]
+    pub coordinates: bool,
+}
+
 /// An instruction for a reduce algorithm that works with [`Line`].
 ///
 /// See a provided implementation, such as [`Sum`](super::Sum) or [`ArgMax`](super::ArgMax) for an example how to implement
@@ -20,8 +26,9 @@ pub trait ReduceInstruction<In: Numeric>:
 {
     type Config: CubeComptime + Send + Sync;
 
-    /// If the instruction requires the coordinate to be passed as input.
-    const REQUIRES_COORDINATE: bool;
+    /// Requirements of the reduce.
+    fn requirements(this: &Self) -> ReduceRequirements;
+
     /// The intermediate state into which we accumulate new input elements.
     /// This is most likely a `Line<T>` or a struct or tuple of lines.
     type AccumulatorItem: CubeType;

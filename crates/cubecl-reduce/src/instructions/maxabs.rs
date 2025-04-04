@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::instructions::ReduceRequirements;
+
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
 // TODO Add to test framework.
@@ -15,11 +17,14 @@ impl ReduceFamily for MaxAbs {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
-    const REQUIRES_COORDINATE: bool = false;
-
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
     type Config = ();
+
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: false }
+    }
+
     fn from_config(_config: Self::Config) -> Self {
         MaxAbs {}
     }

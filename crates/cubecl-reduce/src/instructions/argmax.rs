@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::instructions::ReduceRequirements;
+
 use super::{
     ArgAccumulator, ReduceCoordinate, ReduceCoordinateExpand, ReduceFamily, ReduceInstruction,
     lowest_coordinate_matching,
@@ -39,12 +41,14 @@ impl ReduceFamily for ArgMax {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for ArgMax {
-    const REQUIRES_COORDINATE: bool = true;
-
     type AccumulatorItem = (Line<In>, Line<u32>);
     type SharedAccumulator = ArgAccumulator<In>;
-
     type Config = ();
+
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: true }
+    }
+
     fn from_config(_config: Self::Config) -> Self {
         ArgMax {}
     }

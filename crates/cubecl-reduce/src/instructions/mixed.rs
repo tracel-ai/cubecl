@@ -4,7 +4,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{
     ArgMax, ArgMin, MaxAbs, Mean, Prod, ReduceCoordinate, ReduceFamily, ReduceInstruction,
-    SharedAccumulator, Sum,
+    ReduceRequirements, SharedAccumulator, Sum,
 };
 
 #[derive(Debug, CubeType, Clone)]
@@ -89,12 +89,23 @@ impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
-    const REQUIRES_COORDINATE: bool = false;
-
     type AccumulatorItem = DynamicAccumulatorItem<In>;
     type SharedAccumulator = DynamicAccumulator<In>;
     type Config = ReduceFnConfig;
 
+    fn requirements(this: &Self) -> ReduceRequirements {
+        let coordinates = match this {
+            ReduceFn::Sum(..) => comptime![false],
+            ReduceFn::Prod(..) => comptime![false],
+            ReduceFn::Mean(..) => comptime![false],
+            ReduceFn::MaxAbs(..) => comptime![false],
+            ReduceFn::ArgMax(..) => comptime![true],
+            ReduceFn::ArgMin(..) => comptime![true],
+        };
+        ReduceRequirements {
+            coordinates: comptime! {coordinates},
+        }
+    }
     fn from_config(#[comptime] config: Self::Config) -> Self {
         match config {
             ReduceFnConfig::Sum => ReduceFn::new_Sum(Sum {}),

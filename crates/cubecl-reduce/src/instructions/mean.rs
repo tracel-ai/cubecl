@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, Sum};
+use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, ReduceRequirements, Sum};
 
 #[derive(Debug, CubeType, Clone)]
 pub struct Mean {
@@ -15,11 +15,13 @@ impl ReduceFamily for Mean {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Mean {
-    const REQUIRES_COORDINATE: bool = false;
-
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
     type Config = ();
+
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: false }
+    }
     fn from_config(_config: Self::Config) -> Self {
         Mean { sum: Sum {} }
     }

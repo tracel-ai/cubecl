@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::instructions::ReduceRequirements;
+
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
 #[derive(Debug, CubeType, Clone)]
@@ -13,11 +15,14 @@ impl ReduceFamily for Prod {
 
 #[cube]
 impl<In: Numeric> ReduceInstruction<In> for Prod {
-    const REQUIRES_COORDINATE: bool = false;
-
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
     type Config = ();
+
+    fn requirements(_this: &Self) -> ReduceRequirements {
+        ReduceRequirements { coordinates: false }
+    }
+
     fn from_config(_config: Self::Config) -> Self {
         Prod {}
     }

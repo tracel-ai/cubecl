@@ -107,7 +107,8 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     let mut coordinate = 0;
 
     while index < range.end {
-        let coordinates = if R::REQUIRES_COORDINATE {
+        let requirements = R::requirements(inst);
+        let coordinates = if comptime![requirements.coordinates] {
             ReduceCoordinate::new_Required(fill_coordinate_line(coordinate, line_size, line_mode))
         } else {
             ReduceCoordinate::new_NotRequired()
@@ -152,7 +153,8 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
     let mut first_index = range.start;
     let mut first_coordinate = 0;
     while first_index < range.end {
-        let coordinates = if R::REQUIRES_COORDINATE {
+        let requirements = R::requirements(inst);
+        let coordinates = if comptime![requirements.coordinates] {
             ReduceCoordinate::new_Required(fill_coordinate_line(
                 first_coordinate + UNIT_POS_X,
                 line_size,
@@ -214,8 +216,9 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
     // The index used to read and write into the accumulator.
     let accumulator_index = if use_planes { UNIT_POS_Y } else { UNIT_POS };
 
+    let requirements = R::requirements(inst);
     let mut accumulator =
-        R::SharedAccumulator::allocate(accumulator_size, line_size, R::REQUIRES_COORDINATE);
+        R::SharedAccumulator::allocate(accumulator_size, line_size, requirements.coordinates);
 
     R::SharedAccumulator::write(
         &mut accumulator,
@@ -243,7 +246,7 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
             }
         };
 
-        let coordinates = if R::REQUIRES_COORDINATE {
+        let coordinates = if comptime! {requirements.coordinates} {
             let coordinate =
                 fill_coordinate_line(first_coordinate + UNIT_POS, line_size, line_mode);
             let coordinate = select(
