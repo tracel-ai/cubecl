@@ -1,4 +1,4 @@
-use crate::matmul::components::global::loader::{
+use crate::matmul::components::global::load::{
     BufferId, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::output_loader::Unloader;

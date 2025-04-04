@@ -1,35 +1,30 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::global::loader::AsyncBufferLoadingStrategy;
 use crate::matmul::components::Ident;
-use crate::matmul::components::global::base::GlobalConfig as _;
+use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism};
+use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::single_buffer::BufferReader;
-use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-#[derive(CubeType)]
-pub struct AsyncBufferLoader<
-    EG: Numeric,
-    ES: Numeric,
-    S: stage::StageConfig,
-    L: AsyncBufferLoadingStrategy,
-> {
+#[derive(Clone, CubeType)]
+pub struct SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
+{
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     #[cube(comptime)]
     ident: Ident,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    _config: PhantomData<G>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncBufferLoader<EG, ES, S, L>
+impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<EG, ES, G, L>
 {
     pub fn new(
         tensor: VirtualTensor<EG>,
@@ -37,16 +32,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         y_offset: u32,
         batch_offset: u32,
         #[comptime] ident: Ident,
-        #[comptime] config: CommonGlobalConfig<S>,
+        #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<S>(ident, config.to_smm_config());
+        let stage = Stage::new::<G::SmmConfig>(ident, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncBufferLoader::<EG, ES, S, L> {
+        SyncBufferLoader::<EG, ES, G, L> {
             tensor_view,
             stage,
             ident,
-            _config: PhantomData::<S>,
+            _config: PhantomData,
         }
     }
 
@@ -61,28 +56,13 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         this.tensor_view.update_view(k_offset, this.ident);
     }
 
-    pub fn fill_stage<CM: CopyMechanism<ES>>(
-        this: &mut Self,
-        mechanism: &CM,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
+    pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
+        L::load_buffer::<EG, ES, G>(
             &this.tensor_view,
             &mut this.stage,
-            mechanism,
             buffer.to_index(),
             this.ident,
             config,
         );
-    }
-
-    pub fn clear_stage(
-        this: &mut Self,
-        #[comptime] buffer_id: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        this.stage
-            .clear_buffer::<S>(buffer_id, this.ident, config.to_smm_config())
     }
 }

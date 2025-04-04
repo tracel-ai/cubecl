@@ -1,6 +1,6 @@
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::loader::{
+use crate::matmul::components::global::load::{
     AsyncBufferLoader, AsyncBufferLoadingStrategy, BufferId,
 };
 use crate::matmul::components::global::output_loader::Unloader;

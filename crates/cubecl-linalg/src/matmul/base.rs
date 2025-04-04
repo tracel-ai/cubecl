@@ -5,7 +5,7 @@ use crate::tensor::TensorHandle;
 use super::{
     components::{
         MatmulPrecision,
-        global::loader::{
+        global::load::{
             AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
             SyncFullStridedLoading, AsyncFullCooperativeLoading,
         },

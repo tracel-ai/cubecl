@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::loader::BufferId;
+use crate::matmul::components::global::load::BufferId;
 use crate::matmul::components::stage::{StageConfig, TilingLayout};
 use crate::matmul::components::tile::Tile;
 use crate::matmul::components::{Ident, InputIdent, MatrixLayout};

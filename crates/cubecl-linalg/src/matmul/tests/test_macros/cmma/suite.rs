@@ -301,7 +301,7 @@ macro_rules! matmul_standard_tests {
     };
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::components::global::loader::{
+        use $crate::matmul::components::global::load::{
             AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
             SyncFullStridedLoading, AsyncFullCooperativeLoading,
         };

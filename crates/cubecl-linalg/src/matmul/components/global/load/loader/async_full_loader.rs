@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::loader::AsyncFullLoadingStrategy;
+use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig};

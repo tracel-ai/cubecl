@@ -2,7 +2,7 @@ use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        loader::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
+        load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
     stage::{StageMatmul, single_buffer::BufferReader},
