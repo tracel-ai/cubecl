@@ -1,16 +1,11 @@
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
     global::{
-        self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        multi_stage::{
-            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
-        },
-        output_loader::Unloader,
-    },
-    stage::{
-        StageMatmul,
-        single_buffer::{LhsBufferReader, RhsBufferReader},
-    },
+        self, multi_stage::{
+            double_buffering::BufferId, BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy
+        }, output_loader::Unloader, GlobalMatmul, Quantization, ZeroAccumulatorLoader
+    }, stage::{
+        single_buffer::{LhsBufferReader, RhsBufferReader}, StageMatmul
+    }, Ident, MatmulPrecision
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -145,8 +140,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsBufferLoader<MP, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -157,15 +152,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let is_consumer = Self::is_consumer(config);
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
@@ -198,7 +186,6 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
-                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -215,7 +202,6 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
-                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -228,7 +214,6 @@ where
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
-                CubeOption::new_None(),
                 config.to_smm_config(),
                 config,
             );
@@ -241,6 +226,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
@@ -249,6 +235,7 @@ where
             y_offset,
             batch_offset,
             !Self::is_consumer(config),
+            quantization,
             config,
         )
     }
@@ -259,6 +246,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
@@ -267,6 +255,7 @@ where
             y_offset,
             batch_offset,
             !Self::is_consumer(config),
+            quantization,
             config,
         )
     }

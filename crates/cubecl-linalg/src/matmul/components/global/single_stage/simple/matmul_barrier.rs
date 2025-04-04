@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -24,7 +25,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
+        global::{GlobalConfig, GlobalMatmulFamily},
         stage::{
             self,
             multi_buffer::{LhsReaderFamily, RhsReaderFamily},
@@ -146,14 +147,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -192,7 +187,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -203,7 +197,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            quantization,
             config.to_smm_config(),
             config,
         );
@@ -215,9 +208,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, quantization, config)
     }
 
     fn init_rhs_loader(
@@ -226,9 +220,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, quantization, config)
     }
 
     fn init_unloader(

@@ -1,19 +1,18 @@
-use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
+use cubecl_core::{client::ComputeClient, prelude::TensorHandleRef, Runtime};
 
 use crate::tensor::TensorHandle;
 
 use super::{
     components::{
-        MatmulPrecision,
         global::single_stage::{
             CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
             StridedCoalescedLoading, WindowCooperativeLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
+        MatmulPrecision,
     },
     kernels::{
-        MatmulLaunchError,
         matmul::{
             self, double_buffering::DoubleBufferingAlgorithm,
             double_buffering_barrier::DoubleBufferingBarrierAlgorithm, simple::SimpleAlgorithm,
@@ -22,6 +21,7 @@ use super::{
         },
         naive,
         tiling2d::{self, Tiling2dConfig},
+        MatmulLaunchError,
     },
 };
 

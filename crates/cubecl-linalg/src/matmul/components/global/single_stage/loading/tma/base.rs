@@ -3,9 +3,10 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::CopyMechanism;
+use crate::matmul::components::global::{CopyMechanism, Quantization};
 use crate::matmul::components::{
     Ident,
     global::{
@@ -92,8 +93,14 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
         x: u32,
         y: u32,
         batch: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
@@ -163,8 +170,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaRhsLoader<MP, S> {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Rhs, 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x_offset, y_offset, batch_offset);

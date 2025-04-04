@@ -22,7 +22,6 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     plane_dim: u32,
-    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
     let config_input = CompleteStageTiling {
@@ -37,7 +36,6 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         problem,
         (config_input, stage::Buffering::Double), // TODO support double buffering
         selection,
-        quantized,
     )
 }
 

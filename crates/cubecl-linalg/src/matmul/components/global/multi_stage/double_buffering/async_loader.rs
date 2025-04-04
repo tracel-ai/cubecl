@@ -1,49 +1,48 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::Ident;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::{AsyncBufferLoader, BufferLoader};
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism};
+use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism, Quantization};
 use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
 use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::{Ident, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(CubeType)]
 pub struct AsyncLhsBufferLoader<
-    EG: Numeric,
-    ES: Numeric,
+    MP: MatmulPrecision,
     S: stage::StageConfig,
     L: AsyncBufferLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub tensor_view: TensorReader<MP::EI>,
+    pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
 #[derive(CubeType)]
 pub struct AsyncRhsBufferLoader<
-    EG: Numeric,
-    ES: Numeric,
+    MP: MatmulPrecision,
     S: stage::StageConfig,
     L: AsyncBufferLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    pub tensor_view: TensorReader<MP::EI>,
+    pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for AsyncLhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    BufferLoader<MP::EI, MP::ES, CommonGlobalConfig<S>> for AsyncLhsBufferLoader<MP, S, L>
 {
-    type StageReader = LhsBufferReader<ES, L::TilingLayout>;
+    type StageReader = LhsBufferReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         LhsBufferReader::new(this.stage, buffer.to_u32())
@@ -55,16 +54,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for AsyncLhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    AsyncBufferLoader<MP::EI, MP::ES, CommonGlobalConfig<S>> for AsyncLhsBufferLoader<MP, S, L>
 {
-    fn fill_stage<CM: CopyMechanism<ES>>(
+    fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
         mechanism: &CM,
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
+        L::load_buffer::<MP::EI, MP::ES, CommonGlobalConfig<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -85,20 +84,26 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncLhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    AsyncLhsBufferLoader<MP, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncLhsBufferLoader::<EG, ES, S, L> {
+        AsyncLhsBufferLoader::<MP, S, L> {
             tensor_view,
             stage,
             _config: PhantomData::<S>,
@@ -107,10 +112,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for AsyncRhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    BufferLoader<MP::EI, MP::ES, CommonGlobalConfig<S>> for AsyncRhsBufferLoader<MP, S, L>
 {
-    type StageReader = RhsBufferReader<ES, L::TilingLayout>;
+    type StageReader = RhsBufferReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
         RhsBufferReader::new(this.stage, buffer.to_u32())
@@ -122,16 +127,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for AsyncRhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    AsyncBufferLoader<MP::EI, MP::ES, CommonGlobalConfig<S>> for AsyncRhsBufferLoader<MP, S, L>
 {
-    fn fill_stage<CM: CopyMechanism<ES>>(
+    fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,
         mechanism: &CM,
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
+        L::load_buffer::<MP::EI, MP::ES, CommonGlobalConfig<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
@@ -152,20 +157,26 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncRhsBufferLoader<EG, ES, S, L>
+impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
+    AsyncRhsBufferLoader<MP, S, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncRhsBufferLoader::<EG, ES, S, L> {
+        AsyncRhsBufferLoader::<MP, S, L> {
             tensor_view,
             stage,
             _config: PhantomData::<S>,

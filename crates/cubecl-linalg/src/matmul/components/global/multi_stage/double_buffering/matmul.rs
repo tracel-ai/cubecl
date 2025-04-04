@@ -5,6 +5,7 @@ use crate::matmul::components::global::multi_stage::{
     BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::output_loader::Unloader;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageConfig;
@@ -15,7 +16,7 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
 };
 use crate::matmul::components::{
-    global::{GlobalMatmulFamily, IndexedQuantization},
+    global::GlobalMatmulFamily,
     stage::single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
@@ -128,8 +129,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncLhsBufferLoader<MP, SMM::Config, LL>;
+    type RhsLoader = SyncRhsBufferLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -140,15 +141,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let num_buffers = 2;
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
         let k_step = num_buffers * buffer_step;
@@ -181,7 +175,6 @@ where
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
             );
@@ -199,7 +192,6 @@ where
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
                 DoubleBufferingEventListener::new(BufferId::A, &lhs_loader, &rhs_loader, config),
             );
@@ -214,7 +206,6 @@ where
             &mut lhs_tile_a,
             &mut rhs_tile_a,
             acc,
-            CubeOption::new_None(),
             config.to_smm_config(),
             DoubleBufferingEventListener::new(BufferId::B, &lhs_loader, &rhs_loader, config),
         );
@@ -227,14 +218,12 @@ where
             &mut lhs_tile_b,
             &mut rhs_tile_b,
             acc,
-            CubeOption::new_None(),
             config.to_smm_config(),
         );
 
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -246,9 +235,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, quantization, config)
     }
 
     fn init_rhs_loader(
@@ -257,9 +247,10 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, quantization, config)
     }
 
     fn init_unloader(
@@ -320,15 +311,14 @@ fn should_handle_event_ratio(ratio: f32, current_event: u32, total: u32) -> bool
 
 #[cube]
 impl<
-    EG: Numeric,
-    ES: Numeric,
+MP: MatmulPrecision,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
     S: StageConfig,
 > StageEventListener
     for DoubleBufferingEventListener<
-        SyncLhsBufferLoader<EG, ES, S, LL>,
-        SyncRhsBufferLoader<EG, ES, S, RL>,
+        SyncLhsBufferLoader<MP, S, LL>,
+        SyncRhsBufferLoader<MP, S, RL>,
         S,
     >
 {

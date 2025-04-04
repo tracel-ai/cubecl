@@ -2,9 +2,7 @@ use core::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 
-use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
     Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
@@ -119,7 +117,6 @@ where
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     ) {
         Self::execute_with_listener::<NoEvent>(
@@ -128,7 +125,6 @@ where
             lhs_fragment,
             rhs_fragments,
             acc,
-            scaling,
             config,
             NoEvent::new(),
         );
@@ -140,16 +136,9 @@ where
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
         listener: SEL,
     ) {
-        comptime! {
-            if scaling.is_some() {
-                todo!();
-            }
-        }
-
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
                 lhs_reader,
@@ -218,16 +207,9 @@ where
     fn read_accumulator<SW: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut SW,
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;

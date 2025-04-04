@@ -13,7 +13,7 @@ use cubecl_std::{
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::IndexedQuantization;
+use super::Quantization;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily:
@@ -61,7 +61,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     );
 
@@ -72,6 +71,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         k_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
@@ -82,6 +82,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
