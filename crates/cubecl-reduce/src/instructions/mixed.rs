@@ -106,6 +106,7 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
             coordinates: comptime! {coordinates},
         }
     }
+
     fn from_config(#[comptime] config: Self::Config) -> Self {
         match config {
             ReduceFnConfig::Sum => ReduceFn::new_Sum(Sum {}),
@@ -182,35 +183,15 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
     }
 
     fn assign_accumulator(
-        this: &Self,
+        _this: &Self,
         destination: &mut Self::AccumulatorItem,
         source: &Self::AccumulatorItem,
     ) {
-        match this {
-            ReduceFn::Sum(sum) => {
-                Sum::assign_accumulator(sum, &mut destination.elements, &source.elements)
-            }
-            ReduceFn::Prod(prod) => {
-                Prod::assign_accumulator(prod, &mut destination.elements, &source.elements)
-            }
-            ReduceFn::Mean(mean) => {
-                Mean::assign_accumulator(mean, &mut destination.elements, &source.elements)
-            }
-            ReduceFn::MaxAbs(maxabs) => {
-                MaxAbs::assign_accumulator(maxabs, &mut destination.elements, &source.elements)
-            }
-            ReduceFn::ArgMax(..) => {
-                comptime! {
-                    destination.elements = source.elements;
-                    destination.args = source.args;
-                }
-            }
-            ReduceFn::ArgMin(..) => {
-                comptime! {
-                    destination.elements = source.elements;
-                    destination.args = source.args;
-                }
-            }
+        destination.elements = destination.elements;
+        let args = &mut destination.args;
+        match args {
+            CubeOption::Some(val) => *val = source.args.unwrap(),
+            CubeOption::None => {}
         }
     }
 

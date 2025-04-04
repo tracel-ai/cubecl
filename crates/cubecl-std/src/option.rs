@@ -19,7 +19,7 @@ impl<T: CubeType> CubeOption<T> {
     pub fn unwrap(self) -> T {
         match self {
             CubeOption::Some(val) => val,
-            CubeOption::None => panic!(),
+            CubeOption::None => panic!("Unwrap on a None CubeOption"),
         }
     }
 
@@ -39,7 +39,7 @@ impl<T: CubeType> CubeOptionExpand<T> {
     pub fn unwrap(self) -> T::ExpandType {
         match self {
             Self::Some(val) => val,
-            Self::None => panic!(),
+            Self::None => panic!("Unwrap on a None CubeOption"),
         }
     }
 
