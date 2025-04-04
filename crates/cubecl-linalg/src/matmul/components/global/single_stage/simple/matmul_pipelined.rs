@@ -2,8 +2,9 @@ use crate::matmul::components::{
     MatmulPrecision,
     global::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        loader::AsyncFullLoadingStrategy,
         output_loader::Unloader,
-        single_stage::{AsyncFullLoadingStrategy, AsyncLoader, Config},
+        single_stage::{AsyncLoader, Config},
     },
     stage::{StageMatmul, multi_buffer::FullReader},
 };

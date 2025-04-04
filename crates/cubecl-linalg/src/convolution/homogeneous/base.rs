@@ -11,8 +11,9 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
+        loader::CyclicCoalescedLoading,
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullLoader},
+        single_stage::{self, SyncFullLoader},
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,

@@ -1,52 +1,15 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::loader::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
 use crate::matmul::components::stage::multi_buffer::FullReader;
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{Ident, MatmulPrecision, global};
 use cubecl_core as cubecl;
-use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-#[cube]
-pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
-    type TilingLayout: TilingLayout;
-
-    /// Load the full stage
-    fn load_full<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EI>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
-        mechanism: &CM,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    );
-
-    /// The barrier level at which the copy mechanism works
-    fn barrier_level() -> BarrierLevel;
-}
-
-#[cube]
-pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
-    type TilingLayout: TilingLayout;
-
-    /// Load the stage only at the buffer identified by buffer_index
-    fn load_buffer<EI: Numeric, ES: Numeric, G: global::GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EI>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
-        mechanism: &CM,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    );
-
-    /// The barrier level at which the copy mechanism works
-    fn barrier_level() -> BarrierLevel;
-}
 
 #[derive(CubeType)]
 pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {

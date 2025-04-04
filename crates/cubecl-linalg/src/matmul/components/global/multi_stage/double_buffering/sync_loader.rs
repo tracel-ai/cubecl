@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use super::BufferId;
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::GlobalConfig;
-use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::loader::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::single_buffer::BufferReader;

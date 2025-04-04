@@ -1,29 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::LoadingValidation;
+use crate::matmul::components::global::loader::SyncFullLoadingStrategy;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::multi_buffer::FullReader;
-use crate::matmul::components::stage::{self, Stage, TilingLayout};
+use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-#[cube]
-pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
-    type TilingLayout: TilingLayout;
-
-    /// Load the full stage
-    fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    );
-}
 
 #[derive(CubeType)]
 pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy> {

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
-use crate::matmul::components::global::multi_stage::MaximizeSliceLengthBufferLoading;
+use crate::matmul::components::global::loader::MaximizeSliceLengthBufferLoading;
 use crate::matmul::components::stage;
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
