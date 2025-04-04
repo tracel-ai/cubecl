@@ -1,7 +1,7 @@
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{Ident, global};
+use crate::matmul::components::{InputIdent, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -15,7 +15,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     );
 }

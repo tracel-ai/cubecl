@@ -1,13 +1,11 @@
-use crate::matmul::components::Ident;
 use crate::matmul::components::global::IndexedQuantization;
-use crate::matmul::components::global::multi_stage::AsyncBufferLoader;
-use crate::matmul::components::global::multi_stage::BufferLoader;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::stage::single_buffer::BufferReader;
+use crate::matmul::components::{Ident, InputIdent};
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -22,13 +20,10 @@ use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::stage::single_buffer::{
-    LhsBufferReaderFamily, RhsBufferReaderFamily,
-};
+use crate::matmul::components::stage::single_buffer::BufferReaderFamily;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
-use super::AsyncLhsBufferLoader;
-use super::AsyncRhsBufferLoader;
+use super::AsyncBufferLoader;
 
 pub struct DoubleBufferingBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -42,10 +37,7 @@ pub struct DoubleBufferingBarrierMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingBarrierMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = LhsBufferReaderFamily,
-            RhsReader = RhsBufferReaderFamily,
-        >,
+    SMM: stage::StageMatmulFamily<LhsReader = BufferReaderFamily, RhsReader = BufferReaderFamily>,
     LL: AsyncBufferLoadingStrategy,
     RL: AsyncBufferLoadingStrategy,
 {
@@ -134,15 +126,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = BufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = BufferReader<MP::ES, RL::TilingLayout>,
         >,
     LL: AsyncBufferLoadingStrategy,
     RL: AsyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = AsyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = AsyncBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -335,7 +327,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            InputIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -346,7 +345,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

@@ -145,16 +145,16 @@ pub trait GlobalConfig: MatmulConfig {
     fn to_smm_config(&self) -> Self::SmmConfig;
 
     /// Returns the line size for the global memory corresponding to the given ident
-    fn global_line_size(&self, ident: Ident) -> u32;
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the line size for the stage of the given ident
-    fn stage_line_size(&self, ident: Ident) -> u32;
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32;
 
     /// Returns the [StageTiling] for the given ident
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions;
+    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions;
 
     /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout;
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout;
 
     /// Returns the number of planes in the cube
     fn num_planes(&self) -> u32;
@@ -163,10 +163,10 @@ pub trait GlobalConfig: MatmulConfig {
     fn plane_dim(&self) -> u32;
 
     /// Whether to check if accessing a row would exceed bounds.
-    fn check_row_bounds(&self, ident: Ident) -> bool;
+    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
 
     /// Whether to check if accessing a col would exceed bounds.
-    fn check_col_bounds(&self, ident: Ident) -> bool;
+    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool;
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
