@@ -5,7 +5,7 @@ use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{Ident, global};
 use cubecl_core as cubecl;
@@ -52,10 +52,10 @@ pub struct SyncFullRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: Sync
 impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     FullLoader<MP, single_stage::Config<S>> for SyncFullLhsLoader<MP, S, L>
 {
-    type StageReader = LhsReader<MP::ES, L::TilingLayout>;
+    type StageReader = FullReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+        FullReader::new(this.stage, Ident::Lhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -104,10 +104,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
 impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     FullLoader<MP, single_stage::Config<S>> for SyncFullRhsLoader<MP, S, L>
 {
-    type StageReader = RhsReader<MP::ES, L::TilingLayout>;
+    type StageReader = FullReader<MP::ES, L::TilingLayout>;
 
     fn reader(this: &Self) -> Self::StageReader {
-        RhsReader::new(this.stage)
+        FullReader::new(this.stage, Ident::Rhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {

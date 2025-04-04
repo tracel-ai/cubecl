@@ -24,6 +24,10 @@ impl ReaderFamily for FullReaderFamily {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
+    pub fn new(stage: Stage<ES, T>, #[comptime] ident: Ident) -> Self {
+        FullReader::<ES, T> { stage, ident }
+    }
+
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
         row: u32,

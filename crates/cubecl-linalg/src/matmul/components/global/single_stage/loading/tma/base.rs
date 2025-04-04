@@ -13,10 +13,7 @@ use crate::matmul::components::{
         single_stage::{self, AsyncFullLoader, FullLoader},
         tensor_view::MappedTensorReader,
     },
-    stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, Stage,
-        multi_buffer::{LhsReader, RhsReader},
-    },
+    stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, Stage, multi_buffer::FullReader},
 };
 
 #[derive(CubeType)]
@@ -74,10 +71,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+        FullReader::new(this.stage, Ident::Lhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -112,10 +109,10 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
-    type StageReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn reader(this: &Self) -> Self::StageReader {
-        RhsReader::new(this.stage)
+        FullReader::new(this.stage, Ident::Rhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {

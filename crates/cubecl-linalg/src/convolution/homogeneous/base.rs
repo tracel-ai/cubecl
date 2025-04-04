@@ -17,7 +17,7 @@ use crate::matmul::components::{
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
-        multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+        multi_buffer::{FullReader, FullReaderFamily},
     },
 };
 use crate::{
@@ -40,7 +40,7 @@ pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Convolution<MP: MatmulPrecision> =
         ImplicitGemmConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
@@ -59,8 +59,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP, SMM> for ImplicitGemmConvolution<
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, ConvTilingLayout>,
-            RhsReader = RhsReader<MP::ES, ConvTilingLayout>,
+            LhsReader = FullReader<MP::ES, ConvTilingLayout>,
+            RhsReader = FullReader<MP::ES, ConvTilingLayout>,
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
@@ -238,7 +238,7 @@ where
     }
 }
 
-impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
+impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
