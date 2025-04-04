@@ -1,16 +1,36 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
+use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+
+#[cube]
+pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
+
+    /// Load the full stage
+    fn load_full<MP: MatmulPrecision, G: global::GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        mechanism: &CM,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    );
+
+    /// The barrier level at which the copy mechanism works
+    fn barrier_level() -> BarrierLevel;
+}
 
 #[derive(CubeType)]
 pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {

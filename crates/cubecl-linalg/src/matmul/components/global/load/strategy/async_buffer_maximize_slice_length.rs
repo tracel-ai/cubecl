@@ -1,16 +1,11 @@
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        tensor_view::{TensorReader, Window},
-    },
-    stage::{Stage, StridedTilingLayout},
+        load::AsyncBufferLoadingStrategy, tensor_view::{TensorReader, Window}, CopyMechanism, GlobalConfig, LoadingValidation, Quantization
+    }, stage::{Stage, StridedTilingLayout}, Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
-
-use super::AsyncBufferLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.

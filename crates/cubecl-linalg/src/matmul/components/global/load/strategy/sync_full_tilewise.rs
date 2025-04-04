@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
@@ -11,8 +12,6 @@ use crate::matmul::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
-
-use super::SyncFullLoadingStrategy;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using

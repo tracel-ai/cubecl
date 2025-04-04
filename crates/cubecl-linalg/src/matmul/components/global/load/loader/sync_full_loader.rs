@@ -2,9 +2,9 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::SyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
@@ -12,6 +12,21 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+
+#[cube]
+pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
+
+    /// Load the full stage
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    );
+}
 
 #[derive(CubeType)]
 pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy> {
