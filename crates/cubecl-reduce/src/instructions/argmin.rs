@@ -7,11 +7,12 @@ use super::{
 };
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
-#[derive(Debug)]
-pub struct ArgMin;
+#[derive(Debug, CubeType)]
+pub struct ArgMin {}
 
 impl Reduce for ArgMin {
     type Instruction<In: Numeric> = Self;
+    type Config = ();
 }
 
 #[cube]
@@ -42,24 +43,33 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
 
     type AccumulatorItem = (Line<In>, Line<u32>);
     type SharedAccumulator = ArgAccumulator<In>;
+    type Config = ();
+    fn from_config(_config: Self::Config) -> Self {
+        ArgMin {}
+    }
 
-    fn null_input(#[comptime] line_size: u32) -> Line<In> {
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
         Line::empty(line_size).fill(In::max_value())
     }
 
-    fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
+    fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
         (
-            Self::null_input(line_size),
+            Self::null_input(this, line_size),
             Line::empty(line_size).fill(u32::MAX),
         )
     }
 
-    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn assign_accumulator(
+        _this: &Self,
+        destination: &mut Self::AccumulatorItem,
+        source: &Self::AccumulatorItem,
+    ) {
         destination.0 = source.0;
         destination.1 = source.1;
     }
 
     fn reduce(
+        _this: &Self,
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
         coordinate: ReduceCoordinate,
@@ -91,6 +101,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     }
 
     fn fuse_accumulators(
+        _this: &Self,
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
@@ -98,6 +109,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     }
 
     fn merge_line<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
@@ -125,6 +137,7 @@ impl<In: Numeric> ReduceInstruction<In> for ArgMin {
     }
 
     fn to_output_perpendicular<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

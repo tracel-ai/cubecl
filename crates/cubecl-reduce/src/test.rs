@@ -450,7 +450,7 @@ impl TestCase {
         I: Numeric + CubeElement + std::fmt::Display,
         O: Numeric + CubeElement + std::fmt::Display,
         R: Runtime,
-        K: Reduce,
+        K: Reduce<Config = ()>,
     {
         let client = R::client(device);
 
@@ -481,8 +481,14 @@ impl TestCase {
             )
         };
 
-        let result =
-            reduce::<R, I, O, K>(&client, input, output, self.axis.unwrap(), self.strategy);
+        let result = reduce::<R, I, O, K>(
+            &client,
+            input,
+            output,
+            self.axis.unwrap(),
+            self.strategy,
+            (),
+        );
         if result.is_err_and(|e| {
             e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim
         }) {

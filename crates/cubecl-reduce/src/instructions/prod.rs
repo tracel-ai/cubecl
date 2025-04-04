@@ -3,11 +3,12 @@ use cubecl_core::prelude::*;
 
 use super::{Reduce, ReduceCoordinate, ReduceInstruction};
 
-#[derive(Debug)]
-pub struct Prod;
+#[derive(Debug, CubeType, Clone)]
+pub struct Prod {}
 
 impl Reduce for Prod {
     type Instruction<In: Numeric> = Self;
+    type Config = ();
 }
 
 #[cube]
@@ -16,20 +17,28 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
 
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
-
-    fn null_input(#[comptime] line_size: u32) -> Line<In> {
+    type Config = ();
+    fn from_config(_config: Self::Config) -> Self {
+        Prod {}
+    }
+    fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
         Line::empty(line_size).fill(In::from_int(1))
     }
 
-    fn null_accumulator(#[comptime] line_size: u32) -> Self::AccumulatorItem {
-        Self::null_input(line_size)
+    fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
+        Self::null_input(this, line_size)
     }
 
-    fn assign_accumulator(destination: &mut Self::AccumulatorItem, source: &Self::AccumulatorItem) {
+    fn assign_accumulator(
+        _this: &Self,
+        destination: &mut Self::AccumulatorItem,
+        source: &Self::AccumulatorItem,
+    ) {
         *destination = *source;
     }
 
     fn reduce(
+        _this: &Self,
         accumulator: &Self::AccumulatorItem,
         item: Line<In>,
         _coordinate: ReduceCoordinate,
@@ -43,6 +52,7 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     }
 
     fn fuse_accumulators(
+        _this: &Self,
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
@@ -50,6 +60,7 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     }
 
     fn merge_line<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
@@ -62,6 +73,7 @@ impl<In: Numeric> ReduceInstruction<In> for Prod {
     }
 
     fn to_output_perpendicular<Out: Numeric>(
+        _this: &Self,
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Line<Out> {

@@ -96,6 +96,7 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
     output: TensorHandleRef<R>,
     axis: usize,
     strategy: Option<ReduceStrategy>,
+    inst_config: Inst::Config,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
@@ -111,7 +112,15 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
         }
     }
 
-    launch_reduce::<R, In, Out, Inst>(client, input, output, axis as u32, config, strategy);
+    launch_reduce::<R, In, Out, Inst>(
+        client,
+        input,
+        output,
+        axis as u32,
+        config,
+        strategy,
+        inst_config,
+    );
     Ok(())
 }
 

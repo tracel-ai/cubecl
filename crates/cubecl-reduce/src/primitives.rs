@@ -98,10 +98,11 @@ impl ReduceRange {
 pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     items: &I,
     range: ReduceRange,
+    inst: &R,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
 ) -> R::AccumulatorItem {
-    let mut accumulator = R::null_accumulator(line_size);
+    let mut accumulator = R::null_accumulator(inst, line_size);
     let mut index = range.start;
     let mut coordinate = 0;
 
@@ -111,7 +112,13 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
         } else {
             ReduceCoordinate::new_NotRequired()
         };
-        reduce_inplace::<N, R>(&mut accumulator, items.read(index), coordinates, false);
+        reduce_inplace::<N, R>(
+            inst,
+            &mut accumulator,
+            items.read(index),
+            coordinates,
+            false,
+        );
         index += range.step;
         coordinate += 1;
     }
@@ -134,12 +141,13 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
 #[cube]
 pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     items: &I,
+    inst: &R,
     range: ReduceRange,
     #[comptime] line_size: u32,
     #[comptime] line_mode: LineMode,
     #[comptime] bound_checks: BoundChecksInner,
 ) -> R::AccumulatorItem {
-    let mut accumulator = R::null_accumulator(line_size);
+    let mut accumulator = R::null_accumulator(inst, line_size);
 
     let mut first_index = range.start;
     let mut first_coordinate = 0;
@@ -160,18 +168,18 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
             BoundChecksInner::Mask => {
                 let mask = index < range.end;
                 let index = index * u32::cast_from(mask);
-                select(mask, items.read(index), R::null_input(line_size))
+                select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
                 if index < range.end {
                     items.read(index)
                 } else {
-                    R::null_input(line_size)
+                    R::null_input(inst, line_size)
                 }
             }
         };
 
-        reduce_inplace::<N, R>(&mut accumulator, item, coordinates, true);
+        reduce_inplace::<N, R>(inst, &mut accumulator, item, coordinates, true);
 
         let plane_dim = CUBE_DIM_X;
         first_index += plane_dim * range.step;
@@ -195,6 +203,7 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
 #[cube]
 pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     items: &I,
+    inst: &R,
     range: ReduceRange,
     #[comptime] accumulator_size: u32,
     #[comptime] line_size: u32,
@@ -210,7 +219,7 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
     R::SharedAccumulator::write(
         &mut accumulator,
         accumulator_index,
-        R::null_accumulator(line_size),
+        R::null_accumulator(inst, line_size),
     );
 
     let mut first_index = range.start;
@@ -222,13 +231,13 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
             BoundChecksInner::Mask => {
                 let mask = index < range.end;
                 let index = index * u32::cast_from(mask);
-                select(mask, items.read(index), R::null_input(line_size))
+                select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
                 if index < range.end {
                     items.read(index)
                 } else {
-                    R::null_input(line_size)
+                    R::null_input(inst, line_size)
                 }
             }
         };
@@ -248,6 +257,7 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         };
 
         reduce_shared_inplace::<N, R>(
+            inst,
             &mut accumulator,
             accumulator_index,
             item,
@@ -309,6 +319,7 @@ fn fill_coordinate_line(
 /// of the shared memory and that there are at least `size` units within each cube.
 #[cube]
 pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
+    inst: &Inst,
     accumulator: &mut Inst::SharedAccumulator,
     #[comptime] size: u32,
 ) -> Inst::AccumulatorItem {
@@ -320,7 +331,7 @@ pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_active_units {
-                fuse_accumulator_inplace::<In, Inst>(accumulator, destination, origin);
+                fuse_accumulator_inplace::<In, Inst>(inst, accumulator, destination, origin);
             }
             jump *= 2;
             sync_units();
@@ -332,7 +343,7 @@ pub fn reduce_tree<In: Numeric, Inst: ReduceInstruction<In>>(
             let destination = jump * 2 * UNIT_POS;
             let origin = jump * (2 * UNIT_POS + 1);
             if UNIT_POS < num_remaining_items / 2 {
-                fuse_accumulator_inplace::<In, Inst>(accumulator, destination, origin);
+                fuse_accumulator_inplace::<In, Inst>(inst, accumulator, destination, origin);
             }
             num_remaining_items = div_ceil(num_remaining_items, 2);
             jump *= 2;
