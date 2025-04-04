@@ -7,7 +7,7 @@ use crate::{
         base::tiling2d_cube_kernel,
         config::{CubeTiling2dConfig, tiling2d_cube_count, tiling2d_cube_dim},
     },
-    tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout},
+    tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout},
 };
 
 use super::config::Tiling2dConfig;
@@ -41,7 +41,7 @@ pub fn matmul_tiling_2d_ref<R: Runtime, EG: Numeric>(
                 .max_shared_memory_size,
         "Shared memory limit will be busted. "
     );
-    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => true,
         MatrixBatchLayout::MildlyPermuted {
             transposed: _,
@@ -92,7 +92,7 @@ fn matmul_tiling_2d_ref_no_check<R: Runtime, N: Numeric>(
     let k = lhs.shape[rank - 1];
     let n = rhs.shape[rank - 1];
 
-    let check_layout = |strides: &[usize]| match matrix_layout(strides) {
+    let check_layout = |strides: &[usize]| match matrix_batch_layout(strides) {
         MatrixBatchLayout::Contiguous => false,
         MatrixBatchLayout::MildlyPermuted {
             transposed,

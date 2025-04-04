@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation,
         tensor_view::{TensorReader, Window},
@@ -32,11 +32,11 @@ impl AsyncFullLoadingStrategy for WindowCooperativeLoading {
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
 
         let num_slices = match matrix_layout {
             MatrixLayout::RowMajor => tiling_dimensions.total_row(),
@@ -44,12 +44,13 @@ impl AsyncFullLoadingStrategy for WindowCooperativeLoading {
         };
 
         for nth_slice in 0..num_slices {
-            let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+            let window: Window<EG> =
+                read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
             let mut destination: SliceMut<Line<ES>> =
                 StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
                     stage,
                     nth_slice,
-                    ident,
+                    input_ident.as_ident(),
                     config.to_smm_config(),
                 );
 

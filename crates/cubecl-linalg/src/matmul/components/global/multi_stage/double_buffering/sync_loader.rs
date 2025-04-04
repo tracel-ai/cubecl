@@ -1,153 +1,69 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::Ident;
-use crate::matmul::components::global::CommonGlobalConfig;
-use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
-};
+use crate::matmul::components::InputIdent;
+use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
-use crate::matmul::components::stage::{self, Stage};
+use crate::matmul::components::stage::Stage;
+use crate::matmul::components::stage::single_buffer::BufferReader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(Clone, CubeType)]
-pub struct SyncLhsBufferLoader<
-    EG: Numeric,
-    ES: Numeric,
-    S: stage::StageConfig,
-    L: SyncBufferLoadingStrategy,
-> {
+pub struct SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
+{
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     #[cube(comptime)]
-    _config: PhantomData<S>,
-}
-
-#[derive(Clone, CubeType)]
-pub struct SyncRhsBufferLoader<
-    EG: Numeric,
-    ES: Numeric,
-    S: stage::StageConfig,
-    L: SyncBufferLoadingStrategy,
-> {
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+    input_ident: InputIdent,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    _config: PhantomData<G>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
-{
-    type StageReader = LhsBufferReader<ES, L::TilingLayout>;
-
-    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        LhsBufferReader::new(this.stage, buffer.to_u32())
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Lhs);
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncLhsBufferLoader<EG, ES, S, L>
-{
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
-            &this.tensor_view,
-            &mut this.stage,
-            buffer.to_u32(),
-            Ident::Lhs,
-            config,
-        );
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncLhsBufferLoader<EG, ES, S, L>
+impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<EG, ES, G, L>
 {
     pub fn new(
         tensor: VirtualTensor<EG>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] config: CommonGlobalConfig<S>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<S>(Ident::Lhs, config.to_smm_config());
+        let stage =
+            Stage::new::<G::SmmConfig>(comptime!(input_ident.as_ident()), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncLhsBufferLoader::<EG, ES, S, L> {
+        SyncBufferLoader::<EG, ES, G, L> {
             tensor_view,
             stage,
-            _config: PhantomData::<S>,
+            input_ident,
+            _config: PhantomData,
         }
     }
-}
 
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
-{
-    type StageReader = RhsBufferReader<ES, L::TilingLayout>;
-
-    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        RhsBufferReader::new(this.stage, buffer.to_u32())
+    pub fn reader(
+        this: &Self,
+        #[comptime] buffer_id: BufferId,
+    ) -> BufferReader<ES, L::TilingLayout> {
+        BufferReader::new(this.stage, buffer_id, this.input_ident)
     }
 
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, Ident::Rhs);
+    pub fn advance_view(this: &mut Self, k_offset: u32) {
+        this.tensor_view.update_view(k_offset, this.input_ident);
     }
-}
 
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncRhsBufferLoader<EG, ES, S, L>
-{
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
+    pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
+        L::load_buffer::<EG, ES, G>(
             &this.tensor_view,
             &mut this.stage,
-            buffer.to_u32(),
-            Ident::Rhs,
+            buffer.to_index(),
+            this.input_ident,
             config,
         );
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncRhsBufferLoader<EG, ES, S, L>
-{
-    pub fn new(
-        tensor: VirtualTensor<EG>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) -> Self {
-        let stage = Stage::new::<S>(Ident::Rhs, config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
-
-        SyncRhsBufferLoader::<EG, ES, S, L> {
-            tensor_view,
-            stage,
-            _config: PhantomData::<S>,
-        }
     }
 }
