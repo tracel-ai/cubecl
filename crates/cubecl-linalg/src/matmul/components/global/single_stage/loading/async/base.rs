@@ -1,13 +1,10 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
-use crate::matmul::components::global::{
-    CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-};
 use crate::matmul::components::stage::multi_buffer::FullReader;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
 use crate::matmul::components::stage::{self, Stage, TilingLayout};
 use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
@@ -73,11 +70,11 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-            quantization: CubeOption<Quantization<MP>>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        comptime!{
+        comptime! {
             if quantization.is_some() {
                 todo!();
             }

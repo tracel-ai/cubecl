@@ -15,12 +15,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
         stage,
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
     },
     kernels::MatmulAvailabilityError,
 };

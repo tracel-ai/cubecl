@@ -261,7 +261,7 @@ where
 
             #[unroll]
             for accumulator_iter in 0..acc.len() {
-                let rhs_tile_next = RhsReader::read_tile::<TMM::Config>(
+                let rhs_tile_next = FullReader::read_tile::<TMM::Config>(
                     rhs_reader,
                     buffer_iter,
                     accumulator_iter,

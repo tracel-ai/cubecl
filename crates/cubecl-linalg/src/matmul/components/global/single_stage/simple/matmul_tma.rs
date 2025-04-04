@@ -1,15 +1,9 @@
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
-};
-use crate::matmul::components::InputIdent;
-use crate::matmul::components::global::ZeroAccumulatorLoader;
-use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;

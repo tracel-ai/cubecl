@@ -5,10 +5,9 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::{CopyMechanism, Quantization};
-use crate::matmul::components::global::CopyMechanism;
-use crate::matmul::components::{InputIdent, MatmulPrecision};
 use crate::matmul::components::{
     global::{self, GlobalConfig, single_stage, tensor_view::MappedTensorReader},
     stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, Stage, multi_buffer::FullReader},

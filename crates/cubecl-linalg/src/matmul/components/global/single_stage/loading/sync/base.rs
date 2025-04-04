@@ -84,7 +84,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>>(
+        L::load_full::<MP, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,
             this.quantization,

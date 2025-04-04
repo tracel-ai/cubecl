@@ -1,8 +1,8 @@
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, StridedTilingLayout};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
-use crate::matmul::components::{Ident, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};

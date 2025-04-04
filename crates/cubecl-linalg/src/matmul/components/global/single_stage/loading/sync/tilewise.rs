@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::{FormattedConfigError, InputIdent, InvalidConfigError, MatmulPrecision};
+use crate::matmul::components::{
+    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
+};
 use crate::matmul::components::{
     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
