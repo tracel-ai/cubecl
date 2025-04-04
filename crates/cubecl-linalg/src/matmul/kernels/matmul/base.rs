@@ -1,12 +1,13 @@
+use crate::matmul::components::stage::STAGE_BUFFERING;
 use crate::matmul::components::{CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES, stage,
+    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 use crate::matmul::{self, components::global::args::TensorMapInputsLaunch};
-use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -51,7 +52,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     //     ));
     // }
 
-    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_layout(tensor.strides) {
+    let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
         MatrixBatchLayout::MildlyPermuted {
             transposed,
@@ -392,7 +393,7 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),
             problem,
-            (config_input, stage::Buffering::Double), // TODO support selecting double buffering
+            (config_input, STAGE_BUFFERING),
             selection,
             false,
         )

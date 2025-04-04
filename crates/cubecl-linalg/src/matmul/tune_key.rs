@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_core::{AutotuneKey, ir::Elem};
 use serde::{Deserialize, Serialize};
 
-use crate::tensor::{MatrixBatchLayout, matrix_layout};
+use crate::tensor::{MatrixBatchLayout, matrix_batch_layout};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 /// Autotune key representative of matmul versions
@@ -59,8 +59,8 @@ impl MatmulAutotuneKey {
 
         let round = m % 64 == 0 && k % 64 == 0 && n % 64 == 0;
 
-        let matrix_layout_lhs = matrix_layout(lhs_strides);
-        let matrix_layout_rhs = matrix_layout(rhs_strides);
+        let matrix_layout_lhs = matrix_batch_layout(lhs_strides);
+        let matrix_layout_rhs = matrix_batch_layout(rhs_strides);
 
         Self::new(
             round,

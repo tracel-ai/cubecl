@@ -1,4 +1,5 @@
-use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout, stage};
+use crate::matmul::components::stage::STAGE_BUFFERING;
+use crate::matmul::components::{CompleteStageTiling, MatmulProblem, MatrixLayout};
 use crate::matmul::components::{MatmulSelection, MatmulSize};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
@@ -46,12 +47,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_count: selection.tile_count,
     };
 
-    test_matmul_algorithm::<A, P, R>(
-        client,
-        problem,
-        (config_input, stage::Buffering::Single), // TODO support double buffering
-        selection,
-    );
+    test_matmul_algorithm::<A, P, R>(client, problem, (config_input, STAGE_BUFFERING), selection);
 }
 
 #[allow(missing_docs)]

@@ -1,4 +1,4 @@
-use super::{Buffering, StageConfig};
+use super::{StageBuffering, StageConfig};
 use crate::matmul::components::{
     CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions,
     tile::TileConfig,
@@ -13,7 +13,7 @@ pub struct CommonStageConfig<T: TileConfig> {
     pub tiling: CompleteStageTiling,
     pub num_planes: u32,
     pub quantized: bool,
-    pub buffering: Buffering,
+    pub buffering: StageBuffering,
 }
 
 impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
@@ -47,7 +47,7 @@ impl<T: TileConfig> StageConfig for CommonStageConfig<T> {
         &self.tiling.tile_count
     }
 
-    fn buffering(&self) -> Buffering {
+    fn buffering(&self) -> StageBuffering {
         self.buffering
     }
 }
@@ -61,7 +61,7 @@ impl<T: TileConfig> CommonStageConfig<T> {
         tiling: CompleteStageTiling,
         num_planes: u32,
         quantized: bool,
-        buffering: Buffering,
+        buffering: StageBuffering,
     ) -> Self {
         Self {
             tmm_config,
