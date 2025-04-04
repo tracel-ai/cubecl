@@ -11,7 +11,7 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
-        loader::CyclicCoalescedLoading,
+        loader::SyncFullCyclicLoading,
         output_loader::Unloader,
         single_stage::{self, SyncFullLoader},
     },
@@ -65,7 +65,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncFullLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, SyncFullCyclicLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;

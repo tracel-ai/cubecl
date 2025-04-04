@@ -6,8 +6,8 @@ use super::{
     components::{
         MatmulPrecision,
         global::loader::{
-            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-            StridedCoalescedLoading, WindowCooperativeLoading,
+            AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
+            SyncFullStridedLoading, AsyncFullCooperativeLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
@@ -90,29 +90,29 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             SyncLoadingStrategy::Strided => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleAlgorithm<Accelerated, StridedCoalescedLoading, StridedCoalescedLoading>,
+                SimpleAlgorithm<Accelerated, SyncFullStridedLoading, SyncFullStridedLoading>,
             >(client, lhs, rhs, out),
         },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
             AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, WindowCooperativeLoading>,
+                SimpleBarrierAlgorithm<Accelerated, AsyncFullCooperativeLoading>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::Cyclic => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, CyclicWindowLoading<ColMajorTilingOrder>>,
+                SimpleBarrierAlgorithm<Accelerated, AsyncFullCyclicLoading<ColMajorTilingOrder>>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, MaximizeSliceLengthLoading>,
+                SimpleBarrierAlgorithm<Accelerated, AsyncFullMaximizeSliceLengthLoading>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,
+                SimpleBarrierAlgorithm<Accelerated, AsyncFullMaximizeUnitCountLoading>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::Tma => {
                 matmul::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(

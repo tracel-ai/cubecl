@@ -302,8 +302,8 @@ macro_rules! matmul_standard_tests {
 
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::loader::{
-            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-            StridedCoalescedLoading, WindowCooperativeLoading,
+            AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
+            SyncFullStridedLoading, AsyncFullCooperativeLoading,
         };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
@@ -326,7 +326,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_strided() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleAlgorithm<TMM, StridedCoalescedLoading, StridedCoalescedLoading>,
+                SimpleAlgorithm<TMM, SyncFullStridedLoading, SyncFullStridedLoading>,
                 Precision,
                 TestRuntime,
             >(
@@ -354,7 +354,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_barrier_cooperative() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowCooperativeLoading>,
+                SimpleBarrierAlgorithm<TMM, AsyncFullCooperativeLoading>,
                 Precision,
                 TestRuntime,
             >(
@@ -368,7 +368,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_barrier_cyclic() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, CyclicWindowLoading<ColMajorTilingOrder>>,
+                SimpleBarrierAlgorithm<TMM, AsyncFullCyclicLoading<ColMajorTilingOrder>>,
                 Precision,
                 TestRuntime,
             >(
@@ -382,7 +382,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_barrier_maximize_slice_length() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, MaximizeSliceLengthLoading>,
+                SimpleBarrierAlgorithm<TMM, AsyncFullMaximizeSliceLengthLoading>,
                 Precision,
                 TestRuntime,
             >(
@@ -396,7 +396,7 @@ macro_rules! matmul_standard_tests {
         #[test]
         pub fn simple_barrier_maximize_unit_count() {
             cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, MaximizeUnitCountLoading>,
+                SimpleBarrierAlgorithm<TMM, AsyncFullMaximizeUnitCountLoading>,
                 Precision,
                 TestRuntime,
             >(

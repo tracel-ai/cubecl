@@ -14,9 +14,9 @@ use super::AsyncFullLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per unit.
 /// The objective is to reduce branching, prioritizing this over maximizing memory slice length.
-pub struct MaximizeUnitCountLoading {}
+pub struct AsyncFullMaximizeUnitCountLoading {}
 
-impl LoadingValidation for MaximizeUnitCountLoading {
+impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
@@ -50,7 +50,7 @@ impl LoadingValidation for MaximizeUnitCountLoading {
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for MaximizeUnitCountLoading {
+impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(

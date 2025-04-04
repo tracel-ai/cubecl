@@ -1,6 +1,6 @@
-use super::SyncBufferLoader;
-use crate::matmul::components::global::loader::SyncBufferLoadingStrategy;
-use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
+use crate::matmul::components::global::loader::{
+    BufferId, SyncBufferLoader, SyncBufferLoadingStrategy,
+};
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};

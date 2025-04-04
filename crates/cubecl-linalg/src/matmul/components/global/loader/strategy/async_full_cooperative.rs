@@ -16,16 +16,16 @@ use super::AsyncFullLoadingStrategy;
 /// dividing the stage into the smallest possible contiguous slices.  
 ///
 /// Each `memcpy_async` is called with the same arguments for cooperative behaviour
-pub struct WindowCooperativeLoading {}
+pub struct AsyncFullCooperativeLoading {}
 
-impl LoadingValidation for WindowCooperativeLoading {
+impl LoadingValidation for AsyncFullCooperativeLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for WindowCooperativeLoading {
+impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(

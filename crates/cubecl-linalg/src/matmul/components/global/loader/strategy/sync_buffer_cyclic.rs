@@ -12,12 +12,12 @@ use super::SyncBufferLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicCoalescedBufferLoading<T: TilingOrder> {
+pub struct SyncBufferCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -54,7 +54,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(

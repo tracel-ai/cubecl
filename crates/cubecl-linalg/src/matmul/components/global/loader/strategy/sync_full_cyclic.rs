@@ -12,12 +12,12 @@ use super::SyncFullLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct CyclicCoalescedLoading<T: TilingOrder> {
+pub struct SyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -37,7 +37,7 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(

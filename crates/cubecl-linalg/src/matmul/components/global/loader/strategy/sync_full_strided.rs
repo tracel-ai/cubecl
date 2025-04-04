@@ -10,9 +10,9 @@ use super::SyncFullLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct StridedCoalescedLoading {}
+pub struct SyncFullStridedLoading {}
 
-impl LoadingValidation for StridedCoalescedLoading {
+impl LoadingValidation for SyncFullStridedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -32,7 +32,7 @@ impl LoadingValidation for StridedCoalescedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for StridedCoalescedLoading {
+impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(

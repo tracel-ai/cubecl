@@ -13,12 +13,12 @@ use super::SyncFullLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct TilewiseCoalescedLoading<T: TilingOrder> {
+pub struct SyncFullTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -46,7 +46,7 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(

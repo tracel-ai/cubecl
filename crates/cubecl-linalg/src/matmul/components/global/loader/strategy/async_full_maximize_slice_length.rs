@@ -14,16 +14,16 @@ use super::AsyncFullLoadingStrategy;
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct MaximizeSliceLengthLoading {}
+pub struct AsyncFullMaximizeSliceLengthLoading {}
 
-impl LoadingValidation for MaximizeSliceLengthLoading {
+impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for MaximizeSliceLengthLoading {
+impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
