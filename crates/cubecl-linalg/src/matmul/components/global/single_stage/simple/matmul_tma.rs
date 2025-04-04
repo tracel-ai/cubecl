@@ -1,8 +1,9 @@
 use crate::matmul::components::InputIdent;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
@@ -128,7 +129,6 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -156,7 +156,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -167,7 +166,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            quantization,
             config.to_smm_config(),
             config,
         );
@@ -179,6 +177,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
@@ -186,6 +185,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            quantization,
             InputIdent::Lhs,
             config,
         )
@@ -197,6 +197,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -204,6 +205,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            quantization,
             InputIdent::Rhs,
             config,
         )

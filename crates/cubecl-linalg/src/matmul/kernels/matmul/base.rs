@@ -46,12 +46,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
 ) -> Result<(), MatmulLaunchError> {
-    // if MP::QUANTIZED {
-    //     return Err(MatmulLaunchError::Unimplemented(
-    //         MatmulUnimplementedError::Quantization,
-    //     ));
-    // }
-
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
         MatrixBatchLayout::MildlyPermuted {
@@ -227,7 +221,6 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
                 out.as_tensor_arg(out_line_size),
                 problem,
                 plane_dim,
-                MP::QUANTIZED,
             )
         } else {
             select_kernel::<ReplaceES<MP, half::f16>, R, A>(
@@ -239,7 +232,6 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
                 out.as_tensor_arg(out_line_size),
                 problem,
                 plane_dim,
-                MP::QUANTIZED,
             )
         }
     } else {
@@ -252,7 +244,6 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             out.as_tensor_arg(out_line_size),
             problem,
             plane_dim,
-            MP::QUANTIZED,
         )
     }
 }
@@ -395,7 +386,6 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             problem,
             (config_input, STAGE_BUFFERING),
             selection,
-            false,
         )
     } else {
         todo!()
@@ -410,7 +400,6 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
     problem: MatmulProblem,
     config_input: <A::BatchMatmul as MatmulConfigFactory>::Input,
     selection: MatmulSelection,
-    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let cube_dim = A::cube_dim(&selection);
     let cube_count = A::cube_count(&selection, &problem);
@@ -423,7 +412,6 @@ pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorit
         cube_dim,
         cube_count,
         config_input,
-        quantized,
     )
 }
 
@@ -436,9 +424,14 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     cube_dim: CubeDim,
     cube_count: CubeCount,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
-    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(config_input, &problem, &cube_dim, &cube_count, quantized)?;
+    let config = D::make_config(
+        config_input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+        MS::Precision::QUANTIZED,
+    )?;
     D::check_availability::<R, MS::Precision>(client, &config)?;
 
     unsafe {

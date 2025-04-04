@@ -2,20 +2,23 @@ use std::marker::PhantomData;
 
 use super::BufferId;
 use crate::matmul::components::InputIdent;
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::single_buffer::BufferReader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(Clone, CubeType)]
-pub struct SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
-{
-    pub tensor_view: TensorReader<EG>,
-    pub stage: Stage<ES, L::TilingLayout>,
+pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
+    pub tensor_view: TensorReader<MP::EI>,
+    pub stage: Stage<MP::ES, L::TilingLayout>,
+    pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -23,14 +26,15 @@ pub struct SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBu
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, G, L>
+impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
+    SyncBufferLoader<MP, G, L>
 {
     pub fn new(
-        tensor: VirtualTensor<EG>,
+        tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -38,18 +42,19 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             Stage::new::<G::SmmConfig>(comptime!(input_ident.as_ident()), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        SyncBufferLoader::<EG, ES, G, L> {
+        SyncBufferLoader::<MP, G, L> {
             tensor_view,
             stage,
+            quantization,
             input_ident,
-            _config: PhantomData,
+            _config: PhantomData::<G>,
         }
     }
 
     pub fn reader(
         this: &Self,
         #[comptime] buffer_id: BufferId,
-    ) -> BufferReader<ES, L::TilingLayout> {
+    ) -> BufferReader<MP::ES, L::TilingLayout> {
         BufferReader::new(this.stage, buffer_id, this.input_ident)
     }
 
@@ -58,10 +63,11 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
-        L::load_buffer::<EG, ES, G>(
+        L::load_buffer::<MP, G>(
             &this.tensor_view,
             &mut this.stage,
             buffer.to_index(),
+            this.quantization,
             this.input_ident,
             config,
         );

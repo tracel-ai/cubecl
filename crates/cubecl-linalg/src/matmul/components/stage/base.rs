@@ -1,11 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 
 use crate::matmul::components::{
     Ident, MatmulConfigFactory, MatmulPrecision, MatmulSize, MatrixLayout, TilingDimensions,
     config::MatmulConfig,
-    global::{self, AccumulatorLoader, IndexedQuantization},
+    global::{self, AccumulatorLoader},
     tile::TileConfig,
 };
 
@@ -77,7 +76,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         instruction_lhs: &mut Self::LhsTile,
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
     );
 
@@ -89,7 +87,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         instruction_lhs: &mut Self::LhsTile,
         instruction_rhs: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
-        scaling: CubeOption<f32>,
         #[comptime] config: Self::Config,
         listener: SEL,
     );
@@ -106,7 +103,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn read_accumulator<Out: StageWriter<MP::EO>, G: global::GlobalConfig>(
         acc: &Self::Accumulator,
         out: &mut Out,
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );

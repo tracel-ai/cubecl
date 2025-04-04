@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     InputIdent, MatmulPrecision,
     global::{
-        GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
         single_stage::{AsyncFullLoadingStrategy, AsyncLoader, Config},
     },
@@ -137,14 +137,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -186,7 +180,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -199,7 +192,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -211,6 +203,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
@@ -218,6 +211,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Lhs,
             config,
         )
@@ -229,6 +223,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -236,6 +231,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Rhs,
             config,
         )

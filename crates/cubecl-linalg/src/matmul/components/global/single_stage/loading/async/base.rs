@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
@@ -9,6 +10,7 @@ use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
@@ -68,9 +70,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
         let mut stage =
             Stage::new::<G::SmmConfig>(comptime!(input_ident.as_ident()), config.to_smm_config());
 

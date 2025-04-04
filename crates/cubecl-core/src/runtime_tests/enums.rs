@@ -39,10 +39,9 @@ pub fn kernel_comptime_variants(#[comptime] test: TestEnum<i32>) {
 // We just check that it compiles for the syntax.
 #[allow(unused_variables)]
 #[allow(clippy::needless_match)]
-#[allow(clippy::clone_on_copy)]
 #[cube(launch)]
 pub fn kernel_runtime_variants(test: TestEnum<i32>) {
-    let test2: TestEnum<i32> = match test.clone() {
+    let test2: TestEnum<i32> = match test {
         TestEnum::A(x, y) => TestEnum::new_A(x, y),
         TestEnum::B(x) => TestEnum::new_B(x),
         TestEnum::C(x) => TestEnum::new_C(x),
