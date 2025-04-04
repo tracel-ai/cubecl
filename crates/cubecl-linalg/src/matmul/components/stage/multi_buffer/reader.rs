@@ -9,72 +9,28 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-/// Stage reader for LHS
-pub struct LhsReader<ES: Numeric, T: TilingLayout> {
-    pub stage: Stage<ES, T>,
-}
-
-#[derive(CubeType)]
 /// Stage reader for RHS
-pub struct RhsReader<ES: Numeric, T: TilingLayout> {
+pub struct FullReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
+    #[cube(comptime)]
+    pub ident: Ident,
 }
 
-pub struct LhsReaderFamily;
-pub struct RhsReaderFamily;
+pub struct FullReaderFamily;
 
-impl ReaderFamily for LhsReaderFamily {
-    type Reader<ES: Numeric, T: TilingLayout> = LhsReader<ES, T>;
-}
-
-impl ReaderFamily for RhsReaderFamily {
-    type Reader<ES: Numeric, T: TilingLayout> = RhsReader<ES, T>;
+impl ReaderFamily for FullReaderFamily {
+    type Reader<ES: Numeric, T: TilingLayout> = FullReader<ES, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> LhsReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
     pub fn read_tile<TC: TileConfig>(
         this: &Self,
-        compute_plane_offset: u32,
-        buffer_offset: u32,
+        row: u32,
+        col: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage.get_tile::<CommonStageConfig<TC>>(
-            compute_plane_offset,
-            buffer_offset,
-            Ident::Lhs,
-            config,
-        )
-    }
-}
-
-#[cube]
-impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
-    pub fn read_tile<TC: TileConfig>(
-        this: &Self,
-        buffer_offset: u32,
-        accumulator_offset: u32,
-        #[comptime] config: CommonStageConfig<TC>,
-    ) -> Tile<ES> {
-        this.stage.get_tile::<CommonStageConfig<TC>>(
-            buffer_offset,
-            accumulator_offset,
-            Ident::Rhs,
-            config,
-        )
-    }
-}
-
-#[cube]
-impl<ES: Numeric, T: TilingLayout> LhsReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>) -> LhsReader<ES, T> {
-        LhsReader::<ES, T> { stage }
-    }
-}
-
-#[cube]
-impl<ES: Numeric, T: TilingLayout> RhsReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>) -> RhsReader<ES, T> {
-        RhsReader::<ES, T> { stage }
+        this.stage
+            .get_tile::<CommonStageConfig<TC>>(row, col, this.ident, config)
     }
 }

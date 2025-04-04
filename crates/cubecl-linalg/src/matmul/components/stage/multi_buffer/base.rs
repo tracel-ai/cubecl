@@ -1,5 +1,3 @@
-use super::reader::{LhsReader, RhsReader};
-use super::{LhsReaderFamily, RhsReaderFamily};
 use crate::matmul::components::global::AccumulatorLoader;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::CommonStageConfig;
@@ -37,7 +35,7 @@ impl<TMM: TileMatmulFamily> StageMatmulFamily for MultiBufferMatmulFamily<TMM> {
         config.tiling.tile_count
     }
 
-    type LhsReader = LhsReaderFamily;
+    type LhsReader = FullReaderFamily;
     type RhsReader = RhsReaderFamily;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
         MultiBufferMatmul<MP, TMM::Matmul<MP>, TL, TR>;
