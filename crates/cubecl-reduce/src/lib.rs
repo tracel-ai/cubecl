@@ -23,7 +23,7 @@ mod strategy;
 
 pub use config::*;
 pub use error::*;
-pub use instructions::Reduce;
+pub use instructions::ReduceFamily;
 pub use instructions::ReduceInstruction;
 pub use shared_sum::*;
 pub use strategy::*;
@@ -90,12 +90,13 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
+pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceFamily>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,
     strategy: Option<ReduceStrategy>,
+    inst_config: Inst::Config,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
@@ -111,7 +112,15 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: Reduce>(
         }
     }
 
-    launch_reduce::<R, In, Out, Inst>(client, input, output, axis as u32, config, strategy);
+    launch_reduce::<R, In, Out, Inst>(
+        client,
+        input,
+        output,
+        axis as u32,
+        config,
+        strategy,
+        inst_config,
+    );
     Ok(())
 }
 
