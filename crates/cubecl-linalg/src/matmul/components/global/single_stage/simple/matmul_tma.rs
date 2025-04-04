@@ -1,5 +1,3 @@
-use crate::matmul::components::Ident;
-use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::output_loader::Unloader;
@@ -9,6 +7,7 @@ use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::FullReader;
+use crate::matmul::components::{InputIdent, MatmulPrecision};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -187,7 +186,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            Ident::Lhs,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -205,7 +204,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            Ident::Rhs,
+            InputIdent::Rhs,
             config,
         )
     }

@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
+    Ident, InputIdent, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
@@ -236,7 +236,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config)
+        Self::LhsLoader::new(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            InputIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -247,7 +254,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, Ident::Rhs, config)
+        Self::RhsLoader::new(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

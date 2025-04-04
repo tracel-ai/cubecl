@@ -6,7 +6,7 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
 use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::stage::{self, Stage};
-use crate::matmul::components::{Ident, MatmulPrecision, global};
+use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
@@ -16,7 +16,7 @@ pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullL
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     #[cube(comptime)]
-    ident: Ident,
+    ident: InputIdent,
     #[cube(comptime)]
     _phantom: PhantomData<(S, L)>,
 }
@@ -30,25 +30,35 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage = Stage::new::<G::SmmConfig>(ident, config.to_smm_config());
+        let mut stage = Stage::new::<G::SmmConfig>(ident.as_ident(), config.to_smm_config());
 
-        #[allow(clippy::collapsible_if)]
-        if config.check_row_bounds(Ident::Lhs) {
-            if x_offset
-                > tensor.shape(tensor.rank() - 2) - config.tiling_dimensions(Ident::Lhs).total_row()
+        match ident {
+            InputIdent::Lhs =>
             {
-                stage.clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+                #[allow(clippy::collapsible_if)]
+                if config.check_row_bounds(ident) {
+                    if x_offset
+                        > tensor.shape(tensor.rank() - 2)
+                            - config.tiling_dimensions(Ident::Lhs).total_row()
+                    {
+                        stage.clear::<G::SmmConfig>(ident, config.to_smm_config());
+                    }
+                }
             }
-        }
-        #[allow(clippy::collapsible_if)]
-        if config.check_col_bounds(Ident::Rhs) {
-            if y_offset
-                > tensor.shape(tensor.rank() - 1) - config.tiling_dimensions(Ident::Rhs).total_col()
+            InputIdent::Rhs =>
             {
-                stage.clear::<G::SmmConfig>(Ident::Rhs, config.to_smm_config());
+                #[allow(clippy::collapsible_if)]
+                if config.check_col_bounds(ident) {
+                    if y_offset
+                        > tensor.shape(tensor.rank() - 1)
+                            - config.tiling_dimensions(Ident::Rhs).total_col()
+                    {
+                        stage.clear::<G::SmmConfig>(ident, config.to_smm_config());
+                    }
+                }
             }
         }
 

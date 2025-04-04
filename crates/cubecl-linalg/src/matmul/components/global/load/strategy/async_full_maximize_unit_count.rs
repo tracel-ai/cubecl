@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation,
         tensor_view::{TensorReader, Window},
@@ -57,12 +57,12 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
@@ -80,11 +80,12 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         let units_per_slice = unit_count / num_slices;
         let nth_slice = UNIT_POS / units_per_slice;
 
-        let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+        let window: Window<EG> =
+            read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
             stage,
             nth_slice,
-            ident,
+            input_ident.as_ident(),
             config.to_smm_config(),
         );
 

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
-use crate::matmul::components::{Ident, InvalidConfigError};
+use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -43,11 +43,11 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        let tiling = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
         let num_stage_elements = tiling.total_size();
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
         let num_loads_per_unit = comptime!(num_stage_elements / jump_length);
@@ -64,7 +64,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
 
             let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
-                ident,
+                input_ident.as_ident(),
                 config.to_smm_config(),
             );
 
@@ -72,7 +72,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
                 tile_x,
                 tile_y,
                 pos_within_tile,
-                ident,
+                input_ident,
                 config,
             );
 

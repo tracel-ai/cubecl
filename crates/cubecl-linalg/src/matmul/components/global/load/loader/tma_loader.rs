@@ -7,7 +7,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::CopyMechanism;
 use crate::matmul::components::{
-    Ident,
+    InputIdent,
     global::{self, GlobalConfig, single_stage, tensor_view::MappedTensorReader},
     stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, Stage, multi_buffer::FullReader},
 };
@@ -18,7 +18,7 @@ pub struct TmaLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub barrier: Barrier<MP::EI>,
     pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
-    ident: Ident,
+    ident: InputIdent,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -30,10 +30,11 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
         x: u32,
         y: u32,
         batch: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new_aligned::<G::SmmConfig>(ident, 128u32, config.to_smm_config());
+        let stage =
+            Stage::new_aligned::<G::SmmConfig>(ident.as_ident(), 128u32, config.to_smm_config());
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
@@ -80,6 +81,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
+        this.tensor_view
+            .update_view(k_offset, comptime!(this.ident.as_ident()));
     }
 }

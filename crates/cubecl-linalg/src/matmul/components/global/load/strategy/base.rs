@@ -1,7 +1,7 @@
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, LoadingValidation};
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{Ident, global};
+use crate::matmul::components::{InputIdent, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -17,7 +17,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
 
@@ -35,7 +35,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
 }
@@ -49,7 +49,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
     fn load_full<EG: Numeric, ES: Numeric, G: global::GlobalConfig>(
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
 }
@@ -64,7 +64,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
         read_view: &TensorReader<EI>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
 

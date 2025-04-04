@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::load::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
@@ -22,7 +22,7 @@ pub struct AsyncBufferLoader<
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     #[cube(comptime)]
-    ident: Ident,
+    ident: InputIdent,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -36,10 +36,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] ident: Ident,
+        #[comptime] ident: InputIdent,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
-        let stage = Stage::new::<S>(ident, config.to_smm_config());
+        let stage = Stage::new::<S>(ident.as_ident(), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         AsyncBufferLoader::<EG, ES, S, L> {

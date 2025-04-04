@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation,
         tensor_view::{TensorReader, Window},
@@ -30,11 +30,11 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         read_view: &TensorReader<EG>,
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
 
         let num_slices = match matrix_layout {
             MatrixLayout::RowMajor => tiling_dimensions.total_row(),
@@ -52,12 +52,22 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<EG, ES, CM, G>(
-                    nth_slice, read_view, stage, mechanism, ident, config,
+                    nth_slice,
+                    read_view,
+                    stage,
+                    mechanism,
+                    input_ident,
+                    config,
                 );
             } else {
                 if nth_slice < num_slices {
                     load_nth_slice::<EG, ES, CM, G>(
-                        nth_slice, read_view, stage, mechanism, ident, config,
+                        nth_slice,
+                        read_view,
+                        stage,
+                        mechanism,
+                        input_ident,
+                        config,
                     );
                 }
             };
@@ -75,14 +85,14 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     read_view: &TensorReader<EG>,
     stage: &mut Stage<ES, StridedTilingLayout>,
     mechanism: &CM,
-    #[comptime] ident: Ident,
+    #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
         stage,
         nth_slice,
-        ident,
+        comptime!(input_ident.as_ident()),
         config.to_smm_config(),
     );
 

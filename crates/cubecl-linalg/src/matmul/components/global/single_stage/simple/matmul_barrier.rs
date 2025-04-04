@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
@@ -216,7 +217,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            Ident::Lhs,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -234,7 +235,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            Ident::Rhs,
+            InputIdent::Rhs,
             config,
         )
     }

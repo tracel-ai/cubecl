@@ -26,24 +26,24 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config
     }
 
-    fn global_line_size(&self, ident: Ident) -> u32 {
-        match ident {
+    fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+        match ident.into() {
             Ident::Lhs => self.lhs_line_size,
             Ident::Rhs => self.rhs_line_size,
             Ident::Out => self.out_line_size,
         }
     }
 
-    fn stage_line_size(&self, ident: Ident) -> u32 {
-        self.smm_config.line_size(ident)
+    fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
+        self.smm_config.line_size(ident.into())
     }
 
-    fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
-        self.smm_config.tiling_dimensions(ident)
+    fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
+        self.smm_config.tiling_dimensions(ident.into())
     }
 
-    fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
-        match ident {
+    fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
+        match ident.into() {
             Ident::Lhs => self.lhs_layout,
             Ident::Rhs => self.rhs_layout,
             Ident::Out => self.smm_config.matrix_layout(Ident::Out),
@@ -58,16 +58,16 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
         self.smm_config.plane_dim()
     }
 
-    fn check_row_bounds(&self, ident: Ident) -> bool {
-        match ident {
+    fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        match ident.into() {
             Ident::Lhs => self.check_m_bounds,
             Ident::Rhs => self.check_k_bounds,
             Ident::Out => self.check_m_bounds,
         }
     }
 
-    fn check_col_bounds(&self, ident: Ident) -> bool {
-        match ident {
+    fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
+        match ident.into() {
             Ident::Lhs => self.check_k_bounds,
             Ident::Rhs => self.check_n_bounds,
             Ident::Out => self.check_n_bounds,

@@ -126,7 +126,7 @@ impl<ES: Numeric> Tile<ES> {
         #[comptime] config: T,
     ) -> Tile<ES> {
         let stride = comptime! {
-            (match ident.as_input() {
+            (match ident.as_input_ident() {
             InputIdent::Lhs => match config.matrix_layout(ident) {
                 MatrixLayout::RowMajor => config.tile_shape().k,
                 MatrixLayout::ColMajor => config.tile_shape().m,

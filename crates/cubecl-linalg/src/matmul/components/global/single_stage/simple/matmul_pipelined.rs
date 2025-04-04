@@ -1,5 +1,5 @@
 use crate::matmul::components::{
-    MatmulPrecision,
+    InputIdent, MatmulPrecision,
     global::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         load::{AsyncFullLoadingStrategy, AsyncLoader},
@@ -219,7 +219,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            Ident::Lhs,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -237,7 +237,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
-            Ident::Rhs,
+            InputIdent::Rhs,
             config,
         )
     }
