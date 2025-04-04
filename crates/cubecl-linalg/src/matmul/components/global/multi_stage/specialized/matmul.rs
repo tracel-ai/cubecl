@@ -2,7 +2,10 @@ use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        multi_stage::{SyncBufferLoadingStrategy, double_buffering::BufferId},
+        multi_stage::{
+            SyncBufferLoadingStrategy,
+            double_buffering::{BufferId, SyncBufferLoader},
+        },
         output_loader::Unloader,
     },
     stage::{StageMatmul, single_buffer::BufferReader},
@@ -11,7 +14,6 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::SyncBufferLoader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -134,8 +136,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, LL>;
+    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -156,6 +158,7 @@ where
         }
 
         let is_consumer = Self::is_consumer(config);
+        let is_producer = !is_consumer;
 
         let num_buffers = config.tiling_dimensions(Ident::Lhs).tile_count_col();
         let buffer_step = config.tiling_dimensions(Ident::Lhs).tile_shape_col();
@@ -175,8 +178,10 @@ where
         let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         for _ in 0..num_loops {
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+            if is_producer {
+                Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::A, config);
+                Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::A, config);
+            }
 
             sync_units();
 
@@ -192,8 +197,10 @@ where
                 );
             }
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            if is_producer {
+                Self::LhsLoader::fill_stage(&mut lhs_loader, BufferId::B, config);
+                Self::RhsLoader::fill_stage(&mut rhs_loader, BufferId::B, config);
+            }
 
             sync_units();
 
@@ -232,15 +239,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            Ident::Lhs,
-            config,
-        )
+        Self::LhsLoader::new(lhs, x_offset, y_offset, batch_offset, Ident::Lhs, config)
     }
 
     fn init_rhs_loader(
@@ -251,15 +250,7 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(
-            rhs,
-            x_offset,
-            y_offset,
-            batch_offset,
-            !Self::is_consumer(config),
-            Ident::Rhs,
-            config,
-        )
+        Self::RhsLoader::new(rhs, x_offset, y_offset, batch_offset, Ident::Rhs, config)
     }
 
     fn init_unloader(

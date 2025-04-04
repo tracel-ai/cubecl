@@ -122,8 +122,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, LL>;
+    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -321,8 +321,8 @@ impl<
     S: StageConfig,
 > StageEventListener
     for DoubleBufferingEventListener<
-        SyncBufferLoader<EG, ES, S, LL>,
-        SyncBufferLoader<EG, ES, S, RL>,
+        SyncBufferLoader<EG, ES, CommonGlobalConfig<S>, LL>,
+        SyncBufferLoader<EG, ES, CommonGlobalConfig<S>, RL>,
         S,
     >
 {
