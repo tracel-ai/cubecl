@@ -23,13 +23,13 @@ pub trait FullLoader<MP: MatmulPrecision, G: GlobalConfig>:
 }
 
 #[cube]
-pub trait SyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
+pub trait SyncFullLoaderTrait<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
     /// Fills the stage at the current k offset.
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 }
 
 #[cube]
-pub trait AsyncFullLoader<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
+pub trait AsyncFullLoaderTrait<MP: MatmulPrecision, G: GlobalConfig>: FullLoader<MP, G> {
     /// Fills the stage at the current k offset.
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
         this: &mut Self,

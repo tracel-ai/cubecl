@@ -7,13 +7,13 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
+use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoaderTrait};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        single_stage::{self, CyclicCoalescedLoading, SyncFullLoader},
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
@@ -65,8 +65,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader =
-        SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;
@@ -156,7 +155,7 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, config)
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, Ident::Rhs, config)
     }
 
     fn init_bias_loader(

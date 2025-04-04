@@ -10,7 +10,7 @@ use crate::matmul::components::{
     Ident,
     global::{
         self, GlobalConfig,
-        single_stage::{self, AsyncFullLoader, FullLoader},
+        single_stage::{self, AsyncFullLoaderTrait, FullLoader},
         tensor_view::MappedTensorReader,
     },
     stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, Stage, multi_buffer::FullReader},
@@ -35,7 +35,7 @@ pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoaderTrait<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(
@@ -121,7 +121,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Co
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stage::Config<S>>
+impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoaderTrait<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(

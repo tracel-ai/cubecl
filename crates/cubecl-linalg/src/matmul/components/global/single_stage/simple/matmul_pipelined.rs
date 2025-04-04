@@ -3,10 +3,7 @@ use crate::matmul::components::{
     global::{
         GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         output_loader::Unloader,
-        single_stage::{
-            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-            FullLoader,
-        },
+        single_stage::{AsyncFullLoadingStrategy, AsyncLoader, Config},
     },
     stage::{StageMatmul, multi_buffer::FullReader},
 };
@@ -128,8 +125,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -216,7 +213,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            Ident::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -227,7 +231,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            Ident::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

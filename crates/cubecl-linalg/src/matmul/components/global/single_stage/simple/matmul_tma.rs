@@ -1,7 +1,7 @@
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
+    Config, FullLoader, loading::AsyncFullLoaderTrait,
 };
 use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
 use crate::matmul::components::stage::ContiguousTilingLayout;

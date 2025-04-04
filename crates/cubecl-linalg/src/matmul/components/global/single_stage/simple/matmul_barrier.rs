@@ -4,12 +4,9 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncFullLoader;
 use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage::AsyncLhsLoader;
-use crate::matmul::components::global::single_stage::AsyncRhsLoader;
+use crate::matmul::components::global::single_stage::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::global::single_stage::FullLoader;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{FullReader, FullReaderFamily};
 
@@ -131,8 +128,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -214,7 +211,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            Ident::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -225,7 +229,14 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            Ident::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(
