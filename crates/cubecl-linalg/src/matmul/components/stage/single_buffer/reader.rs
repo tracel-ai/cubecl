@@ -45,7 +45,7 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
         this.stage.get_tile::<CommonStageConfig<TC>>(
             compute_plane_offset,
             comptime!(this.buffer_id.to_u32()),
-            Ident::Lhs,
+            this.ident,
             config,
         )
     }
