@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::global::IndexedQuantization;
 use crate::matmul::components::stage::shared::{CommonStageConfig, RhsTile, RhsTileExpand};
 use crate::matmul::components::stage::{
-    Buffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
+    StageBuffering, NoEvent, StageEvent, StageEventListener, StageMatmul, StageMatmulFamily,
     TilingLayout,
 };
 use crate::matmul::components::tile::{TileMatmul, TileMatmulFamily};
@@ -46,7 +46,7 @@ impl<TMM> MatmulConfigFactory for SingleBufferMatmulFamily<TMM>
 where
     TMM: TileMatmulFamily,
 {
-    type Input = (CompleteStageTiling, Buffering);
+    type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
     fn check_config(config: &Self::Config) -> Result<(), InvalidConfigError> {
@@ -176,8 +176,8 @@ where
         (
             TMM::allocate_lhs(config.to_tmm_config()),
             match config.buffering {
-                Buffering::Single => RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config())),
-                Buffering::Double => RhsTile::new_Double((
+                StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(config.to_tmm_config())),
+                StageBuffering::Double => RhsTile::new_Double((
                     TMM::allocate_rhs(config.to_tmm_config()),
                     TMM::allocate_rhs(config.to_tmm_config()),
                 )),

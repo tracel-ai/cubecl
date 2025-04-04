@@ -1,7 +1,8 @@
+use crate::matmul::components::stage::STAGE_BUFFERING;
 use crate::matmul::components::{CompleteStageTiling, global::args::TensorInputsLaunch};
 use crate::matmul::components::{
     InputRuntimeArg, MatmulConfigFactory, MatmulLaunch, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES, stage,
+    MatmulSelection, MatmulSpec, MatrixLayout, OutputRuntimeArg, ReplaceES,
 };
 use crate::matmul::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
@@ -392,7 +393,7 @@ fn matmul_launch_kernel_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             TensorMapInputsLaunch::new(lhs, rhs),
             out.as_tensor_arg(out_line_size),
             problem,
-            (config_input, stage::Buffering::Double), // TODO support selecting double buffering
+            (config_input, STAGE_BUFFERING),
             selection,
             false,
         )

@@ -180,11 +180,14 @@ pub trait StageConfig: MatmulConfig {
 
     fn tile_count(&self) -> &MatmulSize;
 
-    fn buffering(&self) -> Buffering;
+    fn buffering(&self) -> StageBuffering;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum Buffering {
+pub enum StageBuffering {
     Single,
     Double,
 }
+
+// TODO support selecting double buffering
+pub const STAGE_BUFFERING: StageBuffering = StageBuffering::Double;

@@ -6,7 +6,7 @@ use crate::matmul::components::{
 };
 use crate::matmul::kernels::{MatmulAvailabilityError, MatmulLaunchError};
 
-type StageInput = (CompleteStageTiling, stage::Buffering);
+type StageInput = (CompleteStageTiling, stage::StageBuffering);
 
 /// Specifications for a matmul algorithm
 pub trait Algorithm {
