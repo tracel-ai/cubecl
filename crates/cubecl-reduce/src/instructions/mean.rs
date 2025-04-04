@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceCoordinate, ReduceInstruction, Sum};
+use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction, Sum};
 
 #[derive(Debug, CubeType, Clone)]
 pub struct Mean {
     pub(crate) sum: Sum,
 }
 
-impl Reduce for Mean {
+impl ReduceFamily for Mean {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }

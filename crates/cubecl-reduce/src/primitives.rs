@@ -214,7 +214,8 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
     // The index used to read and write into the accumulator.
     let accumulator_index = if use_planes { UNIT_POS_Y } else { UNIT_POS };
 
-    let mut accumulator = R::SharedAccumulator::allocate(accumulator_size, line_size);
+    let mut accumulator =
+        R::SharedAccumulator::allocate(accumulator_size, line_size, R::REQUIRES_COORDINATE);
 
     R::SharedAccumulator::write(
         &mut accumulator,

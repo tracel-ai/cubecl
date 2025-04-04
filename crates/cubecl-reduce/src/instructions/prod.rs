@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceCoordinate, ReduceInstruction};
+use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
 #[derive(Debug, CubeType, Clone)]
 pub struct Prod {}
 
-impl Reduce for Prod {
+impl ReduceFamily for Prod {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }

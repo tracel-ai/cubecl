@@ -2,12 +2,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use super::{
-    ArgAccumulator, Reduce, ReduceCoordinate, ReduceCoordinateExpand, ReduceInstruction,
+    ArgAccumulator, ReduceCoordinate, ReduceCoordinateExpand, ReduceFamily, ReduceInstruction,
     lowest_coordinate_matching,
 };
 
 /// Compute the coordinate of the maximum item returning the smallest coordinate in case of equality.
-#[derive(Debug, CubeType)]
+#[derive(Debug, CubeType, Clone)]
 pub struct ArgMax {}
 
 #[cube]
@@ -32,7 +32,7 @@ impl ArgMax {
     }
 }
 
-impl Reduce for ArgMax {
+impl ReduceFamily for ArgMax {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }

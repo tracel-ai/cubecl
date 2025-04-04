@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-pub trait Reduce: Send + Sync + 'static + std::fmt::Debug {
+pub trait ReduceFamily: Send + Sync + 'static + std::fmt::Debug {
     type Instruction<In: Numeric>: ReduceInstruction<In, Config = Self::Config>;
     type Config: CubeComptime + Send + Sync;
 }
@@ -92,7 +92,11 @@ pub enum ReduceCoordinate {
 pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
     type Item: CubeType;
 
-    fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self;
+    fn allocate(
+        #[comptime] length: u32,
+        #[comptime] line_size: u32,
+        #[comptime] _coordinate: bool,
+    ) -> Self;
 
     fn read(accumulator: &Self, index: u32) -> Self::Item;
 
@@ -103,7 +107,11 @@ pub trait SharedAccumulator<In: Numeric>: CubeType + Send + Sync + 'static {
 impl<In: Numeric> SharedAccumulator<In> for SharedMemory<Line<In>> {
     type Item = Line<In>;
 
-    fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
+    fn allocate(
+        #[comptime] length: u32,
+        #[comptime] line_size: u32,
+        #[comptime] _coordinate: bool,
+    ) -> Self {
         SharedMemory::new_lined(length, line_size)
     }
 
@@ -127,7 +135,11 @@ pub struct ArgAccumulator<N: Numeric> {
 impl<In: Numeric> SharedAccumulator<In> for ArgAccumulator<In> {
     type Item = (Line<In>, Line<u32>);
 
-    fn allocate(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
+    fn allocate(
+        #[comptime] length: u32,
+        #[comptime] line_size: u32,
+        #[comptime] _coordinate: bool,
+    ) -> Self {
         ArgAccumulator::<In> {
             elements: SharedMemory::new_lined(length, line_size),
             args: SharedMemory::new_lined(length, line_size),

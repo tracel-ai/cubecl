@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{Reduce, ReduceCoordinate, ReduceInstruction};
+use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
 // TODO Add to test framework.
 /// Return the item with the maximum absolute value.
-#[derive(Debug, CubeType)]
+#[derive(Debug, CubeType, Clone)]
 pub struct MaxAbs;
 
-impl Reduce for MaxAbs {
+impl ReduceFamily for MaxAbs {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }
