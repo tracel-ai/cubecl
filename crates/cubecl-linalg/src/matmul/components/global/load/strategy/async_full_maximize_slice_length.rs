@@ -1,13 +1,14 @@
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use super::AsyncFullLoadingStrategy;
 
@@ -26,10 +27,11 @@ impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
 impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
+        _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -51,7 +53,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
-                load_nth_slice::<EG, ES, CM, G>(
+                load_nth_slice::<MP::EI, MP::ES, CM, G>(
                     nth_slice,
                     read_view,
                     stage,
@@ -61,7 +63,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
                 );
             } else {
                 if nth_slice < num_slices {
-                    load_nth_slice::<EG, ES, CM, G>(
+                    load_nth_slice::<MP::EI, MP::ES, CM, G>(
                         nth_slice,
                         read_view,
                         stage,

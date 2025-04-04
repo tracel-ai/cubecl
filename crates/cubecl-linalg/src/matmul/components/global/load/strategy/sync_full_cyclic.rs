@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::SyncFullLoadingStrategy;
 
@@ -40,9 +42,10 @@ impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -76,7 +79,10 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
                 config,
             );
 
-            stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
+            stage.as_slice_mut()[unit_position / line_size] = match quantization {
+                CubeOption::Some(quantization) => quantization.dequantize(line_read),
+                CubeOption::None => Line::cast_from(line_read),
+            };
         }
     }
 }

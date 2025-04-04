@@ -1,13 +1,14 @@
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use super::AsyncBufferLoadingStrategy;
 
@@ -26,10 +27,11 @@ impl LoadingValidation for AsyncBufferMaximizeSliceLengthLoading {
 impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
+        _quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
@@ -88,10 +90,10 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
 
             let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
 
-            let window: Window<EG> =
+            let window: Window<MP::EI> =
                 read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-            let mut destination: SliceMut<Line<ES>> =
-                StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
+            let mut destination: SliceMut<Line<MP::ES>> =
+                StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                     stage,
                     nth_slice,
                     comptime!(input_ident.as_ident()),

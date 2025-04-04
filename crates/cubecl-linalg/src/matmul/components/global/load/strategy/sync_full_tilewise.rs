@@ -1,12 +1,16 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::{FormattedConfigError, Ident, InputIdent, InvalidConfigError};
+use crate::matmul::components::global::Quantization;
+use crate::matmul::components::{
+    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
+};
 use crate::matmul::components::{
     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::SyncFullLoadingStrategy;
 
@@ -49,9 +53,10 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -83,7 +88,11 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
             );
 
             let offset = offset_base + pos_within_tile;
-            stage.as_slice_mut()[offset] = Line::cast_from(line_read);
+
+            stage.as_slice_mut()[offset] = match quantization {
+                CubeOption::Some(quantization) => quantization.dequantize(line_read),
+                CubeOption::None => Line::cast_from(line_read),
+            }
         }
     }
 }

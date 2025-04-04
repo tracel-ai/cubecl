@@ -1,13 +1,14 @@
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use super::AsyncFullLoadingStrategy;
 
@@ -53,10 +54,11 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
+        _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -80,14 +82,15 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         let units_per_slice = unit_count / num_slices;
         let nth_slice = UNIT_POS / units_per_slice;
 
-        let window: Window<EG> =
+        let window: Window<MP::EI> =
             read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-        let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
-            stage,
-            nth_slice,
-            input_ident.as_ident(),
-            config.to_smm_config(),
-        );
+        let mut destination: SliceMut<Line<MP::ES>> =
+            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+                stage,
+                nth_slice,
+                input_ident.as_ident(),
+                config.to_smm_config(),
+            );
 
         let segment_length = slice_length / units_per_slice;
         let nth_segment = UNIT_POS % units_per_slice;

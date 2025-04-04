@@ -1,4 +1,6 @@
-use crate::matmul::components::global::IndexedQuantization;
+use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::load::{
     AsyncBufferLoader, AsyncBufferLoadingStrategy, BufferId,
 };
@@ -6,7 +8,6 @@ use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::single_buffer::BufferReader;
-use crate::matmul::components::{Ident, InputIdent};
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -132,8 +133,8 @@ where
     RL: AsyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = AsyncBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = AsyncBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = AsyncBufferLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncBufferLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -144,7 +145,6 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        _quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let num_buffers = 2;
@@ -218,7 +218,6 @@ where
                 &mut lhs_tile_a,
                 &mut rhs_tile_a,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
             barrier_a.arrive();
@@ -230,7 +229,6 @@ where
                 &mut lhs_tile_b,
                 &mut rhs_tile_b,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
             barrier_b.arrive();
@@ -292,7 +290,6 @@ where
             &mut lhs_tile_a,
             &mut rhs_tile_a,
             acc,
-            CubeOption::new_None(),
             config.to_smm_config(),
         );
         barrier_a.arrive();
@@ -304,7 +301,6 @@ where
             &mut lhs_tile_b,
             &mut rhs_tile_b,
             acc,
-            CubeOption::new_None(),
             config.to_smm_config(),
         );
         barrier_b.arrive();
@@ -312,7 +308,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -324,6 +319,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
@@ -331,6 +327,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Lhs,
             config,
         )
@@ -342,6 +339,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
@@ -349,6 +347,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Rhs,
             config,
         )

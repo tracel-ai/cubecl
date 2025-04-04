@@ -1,20 +1,22 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
+use crate::matmul::components::global::{Quantization, single_stage};
 use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(CubeType)]
 pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
+    pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
@@ -30,9 +32,16 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let mut stage = Stage::new::<G::SmmConfig>(ident.as_ident(), config.to_smm_config());
 
         match ident {
@@ -67,6 +76,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         AsyncLoader::<MP, S, L> {
             tensor_view,
             stage,
+            quantization,
             ident,
             _phantom: PhantomData::<(S, L)>,
         }
@@ -77,10 +87,11 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_full::<MP::EI, MP::ES, single_stage::Config<S>, CM>(
+        L::load_full::<MP, single_stage::Config<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
+            this.quantization,
             this.ident,
             config,
         );

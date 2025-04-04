@@ -1,12 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatrixLayout,
-    global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
+    global::{
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization, tensor_view::TensorReader,
+    },
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_std::CubeOption;
 
 use super::AsyncFullLoadingStrategy;
 
@@ -38,10 +41,11 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
+        _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {

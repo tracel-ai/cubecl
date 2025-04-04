@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision,
     global::{
-        self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        self, GlobalMatmul, Quantization, ZeroAccumulatorLoader,
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
@@ -133,8 +133,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, LL>;
-    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, Self::Config, RL>;
+    type LhsLoader = SyncBufferLoader<MP, Self::Config, LL>;
+    type RhsLoader = SyncBufferLoader<MP, Self::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -145,15 +145,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let is_consumer = Self::is_consumer(config);
         let is_producer = !is_consumer;
 
@@ -189,7 +182,6 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
-                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -208,7 +200,6 @@ where
                     &mut lhs_tile,
                     &mut rhs_tile,
                     acc,
-                    CubeOption::new_None(),
                     config.to_smm_config(),
                 );
             }
@@ -221,7 +212,6 @@ where
             SMM::read_accumulator::<Self::Out, Self::Config>(
                 acc,
                 &mut out_unloader,
-                CubeOption::new_None(),
                 config.to_smm_config(),
                 config,
             );
@@ -234,6 +224,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new(
@@ -241,6 +232,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Lhs,
             config,
         )
@@ -252,6 +244,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new(
@@ -259,6 +252,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Rhs,
             config,
         )
