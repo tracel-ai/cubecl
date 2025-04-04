@@ -187,7 +187,7 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
         destination: &mut Self::AccumulatorItem,
         source: &Self::AccumulatorItem,
     ) {
-        destination.elements = destination.elements;
+        destination.elements = source.elements;
         let args = &mut destination.args;
         match args {
             CubeOption::Some(val) => *val = source.args.unwrap(),
