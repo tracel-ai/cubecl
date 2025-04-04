@@ -78,8 +78,7 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
         };
 
         let selection = ConvSelection { matmul: selection };
-
-        // TODO support selection of double buffering
+        
         (selection, (config_input, STAGE_BUFFERING))
     }
 }
