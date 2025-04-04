@@ -2,9 +2,7 @@ use crate::matmul::components::{
     Ident, MatmulPrecision,
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
-        multi_stage::{
-            BufferLoader, SyncBufferLoaderTrait, SyncBufferLoadingStrategy, double_buffering::BufferId,
-        },
+        multi_stage::{SyncBufferLoadingStrategy, double_buffering::BufferId},
         output_loader::Unloader,
     },
     stage::{StageMatmul, single_buffer::BufferReader},
@@ -13,7 +11,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 use super::config::Config;
-use super::loader::{SyncLhsBufferLoader, SyncRhsBufferLoader};
+use super::loader::SyncBufferLoader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -136,8 +134,8 @@ where
     RL: SyncBufferLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = SyncLhsBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
-    type RhsLoader = SyncRhsBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
+    type LhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, LL>;
+    type RhsLoader = SyncBufferLoader<MP::EI, MP::ES, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -240,6 +238,7 @@ where
             y_offset,
             batch_offset,
             !Self::is_consumer(config),
+            Ident::Lhs,
             config,
         )
     }
@@ -258,6 +257,7 @@ where
             y_offset,
             batch_offset,
             !Self::is_consumer(config),
+            Ident::Rhs,
             config,
         )
     }

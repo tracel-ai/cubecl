@@ -4,9 +4,7 @@ use super::BufferId;
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::CommonGlobalConfig;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoaderTrait, SyncBufferLoadingStrategy,
-};
+use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::single_buffer::BufferReader;
 use crate::matmul::components::stage::{self, Stage};
@@ -31,40 +29,6 @@ pub struct SyncBufferLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for SyncBufferLoader<EG, ES, S, L>
-{
-    type StageReader = BufferReader<ES, L::TilingLayout>;
-
-    fn reader(this: &Self, #[comptime] buffer_id: BufferId) -> Self::StageReader {
-        BufferReader::new(this.stage, buffer_id, this.ident)
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoaderTrait<EG, ES, CommonGlobalConfig<S>> for SyncBufferLoader<EG, ES, S, L>
-{
-    fn fill_stage(
-        this: &mut Self,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
-            &this.tensor_view,
-            &mut this.stage,
-            buffer.to_index(),
-            this.ident,
-            config,
-        );
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     SyncBufferLoader<EG, ES, S, L>
 {
     pub fn new(
@@ -84,5 +48,30 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             ident,
             _config: PhantomData::<S>,
         }
+    }
+
+    pub fn reader(
+        this: &Self,
+        #[comptime] buffer_id: BufferId,
+    ) -> BufferReader<ES, L::TilingLayout> {
+        BufferReader::new(this.stage, buffer_id, this.ident)
+    }
+
+    pub fn advance_view(this: &mut Self, k_offset: u32) {
+        this.tensor_view.update_view(k_offset, this.ident);
+    }
+
+    pub fn fill_stage(
+        this: &mut Self,
+        #[comptime] buffer: BufferId,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
+        L::load_buffer::<EG, ES, CommonGlobalConfig<S>>(
+            &this.tensor_view,
+            &mut this.stage,
+            buffer.to_index(),
+            this.ident,
+            config,
+        );
     }
 }

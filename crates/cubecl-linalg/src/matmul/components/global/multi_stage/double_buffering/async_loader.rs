@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use super::BufferId;
 use crate::matmul::components::Ident;
 use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::multi_stage::{AsyncBufferLoaderTrait, BufferLoader};
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism};
@@ -30,51 +29,6 @@ pub struct AsyncBufferLoader<
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    BufferLoader<EG, ES, CommonGlobalConfig<S>> for AsyncBufferLoader<EG, ES, S, L>
-{
-    type StageReader = BufferReader<ES, L::TilingLayout>;
-
-    fn reader(this: &Self, #[comptime] buffer_id: BufferId) -> Self::StageReader {
-        BufferReader::new(this.stage, buffer_id, this.ident)
-    }
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncBufferLoaderTrait<EG, ES, CommonGlobalConfig<S>> for AsyncBufferLoader<EG, ES, S, L>
-{
-    fn fill_stage<CM: CopyMechanism<ES>>(
-        this: &mut Self,
-        mechanism: &CM,
-        #[comptime] buffer: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
-            &this.tensor_view,
-            &mut this.stage,
-            mechanism,
-            buffer.to_index(),
-            this.ident,
-            config,
-        );
-    }
-
-    fn clear_stage(
-        this: &mut Self,
-        #[comptime] buffer_id: BufferId,
-        #[comptime] config: CommonGlobalConfig<S>,
-    ) {
-        this.stage
-            .clear_buffer::<S>(buffer_id, this.ident, config.to_smm_config())
-    }
-}
-
-#[cube]
-impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
     AsyncBufferLoader<EG, ES, S, L>
 {
     pub fn new(
@@ -94,5 +48,41 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
             ident,
             _config: PhantomData::<S>,
         }
+    }
+
+    pub fn reader(
+        this: &Self,
+        #[comptime] buffer_id: BufferId,
+    ) -> BufferReader<ES, L::TilingLayout> {
+        BufferReader::new(this.stage, buffer_id, this.ident)
+    }
+
+    pub fn advance_view(this: &mut Self, k_offset: u32) {
+        this.tensor_view.update_view(k_offset, this.ident);
+    }
+
+    pub fn fill_stage<CM: CopyMechanism<ES>>(
+        this: &mut Self,
+        mechanism: &CM,
+        #[comptime] buffer: BufferId,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
+        L::load_buffer::<EG, ES, CommonGlobalConfig<S>, CM>(
+            &this.tensor_view,
+            &mut this.stage,
+            mechanism,
+            buffer.to_index(),
+            this.ident,
+            config,
+        );
+    }
+
+    pub fn clear_stage(
+        this: &mut Self,
+        #[comptime] buffer_id: BufferId,
+        #[comptime] config: CommonGlobalConfig<S>,
+    ) {
+        this.stage
+            .clear_buffer::<S>(buffer_id, this.ident, config.to_smm_config())
     }
 }
