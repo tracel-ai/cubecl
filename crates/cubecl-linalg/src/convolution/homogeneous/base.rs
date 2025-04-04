@@ -7,7 +7,6 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoaderTrait};
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatrixLayout,
     global::{
