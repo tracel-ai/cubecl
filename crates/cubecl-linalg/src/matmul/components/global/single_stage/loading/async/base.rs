@@ -70,7 +70,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         #[comptime] ident: Ident,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let mut stage = Stage::new::<G::SmmConfig>(ident, config.to_smm_config());
 
         #[allow(clippy::collapsible_if)]
         if config.check_row_bounds(Ident::Lhs) {
@@ -108,13 +108,13 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
             &this.tensor_view,
             &mut this.stage,
             mechanism,
-            Ident::Lhs,
+            this.ident,
             config,
         );
     }
 
     pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(Ident::Lhs, config.to_smm_config())
+        this.stage.clear::<S>(this.ident, config.to_smm_config())
     }
 
     pub fn reader(this: &Self) -> FullReader<MP::ES, L::TilingLayout> {
