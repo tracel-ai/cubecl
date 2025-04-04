@@ -55,7 +55,8 @@ impl<In: Numeric> SharedAccumulator<In> for DynamicAccumulator<In> {
     ) -> Self {
         let elements = SharedMemory::new_lined(length, line_size);
         let args = if comptime![coordinate] {
-            CubeOption::new_None()
+            let args = SharedMemory::new_lined(length, line_size);
+            CubeOption::new_Some(args)
         } else {
             CubeOption::new_None()
         };
