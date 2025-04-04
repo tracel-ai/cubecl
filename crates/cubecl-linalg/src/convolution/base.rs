@@ -128,6 +128,7 @@ pub struct ConvolutionProblem {
     pub rhs_line_size: u8,
     pub out_line_size: u8,
 
+    pub padded_channels: u32,
     pub kernel_size: (u32, u32),
     pub stride: (u32, u32),
     pub padding: (i32, i32),

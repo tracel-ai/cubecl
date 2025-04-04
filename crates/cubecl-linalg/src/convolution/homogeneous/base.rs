@@ -222,6 +222,7 @@ where
                 size.k,
             ),
             (problem.out_shape_y as u32, problem.out_shape_x as u32),
+            problem.padded_channels,
             problem.kernel_size,
             problem.stride,
             problem.dilation,
@@ -318,6 +319,7 @@ pub mod config {
     pub struct HomogeneousConfig<M: GlobalConfig> {
         matmul: M,
         out_shape: (u32, u32),
+        padded_channels: u32,
         kernel_size: (u32, u32),
         stride: (u32, u32),
         dilation: (u32, u32),
@@ -386,6 +388,10 @@ pub mod config {
             }
         }
 
+        fn padded_channels(&self) -> u32 {
+            self.padded_channels
+        }
+
         fn kernel_size(&self, dim: u32) -> u32 {
             match dim {
                 0 => self.kernel_size.0,
@@ -426,6 +432,7 @@ pub mod config {
         pub fn new(
             matmul: M,
             out_shape: (u32, u32),
+            padded_channels: u32,
             kernel_size: (u32, u32),
             stride: (u32, u32),
             dilation: (u32, u32),
@@ -435,6 +442,7 @@ pub mod config {
             Self {
                 matmul,
                 out_shape,
+                padded_channels,
                 kernel_size,
                 stride,
                 dilation,

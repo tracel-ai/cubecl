@@ -10,10 +10,10 @@ use crate::{
         Ident, MatmulPrecision,
         global::{
             CopyMechanism,
-            single_stage::{AsyncFullLoader, FullLoader, SyncFullLoader},
+            single_stage::{AsyncFullLoader, FullLoader},
         },
         stage::{
-            ContiguousTilingLayout, RowMajorTilingOrder, StridedTilingLayout,
+            ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
             multi_buffer::LhsReader,
         },
     },
@@ -26,18 +26,18 @@ use crate::{
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
 pub struct Im2colTmaLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
-    pub tensor_view: Im2colTmaReader<MP::EI>,
-    pub stage: Stage<MP::ES, StridedTilingLayout>,
+    pub map: Im2colTmaReader<MP::EI>,
+    pub stage: Stage<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for Im2colTmaLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, StridedTilingLayout>;
+    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>;
 
     fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset);
+        this.map.update_view(k_offset);
     }
 
     fn reader(this: &Self) -> Self::StageReader {
@@ -47,49 +47,62 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for Im2colTmaLoad
 
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> AsyncFullLoader<MP, G> for Im2colTmaLoader<MP, G> {
-    fn fill_stage<CM: CopyMechanism<MP::ES>>(
-        this: &mut Self,
-        mechanism: &CM,
-        config: G,
-    ) {
-        if 
+    fn fill_stage<CM: CopyMechanism<MP::ES>>(this: &mut Self, bar: &CM, #[comptime] config: G) {
+        let tmm = config.to_smm_config();
+        let tiling_dims = tmm.tiling_dimensions(Ident::Lhs);
+        if UNIT_POS == 0 {
+            let m_size = tiling_dims.total_row();
+            let k_size = tiling_dims.tile_shape_col();
+            let slice_size = m_size * k_size;
+            let mut full_stage = this.stage.as_slice_mut();
+            let tensor = this.map.tensor.try_cast_unchecked();
+            let channels = config.padded_channels();
+
+            #[unroll]
+            for tile_k in 0..tiling_dims.tile_count_col() {
+                let k = this.map.k_offset + tile_k * k_size;
+                let (channel_start, k_idx) = (k % channels, k / channels);
+                let (k_x, k_y) = (k_idx % config.kernel_size(1), k_idx / config.kernel_size(0));
+                let slice_start = tile_k * slice_size;
+                let mut stage = full_stage.slice_mut(slice_start, slice_start + slice_size);
+                let coords = (
+                    this.map.n_offset as i32,
+                    this.map.h_offset as i32 - config.padding(0),
+                    this.map.w_offset as i32 - config.padding(1),
+                    channel_start as i32,
+                );
+                let offsets = (k_y as u16, k_x as u16);
+                CM::tma_load_im2col_4d(bar, &tensor, &mut stage, coords, offsets);
+            }
+        }
     }
 
-    fn clear_stage(this: &mut Self,config:G) {
-        this.stage.clear();
+    fn clear_stage(this: &mut Self, #[comptime] config: G) {
+        this.stage
+            .clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
+impl<MP: MatmulPrecision, G: ConvGemmConfig> Im2colTmaLoader<MP, G> {
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
-        shape_out_y: u32,
-        shape_out_x: u32,
         x_offset: u32,
         y_offset: u32,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-        let shape_batch = tensor.shape(0);
-        let shape_channel = tensor.shape(3);
 
-        let shape_m = shape_batch * shape_out_y * shape_out_x;
-        let shape_k = shape_channel * config.kernel_size(0) * config.kernel_size(1);
+        let height = tensor.shape(1);
+        let width = tensor.shape(2);
 
-        let tensor_view = Im2colReader::<MP::EI>::new(
-            tensor,
-            shape_out_y,
-            shape_out_x,
-            x_offset,
-            y_offset,
-            shape_k,
-            shape_channel,
-            shape_m,
-        );
+        let (w_offset, nh_offset) = (x_offset % width, x_offset / width);
+        let (h_offset, n_offset) = (nh_offset % height, nh_offset / height);
 
-        SimpleIm2colLoader::<MP, G> {
-            tensor_view,
+        let map = Im2colTmaReader::<MP::EI>::new(tensor, n_offset, h_offset, w_offset, y_offset);
+
+        Im2colTmaLoader::<MP, G> {
+            map,
             stage,
             _config: PhantomData::<G>,
         }

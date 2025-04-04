@@ -2,28 +2,36 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
-use crate::{convolution::ConvGemmConfig, matmul::components::Ident};
-
 #[derive(CubeType)]
 /// A view of a feature map tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct Im2colTmaReader<E: Numeric> {
     pub tensor: TensorMap<E>,
-    pub m_offset: u32,
+    pub n_offset: u32,
+    pub h_offset: u32,
+    pub w_offset: u32,
     pub k_offset: u32,
 }
 
 #[cube]
 impl<E: Numeric> Im2colTmaReader<E> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(tensor: VirtualTensor<E>, x_offset: u32, y_offset: u32) -> Im2colTmaReader<E> {
+    pub fn new(
+        tensor: VirtualTensor<E>,
+        n_offset: u32,
+        h_offset: u32,
+        w_offset: u32,
+        k_offset: u32,
+    ) -> Im2colTmaReader<E> {
         let map = tensor.as_tensor_map();
 
         Im2colTmaReader::<E> {
             tensor: map,
-            m_offset: x_offset,
-            k_offset: y_offset,
+            n_offset,
+            h_offset,
+            w_offset,
+            k_offset,
         }
     }
 
