@@ -5,8 +5,8 @@ use crate::matmul::components::{
     MatmulPrecision,
     global::{self, Quantization},
 };
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
@@ -35,8 +35,24 @@ pub(crate) fn gmm_execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
     }
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, x_offset, k_range.0, nth_batch, batch_lhs, quantization, config),
-        GMM::init_rhs_loader(rhs, k_range.0, y_offset, nth_batch, batch_rhs, quantization, config),
+        GMM::init_lhs_loader(
+            lhs,
+            x_offset,
+            k_range.0,
+            nth_batch,
+            batch_lhs,
+            quantization,
+            config,
+        ),
+        GMM::init_rhs_loader(
+            rhs,
+            k_range.0,
+            y_offset,
+            nth_batch,
+            batch_rhs,
+            quantization,
+            config,
+        ),
         GMM::init_unloader(out, x_offset, y_offset, nth_batch, batch_out),
         acc,
         k_range,

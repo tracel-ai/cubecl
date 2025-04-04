@@ -572,7 +572,7 @@ impl MatmulArgs for TensorArgs {
             Quantization::<MP> {
                 scaling: scaling_lhs * scaling_rhs,
             }
-            
+
             // TODO Currently I assume that buffer_len = metadata_len + len.
             //      That is, all the data within the tensors are contiguous and there are no hole
             //      in the stride pattern.

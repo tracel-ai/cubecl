@@ -1,7 +1,7 @@
-use crate::matmul::components::global::{LoadingValidation, Quantization};
 use crate::matmul::components::global::tensor_view::TensorReader;
+use crate::matmul::components::global::{LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{global, InputIdent, MatmulPrecision};
+use crate::matmul::components::{InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;

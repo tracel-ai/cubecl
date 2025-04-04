@@ -425,7 +425,13 @@ fn launch_matmul<'a, MS: MatmulSpec, R: Runtime, D: Algorithm>(
     cube_count: CubeCount,
     config_input: <D::BatchMatmul as MatmulConfigFactory>::Input,
 ) -> Result<(), MatmulLaunchError> {
-    let config = D::make_config(config_input, &problem, &cube_dim, &cube_count, MS::Precision::QUANTIZED)?;
+    let config = D::make_config(
+        config_input,
+        &problem,
+        &cube_dim,
+        &cube_count,
+        MS::Precision::QUANTIZED,
+    )?;
     D::check_availability::<R, MS::Precision>(client, &config)?;
 
     unsafe {
