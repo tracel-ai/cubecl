@@ -775,17 +775,10 @@ impl DialectInstructions<Self> for MslDialect {
         input: &Variable<Self>,
         output: &Variable<Self>,
     ) -> std::fmt::Result {
-        // we need to be extra carreful here to be sure to replicate the exact same
-        // semantic as CUDA __ballot_sync.
-        // __ballot_sync returns a bitmaks of active threads that evaluated to true.
-        // simd_ballot returns a simd_vote class which contains the bits that represent
-        // all the thread as a private member, the bit is true if the thread evaluated to
-        // true. On this class the all() method returns true if all the ACTIVE thread
-        // evaluates to true.
         let out_elem = output.item().elem;
         write!(
             f,
-            "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))"
+            "({out_elem})(uint64_t(simd_ballot({input})))"
         )
     }
 }
