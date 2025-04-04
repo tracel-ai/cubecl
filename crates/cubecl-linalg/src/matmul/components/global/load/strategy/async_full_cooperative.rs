@@ -1,12 +1,15 @@
 use crate::matmul::components::{
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        load::AsyncFullLoadingStrategy, tensor_view::{TensorReader, Window}, CopyMechanism, GlobalConfig, LoadingValidation, Quantization
-    }, stage::{Stage, StridedTilingLayout}, Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        load::AsyncFullLoadingStrategy,
+        tensor_view::{TensorReader, Window},
+    },
+    stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
-
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without modification,  
