@@ -67,7 +67,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                buffer_id.to_u32(),
+                buffer_id.to_index(),
                 Ident::Lhs,
                 config,
             );
@@ -123,7 +123,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
             L::load_buffer::<EG, ES, Config<S>>(
                 &this.tensor_view,
                 &mut this.stage,
-                buffer.to_u32(),
+                buffer.to_index(),
                 Ident::Rhs,
                 config,
             );

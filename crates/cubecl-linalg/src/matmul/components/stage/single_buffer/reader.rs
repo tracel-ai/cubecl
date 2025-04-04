@@ -1,4 +1,5 @@
 use crate::matmul::components::{
+    InputIdent,
     global::multi_stage::double_buffering::BufferId,
     stage::{ReaderFamily, TilingLayout, shared::CommonStageConfig},
     tile::{Tile, TileConfig},
@@ -42,11 +43,12 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
         compute_plane_offset: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage.get_tile::<CommonStageConfig<TC>>(
-            compute_plane_offset,
-            comptime!(this.buffer_id.to_u32()),
-            this.ident,
-            config,
-        )
+        let buffer_index = comptime!(this.buffer_id.to_index());
+        let (x, y) = match comptime!(this.ident.as_input()) {
+            InputIdent::Lhs => (compute_plane_offset, buffer_index),
+            InputIdent::Rhs => (buffer_index, compute_plane_offset),
+        };
+        this.stage
+            .get_tile::<CommonStageConfig<TC>>(x, y, this.ident, config)
     }
 }
