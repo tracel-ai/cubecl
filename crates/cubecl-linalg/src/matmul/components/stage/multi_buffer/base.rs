@@ -436,8 +436,10 @@ fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
     let length = config.tiling_dimensions(Ident::Out).total_size() / line_size;
 
     // Use cubecl_reduce primitives to find the value with the maximum absolute value.
+    let inst = MaxAbs {};
     let mut accumulator = reduce_slice_shared::<f32, SliceMut<Line<f32>>, MaxAbs>(
         &slice,
+        &inst,
         ReduceRange {
             start: 0,
             end: length,
@@ -449,8 +451,8 @@ fn requantize<EI: Numeric, EO: Numeric, TMM: TileConfig>(
         true,
         cubecl_reduce::BoundChecksInner::Branch,
     );
-    let max_abs = reduce_tree::<f32, MaxAbs>(&mut accumulator, config.num_planes());
-    let max_abs = MaxAbs::merge_line::<f32>(max_abs, 0); // The 0 here is a dummy value
+    let max_abs = reduce_tree::<f32, MaxAbs>(&inst, &mut accumulator, config.num_planes());
+    let max_abs = MaxAbs::merge_line::<f32>(&inst, max_abs, 0); // The 0 here is a dummy value
 
     // This is where I assume that EG is i8.
     let scale_out = 127.0 / max_abs;
