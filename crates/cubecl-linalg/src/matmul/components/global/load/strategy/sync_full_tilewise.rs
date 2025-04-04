@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
@@ -12,17 +13,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::SyncFullLoadingStrategy;
-
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct TilewiseCoalescedLoading<T: TilingOrder> {
+pub struct SyncFullTilewiseLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -50,7 +49,7 @@ impl<T: TilingOrder> LoadingValidation for TilewiseCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for TilewiseCoalescedLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(

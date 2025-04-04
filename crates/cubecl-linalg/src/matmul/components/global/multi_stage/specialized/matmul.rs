@@ -2,10 +2,7 @@ use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision,
     global::{
         self, GlobalMatmul, Quantization, ZeroAccumulatorLoader,
-        multi_stage::{
-            SyncBufferLoadingStrategy,
-            double_buffering::{BufferId, SyncBufferLoader},
-        },
+        load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
     stage::{StageMatmul, single_buffer::BufferReader},

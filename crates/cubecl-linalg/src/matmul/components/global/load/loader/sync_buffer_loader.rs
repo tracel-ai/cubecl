@@ -4,15 +4,32 @@ use super::BufferId;
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
+use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::Stage;
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::single_buffer::BufferReader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+
+#[cube]
+pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
+
+    /// Load the stage only at the buffer identified by buffer_index
+    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        buffer_index: u32,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    );
+}
 
 #[derive(Clone, CubeType)]
 pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
@@ -38,8 +55,13 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage =
-            Stage::new::<G::SmmConfig>(comptime!(input_ident.as_ident()), config.to_smm_config());
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
+        let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncBufferLoader::<MP, G, L> {

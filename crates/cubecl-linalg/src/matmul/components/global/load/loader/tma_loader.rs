@@ -7,7 +7,8 @@ use cubecl_std::CubeOption;
 
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
-use crate::matmul::components::global::{CopyMechanism, Quantization};
+use crate::matmul::components::global::CopyMechanism;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::{
     global::{self, GlobalConfig, single_stage, tensor_view::MappedTensorReader},
     stage::{self, ContiguousTilingLayout, RowMajorTilingOrder, Stage, multi_buffer::FullReader},
@@ -86,10 +87,8 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
     }
 
     pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        this.stage.clear::<S>(
-            comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
-        )
+        this.stage
+            .clear::<S>(this.input_ident, config.to_smm_config())
     }
 
     pub fn reader(this: &Self) -> FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {

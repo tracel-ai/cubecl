@@ -1,20 +1,24 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
-use crate::matmul::components::stage::{Stage, StridedTilingLayout};
+use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::SyncFullLoadingStrategy;
-
 #[derive(CubeType, Clone, Copy)]
-/// Loads the content of all the tensor view using all planes,
-/// iterating with steps determined by the plane's dimension.
-pub struct StridedCoalescedLoading {}
+/// Loads the content of all tiles in the tensor view using all planes.
+/// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
+pub struct SyncFullCyclicLoading<T: TilingOrder> {
+    #[cube(comptime)]
+    tiling_order: PhantomData<T>,
+}
 
-impl LoadingValidation for StridedCoalescedLoading {
+impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -34,8 +38,8 @@ impl LoadingValidation for StridedCoalescedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for StridedCoalescedLoading {
-    type TilingLayout = StridedTilingLayout;
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
+    type TilingLayout = ContiguousTilingLayout<T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -46,25 +50,38 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
     ) {
         let tiling = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
-        let num_stage_lines = tiling.total_size() / line_size;
-        let unit_count = config.num_planes() * config.plane_dim();
-        let num_loads_per_unit = comptime!(num_stage_lines / unit_count);
+        let num_stage_elements = tiling.total_size();
+        let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
+        let num_loads_per_unit = comptime!(num_stage_elements / jump_length);
 
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+        let unit_position_base = unit_id * line_size;
 
         for i in 0..num_loads_per_unit {
-            let unit_position = unit_base_position + i * unit_count;
+            let unit_position = unit_position_base + i * jump_length;
 
-            let line_read = read_view.load_coalesced_in_stage::<G>(
-                unit_position * line_size,
+            let tile_num_elements = tiling.tile_size();
+            let nth_tile = unit_position / tile_num_elements;
+            let pos_within_tile = unit_position % tile_num_elements;
+
+            let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+                nth_tile,
+                input_ident.as_ident(),
+                config.to_smm_config(),
+            );
+
+            let line_read = read_view.load_coalesced_in_tile::<G>(
+                tile_x,
+                tile_y,
+                pos_within_tile,
                 input_ident,
                 config,
             );
 
-            stage.as_slice_mut()[unit_position] = match quantization {
+            stage.as_slice_mut()[unit_position / line_size] = match quantization {
                 CubeOption::Some(quantization) => quantization.dequantize(line_read),
                 CubeOption::None => Line::cast_from(line_read),
-            }
+            };
         }
     }
 }

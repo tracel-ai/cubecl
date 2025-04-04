@@ -1,24 +1,26 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, InputIdent, InvalidConfigError, MatrixLayout,
-    global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
+    global::{
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        load::AsyncFullLoadingStrategy, tensor_view::TensorReader,
+    },
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-
-use super::AsyncFullLoadingStrategy;
+use cubecl_std::CubeOption;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicWindowLoading<T: TilingOrder> {
+pub struct AsyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
+impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -35,13 +37,14 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for CyclicWindowLoading<T> {
+impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
+        _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {

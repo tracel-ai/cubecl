@@ -1,16 +1,39 @@
 use super::BufferId;
-use crate::matmul::components::global::base::GlobalConfig as _;
-use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
+use crate::matmul::components::global::base::GlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CommonGlobalConfig, CopyMechanism, Quantization};
+use crate::matmul::components::global::{
+    CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
+};
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::single_buffer::BufferReader;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
+use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+
+#[cube]
+pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
+    /// The layout into which the loader will fill the stage
+    type TilingLayout: TilingLayout;
+
+    /// Load the stage only at the buffer identified by buffer_index
+    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        mechanism: &CM,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    );
+
+    /// The barrier level at which the copy mechanism works
+    fn barrier_level() -> BarrierLevel;
+}
 
 #[derive(CubeType)]
 pub struct AsyncBufferLoader<
@@ -20,6 +43,7 @@ pub struct AsyncBufferLoader<
 > {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
+    pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -50,6 +74,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
         AsyncBufferLoader::<MP, S, L> {
             tensor_view,
             stage,
+            quantization,
             input_ident,
             _config: PhantomData::<S>,
         }
@@ -72,10 +97,11 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<MP::EI, MP::ES, CommonGlobalConfig<S>, CM>(
+        L::load_buffer::<MP, CommonGlobalConfig<S>, CM>(
             &this.tensor_view,
             &mut this.stage,
             mechanism,
+            this.quantization,
             buffer.to_index(),
             this.input_ident,
             config,
@@ -87,10 +113,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
         #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        this.stage.clear_buffer::<S>(
-            buffer_id,
-            comptime!(this.input_ident.as_ident()),
-            config.to_smm_config(),
-        )
+        this.stage
+            .clear_buffer::<S>(buffer_id, this.input_ident, config.to_smm_config())
     }
 }

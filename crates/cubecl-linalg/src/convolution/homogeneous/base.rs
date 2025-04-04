@@ -9,8 +9,9 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
+        load::{SyncFullCyclicLoading, SyncFullLoader},
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullLoader},
+        single_stage,
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
@@ -62,7 +63,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncFullLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, SyncFullCyclicLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;
