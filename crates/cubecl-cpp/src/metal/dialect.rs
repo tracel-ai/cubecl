@@ -16,7 +16,8 @@ use cubecl_core::{
 };
 
 use super::{
-    arch::MetalArchitecture, format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh, AddressSpace, Extension
+    AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
+    format_metal_builtin_binding_arg, format_safe_tanh,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -66,7 +67,7 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
-            },
+            }
             shared::Instruction::<Self>::Tanh(instruction) => {
                 register_extension(Extension::SafeTanh(instruction.input.item()));
             }
@@ -624,7 +625,9 @@ impl DialectInstructions<Self> for MslDialect {
         input: T,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => write!(f, "log(half(1.0f) + {input})"),
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "log(half(1.0f) + {input})")
+            }
             _ => write!(f, "log(1.0f + {input})"),
         }
     }
@@ -702,14 +705,14 @@ impl DialectInstructions<Self> for MslDialect {
     // others
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>
+        _item: Item<Self>,
     ) -> std::fmt::Result {
         write!(f, "max")
     }
 
     fn compile_instruction_min_function_name(
         f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>
+        _item: Item<Self>,
     ) -> std::fmt::Result {
         write!(f, "min")
     }
@@ -718,9 +721,13 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "pow")
     }
 
-    fn compile_instruction_half_function_name_prefix() -> &'static str { "" }
+    fn compile_instruction_half_function_name_prefix() -> &'static str {
+        ""
+    }
 
-    fn compile_instruction_half2_function_name_prefix() -> &'static str { "" }
+    fn compile_instruction_half2_function_name_prefix() -> &'static str {
+        ""
+    }
 
     // Warp
     fn compile_warp_shuffle(

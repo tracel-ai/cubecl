@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
 
@@ -534,7 +533,7 @@ pub trait DialectInstructions<D: Dialect> {
     // others
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
-        item: Item<D>
+        item: Item<D>,
     ) -> std::fmt::Result {
         let max = match item.elem() {
             Elem::F16 | Elem::BF16 => "__hmax",
@@ -546,7 +545,7 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_instruction_min_function_name(
         f: &mut std::fmt::Formatter<'_>,
-        item: Item<D>
+        item: Item<D>,
     ) -> std::fmt::Result {
         let min = match item.elem() {
             Elem::F16 | Elem::BF16 => "__hmin",
@@ -560,9 +559,13 @@ pub trait DialectInstructions<D: Dialect> {
         write!(f, "powf")
     }
 
-    fn compile_instruction_half_function_name_prefix() -> &'static str { "h" }
+    fn compile_instruction_half_function_name_prefix() -> &'static str {
+        "h"
+    }
 
-    fn compile_instruction_half2_function_name_prefix() -> &'static str { "h2" }
+    fn compile_instruction_half2_function_name_prefix() -> &'static str {
+        "h2"
+    }
 
     // warp
     fn compile_warp_shuffle(

@@ -694,18 +694,11 @@ impl<D: Dialect> Clamp<D> {
 
         let out_fmt = out.fmt_left();
         if num == 1 {
-            writeln!(
-                f,
-                "{out_fmt} = ")?;
+            writeln!(f, "{out_fmt} = ")?;
             D::compile_instruction_max_function_name(f, out.item())?;
-            writeln!(
-                f,
-                "({min_value}, ")?;
+            writeln!(f, "({min_value}, ")?;
             D::compile_instruction_min_function_name(f, out.item())?;
-            writeln!(
-                f,
-                "({max_value}, {input}));"
-            )
+            writeln!(f, "({max_value}, {input}));")
         } else {
             writeln!(f, "{out_fmt} = {out_item}{{")?;
             for i in 0..num {

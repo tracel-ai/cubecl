@@ -1,7 +1,9 @@
 use crate::{
-    shared::{Component, Item, Variable}, Dialect
+    Dialect,
+    shared::{Component, Item, Variable},
 };
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Extension<D: Dialect> {
     Erf(Variable<D>, Variable<D>),
@@ -38,7 +40,10 @@ inline {output_elem} erf({input_elem} x) {{
     )
 }
 
-pub fn format_safe_tanh<D: Dialect>(f: &mut core::fmt::Formatter<'_>, item: &Item<D>) -> core::fmt::Result {
+pub fn format_safe_tanh<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    item: &Item<D>,
+) -> core::fmt::Result {
     let elem = item.elem();
 
     write!(
@@ -61,7 +66,11 @@ inline {elem} safe_tanh_scalar({elem} x) {{
     } else {
         write!(f, "    return {item} {{ ")?;
         for i in 0..item.vectorization {
-            let comma = if i != item.vectorization - 1  { ", " } else { "" };
+            let comma = if i != item.vectorization - 1 {
+                ", "
+            } else {
+                ""
+            };
             write!(f, "safe_tanh_scalar(x.i_{i}){comma}")?;
         }
         writeln!(f, " }};")?;
