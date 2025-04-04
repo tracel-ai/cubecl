@@ -776,10 +776,7 @@ impl DialectInstructions<Self> for MslDialect {
         output: &Variable<Self>,
     ) -> std::fmt::Result {
         let out_elem = output.item().elem;
-        write!(
-            f,
-            "({out_elem})(uint64_t(simd_ballot({input})))"
-        )
+        write!(f, "({out_elem})(uint64_t(simd_ballot({input})))")
     }
 }
 
