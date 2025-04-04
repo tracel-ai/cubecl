@@ -4,7 +4,7 @@ use crate::matmul::components::Ident;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::multi_stage::double_buffering::BufferId;
 use crate::matmul::components::global::multi_stage::{
-    BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
+    BufferLoader, SyncBufferLoaderTrait, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::single_buffer::BufferReader;
@@ -60,7 +60,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
+    SyncBufferLoaderTrait<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {
@@ -116,7 +116,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 
 #[cube]
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
-    SyncBufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
+    SyncBufferLoaderTrait<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
     fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: Config<S>) {
         if this.is_producer {

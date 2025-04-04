@@ -18,7 +18,7 @@ pub trait BufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 }
 
 #[cube]
-pub trait SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
+pub trait SyncBufferLoaderTrait<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     BufferLoader<EG, ES, G>
 {
     /// Fills the buffer at the current k offset.
@@ -26,7 +26,7 @@ pub trait SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 }
 
 #[cube]
-pub trait AsyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
+pub trait AsyncBufferLoaderTrait<EG: Numeric, ES: Numeric, G: GlobalConfig>:
     BufferLoader<EG, ES, G>
 {
     /// Fills the buffer at the current k offset.

@@ -3,7 +3,7 @@ use crate::matmul::components::{
     global::{
         self, GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
         multi_stage::{
-            BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy, double_buffering::BufferId,
+            BufferLoader, SyncBufferLoaderTrait, SyncBufferLoadingStrategy, double_buffering::BufferId,
         },
         output_loader::Unloader,
     },
