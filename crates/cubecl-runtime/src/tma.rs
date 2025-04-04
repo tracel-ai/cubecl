@@ -34,10 +34,13 @@ pub enum TensorMapFormat {
         /// `padding - kernel_size - 1` (where `kernel_size` accounts for dilation). This is not
         /// equal to padding, it's equal to the bounding box for the *top left corner of the kernel*.
         pixel_box_upper_corner: Vec<i32>,
-        /// Channels per pixel
+        /// Channels to load per pixel, should be a multiple or divisor of the matmul tile size.
+        /// This is not the total number of channels in the tensor, but only the number loaded in
+        /// each load. Must be <= 256 and aligned to 16 bytes.
         channels_per_pixel: u32,
         /// Pixels per column, equivalent to the `m`/`n` dimension of each tile in the matrix
         /// multiplication. i.e. `NHW` for a 4D tensor.
+        /// Must be <= 256 and aligned to 16 bytes
         pixels_per_column: u32,
     },
     /// Wide im2col

@@ -7,18 +7,21 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::single_stage::{FullLoader, SyncFullLoader};
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InvalidConfigError, Lhs, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
         single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
-        multi_buffer::{LhsReader, LhsReaderFamily, RhsReader, RhsReaderFamily},
+        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily, multi_buffer::Reader,
     },
+};
+use crate::matmul::components::{
+    Rhs,
+    global::single_stage::{FullLoader, SyncFullLoader},
+    stage::multi_buffer::StageReaderFamily,
 };
 use crate::{
     convolution::{
@@ -40,7 +43,7 @@ pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: StageMatmulFamily<LhsReader = StageReaderFamily<Lhs>, RhsReader = StageReaderFamily<Rhs>>,
 {
     type Convolution<MP: MatmulPrecision> =
         ImplicitGemmConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
@@ -59,8 +62,8 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP, SMM> for ImplicitGemmConvolution<
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, ConvTilingLayout>,
-            RhsReader = RhsReader<MP::ES, ConvTilingLayout>,
+            LhsReader = Reader<Lhs, MP::ES, ConvTilingLayout>,
+            RhsReader = Reader<Rhs, MP::ES, ConvTilingLayout>,
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
@@ -239,7 +242,7 @@ where
     }
 }
 
-impl<SMM: StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>>
+impl<SMM: StageMatmulFamily<LhsReader = StageReaderFamily<Lhs>, RhsReader = StageReaderFamily<Rhs>>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(

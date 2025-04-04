@@ -5,9 +5,9 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
+    Ident, Lhs, MatmulPrecision,
     global::single_stage::{FullLoader, SyncFullLoader},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::Reader},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -25,14 +25,14 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
+    type StageReader = Reader<Lhs, MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.tensor_view.update_view(k_offset);
     }
 
     fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+        Reader::new(this.stage)
     }
 }
 

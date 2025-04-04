@@ -212,7 +212,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     let n = 1;
     let h = 3;
     let w = 3;
-    let c = 4;
+    let c = 8;
 
     let kernel_h = 2;
     let kernel_w = 2;
@@ -232,7 +232,6 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     let values = (1..h * w * c + 1)
         .map(|it| F::from_int(it as i64))
         .collect::<Vec<_>>();
-    println!("{values:?}");
     let shape = [n, h, w, c];
     let (handle, strides) = client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
@@ -275,7 +274,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         .iter()
         .flat_map(|v| {
             if *v == 0 {
-                vec![0, 0, 0, 0]
+                vec![0; c]
             } else {
                 let ch_start = (*v - 1) * c + 1;
                 (ch_start..ch_start + c).collect()

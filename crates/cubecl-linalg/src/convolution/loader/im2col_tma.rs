@@ -7,14 +7,14 @@ use std::marker::PhantomData;
 use crate::{
     convolution::reader::tma::Im2colTmaReader,
     matmul::components::{
-        Ident, MatmulPrecision,
+        Ident, Lhs, MatmulPrecision,
         global::{
             CopyMechanism,
             single_stage::{AsyncFullLoader, FullLoader},
         },
         stage::{
             ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
-            multi_buffer::LhsReader,
+            multi_buffer::Reader,
         },
     },
 };
@@ -34,14 +34,14 @@ pub struct Im2colTmaLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 
 #[cube]
 impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for Im2colTmaLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>;
+    type StageReader = Reader<Lhs, MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>;
 
     fn advance_view(this: &mut Self, k_offset: u32) {
         this.map.update_view(k_offset);
     }
 
     fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
+        Reader::new(this.stage)
     }
 }
 

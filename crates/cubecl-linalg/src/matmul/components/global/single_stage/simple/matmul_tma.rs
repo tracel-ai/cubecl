@@ -1,17 +1,15 @@
-use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
-};
-use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
-use crate::matmul::components::global::{
-    ZeroAccumulatorLoader,
-    single_stage::{TmaTilingLhs, TmaTilingRhs},
-};
+use crate::matmul::components::global::{ZeroAccumulatorLoader, single_stage::TmaTiling};
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
+use crate::matmul::components::stage::multi_buffer::Reader;
 use crate::matmul::components::{Ident, global::output_loader::Unloader};
 use crate::matmul::components::{
-    MatmulPrecision,
-    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
+    Lhs,
+    global::single_stage::{Config, FullLoader, loading::AsyncFullLoader},
+};
+use crate::matmul::components::{MatmulPrecision, global::single_stage::TmaLoader};
+use crate::matmul::components::{
+    Rhs,
+    global::{GlobalMatmul, IndexedQuantization},
 };
 
 use barrier::Barrier;
@@ -28,10 +26,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, multi_buffer::StageReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -42,10 +37,13 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<
+            LhsReader = StageReaderFamily<Lhs>,
+            RhsReader = StageReaderFamily<Rhs>,
+        >,
 {
     type Matmul<MP: MatmulPrecision> =
-        SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTilingLhs, TmaTilingRhs>>;
+        SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling<Lhs>, TmaTiling<Rhs>>>;
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
@@ -121,13 +119,13 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, TmaTilingLhs>,
-            RhsReader = RhsReader<MP::ES, TmaTilingRhs>,
+            LhsReader = Reader<Lhs, MP::ES, TmaTiling<Lhs>>,
+            RhsReader = Reader<Rhs, MP::ES, TmaTiling<Rhs>>,
         >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
+    type LhsLoader = TmaLoader<Lhs, MP, SMM::Config>;
+    type RhsLoader = TmaLoader<Rhs, MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;

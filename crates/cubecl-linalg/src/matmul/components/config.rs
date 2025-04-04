@@ -200,3 +200,28 @@ impl TilingDimensions {
         self.tile_count_col
     }
 }
+
+pub trait TensorIdent:
+    Clone + Copy + Debug + Hash + PartialEq + Eq + Send + Sync + 'static
+{
+    const IDENT: Ident;
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Lhs;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Rhs;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct Out;
+
+impl TensorIdent for Lhs {
+    const IDENT: Ident = Ident::Lhs;
+}
+
+impl TensorIdent for Rhs {
+    const IDENT: Ident = Ident::Rhs;
+}
+
+impl TensorIdent for Out {
+    const IDENT: Ident = Ident::Out;
+}
