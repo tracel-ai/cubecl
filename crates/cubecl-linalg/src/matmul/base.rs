@@ -114,11 +114,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 MP,
                 SimpleBarrierAlgorithm<Accelerated, MaximizeUnitCountLoading>,
             >(client, lhs, rhs, out),
-            AsyncLoadingStrategy::Tma => {
-                matmul::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out,
-                )
-            }
+            AsyncLoadingStrategy::Tma => matmul::matmul_cmma_tma_ref_no_check::<
+                R,
+                MP,
+                SimpleTmaAlgorithm<Accelerated>,
+            >(client, lhs, rhs, out, (false, false)),
         },
         Strategy::SimplePipelined => {
             matmul::launch_ref::<R, MP, SimplePipelinedAlgorithm<Accelerated>>(
