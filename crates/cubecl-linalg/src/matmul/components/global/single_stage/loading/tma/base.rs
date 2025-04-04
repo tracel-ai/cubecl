@@ -11,17 +11,111 @@ use crate::matmul::components::{
         tensor_view::MappedTensorReader,
     },
     stage::{
-        self, Stage,
+        self, ColMajorTilingOrder, ContiguousTilingLayout, Stage, StageConfig, TilingOrder,
         multi_buffer::{LhsReader, RhsReader},
     },
 };
 use crate::matmul::components::{MatmulPrecision, MatrixLayout};
-use crate::matmul::components::{global::CopyMechanism, stage::StridedTilingLayout};
+use crate::matmul::components::{global::CopyMechanism, stage::RowMajorTilingOrder};
+
+pub type TmaTilingLhs = ContiguousTilingLayout<TmaTilingOrderLhs>;
+pub type TmaTilingRhs = ContiguousTilingLayout<TmaTilingOrderRhs>;
+
+#[derive(CubeType, Clone, Copy)]
+pub struct TmaTilingOrderLhs {}
+#[derive(CubeType, Clone, Copy)]
+pub struct TmaTilingOrderRhs {}
+
+#[cube]
+impl TilingOrder for TmaTilingOrderLhs {
+    fn to_row_col<C: StageConfig>(
+        nth: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
+    ) -> (u32, u32) {
+        match config.matrix_layout(Ident::Lhs) {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_row_col::<C>(nth, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_row_col::<C>(nth, tile_count_rows, tile_count_cols, config)
+            }
+        }
+    }
+    fn to_nth_tile<C: StageConfig>(
+        row: u32,
+        col: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
+    ) -> u32 {
+        match config.matrix_layout(Ident::Lhs) {
+            MatrixLayout::RowMajor => ColMajorTilingOrder::to_nth_tile::<C>(
+                row,
+                col,
+                tile_count_rows,
+                tile_count_cols,
+                config,
+            ),
+            MatrixLayout::ColMajor => RowMajorTilingOrder::to_nth_tile::<C>(
+                row,
+                col,
+                tile_count_rows,
+                tile_count_cols,
+                config,
+            ),
+        }
+    }
+}
+
+#[cube]
+impl TilingOrder for TmaTilingOrderRhs {
+    fn to_row_col<C: StageConfig>(
+        nth: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
+    ) -> (u32, u32) {
+        match config.matrix_layout(Ident::Rhs) {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_row_col::<C>(nth, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_row_col::<C>(nth, tile_count_rows, tile_count_cols, config)
+            }
+        }
+    }
+    fn to_nth_tile<C: StageConfig>(
+        row: u32,
+        col: u32,
+        #[comptime] tile_count_rows: u32,
+        #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
+    ) -> u32 {
+        match config.matrix_layout(Ident::Rhs) {
+            MatrixLayout::RowMajor => ColMajorTilingOrder::to_nth_tile::<C>(
+                row,
+                col,
+                tile_count_rows,
+                tile_count_cols,
+                config,
+            ),
+            MatrixLayout::ColMajor => RowMajorTilingOrder::to_nth_tile::<C>(
+                row,
+                col,
+                tile_count_rows,
+                tile_count_cols,
+                config,
+            ),
+        }
+    }
+}
 
 #[derive(CubeType)]
 pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, StridedTilingLayout>,
+    pub stage: Stage<MP::ES, TmaTilingLhs>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -29,7 +123,7 @@ pub struct TmaLhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
 #[derive(CubeType)]
 pub struct TmaRhsLoader<MP: MatmulPrecision, S: stage::StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, StridedTilingLayout>,
+    pub stage: Stage<MP::ES, TmaTilingRhs>,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -50,17 +144,38 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
                 MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
             };
 
-            let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
+            let tiling_dims = config.tiling_dimensions(Ident::Lhs);
+            let size_row = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => tiling_dims.total_row(),
+                MatrixLayout::ColMajor => tiling_dims.total_col(),
+            };
+            let size_col = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => tiling_dims.tile_shape_col(),
+                MatrixLayout::ColMajor => tiling_dims.tile_shape_row(),
+            };
+            let tile_count_col = match config.matrix_layout(Ident::Lhs) {
+                MatrixLayout::RowMajor => tiling_dims.tile_count_col(),
+                MatrixLayout::ColMajor => tiling_dims.tile_count_row(),
+            };
 
-            CM::tma_load_3d(
-                barrier,
-                &tensor,
-                &mut stage,
-                this.tensor_view.batch,
-                row,
-                col,
-            );
+            let tensor = this.tensor_view.tensor.try_cast_unchecked();
+            let mut stage = this.stage.as_slice_mut();
+            let slice_size = size_row * size_col;
+
+            #[unroll]
+            for tile_col in 0..tile_count_col {
+                let slice_start = tile_col * slice_size;
+                let mut slice = stage.slice_mut(slice_start, slice_start + slice_size);
+                let col = col + tile_col * size_col;
+                CM::tma_load_3d(
+                    barrier,
+                    &tensor,
+                    &mut slice,
+                    this.tensor_view.batch,
+                    row,
+                    col,
+                );
+            }
         }
     }
 
@@ -73,7 +188,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaLhsLoader<MP, S>
 {
-    type StageReader = LhsReader<MP::ES, StridedTilingLayout>;
+    type StageReader = LhsReader<MP::ES, TmaTilingLhs>;
 
     fn reader(this: &Self) -> Self::StageReader {
         LhsReader::new(this.stage)
@@ -109,7 +224,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLhsLoader<MP, S> {
 impl<MP: MatmulPrecision, S: stage::StageConfig> FullLoader<MP, single_stage::Config<S>>
     for TmaRhsLoader<MP, S>
 {
-    type StageReader = RhsReader<MP::ES, StridedTilingLayout>;
+    type StageReader = RhsReader<MP::ES, TmaTilingRhs>;
 
     fn reader(this: &Self) -> Self::StageReader {
         RhsReader::new(this.stage)
@@ -136,17 +251,38 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> AsyncFullLoader<MP, single_stag
                 MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
             };
 
-            let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut().try_cast_unchecked();
+            let tiling_dims = config.tiling_dimensions(Ident::Rhs);
+            let size_row = match config.matrix_layout(Ident::Rhs) {
+                MatrixLayout::RowMajor => tiling_dims.total_row(),
+                MatrixLayout::ColMajor => tiling_dims.total_col(),
+            };
+            let size_col = match config.matrix_layout(Ident::Rhs) {
+                MatrixLayout::RowMajor => tiling_dims.tile_shape_col(),
+                MatrixLayout::ColMajor => tiling_dims.tile_shape_row(),
+            };
+            let tile_count_col = match config.matrix_layout(Ident::Rhs) {
+                MatrixLayout::RowMajor => tiling_dims.tile_count_col(),
+                MatrixLayout::ColMajor => tiling_dims.tile_count_row(),
+            };
 
-            CM::tma_load_3d(
-                barrier,
-                &tensor,
-                &mut stage,
-                this.tensor_view.batch,
-                row,
-                col,
-            );
+            let tensor = this.tensor_view.tensor.try_cast_unchecked();
+            let mut stage = this.stage.as_slice_mut();
+            let slice_size = size_row * size_col;
+
+            #[unroll]
+            for tile_col in 0..tile_count_col {
+                let slice_start = tile_col * slice_size;
+                let mut slice = stage.slice_mut(slice_start, slice_start + slice_size);
+                let col = col + tile_col * size_col;
+                CM::tma_load_3d(
+                    barrier,
+                    &tensor,
+                    &mut slice,
+                    this.tensor_view.batch,
+                    row,
+                    col,
+                );
+            }
         }
     }
 

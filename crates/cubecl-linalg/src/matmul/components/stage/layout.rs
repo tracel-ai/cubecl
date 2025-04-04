@@ -10,17 +10,19 @@ use super::{Stage, StageConfig};
 
 #[cube]
 pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
-    fn to_row_col(
+    fn to_row_col<C: StageConfig>(
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
     ) -> (u32, u32);
 
-    fn to_nth_tile(
+    fn to_nth_tile<C: StageConfig>(
         row: u32,
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] config: C,
     ) -> u32;
 }
 
@@ -31,18 +33,20 @@ pub struct ColMajorTilingOrder {}
 
 #[cube]
 impl TilingOrder for RowMajorTilingOrder {
-    fn to_row_col(
+    fn to_row_col<C: StageConfig>(
         nth: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] _config: C,
     ) -> (u32, u32) {
         (nth / tile_count_cols, nth % tile_count_cols)
     }
-    fn to_nth_tile(
+    fn to_nth_tile<C: StageConfig>(
         row: u32,
         col: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] _config: C,
     ) -> u32 {
         row * tile_count_cols + col
     }
@@ -50,14 +54,20 @@ impl TilingOrder for RowMajorTilingOrder {
 
 #[cube]
 impl TilingOrder for ColMajorTilingOrder {
-    fn to_row_col(nth: u32, #[comptime] num_rows: u32, #[comptime] _num_cols: u32) -> (u32, u32) {
+    fn to_row_col<C: StageConfig>(
+        nth: u32,
+        #[comptime] num_rows: u32,
+        #[comptime] _num_cols: u32,
+        #[comptime] _config: C,
+    ) -> (u32, u32) {
         (nth % num_rows, nth / num_rows)
     }
-    fn to_nth_tile(
+    fn to_nth_tile<C: StageConfig>(
         row: u32,
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] _tile_count_cols: u32,
+        #[comptime] _config: C,
     ) -> u32 {
         col * tile_count_rows + row
     }
@@ -94,7 +104,7 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        T::to_row_col(nth, num_x, num_y)
+        T::to_row_col::<S>(nth, num_x, num_y, config)
     }
 }
 
@@ -131,7 +141,9 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
             }
         };
 
-        let start = tile_shape_x * tile_shape_y * T::to_nth_tile(x, y, tile_count_x, tile_count_y);
+        let start = tile_shape_x
+            * tile_shape_y
+            * T::to_nth_tile::<S>(x, y, tile_count_x, tile_count_y, config);
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage.as_slice().slice(start, start + length),

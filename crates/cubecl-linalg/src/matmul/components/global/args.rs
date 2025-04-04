@@ -632,12 +632,12 @@ impl<EG: Numeric> InputsLaunch for TensorMapInputs<EG> {
         let stage_n = selection.tile_count.n * selection.tile_shape.n;
         let stage_k = selection.tile_count.k * selection.tile_shape.k;
         let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+            components::MatrixLayout::RowMajor => vec![1, stage_m, selection.tile_shape.k],
+            components::MatrixLayout::ColMajor => vec![1, stage_k, selection.tile_shape.m],
         };
         let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape.n],
+            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape.k],
         };
 
         let elem_size = size_of::<EG>();

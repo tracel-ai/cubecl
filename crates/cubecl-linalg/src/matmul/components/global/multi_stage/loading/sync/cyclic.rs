@@ -98,7 +98,13 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
                 InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
             };
 
-            let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
+            let nth_tile = T::to_nth_tile::<G::SmmConfig>(
+                tile_x,
+                tile_y,
+                tile_count_row,
+                tile_count_col,
+                config.to_smm_config(),
+            );
 
             let line_read = read_view.load_coalesced_in_tile::<G>(
                 tile_x,

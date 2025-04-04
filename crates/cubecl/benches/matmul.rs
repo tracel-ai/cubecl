@@ -111,10 +111,10 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+    );
 }
 
 fn main() {
