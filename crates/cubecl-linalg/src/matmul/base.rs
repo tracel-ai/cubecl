@@ -6,8 +6,9 @@ use super::{
     components::{
         MatmulPrecision,
         global::load::{
-            AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
-            SyncFullStridedLoading, AsyncFullCooperativeLoading,
+            AsyncFullCooperativeLoading, AsyncFullCyclicLoading,
+            AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
+            SyncFullStridedLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,

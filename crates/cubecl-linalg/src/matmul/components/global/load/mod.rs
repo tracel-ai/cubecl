@@ -1,5 +1,5 @@
-mod strategy;
 mod loader;
+mod strategy;
 
-pub use strategy::*;
 pub use loader::*;
+pub use strategy::*;

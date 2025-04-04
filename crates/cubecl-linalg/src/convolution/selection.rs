@@ -78,7 +78,7 @@ impl ConvSelector<ImplicitCmmaConv> for Balanced {
         };
 
         let selection = ConvSelection { matmul: selection };
-        
+
         (selection, (config_input, STAGE_BUFFERING))
     }
 }
