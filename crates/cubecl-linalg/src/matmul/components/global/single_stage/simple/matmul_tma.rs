@@ -1,4 +1,4 @@
-use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
@@ -186,7 +186,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            Ident::Lhs,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -204,7 +204,7 @@ where
             x_offset,
             y_offset,
             nth_batch,
-            Ident::Rhs,
+            InputIdent::Rhs,
             config,
         )
     }

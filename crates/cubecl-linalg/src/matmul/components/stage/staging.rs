@@ -123,7 +123,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;
 
-            let smem_position = match (ident.as_input(), matrix_layout) {
+            let smem_position = match (ident.as_input_ident(), matrix_layout) {
                 (InputIdent::Lhs, MatrixLayout::ColMajor)
                 | (InputIdent::Rhs, MatrixLayout::RowMajor) => {
                     buffer_id.to_index() * buffer_length + unit_position

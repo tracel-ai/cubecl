@@ -30,18 +30,18 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
         stage: &mut Stage<ES, Self::TilingLayout>,
         mechanism: &CM,
         #[comptime] buffer_index: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
         let num_buffers = 2;
 
         // If buffer is parallel to slices, slices are as long as in full stage, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage
         let (num_slices, num_slices_buffer_offset, slice_length, slice_buffer_offset) = comptime! {
-            match (ident.as_input(), matrix_layout) {
+            match (input_ident, matrix_layout) {
                 (InputIdent::Lhs, MatrixLayout::RowMajor) => {
                     let num_slices = tiling_dimensions.total_row();
                     let num_slices_buffer_offset = 0;
@@ -87,12 +87,13 @@ impl AsyncBufferLoadingStrategy for MaximizeSliceLengthBufferLoading {
 
             let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
 
-            let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+            let window: Window<EG> =
+                read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
             let mut destination: SliceMut<Line<ES>> =
                 StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
                     stage,
                     nth_slice,
-                    ident,
+                    comptime!(input_ident.as_ident()),
                     config.to_smm_config(),
                 );
 

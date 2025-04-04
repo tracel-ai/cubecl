@@ -8,7 +8,7 @@ use cubecl_std::{
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
         output_loader::Unloader,
@@ -154,7 +154,7 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, Ident::Rhs, config)
+        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, InputIdent::Rhs, config)
     }
 
     fn init_bias_loader(
@@ -338,19 +338,19 @@ pub mod config {
             self.matmul.to_smm_config()
         }
 
-        fn global_line_size(&self, ident: Ident) -> u32 {
+        fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
             self.matmul.global_line_size(ident)
         }
 
-        fn stage_line_size(&self, ident: Ident) -> u32 {
+        fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
             self.matmul.stage_line_size(ident)
         }
 
-        fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
             self.matmul.tiling_dimensions(ident)
         }
 
-        fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
+        fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
             self.matmul.matrix_layout(ident)
         }
 
@@ -362,11 +362,11 @@ pub mod config {
             self.matmul.plane_dim()
         }
 
-        fn check_row_bounds(&self, ident: Ident) -> bool {
+        fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
             self.matmul.check_row_bounds(ident)
         }
 
-        fn check_col_bounds(&self, ident: Ident) -> bool {
+        fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
             self.matmul.check_col_bounds(ident)
         }
 

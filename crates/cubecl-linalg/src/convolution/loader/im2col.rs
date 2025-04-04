@@ -5,7 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
+    Ident, InputIdent, MatmulPrecision,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::FullReader},
 };
 use crate::{
@@ -62,7 +62,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     }
 
     pub fn reader(this: &Self) -> FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
-        FullReader::new(this.stage, Ident::Lhs)
+        FullReader::new(this.stage, InputIdent::Lhs)
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: G) {

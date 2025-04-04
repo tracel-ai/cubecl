@@ -1,4 +1,4 @@
-use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::stage::ReaderFamily;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::TilingLayout;
@@ -12,7 +12,7 @@ use cubecl_core::prelude::*;
 pub struct FullReader<ES: Numeric, T: TilingLayout> {
     pub stage: Stage<ES, T>,
     #[cube(comptime)]
-    pub ident: Ident,
+    pub input_ident: InputIdent,
 }
 
 pub struct FullReaderFamily;
@@ -23,8 +23,8 @@ impl ReaderFamily for FullReaderFamily {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
-    pub fn new(stage: Stage<ES, T>, #[comptime] ident: Ident) -> Self {
-        FullReader::<ES, T> { stage, ident }
+    pub fn new(stage: Stage<ES, T>, #[comptime] input_ident: InputIdent) -> Self {
+        FullReader::<ES, T> { stage, input_ident }
     }
 
     pub fn read_tile<TC: TileConfig>(
@@ -33,7 +33,11 @@ impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
         col: u32,
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
-        this.stage
-            .get_tile::<CommonStageConfig<TC>>(row, col, this.ident, config)
+        this.stage.get_tile::<CommonStageConfig<TC>>(
+            row,
+            col,
+            comptime!(this.input_ident.as_ident()),
+            config,
+        )
     }
 }

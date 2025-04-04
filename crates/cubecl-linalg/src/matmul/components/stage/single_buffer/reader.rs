@@ -7,7 +7,7 @@ use crate::matmul::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::matmul::components::{Ident, stage::Stage};
+use crate::matmul::components::stage::Stage;
 
 #[derive(CubeType)]
 pub struct BufferReader<ES: Numeric, T: TilingLayout> {
@@ -15,7 +15,7 @@ pub struct BufferReader<ES: Numeric, T: TilingLayout> {
     #[cube(comptime)]
     pub buffer_id: BufferId,
     #[cube(comptime)]
-    ident: Ident,
+    input_ident: InputIdent,
 }
 
 pub struct BufferReaderFamily;
@@ -29,12 +29,12 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
     pub fn new(
         stage: Stage<ES, T>,
         #[comptime] buffer_id: BufferId,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
     ) -> BufferReader<ES, T> {
         BufferReader::<ES, T> {
             stage,
             buffer_id,
-            ident,
+            input_ident,
         }
     }
 
@@ -44,11 +44,15 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
         #[comptime] config: CommonStageConfig<TC>,
     ) -> Tile<ES> {
         let buffer_index = comptime!(this.buffer_id.to_index());
-        let (x, y) = match comptime!(this.ident.as_input()) {
+        let (x, y) = match comptime!(this.input_ident) {
             InputIdent::Lhs => (compute_plane_offset, buffer_index),
             InputIdent::Rhs => (buffer_index, compute_plane_offset),
         };
-        this.stage
-            .get_tile::<CommonStageConfig<TC>>(x, y, this.ident, config)
+        this.stage.get_tile::<CommonStageConfig<TC>>(
+            x,
+            y,
+            comptime!(this.input_ident.as_ident()),
+            config,
+        )
     }
 }

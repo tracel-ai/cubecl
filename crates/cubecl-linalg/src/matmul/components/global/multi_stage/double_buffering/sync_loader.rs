@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::multi_stage::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
@@ -17,7 +17,7 @@ pub struct SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBu
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     #[cube(comptime)]
-    ident: Ident,
+    input_ident: InputIdent,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
@@ -31,16 +31,17 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(ident, config.to_smm_config());
+        let stage =
+            Stage::new::<G::SmmConfig>(comptime!(input_ident.as_ident()), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         SyncBufferLoader::<EG, ES, G, L> {
             tensor_view,
             stage,
-            ident,
+            input_ident,
             _config: PhantomData,
         }
     }
@@ -49,11 +50,11 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         this: &Self,
         #[comptime] buffer_id: BufferId,
     ) -> BufferReader<ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.ident)
+        BufferReader::new(this.stage, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
+        this.tensor_view.update_view(k_offset, this.input_ident);
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
@@ -61,7 +62,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             &this.tensor_view,
             &mut this.stage,
             buffer.to_index(),
-            this.ident,
+            this.input_ident,
             config,
         );
     }

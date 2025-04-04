@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::BufferId;
-use crate::matmul::components::Ident;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::base::GlobalConfig as _;
 use crate::matmul::components::global::single_stage::AsyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
@@ -22,7 +22,7 @@ pub struct AsyncBufferLoader<
     pub tensor_view: TensorReader<EG>,
     pub stage: Stage<ES, L::TilingLayout>,
     #[cube(comptime)]
-    ident: Ident,
+    input_ident: InputIdent,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -36,16 +36,16 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-        #[comptime] ident: Ident,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
-        let stage = Stage::new::<S>(ident, config.to_smm_config());
+        let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         AsyncBufferLoader::<EG, ES, S, L> {
             tensor_view,
             stage,
-            ident,
+            input_ident,
             _config: PhantomData::<S>,
         }
     }
@@ -54,11 +54,11 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         this: &Self,
         #[comptime] buffer_id: BufferId,
     ) -> BufferReader<ES, L::TilingLayout> {
-        BufferReader::new(this.stage, buffer_id, this.ident)
+        BufferReader::new(this.stage, buffer_id, this.input_ident)
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
+        this.tensor_view.update_view(k_offset, this.input_ident);
     }
 
     pub fn fill_stage<CM: CopyMechanism<ES>>(
@@ -72,7 +72,7 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
             &mut this.stage,
             mechanism,
             buffer.to_index(),
-            this.ident,
+            this.input_ident,
             config,
         );
     }
@@ -82,7 +82,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: AsyncBufferLoadingStrat
         #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        this.stage
-            .clear_buffer::<S>(buffer_id, this.ident, config.to_smm_config())
+        this.stage.clear_buffer::<S>(
+            buffer_id,
+            comptime!(this.input_ident.as_ident()),
+            config.to_smm_config(),
+        )
     }
 }
