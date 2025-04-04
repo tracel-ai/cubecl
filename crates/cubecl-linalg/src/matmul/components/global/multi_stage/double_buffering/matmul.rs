@@ -10,13 +10,13 @@ use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
 use crate::matmul::components::stage::StageConfig;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::stage::single_buffer::BufferReader;
 use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem, stage,
 };
 use crate::matmul::components::{
     global::{GlobalMatmulFamily, IndexedQuantization},
-    stage::single_buffer::{LhsBufferReaderFamily, RhsBufferReaderFamily},
+    stage::single_buffer::BufferReaderFamily,
 };
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
@@ -37,10 +37,7 @@ pub struct DoubleBufferingMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = LhsBufferReaderFamily,
-            RhsReader = RhsBufferReaderFamily,
-        >,
+    SMM: stage::StageMatmulFamily<LhsReader = BufferReaderFamily, RhsReader = BufferReaderFamily>,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,
 {
@@ -121,8 +118,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = LhsBufferReader<MP::ES, LL::TilingLayout>,
-            RhsReader = RhsBufferReader<MP::ES, RL::TilingLayout>,
+            LhsReader = BufferReader<MP::ES, LL::TilingLayout>,
+            RhsReader = BufferReader<MP::ES, RL::TilingLayout>,
         >,
     LL: SyncBufferLoadingStrategy,
     RL: SyncBufferLoadingStrategy,

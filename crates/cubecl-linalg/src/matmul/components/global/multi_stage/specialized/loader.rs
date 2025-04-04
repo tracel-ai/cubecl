@@ -7,7 +7,7 @@ use crate::matmul::components::global::multi_stage::{
     BufferLoader, SyncBufferLoader, SyncBufferLoadingStrategy,
 };
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::stage::single_buffer::{LhsBufferReader, RhsBufferReader};
+use crate::matmul::components::stage::single_buffer::BufferReader;
 use crate::matmul::components::stage::{self, Stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -47,10 +47,10 @@ pub struct SyncRhsBufferLoader<
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     BufferLoader<EG, ES, Config<S>> for SyncLhsBufferLoader<EG, ES, S, L>
 {
-    type StageReader = LhsBufferReader<ES, L::TilingLayout>;
+    type StageReader = BufferReader<ES, L::TilingLayout>;
 
-    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        LhsBufferReader::new(this.stage, buffer.to_u32())
+    fn reader(this: &Self, #[comptime] buffer_id: BufferId) -> Self::StageReader {
+        BufferReader::new(this.stage, buffer_id, Ident::Lhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
@@ -103,10 +103,10 @@ impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrate
 impl<EG: Numeric, ES: Numeric, S: stage::StageConfig, L: SyncBufferLoadingStrategy>
     BufferLoader<EG, ES, Config<S>> for SyncRhsBufferLoader<EG, ES, S, L>
 {
-    type StageReader = RhsBufferReader<ES, L::TilingLayout>;
+    type StageReader = BufferReader<ES, L::TilingLayout>;
 
-    fn reader(this: &Self, #[comptime] buffer: BufferId) -> Self::StageReader {
-        RhsBufferReader::new(this.stage, buffer.to_u32())
+    fn reader(this: &Self, #[comptime] buffer_id: BufferId) -> Self::StageReader {
+        BufferReader::new(this.stage, buffer_id, Ident::Rhs)
     }
 
     fn advance_view(this: &mut Self, k_offset: u32) {
