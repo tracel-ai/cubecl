@@ -277,8 +277,9 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> s
 
 fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
     if target != input.item() {
+        let addr_space = D::address_space_for_variable(input);
         let qualifier = input.const_qualifier();
-        format!("reinterpret_cast<{}{}&>({})", target, qualifier, input)
+        format!("reinterpret_cast<{addr_space}{target}{qualifier}&>({input})")
     } else {
         format!("{}", input)
     }

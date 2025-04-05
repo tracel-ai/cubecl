@@ -523,9 +523,10 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
                 } else {
                     let out = out.fmt_left();
+                    let addr_space = D::address_space_for_variable(input);
                     writeln!(
                         f,
-                        "{out} = reinterpret_cast<{out_item}{qualifier}&>({input});"
+                        "{out} = reinterpret_cast<{addr_space}{out_item}{qualifier}&>({input});"
                     )
                 }
             }
@@ -691,14 +692,15 @@ impl<D: Dialect> Clamp<D> {
             _ => ("min", "max"),
         };
 
-        let out = out.fmt_left();
+        let out_fmt = out.fmt_left();
         if num == 1 {
-            writeln!(
-                f,
-                "{out} = {max}({min_value}, {min}({max_value}, {input}));"
-            )
+            writeln!(f, "{out_fmt} = ")?;
+            D::compile_instruction_max_function_name(f, out.item())?;
+            writeln!(f, "({min_value}, ")?;
+            D::compile_instruction_min_function_name(f, out.item())?;
+            writeln!(f, "({max_value}, {input}));")
         } else {
-            writeln!(f, "{out} = {out_item}{{")?;
+            writeln!(f, "{out_fmt} = {out_item}{{")?;
             for i in 0..num {
                 let inputi = input.index(i);
                 let mini = min_value.index(i);
@@ -723,10 +725,13 @@ impl<D: Dialect> Remainder<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let floor = |elem| match elem {
-            Elem::F16 | Elem::BF16 => "hfloor",
-            Elem::F162 | Elem::BF162 => "h2floor",
-            _ => "floor",
+        let floor = |elem| {
+            let prefix = match elem {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half_function_name_prefix(),
+                _ => "",
+            };
+            format!("{prefix}floor")
         };
 
         if out.item().vectorization == 1 {
@@ -771,12 +776,13 @@ impl<D: Dialect> Remainder<D> {
 
             write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
 
+            let addr_space = D::address_space_for_variable(&out_tmp);
             let qualifier = out.const_qualifier();
             let out = out.fmt_left();
 
             writeln!(
                 f,
-                "{out} = reinterpret_cast<{item_out_original}{qualifier}&>({out_tmp});\n"
+                "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
             )?;
 
             Ok(())

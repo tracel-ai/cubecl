@@ -29,7 +29,7 @@ pub fn format_global_binding_arg<D: Dialect>(
     name: &str,
     binding: &Binding<D>,
     suffix: Option<&str>,
-    attr_idx: usize,
+    attr_idx: &mut usize,
     f: &mut core::fmt::Formatter<'_>,
 ) -> core::fmt::Result {
     let suffix = suffix.map_or("".into(), |s| format!("_{s}"));
@@ -38,7 +38,7 @@ pub fn format_global_binding_arg<D: Dialect>(
         None => (" *".to_string(), "".to_string()),
     };
 
-    let comma = if attr_idx > 0 { "," } else { "" };
+    let comma = if *attr_idx > 0 { "," } else { "" };
     let address_space = AddressSpace::from(binding);
     let ty = binding.item;
     let attribute = address_space.attribute();
@@ -48,8 +48,10 @@ pub fn format_global_binding_arg<D: Dialect>(
         "{comma}\n    {address_space} {ty}{pointer} {name}{suffix}",
     )?;
     // attribute
-    attribute.indexed_fmt(attr_idx, f)?;
-    write!(f, "{size}")
+    attribute.indexed_fmt(*attr_idx, f)?;
+    write!(f, "{size}")?;
+    *attr_idx += 1;
+    Ok(())
 }
 
 pub fn format_metal_builtin_binding_arg<D: Dialect>(
