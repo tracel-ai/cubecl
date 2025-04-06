@@ -1,18 +1,17 @@
 use config::HomogeneousConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{
-    CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
+        load::{SyncFullCyclicLoading, SyncFullLoader},
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullLoader},
+        single_stage,
     },
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
@@ -64,7 +63,7 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncFullLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, SyncFullCyclicLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;
@@ -113,7 +112,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -126,7 +124,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -154,7 +151,15 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, InputIdent::Rhs, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            0,
+            CubeOption::new_None(),
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(

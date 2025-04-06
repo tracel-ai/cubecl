@@ -1,18 +1,19 @@
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, StridedTilingLayout};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::SyncFullLoadingStrategy;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct StridedCoalescedLoading {}
+pub struct SyncFullStridedLoading {}
 
-impl LoadingValidation for StridedCoalescedLoading {
+impl LoadingValidation for SyncFullStridedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -32,12 +33,13 @@ impl LoadingValidation for StridedCoalescedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for StridedCoalescedLoading {
+impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -58,7 +60,10 @@ impl SyncFullLoadingStrategy for StridedCoalescedLoading {
                 config,
             );
 
-            stage.as_slice_mut()[unit_position] = Line::cast_from(line_read);
+            stage.as_slice_mut()[unit_position] = match quantization {
+                CubeOption::Some(quantization) => quantization.dequantize(line_read),
+                CubeOption::None => Line::cast_from(line_read),
+            }
         }
     }
 }

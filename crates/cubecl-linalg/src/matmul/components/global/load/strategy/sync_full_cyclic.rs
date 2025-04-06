@@ -1,23 +1,24 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
 use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::SyncFullLoadingStrategy;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
 /// Unit with pos X loads lines with indices X, X + NUM_UNITS, X + 2 * NUM_UNITS, ...
-pub struct CyclicCoalescedLoading<T: TilingOrder> {
+pub struct SyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -37,12 +38,13 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -76,7 +78,10 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for CyclicCoalescedLoading<T> {
                 config,
             );
 
-            stage.as_slice_mut()[unit_position / line_size] = Line::cast_from(line_read);
+            stage.as_slice_mut()[unit_position / line_size] = match quantization {
+                CubeOption::Some(quantization) => quantization.dequantize(line_read),
+                CubeOption::None => Line::cast_from(line_read),
+            };
         }
     }
 }

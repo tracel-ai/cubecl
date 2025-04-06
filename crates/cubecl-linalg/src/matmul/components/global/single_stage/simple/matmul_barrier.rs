@@ -3,31 +3,30 @@ use std::marker::PhantomData;
 use crate::matmul::components::InputIdent;
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::load::AsyncFullLoadingStrategy;
+use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::AsyncFullLoadingStrategy;
-use crate::matmul::components::global::single_stage::AsyncLoader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::{FullReader, FullReaderFamily};
-
+use crate::matmul::{
+    components::{
+        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
+        global::{GlobalConfig, GlobalMatmulFamily},
+        stage,
+    },
+    kernels::MatmulAvailabilityError,
+};
 use barrier::Barrier;
 use cubecl_core::Feature;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::ReadWrite;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-
-use crate::matmul::{
-    components::{
-        Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
-        global::{GlobalConfig, GlobalMatmulFamily, IndexedQuantization},
-        stage,
-    },
-    kernels::MatmulAvailabilityError,
-};
-use cubecl_std::CubeOption;
 
 pub struct SimpleBarrierMatmulFamily<
     SMM: stage::StageMatmulFamily,
@@ -141,14 +140,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -187,7 +180,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -198,7 +190,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            quantization,
             config.to_smm_config(),
             config,
         );
@@ -210,6 +201,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
@@ -217,6 +209,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Lhs,
             config,
         )
@@ -228,6 +221,7 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -235,6 +229,7 @@ where
             x_offset,
             y_offset,
             batch_offset,
+            quantization,
             InputIdent::Rhs,
             config,
         )

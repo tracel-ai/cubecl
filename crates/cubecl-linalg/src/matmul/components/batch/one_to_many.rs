@@ -113,7 +113,7 @@ impl<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>, S: SpanMatmul, C: CubeD
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         _size_k: u32,
-        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
         let rank = out.rank();

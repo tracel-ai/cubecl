@@ -1,23 +1,23 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{GlobalConfig, LoadingValidation};
+use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
-use crate::matmul::components::{Ident, InputIdent, InvalidConfigError};
+use crate::matmul::components::{Ident, InputIdent, InvalidConfigError, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-
-use super::SyncBufferLoadingStrategy;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicCoalescedBufferLoading<T: TilingOrder> {
+pub struct SyncBufferCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -54,13 +54,14 @@ impl<T: TilingOrder> LoadingValidation for CyclicCoalescedBufferLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<T> {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_buffer<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         buffer_index: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
@@ -112,7 +113,10 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for CyclicCoalescedBufferLoading<
             let tile_end = tile_start + num_lines_per_tile;
             let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
-            tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
+            tile_slice[pos_within_tile / line_size] = match quantization {
+                CubeOption::Some(quantization) => quantization.dequantize(line_read),
+                CubeOption::None => Line::cast_from(line_read),
+            }
         }
     }
 }

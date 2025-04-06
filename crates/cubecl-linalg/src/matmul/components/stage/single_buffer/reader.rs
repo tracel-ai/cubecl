@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     InputIdent,
-    global::multi_stage::double_buffering::BufferId,
+    global::load::BufferId,
     stage::{ReaderFamily, TilingLayout, shared::CommonStageConfig},
     tile::{Tile, TileConfig},
 };
