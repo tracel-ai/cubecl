@@ -1,7 +1,7 @@
 use crate::matmul::{
     components::{
         CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSelection,
-        stage::{self, StageMatmulFamily},
+        stage::{self, StageBuffering, StageMatmulFamily},
         tile::{TileMatmulFamily, accelerated::Accelerated},
     },
     kernels::MatmulAvailabilityError,
@@ -13,7 +13,7 @@ use super::{
     homogeneous::base::ImplicitGemmConvolutionFamily,
 };
 
-pub type StageInput = (CompleteStageTiling, stage::Buffering);
+pub type StageInput = (CompleteStageTiling, StageBuffering);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {

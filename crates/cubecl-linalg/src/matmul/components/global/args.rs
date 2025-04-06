@@ -2,9 +2,12 @@ use std::any::TypeId;
 
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, server::TensorMapMeta};
-use cubecl_std::tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand};
+use cubecl_std::{
+    ReinterpretSlice,
+    tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
+};
 
-use crate::matmul::components::{self, MatmulProblem, MatmulSelection};
+use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
 
 use super::Quantization;
 
@@ -114,7 +117,7 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// It is the responsibility of the caller to ensure it is safe to call this function.
     /// That is, when a matmul is indeed quantized. Else, it will most likely results in
     /// out-of-bound memory access.
-    fn quantization<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> Quantization<EI, EO>;
+    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP>;
 }
 
 #[derive(Clone, Copy)]
@@ -591,14 +594,28 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> Quantization<EI, EO> {
-        let (lhs, rhs, out) = *state;
+    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
+        let (lhs, rhs, _) = *state;
+        // comptime! {
+        //     if core::any::TypeId::of::<MP::EI>() != core::any::TypeId::of::<i8>() {
+        //         panic!("{}", core::any::type_name::<MP::EI>());
+        //     }
+        // }
         unsafe {
-            Quantization::<EI, EO> {
-                lhs: (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
-                rhs: (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
-                out: (*out).slice_mut(Self::len_out(state), Self::buffer_len_out(state)),
+            let scaling_lhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
+                (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
+                (*lhs).line_size(),
+            )
+            .read(0);
+            let scaling_rhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
+                (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+                (*rhs).line_size(),
+            )
+            .read(0);
+            Quantization::<MP> {
+                scaling: scaling_lhs * scaling_rhs,
             }
+
             // TODO Currently I assume that buffer_len = metadata_len + len.
             //      That is, all the data within the tensors are contiguous and there are no hole
             //      in the stride pattern.
@@ -761,18 +778,14 @@ impl MatmulArgs for TensorMapArgs {
         _state: &Self::State<EI, EO>,
         _coordinate: u32,
     ) -> Line<EI> {
-        comptime!(unimplemented!("Can't directly read from TensorMap"));
-        #[allow(unreachable_code)]
-        Line::empty(1_u32)
+        unimplemented!("Can't directly read from TensorMap")
     }
 
     fn read_rhs<EI: Numeric, EO: Numeric>(
         _state: &Self::State<EI, EO>,
         _coordinate: u32,
     ) -> Line<EI> {
-        comptime!(unimplemented!("Can't directly read from TensorMap"));
-        #[allow(unreachable_code)]
-        Line::empty(1_u32)
+        unimplemented!("Can't directly read from TensorMap")
     }
 
     #[allow(unused)]
@@ -781,10 +794,7 @@ impl MatmulArgs for TensorMapArgs {
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>> {
-        comptime!(unimplemented!("Can't directly read from TensorMap"));
-        #[allow(unreachable_code)]
-        let a = Array::new(0);
-        a.to_slice()
+        unimplemented!("Can't directly read from TensorMap")
     }
 
     /// Read the line of the rhs tensor using the state at the given coordinate.
@@ -794,10 +804,7 @@ impl MatmulArgs for TensorMapArgs {
         start: u32,
         end: u32,
     ) -> Slice<Line<EI>> {
-        comptime!(unimplemented!("Can't directly read from TensorMap"));
-        #[allow(unreachable_code)]
-        let a = Array::new(0);
-        a.to_slice()
+        unimplemented!("Can't directly read from TensorMap")
     }
 
     fn as_tensor_map_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> TensorMap<EI> {
@@ -853,15 +860,11 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn rank_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        3u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn rank_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        3u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn rank_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
@@ -869,15 +872,11 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn len_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn len_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
@@ -885,34 +884,19 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn buffer_len_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn buffer_len_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>) -> u32 {
-        comptime!(unimplemented!("Can't read metadata from TensorMap"));
-        #[allow(unreachable_code)]
-        1u32
+        unimplemented!("Can't read metadata from TensorMap")
     }
 
     fn buffer_len_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>) -> u32 {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<EI: Numeric, EO: Numeric>(
-        _state: &Self::State<EI, EO>,
-    ) -> Quantization<EI, EO> {
-        comptime!(todo!("Quantized TMA not yet supported"));
-        #[allow(unreachable_code)]
-        let a = Array::new(0);
-        unsafe {
-            Quantization::<EI, EO> {
-                lhs: a.to_slice(),
-                rhs: a.to_slice(),
-                out: (*_state.2).slice_mut(Self::len_out(_state), Self::buffer_len_out(_state)),
-            }
-        }
+    fn quantization<MP: MatmulPrecision>(_state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
+        todo!("Quantized TMA not yet supported")
     }
 }
 

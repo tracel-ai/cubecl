@@ -1,4 +1,4 @@
-use crate::matmul::components::{MatmulSelection, MatmulSize};
+use crate::matmul::components::{MatmulSelection, MatmulSize, stage::STAGE_BUFFERING};
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
 use crate::matmul::tests::test_utils::TestPrecision;
@@ -52,7 +52,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, stage::Buffering::Single), // TODO support double buffering
+        (config_input, STAGE_BUFFERING), // TODO support double buffering
         selection,
     );
 }
@@ -101,7 +101,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
     test_tma_matmul_algorithm::<A, P, R>(
         client,
         problem,
-        (config_input, stage::Buffering::Single), // TODO support double buffering
+        (config_input, STAGE_BUFFERING), // TODO support double buffering
         selection,
     );
 }

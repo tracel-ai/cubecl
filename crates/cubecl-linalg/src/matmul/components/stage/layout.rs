@@ -14,6 +14,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         nth: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] ident: Ident,
         #[comptime] config: C,
     ) -> (u32, u32);
 
@@ -22,6 +23,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] ident: Ident,
         #[comptime] config: C,
     ) -> u32;
 }
@@ -37,6 +39,7 @@ impl TilingOrder for RowMajorTilingOrder {
         nth: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] _ident: Ident,
         #[comptime] _config: C,
     ) -> (u32, u32) {
         (nth / tile_count_cols, nth % tile_count_cols)
@@ -46,6 +49,7 @@ impl TilingOrder for RowMajorTilingOrder {
         col: u32,
         #[comptime] _tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
+        #[comptime] _ident: Ident,
         #[comptime] _config: C,
     ) -> u32 {
         row * tile_count_cols + col
@@ -58,6 +62,7 @@ impl TilingOrder for ColMajorTilingOrder {
         nth: u32,
         #[comptime] num_rows: u32,
         #[comptime] _num_cols: u32,
+        #[comptime] _ident: Ident,
         #[comptime] _config: C,
     ) -> (u32, u32) {
         (nth % num_rows, nth / num_rows)
@@ -67,6 +72,7 @@ impl TilingOrder for ColMajorTilingOrder {
         col: u32,
         #[comptime] tile_count_rows: u32,
         #[comptime] _tile_count_cols: u32,
+        #[comptime] _ident: Ident,
         #[comptime] _config: C,
     ) -> u32 {
         col * tile_count_rows + row
@@ -104,7 +110,7 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
         let num_x = stage_tiling.tile_count_row();
         let num_y = stage_tiling.tile_count_col();
 
-        T::to_row_col::<S>(nth, num_x, num_y, config)
+        T::to_row_col::<S>(nth, num_x, num_y, ident, config)
     }
 }
 
@@ -143,7 +149,7 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
 
         let start = tile_shape_x
             * tile_shape_y
-            * T::to_nth_tile::<S>(x, y, tile_count_x, tile_count_y, config);
+            * T::to_nth_tile::<S>(x, y, tile_count_x, tile_count_y, ident, config);
 
         Tile::new_contiguous::<S::TmmConfig>(
             stage.as_slice().slice(start, start + length),

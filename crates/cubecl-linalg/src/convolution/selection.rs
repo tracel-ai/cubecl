@@ -5,7 +5,7 @@ use super::{
     base::ConvolutionProblem,
 };
 use crate::matmul::{
-    components::{CompleteStageTiling, MatmulPrecision, MatmulSelection, stage},
+    components::{CompleteStageTiling, MatmulPrecision, MatmulSelection, stage::STAGE_BUFFERING},
     kernels::matmul::matmul_selection,
 };
 
@@ -22,5 +22,5 @@ pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
     };
 
     // TODO Allows to select double buffering
-    (selection, (config_input, stage::Buffering::Single))
+    (selection, (config_input, STAGE_BUFFERING))
 }

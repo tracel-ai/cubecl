@@ -1,14 +1,12 @@
 use crate::matmul::components::{
-    Lhs, MatmulPrecision, Rhs,
+    InputIdent, MatmulPrecision,
     global::{
-        GlobalMatmul, IndexedQuantization, ZeroAccumulatorLoader,
+        GlobalMatmul, Quantization, ZeroAccumulatorLoader,
+        load::{AsyncFullLoadingStrategy, AsyncLoader},
         output_loader::Unloader,
-        single_stage::{
-            AsyncFullLoader, AsyncFullLoadingStrategy, AsyncLhsLoader, AsyncRhsLoader, Config,
-            FullLoader,
-        },
+        single_stage::Config,
     },
-    stage::{StageMatmul, multi_buffer::Reader},
+    stage::{StageMatmul, multi_buffer::FullReader},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, Feature};
@@ -23,7 +21,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, multi_buffer::StageReaderFamily},
+        stage::{self, multi_buffer::FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -40,10 +38,7 @@ pub struct SimplePipelinedMatmulFamily<
 
 impl<SMM, LL, RL> GlobalMatmulFamily for SimplePipelinedMatmulFamily<SMM, LL, RL>
 where
-    SMM: stage::StageMatmulFamily<
-            LhsReader = StageReaderFamily<Lhs>,
-            RhsReader = StageReaderFamily<Rhs>,
-        >,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
@@ -124,15 +119,15 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimplePipelinedMatmu
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = Reader<Lhs, MP::ES, LL::TilingLayout>,
-            RhsReader = Reader<Rhs, MP::ES, RL::TilingLayout>,
+            LhsReader = FullReader<MP::ES, LL::TilingLayout>,
+            RhsReader = FullReader<MP::ES, RL::TilingLayout>,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLhsLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncRhsLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -143,14 +138,8 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
@@ -192,7 +181,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -205,7 +193,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -217,9 +204,18 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new::<Self::Config>(lhs, x_offset, y_offset, batch_offset, config)
+        Self::LhsLoader::new::<Self::Config>(
+            lhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -228,9 +224,18 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, batch_offset, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            batch_offset,
+            quantization,
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_unloader(

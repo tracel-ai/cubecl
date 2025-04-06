@@ -6,7 +6,7 @@ use crate::matmul::components::global::{
 };
 
 #[cube]
-pub trait BufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
+pub trait BufferLoader<EI: Numeric, ES: Numeric, G: GlobalConfig>:
     CubeType + 'static + Send + Sync
 {
     type StageReader: CubeType;
@@ -18,16 +18,16 @@ pub trait BufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
 }
 
 #[cube]
-pub trait SyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    BufferLoader<EG, ES, G>
+pub trait SyncBufferLoader<EI: Numeric, ES: Numeric, G: GlobalConfig>:
+    BufferLoader<EI, ES, G>
 {
     /// Fills the buffer at the current k offset.
     fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G);
 }
 
 #[cube]
-pub trait AsyncBufferLoader<EG: Numeric, ES: Numeric, G: GlobalConfig>:
-    BufferLoader<EG, ES, G>
+pub trait AsyncBufferLoader<EI: Numeric, ES: Numeric, G: GlobalConfig>:
+    BufferLoader<EI, ES, G>
 {
     /// Fills the buffer at the current k offset.
     fn fill_stage<CM: CopyMechanism<ES>>(

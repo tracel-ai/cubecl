@@ -1,29 +1,23 @@
 use config::HomogeneousConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{
-    CubeOption, CubeOptionExpand,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    EA, EI, EO, ES, InputRuntimeArg, MatmulSpec, OutputRuntimeArg, Rhs,
-    global::{
-        args::{self, MatmulArgs, TensorInput, TensorOutput},
-        single_stage::{FullLoader, SyncFullLoader},
-    },
-    stage::multi_buffer::StageReaderFamily,
-};
-use crate::matmul::components::{
-    Ident, InvalidConfigError, Lhs, MatrixLayout,
+    EA, EI, EO, ES, Ident, InputIdent, InputRuntimeArg, InvalidConfigError, MatmulSpec,
+    MatrixLayout, OutputRuntimeArg,
     global::{
         self, AccumulatorLoader, GlobalConfig,
+        args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
+        load::{SyncFullCyclicLoading, SyncFullLoader},
         output_loader::Unloader,
-        single_stage::{self, CyclicCoalescedLoading, SyncFullRhsLoader},
+        single_stage,
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily, multi_buffer::Reader,
+        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
+        multi_buffer::{FullReader, FullReaderFamily},
     },
 };
 use crate::{
@@ -46,7 +40,7 @@ pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 impl<SMM> ConvolutionFamily<SMM> for ImplicitGemmConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = StageReaderFamily<Lhs>, RhsReader = StageReaderFamily<Rhs>>,
+    SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Convolution<MP: MatmulPrecision> =
         ImplicitGemmConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
@@ -65,14 +59,13 @@ impl<MP: MatmulPrecision, SMM> Convolution<MP, SMM> for ImplicitGemmConvolution<
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsReader = Reader<Lhs, MP::ES, ConvTilingLayout>,
-            RhsReader = Reader<Rhs, MP::ES, ConvTilingLayout>,
+            LhsReader = FullReader<MP::ES, ConvTilingLayout>,
+            RhsReader = FullReader<MP::ES, ConvTilingLayout>,
         >,
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader =
-        SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
+    type RhsLoader = SyncFullLoader<MP, SMM::Config, SyncFullCyclicLoading<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP>;
 
     type Out = Unloader<MP::EO>;
@@ -121,7 +114,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -134,7 +126,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            CubeOption::new_None(),
             config.to_smm_config(),
             config,
         );
@@ -162,7 +153,15 @@ where
         y_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(rhs, x_offset, y_offset, 0, config)
+        Self::RhsLoader::new::<Self::Config>(
+            rhs,
+            x_offset,
+            y_offset,
+            0,
+            CubeOption::new_None(),
+            InputIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(
@@ -243,7 +242,7 @@ where
     }
 }
 
-impl<SMM: StageMatmulFamily<LhsReader = StageReaderFamily<Lhs>, RhsReader = StageReaderFamily<Rhs>>>
+impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
@@ -289,8 +288,8 @@ pub(crate) fn implicit_conv<
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
-    let rhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Rhs);
+    let lhs = TensorInput::<EI, EO, Args>::new(&state, TensorInputIdent::Lhs);
+    let rhs = TensorInput::<EI, EO, Args>::new(&state, TensorInputIdent::Rhs);
     let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
 
     let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
@@ -356,19 +355,19 @@ pub mod config {
             self.matmul.to_smm_config()
         }
 
-        fn global_line_size(&self, ident: Ident) -> u32 {
+        fn global_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
             self.matmul.global_line_size(ident)
         }
 
-        fn stage_line_size(&self, ident: Ident) -> u32 {
+        fn stage_line_size<I: Into<Ident>>(&self, ident: I) -> u32 {
             self.matmul.stage_line_size(ident)
         }
 
-        fn tiling_dimensions(&self, ident: Ident) -> TilingDimensions {
+        fn tiling_dimensions<I: Into<Ident>>(&self, ident: I) -> TilingDimensions {
             self.matmul.tiling_dimensions(ident)
         }
 
-        fn matrix_layout(&self, ident: Ident) -> MatrixLayout {
+        fn matrix_layout<I: Into<Ident>>(&self, ident: I) -> MatrixLayout {
             self.matmul.matrix_layout(ident)
         }
 
@@ -380,11 +379,11 @@ pub mod config {
             self.matmul.plane_dim()
         }
 
-        fn check_row_bounds(&self, ident: Ident) -> bool {
+        fn check_row_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
             self.matmul.check_row_bounds(ident)
         }
 
-        fn check_col_bounds(&self, ident: Ident) -> bool {
+        fn check_col_bounds<I: Into<Ident>>(&self, ident: I) -> bool {
             self.matmul.check_col_bounds(ident)
         }
 

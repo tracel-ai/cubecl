@@ -5,23 +5,22 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::{
+    convolution::ConvGemmConfig,
+    matmul::components::{InputIdent, stage::Stage},
+};
+use crate::{
     convolution::reader::tma::Im2colTmaReader,
     matmul::components::{
-        Ident, Lhs, MatmulPrecision,
-        global::{
-            CopyMechanism,
-            single_stage::{AsyncFullLoader, FullLoader},
-        },
+        Ident, MatmulPrecision,
+        global::CopyMechanism,
         stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, RowMajorTilingOrder, StageConfig,
-            multi_buffer::Reader,
+            ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, multi_buffer::FullReader,
         },
     },
 };
-use crate::{
-    convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
-    matmul::components::stage::Stage,
-};
+
+pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
+pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2colTiling>;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
@@ -33,20 +32,30 @@ pub struct Im2colTmaLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for Im2colTmaLoader<MP, G> {
-    type StageReader = Reader<Lhs, MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>;
+impl<MP: MatmulPrecision, G: ConvGemmConfig> Im2colTmaLoader<MP, G> {
+    pub fn new(
+        tensor: VirtualTensor<MP::EI>,
+        x_offset: u32,
+        y_offset: u32,
+        #[comptime] config: G,
+    ) -> Self {
+        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
 
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.map.update_view(k_offset);
+        let height = tensor.shape(1);
+        let width = tensor.shape(2);
+
+        let (w_offset, nh_offset) = (x_offset % width, x_offset / width);
+        let (h_offset, n_offset) = (nh_offset % height, nh_offset / height);
+
+        let map = Im2colTmaReader::<MP::EI>::new(tensor, n_offset, h_offset, w_offset, y_offset);
+
+        Im2colTmaLoader::<MP, G> {
+            map,
+            stage,
+            _config: PhantomData::<G>,
+        }
     }
 
-    fn reader(this: &Self) -> Self::StageReader {
-        Reader::new(this.stage)
-    }
-}
-
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> AsyncFullLoader<MP, G> for Im2colTmaLoader<MP, G> {
     fn fill_stage<CM: CopyMechanism<MP::ES>>(this: &mut Self, bar: &CM, #[comptime] config: G) {
         let tmm = config.to_smm_config();
         let tiling_dims = tmm.tiling_dimensions(Ident::Lhs);
@@ -77,88 +86,11 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> AsyncFullLoader<MP, G> for Im2colTm
         }
     }
 
-    fn clear_stage(this: &mut Self, #[comptime] config: G) {
-        this.stage
-            .clear::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+    pub fn advance_view(this: &mut Self, k_offset: u32) {
+        this.map.update_view(k_offset);
     }
-}
 
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> Im2colTmaLoader<MP, G> {
-    pub fn new(
-        tensor: VirtualTensor<MP::EI>,
-        x_offset: u32,
-        y_offset: u32,
-        #[comptime] config: G,
-    ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-
-        let height = tensor.shape(1);
-        let width = tensor.shape(2);
-
-        let (w_offset, nh_offset) = (x_offset % width, x_offset / width);
-        let (h_offset, n_offset) = (nh_offset % height, nh_offset / height);
-
-        let map = Im2colTmaReader::<MP::EI>::new(tensor, n_offset, h_offset, w_offset, y_offset);
-
-        Im2colTmaLoader::<MP, G> {
-            map,
-            stage,
-            _config: PhantomData::<G>,
-        }
+    pub fn reader(this: &Self) -> TmaIm2colReader<MP> {
+        TmaIm2colReader::<MP>::new(this.stage, InputIdent::Lhs)
     }
-}
-
-#[derive(CubeType, Clone, Copy)]
-/// Loads the content of all tiles in the tensor view using all planes,
-/// iterating with steps determined by the plane's dimension.
-pub struct SimpleIm2col;
-
-#[cube]
-impl SimpleIm2col {
-    pub fn load_to_slice<MP: MatmulPrecision, G: ConvGemmConfig>(
-        read_view: &Im2colReader<MP::EI>,
-        slice: &mut SliceMut<Line<MP::ES>>,
-        #[comptime] ident: Ident,
-        #[comptime] config: G,
-    ) {
-        let stage_tiling = config.tiling_dimensions(ident);
-        let line_size = config.global_line_size(ident);
-
-        let num_stage_elements = stage_tiling.total_size();
-        let total_units = comptime!(config.num_planes() * config.plane_dim());
-        let jump_length = comptime!(total_units * line_size);
-        let num_loads_per_unit = num_stage_elements / jump_length;
-
-        #[allow(clippy::all)]
-        let _ = comptime!(check_jump_divides_well(num_stage_elements, jump_length));
-
-        let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
-        let unit_position_base = unit_id * line_size;
-
-        for i in 0..num_loads_per_unit {
-            let unit_position = unit_position_base + i * jump_length;
-
-            let tile_num_elements = stage_tiling.tile_size();
-            let nth_tile = unit_position / tile_num_elements;
-            let pos_within_tile = unit_position % tile_num_elements;
-
-            let (tile_x, tile_y) = ContiguousTilingLayout::<RowMajorTilingOrder>::to_x_y::<
-                G::SmmConfig,
-            >(nth_tile, ident, config.to_smm_config());
-
-            let line_read =
-                read_view.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);
-
-            slice[unit_position / line_size] = Line::cast_from(line_read);
-        }
-    }
-}
-
-pub fn check_jump_divides_well(num_stage_elements: u32, jump_length: u32) {
-    assert!(
-        num_stage_elements % jump_length == 0,
-        "Too many data will be loaded, resulting in out of bounds. 
-    Try setting line size and number of planes so that jump_length divides num_stage_elements."
-    );
 }
