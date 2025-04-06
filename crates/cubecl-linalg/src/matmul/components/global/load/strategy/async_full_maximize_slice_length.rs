@@ -1,40 +1,41 @@
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation,
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-
-use super::AsyncFullLoadingStrategy;
+use cubecl_std::CubeOption;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct MaximizeSliceLengthLoading {}
+pub struct AsyncFullMaximizeSliceLengthLoading {}
 
-impl LoadingValidation for MaximizeSliceLengthLoading {
+impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for MaximizeSliceLengthLoading {
+impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(ident);
-        let tiling_dimensions = config.tiling_dimensions(ident);
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
 
         let num_slices = match matrix_layout {
             MatrixLayout::RowMajor => tiling_dimensions.total_row(),
@@ -51,13 +52,23 @@ impl AsyncFullLoadingStrategy for MaximizeSliceLengthLoading {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
-                load_nth_slice::<EG, ES, CM, G>(
-                    nth_slice, read_view, stage, mechanism, ident, config,
+                load_nth_slice::<MP::EI, MP::ES, CM, G>(
+                    nth_slice,
+                    read_view,
+                    stage,
+                    mechanism,
+                    input_ident,
+                    config,
                 );
             } else {
                 if nth_slice < num_slices {
-                    load_nth_slice::<EG, ES, CM, G>(
-                        nth_slice, read_view, stage, mechanism, ident, config,
+                    load_nth_slice::<MP::EI, MP::ES, CM, G>(
+                        nth_slice,
+                        read_view,
+                        stage,
+                        mechanism,
+                        input_ident,
+                        config,
                     );
                 }
             };
@@ -75,14 +86,14 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConf
     read_view: &TensorReader<EG>,
     stage: &mut Stage<ES, StridedTilingLayout>,
     mechanism: &CM,
-    #[comptime] ident: Ident,
+    #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, ident, config);
+    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
         stage,
         nth_slice,
-        ident,
+        comptime!(input_ident.as_ident()),
         config.to_smm_config(),
     );
 

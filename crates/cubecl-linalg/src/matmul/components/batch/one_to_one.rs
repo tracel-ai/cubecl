@@ -100,7 +100,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, C: CubeDispatch> BatchMatmul<MP
         rhs: VirtualTensor<MP::EI>,
         out: VirtualTensor<MP::EO, ReadWrite>,
         size_k: u32,
-        quantization: CubeOption<Quantization<MP::EI, MP::EO>>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) {
         let (x_index, y_index) = C::x_y_indices();

@@ -1,24 +1,26 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, InvalidConfigError, MatrixLayout,
-    global::{CopyMechanism, GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
+    global::{
+        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        load::AsyncFullLoadingStrategy, tensor_view::TensorReader,
+    },
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-
-use super::AsyncFullLoadingStrategy;
+use cubecl_std::CubeOption;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct CyclicWindowLoading<T: TilingOrder> {
+pub struct AsyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
+impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -35,21 +37,22 @@ impl<T: TilingOrder> LoadingValidation for CyclicWindowLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for CyclicWindowLoading<T> {
+impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
 
-    fn load_full<EG: Numeric, ES: Numeric, G: GlobalConfig, CM: CopyMechanism<ES>>(
-        read_view: &TensorReader<EG>,
-        stage: &mut Stage<ES, Self::TilingLayout>,
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: &CM,
-        #[comptime] ident: Ident,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let stage_dim = config.tiling_dimensions(ident);
+        let stage_dim = config.tiling_dimensions(input_ident);
         let total_units = config.plane_dim() * config.num_planes();
-        let line_size = config.global_line_size(ident);
+        let line_size = config.global_line_size(input_ident);
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(input_ident) {
             MatrixLayout::RowMajor => (
                 stage_dim.tile_shape_row(),
                 stage_dim.tile_shape_col() / line_size,
@@ -72,15 +75,19 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for CyclicWindowLoading<T> {
             let nth_tile = slice_index / num_slices_per_tile;
             let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
                 nth_tile,
-                ident,
+                input_ident.as_ident(),
                 config.to_smm_config(),
             );
             let nth_slice = slice_index % num_slices_per_tile;
 
             // TODO make branching comptime conditional
             if slice_index < num_slices {
-                let window =
-                    read_view.load_window_in_tile::<G>((tile_x, tile_y), nth_slice, ident, config);
+                let window = read_view.load_window_in_tile::<G>(
+                    (tile_x, tile_y),
+                    nth_slice,
+                    input_ident,
+                    config,
+                );
 
                 // Where this unit writes source in the stage
                 let slice_destination_offset =

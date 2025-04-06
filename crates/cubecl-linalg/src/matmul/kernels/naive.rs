@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_layout};
+use crate::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
 
 use super::MatmulLaunchError;
 
@@ -105,8 +105,8 @@ pub fn launch<R: Runtime, E: Numeric>(
     let dim1 = ndims - 1;
     let dim2 = ndims - 2;
 
-    let lhs_layout = matrix_layout(&lhs.strides);
-    let rhs_layout = matrix_layout(&rhs.strides);
+    let lhs_layout = matrix_batch_layout(&lhs.strides);
+    let rhs_layout = matrix_batch_layout(&rhs.strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
         into_contiguous::<R, E>(client, &lhs.as_ref())

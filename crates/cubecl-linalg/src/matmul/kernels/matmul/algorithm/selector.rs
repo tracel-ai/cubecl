@@ -11,7 +11,7 @@ use crate::matmul::{
         CompleteStageTiling, EA, ES, InputArg, MatmulProblem, MatmulSelection, MatmulSize,
         MatmulSpec, OutputArg,
         global::args::{InputsLaunch, OutputLaunch},
-        stage,
+        stage::STAGE_BUFFERING,
         tile::TileMatmulFamily,
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
@@ -31,7 +31,6 @@ pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     plane_dim: u32,
-    quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
     let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
     let config_input = CompleteStageTiling {
@@ -44,9 +43,8 @@ pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
         <InputArg<MS> as InputsLaunch>::create(lhs, rhs, &selection, &problem),
         <OutputArg<MS> as OutputLaunch>::create(out, &selection, &problem),
         problem,
-        (config_input, stage::Buffering::Double), // TODO support double buffering
+        (config_input, STAGE_BUFFERING),
         selection,
-        quantized,
     )
 }
 

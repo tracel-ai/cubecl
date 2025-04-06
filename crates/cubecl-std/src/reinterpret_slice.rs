@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, unexpanded};
 
 /// This struct allows to take a slice of `Line<S>` and reinterpret it
 /// as a slice of `T`. Semantically, this is equivalent to reinterpreting the slice of `Line<S>`
@@ -21,7 +21,10 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     pub fn new(slice: Slice<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSlice<S, T> {
-        let optimized = comptime!(optimize_line_size::<S, T>(line_size));
+        let source_size = size_of::<S>();
+        let target_size = size_of::<T>();
+        let optimized = comptime!(optimize_line_size(source_size, target_size, line_size));
+
         let slice = if optimized != line_size {
             slice.with_line_size(optimized)
         } else {
@@ -36,6 +39,18 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
     #[allow(clippy::comparison_chain)]
     pub fn read(&self, index: u32) -> T {
         T::reinterpret(self.slice[index])
+    }
+}
+
+pub fn size_of<S: CubePrimitive>() -> u32 {
+    unexpanded!()
+}
+
+pub mod size_of {
+    use super::*;
+    #[allow(unused, clippy::all)]
+    pub fn expand<S: CubePrimitive>(context: &mut cubecl::prelude::Scope) -> u32 {
+        S::as_elem(context).size() as u32
     }
 }
 
@@ -57,7 +72,9 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     pub fn new(slice: SliceMut<Line<S>>, #[comptime] line_size: u32) -> ReinterpretSliceMut<S, T> {
-        let optimized = comptime!(optimize_line_size::<S, T>(line_size));
+        let source_size = size_of::<S>();
+        let target_size = size_of::<T>();
+        let optimized = comptime!(optimize_line_size(source_size, target_size, line_size));
         let slice = if optimized != line_size {
             slice.with_line_size(optimized)
         } else {
@@ -81,23 +98,22 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
     }
 }
 
-fn optimize_line_size<S: CubePrimitive, T: CubePrimitive>(line_size: u32) -> u32 {
-    let num_bytes_line_source = core::mem::size_of::<S>() as u32 * line_size;
-    let num_bytes_target = core::mem::size_of::<T>() as u32;
+fn optimize_line_size(source_size: u32, target_size: u32, line_size: u32) -> u32 {
+    let line_source_size = source_size * line_size;
 
-    match num_bytes_line_source.cmp(&num_bytes_target) {
+    match line_source_size.cmp(&target_size) {
         std::cmp::Ordering::Less => {
-            if num_bytes_target % num_bytes_line_source != 0 {
+            if target_size % line_source_size != 0 {
                 panic!("incompatible number of bytes");
             }
-            let ratio = num_bytes_target / num_bytes_line_source;
+            let ratio = target_size / line_source_size;
             line_size * ratio
         }
         std::cmp::Ordering::Greater => {
-            if num_bytes_line_source % num_bytes_target != 0 {
+            if line_source_size % target_size != 0 {
                 panic!("incompatible number of bytes");
             }
-            let ratio = num_bytes_line_source / num_bytes_target;
+            let ratio = line_source_size / target_size;
             line_size / ratio
         }
         std::cmp::Ordering::Equal => line_size,
