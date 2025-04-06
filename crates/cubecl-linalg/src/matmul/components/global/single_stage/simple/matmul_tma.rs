@@ -139,8 +139,8 @@ where
             sync_units();
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
             if UNIT_POS == 0 {
                 let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()

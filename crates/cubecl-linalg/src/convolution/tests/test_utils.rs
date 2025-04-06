@@ -66,8 +66,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-5,
+            true => 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 10e-6,
         };
 
         let expected = conv_cpu_reference::<Self>(lhs, rhs, problem)
@@ -169,9 +169,10 @@ where
 
                                 let in_y = out_y as i32 + ky as i32 - problem.padding.0;
                                 let in_x = out_x as i32 + kx as i32 - problem.padding.1;
-                                if in_y > 0 && in_x > 0 {
+
+                                if in_y >= 0 && in_y < h as i32 && in_x >= 0 && in_x < w as i32 {
                                     let in_pos =
-                                        batch_in + in_y as usize * w * c + in_x as usize * c + in_c;
+                                        in_offset + in_y as usize * w * c + in_x as usize * c;
 
                                     let value: P::ES = lhs[in_pos].cast_into();
                                     let weight: P::ES = rhs[weight_pos].cast_into();

@@ -2,16 +2,16 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
 
-use crate::matmul::components::{
-    Ident,
-    global::AccumulatorLoader,
-    stage::{Stage, StageConfig},
-    tile::{Tile, TileConfig, TileMatmul},
-};
 use crate::{
-    convolution::{homogeneous::base::ConvTilingLayout, reader::bias::BiasReader},
-    matmul::components::MatmulPrecision,
+    convolution::homogeneous::simple::ConvTilingLayout,
+    matmul::components::{
+        Ident,
+        global::AccumulatorLoader,
+        stage::{Stage, StageConfig},
+        tile::{Tile, TileConfig, TileMatmul},
+    },
 };
+use crate::{convolution::reader::bias::BiasReader, matmul::components::MatmulPrecision};
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]

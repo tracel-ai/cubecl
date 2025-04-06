@@ -9,6 +9,7 @@ pub mod launch;
 pub mod loader;
 pub mod reader;
 pub mod selection;
+#[cfg(feature = "export_tests")]
 pub mod tests;
 
 pub use config::*;

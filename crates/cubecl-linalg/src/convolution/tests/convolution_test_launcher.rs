@@ -19,7 +19,7 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_tma_matmul_algorithm<A, Args, P, R>(
+pub fn test_convolution_algorithm<A, Args, P, R>(
     client: ComputeClient<R::Server, R::Channel>,
     mut problem: ConvolutionProblem,
     input: <A::GlobalConvolution as ConvolutionConfigFactory>::Input,
@@ -194,11 +194,9 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: Ident) -> Vec<usize> {
             problem.channels,
         ],
         Ident::Rhs => vec![
-            problem.kernel_size.0 as usize,
-            problem.kernel_size.1 as usize,
-            problem.channels,
+            problem.kernel_size.0 as usize * problem.kernel_size.1 as usize * problem.channels,
             problem.n,
         ],
-        Ident::Out => vec![problem.batches, problem.out_h, problem.out_w, problem.n],
+        Ident::Out => vec![problem.batches * problem.out_h * problem.out_w, problem.n],
     }
 }

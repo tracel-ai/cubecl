@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, server::TensorMapMeta};
 
 use crate::matmul::components::{
-    self, MatmulSelection,
+    MatmulSelection,
     global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
 };
 
@@ -41,24 +41,17 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         problem: &ConvolutionProblem,
     ) -> Self::RuntimeArg<'a, R> {
         let stage_m = selection.tile_count.m * selection.tile_shape.m;
-        let stage_n = selection.tile_count.n * selection.tile_shape.n;
-        let stage_k = selection.tile_count.k * selection.tile_shape.k;
-        let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape.n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape.k],
-        };
+        let stage_size_rhs = vec![1, selection.tile_shape.k, selection.tile_shape.n];
 
         let elem_size = size_of::<EI>();
 
         // Reset to 4D so we can pad the channels
         let rhs_shape = vec![
-            problem.kernel_size.0 as usize,
-            problem.kernel_size.1 as usize,
+            problem.kernel_size.0 as usize * problem.kernel_size.1 as usize,
             problem.channels,
             problem.n,
         ];
         let rhs_strides = vec![
-            rhs.strides[0] * problem.kernel_size.1 as usize * problem.channels,
             rhs.strides[0] * problem.channels,
             rhs.strides[0],
             rhs.strides[1],
@@ -98,7 +91,12 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             lhs.as_tensor_arg(problem.lhs_line_size),
             elem,
         )
-        .with_elem_stride(vec![problem.stride.0 as usize, problem.stride.1 as usize])
+        .with_elem_stride(vec![
+            1,
+            problem.stride.0 as usize,
+            problem.stride.1 as usize,
+            1,
+        ])
         .with_prefetch(prefetch_lhs);
 
         let meta_rhs = TensorMapMeta {

@@ -1,15 +1,15 @@
 use core::marker::PhantomData;
 
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
+use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision, MatrixLayout,
     global::{Quantization, single_stage},
     stage::multi_buffer::FullReader,
 };
-use crate::matmul::components::{global::CopyMechanism, stage::RowMajorTilingOrder};
 use crate::matmul::components::{
     global::{self, GlobalConfig, tensor_view::MappedTensorReader},
     stage::{self, ColMajorTilingOrder, ContiguousTilingLayout, Stage, StageConfig, TilingOrder},
@@ -119,9 +119,9 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
         }
     }
 
-    pub fn fill_stage<CM: CopyMechanism<MP::ES>>(
+    pub fn fill_stage(
         this: &mut Self,
-        barrier: &CM,
+        barrier: &Barrier<MP::ES>,
         #[comptime] config: single_stage::Config<S>,
     ) {
         if UNIT_POS == 0 {
@@ -149,20 +149,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig> TmaLoader<MP, S> {
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
             let mut stage = this.stage.as_slice_mut();
             let slice_size = size_row * size_col;
+            let batch = this.tensor_view.batch as i32;
 
             #[unroll]
             for tile_col in 0..tile_count_col {
                 let slice_start = tile_col * slice_size;
                 let mut slice = stage.slice_mut(slice_start, slice_start + slice_size);
                 let col = col + tile_col * size_col;
-                CM::tma_load_3d(
-                    barrier,
-                    &tensor,
-                    &mut slice,
-                    this.tensor_view.batch,
-                    row,
-                    col,
-                );
+
+                barrier.tma_load_3d(&tensor, &mut slice, batch, row as i32, col as i32);
             }
         }
     }

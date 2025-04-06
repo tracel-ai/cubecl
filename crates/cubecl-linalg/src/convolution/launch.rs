@@ -110,7 +110,7 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
         .unwrap_or(32);
 
     let mut problem = ConvolutionProblem {
-        m: n * h * w,
+        m: n * out_h * out_w,
         n: out_c,
         k: c * kh * kw,
         lhs_layout: components::MatrixLayout::RowMajor,

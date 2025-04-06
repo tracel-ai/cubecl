@@ -3,27 +3,33 @@ use crate::matmul::{
         InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
         MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, OutputLoader},
-        stage::{StageMatmul, StageMatmulFamily},
     },
     kernels::MatmulAvailabilityError,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
-    CubeOption,
+    CubeOption, FastDivmod,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 
-use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
+use super::ConvGemmConfig;
 
-pub trait ConvolutionFamily<SMM: StageMatmulFamily>:
+#[derive(CubeType, CubeLaunch, Clone)]
+pub struct RuntimeArgs {
+    pub padded_channels: FastDivmod,
+    pub out_h: u32,
+    pub out_w: u32,
+}
+
+pub trait ConvolutionFamily:
     ConvolutionConfigFactory<Config: ConvGemmConfig> + ConvolutionLaunch
 {
-    type Convolution<MP: MatmulPrecision>: Convolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>, Config = Self::Config>;
+    type Convolution<MP: MatmulPrecision>: Convolution<MP, Config = Self::Config>;
 }
 
 #[cube]
-pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send + Sync {
+pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type Config: ConvGemmConfig;
@@ -45,6 +51,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
+        runtime_args: RuntimeArgs,
         #[comptime] config: Self::Config,
     );
 
@@ -52,6 +59,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
         lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
@@ -59,6 +67,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
         rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 

@@ -4,24 +4,23 @@ pub mod suite;
 
 #[macro_export]
 macro_rules! testgen_conv2d_accelerated {
-    ($eg:ty, $es:ty) => {
-        type Precision = ($eg, $es);
-
-        $crate::conv2d_standard_tests!();
-    };
-
-    ([$($float:ident),*]) => {
+    ([$($float:ident: $acc: ident),*]) => {
         #[allow(non_snake_case)]
-        mod matmul_accelerated {
+        mod conv2d_accelerated {
             use super::*;
             type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {
                     use super::*;
-                    $crate::testgen_conv2d_accelerated!($float, $float);
+                    $crate::testgen_conv2d_accelerated!($float, $acc);
                 })*
             }
         }
+    };
+    ($eg:ty, $es:ty) => {
+        type Precision = ($eg, $es);
+
+        $crate::conv2d_standard_tests!();
     };
 }

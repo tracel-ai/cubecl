@@ -1,17 +1,17 @@
 use crate::matmul::{
     components::{
         CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSelection,
-        stage::{self, StageBuffering, StageMatmulFamily},
-        tile::{TileMatmulFamily, accelerated::Accelerated},
+        stage::{StageBuffering, StageMatmulFamily},
+        tile::TileMatmulFamily,
     },
     kernels::MatmulAvailabilityError,
 };
 use cubecl_core::prelude::*;
 
-use super::{
-    base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem},
-    homogeneous::base::ImplicitGemmConvolutionFamily,
-};
+use super::base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem};
+
+pub mod simple;
+pub mod simple_tma;
 
 pub type StageInput = (CompleteStageTiling, StageBuffering);
 
@@ -19,7 +19,7 @@ pub type StageInput = (CompleteStageTiling, StageBuffering);
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
-    type GlobalConvolution: ConvolutionFamily<Self::StageMatmul, Input = StageInput>;
+    type GlobalConvolution: ConvolutionFamily<Input = StageInput>;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
@@ -44,27 +44,5 @@ pub trait Algorithm {
         <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
             client, config,
         )
-    }
-}
-
-/// Cmma convolution
-pub struct ImplicitCmmaConv;
-
-impl Algorithm for ImplicitCmmaConv {
-    type TileMatmul = Accelerated;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalConvolution = ImplicitGemmConvolutionFamily<Self::StageMatmul>;
-
-    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
-        CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
-    }
-
-    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tile_count.m * selection.tile_shape.m;
-        let n_stage = selection.tile_count.n * selection.tile_shape.n;
-        let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
-        let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
-
-        CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
     }
 }

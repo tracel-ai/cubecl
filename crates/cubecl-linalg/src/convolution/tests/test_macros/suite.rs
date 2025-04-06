@@ -1,19 +1,32 @@
-use crate::matmul::components::{MatmulSelection, MatmulSize, stage::STAGE_BUFFERING};
-use crate::matmul::kernels::matmul::Algorithm;
-use crate::matmul::tests::cmma_matmul::matmul_test_launcher::test_matmul_algorithm;
-use crate::matmul::tests::test_utils::TestPrecision;
-use crate::matmul::{
-    components::{CompleteStageTiling, MatmulProblem, MatrixLayout, stage},
-    tests::cmma_matmul::tma_test_launcher::test_tma_matmul_algorithm,
+use crate::convolution::base::ConvolutionProblem;
+use crate::convolution::{
+    algorithm::Algorithm, args::ConvInputsLaunch, tests::test_utils::TestPrecision,
+};
+use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
+use crate::{
+    convolution::tests::convolution_test_launcher::test_convolution_algorithm,
+    matmul::components::{
+        MatmulSelection, MatmulSize, global::args::MatmulArgs, stage::STAGE_BUFFERING,
+    },
 };
 use cubecl_core::Runtime;
 
-pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
-    layouts: (MatrixLayout, MatrixLayout),
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ConvolutionSize {
+    pub h: usize,
+    pub w: usize,
+    pub c: usize,
+
+    pub out_c: usize,
+}
+
+pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
-    problem: MatmulSize,
-) {
+    problem: ConvolutionSize,
+) where
+    Args::Input<P::EG>: ConvInputsLaunch,
+{
     let client = R::client(&Default::default());
     let plane_dim = match client
         .properties()
@@ -27,16 +40,38 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         }
     };
 
-    let problem = MatmulProblem {
-        m: problem.m as usize,
-        n: problem.n as usize,
-        k: problem.k as usize,
-        batches: (vec![2], vec![2]),
-        lhs_layout: layouts.0,
-        rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
+    // TODO: Test more params
+    let batches = 2;
+    let kernel_size = (3, 3);
+    let stride = (1, 1);
+    let padding = (1, 1);
+    let dilation = (1, 1);
+
+    let out_h =
+        calculate_conv_output_size(kernel_size.0, stride.0, padding.0, dilation.0, problem.h);
+    let out_w =
+        calculate_conv_output_size(kernel_size.1, stride.1, padding.1, dilation.1, problem.w);
+
+    let mut problem = ConvolutionProblem {
+        m: batches * out_h * out_w,
+        n: problem.out_c,
+        k: kernel_size.0 as usize * kernel_size.1 as usize * problem.c,
+        lhs_layout: MatrixLayout::RowMajor,
+        rhs_layout: MatrixLayout::RowMajor,
+        lhs_line_size: 1,
+        rhs_line_size: 1,
+        out_line_size: 1,
+        padded_channels: 0,
+        kernel_size,
+        stride,
+        padding,
+        dilation,
+        batches,
+        height: problem.h,
+        width: problem.w,
+        channels: problem.c,
+        out_h,
+        out_w,
     };
 
     let selection = MatmulSelection {
@@ -49,7 +84,11 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_count: selection.tile_count,
     };
 
-    test_matmul_algorithm::<A, P, R>(
+    problem.padded_channels = problem
+        .channels
+        .next_multiple_of(selection.tile_shape.k as usize) as u32;
+
+    test_convolution_algorithm::<A, Args, P, R>(
         client,
         problem,
         (config_input, STAGE_BUFFERING), // TODO support double buffering
@@ -57,434 +96,215 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     );
 }
 
-pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
-    layouts: (MatrixLayout, MatrixLayout),
-    tile_shape: MatmulSize,
-    tile_count: MatmulSize,
-    problem: MatmulSize,
-) {
-    let client = R::client(&Default::default());
-    let plane_dim = match client
-        .properties()
-        .hardware_properties()
-        .defined_plane_size()
-    {
-        Some(val) => val,
-        None => {
-            println!("Can't run test without a fixed plane size.");
-            return;
-        }
-    };
-
-    let problem = MatmulProblem {
-        m: problem.m as usize,
-        n: problem.n as usize,
-        k: problem.k as usize,
-        batches: (vec![2], vec![2]),
-        lhs_layout: layouts.0,
-        rhs_layout: layouts.1,
-        lhs_line_size: 1, // Will be changed
-        rhs_line_size: 1, // Will be changed
-        out_line_size: 1, // Will be changed
-    };
-
-    let selection = MatmulSelection {
-        tile_shape,
-        tile_count,
-        plane_dim,
-    };
-    let config_input = CompleteStageTiling {
-        tile_shape: selection.tile_shape,
-        tile_count: selection.tile_count,
-    };
-
-    test_tma_matmul_algorithm::<A, P, R>(
-        client,
-        problem,
-        (config_input, STAGE_BUFFERING), // TODO support double buffering
-        selection,
-    );
+/// Calculate the expected output size when doing a convolution operation.
+pub fn calculate_conv_output_size(
+    kernel_size: u32,
+    stride: u32,
+    padding: i32,
+    dilation: u32,
+    size_in: usize,
+) -> usize {
+    (size_in + 2 * padding as usize - dilation as usize * (kernel_size as usize - 1) - 1)
+        / stride as usize
+        + 1
 }
 
 #[allow(missing_docs)]
 #[macro_export]
-macro_rules! matmul_standard_tests {
+macro_rules! conv2d_standard_tests {
     () => {
-        use $crate::matmul::components::{MatmulSize, MatrixLayout};
+        use $crate::convolution::tests::ConvolutionSize;
+        use $crate::matmul::components::MatmulSize;
 
-        mod row_major {
-            use super::*;
-
-            mod row_major {
-                use super::*;
-                $crate::matmul_standard_tests!(RowMajor, RowMajor);
-            }
-
-            mod col_major {
-                use super::*;
-                $crate::matmul_standard_tests!(RowMajor, ColMajor);
-            }
-        }
-
-        mod col_major {
-            use super::*;
-
-            mod row_major {
-                use super::*;
-                $crate::matmul_standard_tests!(ColMajor, RowMajor);
-            }
-
-            mod col_major {
-                use super::*;
-                $crate::matmul_standard_tests!(ColMajor, ColMajor);
-            }
-        }
-    };
-
-    ($lhs_layout:ident, $rhs_layout:ident) => {
         mod t8x8x8 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 8, n: 8, k: 8 }
-            );
+            $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 8, k: 8 });
         }
 
         mod t16x16x16 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize {
-                    m: 16,
-                    n: 16,
-                    k: 16
-                }
-            );
+            $crate::conv2d_standard_tests!(MatmulSize {
+                m: 16,
+                n: 16,
+                k: 16
+            });
         }
 
         mod t32x8x16 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 32, n: 8, k: 16 }
-            );
+            $crate::conv2d_standard_tests!(MatmulSize { m: 32, n: 8, k: 16 });
         }
 
         mod t8x32x16 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 8, n: 32, k: 16 }
-            );
+            $crate::conv2d_standard_tests!(MatmulSize { m: 8, n: 32, k: 16 });
         }
 
         mod t16x16x8 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                MatmulSize { m: 16, n: 16, k: 8 }
-            );
+            $crate::conv2d_standard_tests!(MatmulSize { m: 16, n: 16, k: 8 });
         }
     };
 
-    ($lhs_layout:ident, $rhs_layout:ident, $tile:expr) => {
+    ($tile:expr) => {
         mod s1x1x1 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                MatmulSize { m: 1, n: 1, k: 1 }
-            );
+            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 1, n: 1, k: 1 });
         }
 
         mod s8x8x1 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                MatmulSize { m: 8, n: 8, k: 1 }
-            );
+            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 8, n: 8, k: 1 });
         }
 
         mod s2x2x2 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                MatmulSize { m: 2, n: 2, k: 2 }
-            );
+            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 2, n: 2, k: 2 });
         }
 
         mod s4x4x2 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
-                $tile,
-                MatmulSize { m: 4, n: 4, k: 2 }
-            );
+            $crate::conv2d_standard_tests!($tile, MatmulSize { m: 4, n: 4, k: 2 });
         }
     };
 
-    ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr) => {
-        mod p16x16x16 {
+    ($tile:expr, $stage:expr) => {
+        mod p4x4x1x1 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 16,
-                    n: 16,
-                    k: 16
+                ConvolutionSize {
+                    h: 4,
+                    w: 4,
+                    c: 1,
+                    out_c: 1
                 }
             );
         }
 
-        mod p32x32x32 {
+        mod p16x16x16x32 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 32,
-                    n: 32,
-                    k: 32
+                ConvolutionSize {
+                    h: 16,
+                    w: 16,
+                    c: 16,
+                    out_c: 32
                 }
             );
         }
 
-        mod p64x32x32 {
+        mod p32x32x32x16 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 64,
-                    n: 32,
-                    k: 32
+                ConvolutionSize {
+                    h: 32,
+                    w: 32,
+                    c: 32,
+                    out_c: 16
                 }
             );
         }
 
-        mod p32x32x64 {
+        mod p64x32x32x128 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 32,
-                    n: 32,
-                    k: 64
+                ConvolutionSize {
+                    h: 64,
+                    w: 32,
+                    c: 32,
+                    out_c: 128
                 }
             );
         }
 
-        mod p100x100x100 {
+        mod p32x32x64x3 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 100,
-                    n: 100,
-                    k: 100
+                ConvolutionSize {
+                    h: 32,
+                    w: 32,
+                    c: 64,
+                    out_c: 3
                 }
             );
         }
 
-        mod p20x20x16 {
+        mod p100x100x100x100 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 20,
-                    n: 20,
-                    k: 16
+                ConvolutionSize {
+                    h: 100,
+                    w: 100,
+                    c: 100,
+                    out_c: 100
                 }
             );
         }
 
-        mod p23x1x17 {
+        mod p20x20x16x32 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize { m: 23, n: 1, k: 17 }
+                ConvolutionSize {
+                    h: 20,
+                    w: 20,
+                    c: 16,
+                    out_c: 32
+                }
             );
         }
 
-        mod p256x256x256 {
+        mod p23x10x17x20 {
             use super::*;
-            $crate::matmul_standard_tests!(
-                $lhs_layout,
-                $rhs_layout,
+            $crate::conv2d_standard_tests!(
                 $tile,
                 $stage,
-                MatmulSize {
-                    m: 256,
-                    n: 256,
-                    k: 256
+                ConvolutionSize {
+                    h: 23,
+                    w: 10,
+                    c: 17,
+                    out_c: 20
                 }
             );
         }
     };
 
-    ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
-        use $crate::matmul::components::global::single_stage::{
-            CyclicWindowLoading, MaximizeSliceLengthLoading, MaximizeUnitCountLoading,
-            StridedCoalescedLoading, WindowCooperativeLoading,
-        };
-        use $crate::matmul::components::stage::ColMajorTilingOrder;
-        use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
-        use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
-        use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
-        use $crate::matmul::kernels::matmul::simple_barrier::SimpleBarrierAlgorithm;
-        use $crate::matmul::kernels::matmul::simple_pipelined::SimplePipelinedAlgorithm;
-        use $crate::matmul::kernels::matmul::specialized::SpecializedAlgorithm;
+    ($tile:expr, $stage:expr, $problem:expr) => {
+        use $crate::convolution::algorithm::simple::SimpleConvAlgorithm;
+        use $crate::convolution::algorithm::simple_tma::SimpleTmaConvAlgorithm;
+        use $crate::matmul::components::global::args::{TensorArgs, TensorMapArgs};
 
         #[test]
         pub fn simple_coalesced() {
-            cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
+            cubecl_linalg::convolution::tests::test_algo::<
+                SimpleConvAlgorithm<TMM>,
+                TensorArgs,
+                Precision,
+                TestRuntime,
+            >($tile, $stage, $problem);
         }
 
         #[test]
-        pub fn simple_strided() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleAlgorithm<TMM, StridedCoalescedLoading, StridedCoalescedLoading>,
+        pub fn simple_tma() {
+            cubecl_linalg::convolution::tests::test_algo::<
+                SimpleTmaConvAlgorithm<TMM>,
+                TensorMapArgs,
                 Precision,
                 TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_pipelined() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimplePipelinedAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_cooperative() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, WindowCooperativeLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_cyclic() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, CyclicWindowLoading<ColMajorTilingOrder>>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_maximize_slice_length() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, MaximizeSliceLengthLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn simple_barrier_maximize_unit_count() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SimpleBarrierAlgorithm<TMM, MaximizeUnitCountLoading>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn specialized() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                SpecializedAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
-        }
-
-        #[test]
-        pub fn double_buffering() {
-            cubecl_linalg::matmul::tests::test_algo::<
-                DoubleBufferingAlgorithm<TMM>,
-                Precision,
-                TestRuntime,
-            >(
-                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-                $tile,
-                $stage,
-                $problem,
-            );
+            >($tile, $stage, $problem);
         }
     };
 }
