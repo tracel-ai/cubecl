@@ -1,6 +1,7 @@
 use crate::matmul::{
     components::{
-        InvalidConfigError, MatmulPrecision, MatmulProblem, MatrixLayout,
+        InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulProblem, MatmulSpec,
+        MatrixLayout, OutputRuntimeArg,
         global::{AccumulatorLoader, OutputLoader},
         stage::{StageMatmul, StageMatmulFamily},
     },
@@ -8,7 +9,10 @@ use crate::matmul::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
 use super::{ConvGemmConfig, homogeneous::base::ConvTilingLayout};
 
@@ -23,7 +27,7 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<MP, SMM::Config>;
+    type AccumulatorLoader: AccumulatorLoader<MP>;
 
     type Out: OutputLoader<MP::EO>;
     type Accumulator: CubeType;
@@ -59,10 +63,9 @@ pub trait Convolution<MP: MatmulPrecision, SMM: StageMatmul<MP>>: 'static + Send
     ) -> Self::RhsLoader;
 
     fn init_bias_loader(
-        bias: VirtualTensor<MP::EI>,
+        bias: CubeOption<VirtualTensor<MP::EO>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-        #[comptime] has_bias: bool,
     ) -> Self::AccumulatorLoader;
 
     fn init_unloader(
@@ -104,14 +107,13 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
     ///
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
-    unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: TensorArg<'_, R>,
-        weight: TensorArg<'_, R>,
-        bias: TensorArg<'_, R>,
-        out: TensorArg<'_, R>,
+        input: InputRuntimeArg<'a, MS, R>,
+        bias: Option<TensorArg<'a, R>>,
+        output: OutputRuntimeArg<'a, MS, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
     );
 }
@@ -133,9 +135,14 @@ pub struct ConvolutionProblem {
     pub stride: (u32, u32),
     pub padding: (i32, i32),
     pub dilation: (u32, u32),
-    pub out_shape_y: usize,
-    pub out_shape_x: usize,
-    pub has_bias: bool,
+
+    pub batches: usize,
+    pub height: usize,
+    pub width: usize,
+    pub channels: usize,
+
+    pub out_h: usize,
+    pub out_w: usize,
 }
 
 impl ConvolutionProblem {

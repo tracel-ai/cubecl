@@ -41,6 +41,17 @@ pub enum CubeOptionArgs<'a, T: CubeLaunch, R: Runtime> {
     None,
 }
 
+impl<'a, T: CubeLaunch, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
+    for CubeOptionArgs<'a, T, R>
+{
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
+        match value {
+            Some(arg) => Self::Some(arg),
+            None => Self::None,
+        }
+    }
+}
+
 impl<T: CubeLaunch, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         match self {

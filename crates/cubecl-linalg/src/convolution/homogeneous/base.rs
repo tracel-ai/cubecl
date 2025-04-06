@@ -2,11 +2,19 @@ use config::HomogeneousConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
-    CubeOption,
+    CubeOption, CubeOptionExpand,
     tensor::r#virtual::{ReadWrite, VirtualTensor},
 };
 use std::marker::PhantomData;
 
+use crate::matmul::components::{
+    EA, EI, EO, ES, InputRuntimeArg, MatmulSpec, OutputRuntimeArg, Rhs,
+    global::{
+        args::{self, MatmulArgs, TensorInput, TensorOutput},
+        single_stage::{FullLoader, SyncFullLoader},
+    },
+    stage::multi_buffer::StageReaderFamily,
+};
 use crate::matmul::components::{
     Ident, InvalidConfigError, Lhs, MatrixLayout,
     global::{
@@ -17,11 +25,6 @@ use crate::matmul::components::{
     stage::{
         self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily, multi_buffer::Reader,
     },
-};
-use crate::matmul::components::{
-    Rhs,
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::multi_buffer::StageReaderFamily,
 };
 use crate::{
     convolution::{
@@ -70,7 +73,7 @@ where
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
     type RhsLoader =
         SyncFullRhsLoader<MP, SMM::Config, CyclicCoalescedLoading<RowMajorTilingOrder>>;
-    type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
+    type AccumulatorLoader = BiasLoader<MP>;
 
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -90,7 +93,7 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        Self::AccumulatorLoader::fill_stage(&mut acc_loader, config.to_smm_config());
+        Self::AccumulatorLoader::fill_stage::<SMM::Config>(&mut acc_loader, config.to_smm_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         sync_units();
@@ -163,12 +166,11 @@ where
     }
 
     fn init_bias_loader(
-        bias: VirtualTensor<MP::EI>,
+        bias: CubeOption<VirtualTensor<MP::EO>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-        #[comptime] has_bias: bool,
     ) -> Self::AccumulatorLoader {
-        Self::AccumulatorLoader::new(bias, n_offset, config.to_smm_config(), has_bias)
+        Self::AccumulatorLoader::new::<SMM::Config>(bias, n_offset, config.to_smm_config())
     }
 
     fn init_unloader(
@@ -224,13 +226,12 @@ where
                 problem.out_line_size as u32,
                 size.k,
             ),
-            (problem.out_shape_y as u32, problem.out_shape_x as u32),
+            (problem.out_h as u32, problem.out_w as u32),
             problem.padded_channels,
             problem.kernel_size,
             problem.stride,
             problem.dilation,
             problem.padding,
-            problem.has_bias,
         )
     }
 
@@ -245,34 +246,35 @@ where
 impl<SMM: StageMatmulFamily<LhsReader = StageReaderFamily<Lhs>, RhsReader = StageReaderFamily<Rhs>>>
     ConvolutionLaunch for ImplicitGemmConvolutionFamily<SMM>
 {
-    unsafe fn launch_unchecked<MP: MatmulPrecision, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: TensorArg<'_, R>,
-        weight: TensorArg<'_, R>,
-        bias: TensorArg<'_, R>,
-        out: TensorArg<'_, R>,
+        input: InputRuntimeArg<'a, MS, R>,
+        bias: Option<TensorArg<'a, R>>,
+        output: OutputRuntimeArg<'a, MS, R>,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
         unsafe {
-            implicit_conv::launch_unchecked::<MP::EI, MP::ES, MP::EA, MP::EO, Self, SMM, R>(
+            implicit_conv::launch_unchecked::<MS::Args, EI<MS>, ES<MS>, EA<MS>, EO<MS>, Self, SMM, R>(
                 client,
                 cube_count,
                 cube_dim,
                 input,
-                weight,
-                bias,
-                out,
+                bias.into(),
+                output,
                 config,
-                config.has_bias,
             );
         }
     }
 }
 
+type Input<Args, EI> = <Args as MatmulArgs>::Input<EI>;
+type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
+
 #[cube(launch_unchecked)]
 pub(crate) fn implicit_conv<
+    Args: MatmulArgs,
     EI: Numeric,
     ES: Numeric,
     EA: Numeric,
@@ -280,26 +282,36 @@ pub(crate) fn implicit_conv<
     GMM: ConvolutionFamily<SMM>,
     SMM: StageMatmulFamily,
 >(
-    lhs: &Tensor<Line<EI>>,
-    rhs: &Tensor<Line<EI>>,
-    bias: &Tensor<Line<EI>>,
-    out: &mut Tensor<Line<EO>>,
+    inputs: &Input<Args, EI>,
+    bias: &CubeOption<Tensor<Line<EO>>>,
+    output: &mut Output<Args, EO>,
     #[comptime] config: GMM::Config,
-    #[comptime] has_bias: bool,
 ) {
+    let mut state = Args::init_state(inputs, output);
+
+    let lhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Lhs);
+    let rhs = TensorInput::<EI, EO, Args>::new(&state, args::TensorInputIdent::Rhs);
+    let mut out = TensorOutput::<EI, EO, Args>::new(&mut state);
+
+    let lhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&lhs);
+    let rhs = VirtualTensor::<EI>::new::<TensorInput<EI, EO, Args>>(&rhs);
+    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
+
     let x_offset = CUBE_POS_X * config.tiling_dimensions(Ident::Lhs).total_row();
     let y_offset = CUBE_POS_Y * config.tiling_dimensions(Ident::Rhs).total_col();
     let k_range = (0, rhs.shape(0));
 
-    let lhs = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(lhs);
-    let rhs = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(rhs);
-    let bias = VirtualTensor::<EI>::new::<Tensor<Line<EI>>>(bias);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<Tensor<Line<EO>>>(out);
+    let bias = match bias {
+        CubeOption::Some(bias) => {
+            CubeOption::new_Some(VirtualTensor::<EO>::new::<Tensor<Line<EO>>>(bias))
+        }
+        CubeOption::None => CubeOption::new_None(),
+    };
 
     GMM::Convolution::<(EI, ES, EA, EO)>::execute(
         GMM::Convolution::<(EI, ES, EA, EO)>::init_lhs_loader(lhs, x_offset, k_range.0, config),
         GMM::Convolution::<(EI, ES, EA, EO)>::init_rhs_loader(rhs, k_range.0, y_offset, config),
-        GMM::Convolution::<(EI, ES, EA, EO)>::init_bias_loader(bias, y_offset, config, has_bias),
+        GMM::Convolution::<(EI, ES, EA, EO)>::init_bias_loader(bias, y_offset, config),
         GMM::Convolution::<(EI, ES, EA, EO)>::init_unloader(out, x_offset, y_offset),
         &mut GMM::Convolution::<(EI, ES, EA, EO)>::init_accumulator(config),
         k_range,
@@ -327,7 +339,6 @@ pub mod config {
         stride: (u32, u32),
         dilation: (u32, u32),
         padding: (i32, i32),
-        pub has_bias: bool,
     }
 
     impl<M: GlobalConfig> Deref for HomogeneousConfig<M> {
@@ -440,7 +451,6 @@ pub mod config {
             stride: (u32, u32),
             dilation: (u32, u32),
             padding: (i32, i32),
-            has_bias: bool,
         ) -> Self {
             Self {
                 matmul,
@@ -450,7 +460,6 @@ pub mod config {
                 stride,
                 dilation,
                 padding,
-                has_bias,
             }
         }
 

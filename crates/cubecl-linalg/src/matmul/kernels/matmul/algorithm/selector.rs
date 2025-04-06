@@ -8,7 +8,7 @@ use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        CompleteStageTiling, EA, ES, InputArg, MatmulProblem, MatmulSelection, MatmulSize,
+        CompleteStageTiling, InputArg, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
         MatmulSpec, OutputArg,
         global::args::{InputsLaunch, OutputLaunch},
         stage,
@@ -33,7 +33,8 @@ pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     plane_dim: u32,
     quantized: bool,
 ) -> Result<(), MatmulLaunchError> {
-    let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
+    let selection =
+        matmul_selection::<A::TileMatmul, MS::Precision, R>(client, &problem, plane_dim);
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
@@ -129,7 +130,7 @@ pub(crate) fn find_stage_size_m_n(
     }
 }
 
-pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime>(
+pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     problem: &MatmulProblem,
     plane_dim: u32,
@@ -139,9 +140,9 @@ pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime
             Some((
                 client.properties(),
                 (
-                    ES::<MS>::as_elem_native_unchecked(),
-                    ES::<MS>::as_elem_native_unchecked(),
-                    EA::<MS>::as_elem_native_unchecked(),
+                    MP::ES::as_elem_native_unchecked(),
+                    MP::ES::as_elem_native_unchecked(),
+                    MP::EA::as_elem_native_unchecked(),
                 ),
             ))
         } else {

@@ -1,26 +1,28 @@
-use crate::matmul::components::{
-    InvalidConfigError,
-    stage::{self, StageMatmulFamily},
-    tile::{TileMatmulFamily, accelerated::Accelerated},
+use crate::matmul::{
+    components::{
+        CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSelection,
+        stage::{self, StageMatmulFamily},
+        tile::{TileMatmulFamily, accelerated::Accelerated},
+    },
+    kernels::MatmulAvailabilityError,
 };
 use cubecl_core::prelude::*;
 
 use super::{
     base::{ConvolutionConfigFactory, ConvolutionFamily, ConvolutionProblem},
     homogeneous::base::ImplicitGemmConvolutionFamily,
-    selection::ConvSelection,
 };
+
+pub type StageInput = (CompleteStageTiling, stage::Buffering);
 
 /// Specifications for a convolution algorithm
 pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
-    type StageMatmul: StageMatmulFamily;
-    type GlobalConvolution: ConvolutionFamily<Self::StageMatmul, Input = Self::Input>;
-    type Selection;
-    type Input;
+    type StageMatmul: StageMatmulFamily<Input = StageInput>;
+    type GlobalConvolution: ConvolutionFamily<Self::StageMatmul, Input = StageInput>;
 
-    fn cube_dim(selection: &Self::Selection) -> CubeDim;
-    fn cube_count(selection: &Self::Selection, problem: &ConvolutionProblem) -> CubeCount;
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim;
+    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;
 
     /// Make a convolution config from a convolution problem, and launch options
     fn make_config(
@@ -34,6 +36,15 @@ pub trait Algorithm {
         Self::GlobalConvolution::check_config(&config)?;
         Ok(config)
     }
+
+    fn check_availability<R: Runtime, MP: MatmulPrecision>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        config: &<Self::GlobalConvolution as ConvolutionConfigFactory>::Config,
+    ) -> Result<(), MatmulAvailabilityError> {
+        <Self::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
+            client, config,
+        )
+    }
 }
 
 /// Cmma convolution
@@ -43,16 +54,14 @@ impl Algorithm for ImplicitCmmaConv {
     type TileMatmul = Accelerated;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalConvolution = ImplicitGemmConvolutionFamily<Self::StageMatmul>;
-    type Selection = ConvSelection;
-    type Input = <Self::GlobalConvolution as ConvolutionConfigFactory>::Input;
 
-    fn cube_dim(selection: &ConvSelection) -> CubeDim {
-        CubeDim::new(selection.matmul.plane_dim, selection.matmul.tile_count.m, 1)
+    fn cube_dim(selection: &MatmulSelection) -> CubeDim {
+        CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
     }
 
-    fn cube_count(selection: &ConvSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.matmul.tile_count.m * selection.matmul.tile_shape.m;
-        let n_stage = selection.matmul.tile_count.n * selection.matmul.tile_shape.n;
+    fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
+        let m_stage = selection.tile_count.m * selection.tile_shape.m;
+        let n_stage = selection.tile_count.n * selection.tile_shape.n;
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
