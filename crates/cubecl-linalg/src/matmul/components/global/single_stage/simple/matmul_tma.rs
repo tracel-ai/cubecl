@@ -1,17 +1,15 @@
+use crate::matmul::components::InputIdent;
+use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::global::GlobalMatmul;
+use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
+use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::output_loader::Unloader;
-use crate::matmul::components::global::single_stage::{
-    Config, FullLoader, loading::AsyncFullLoader,
-};
-use crate::matmul::components::global::{GlobalMatmul, IndexedQuantization};
+use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::ContiguousTilingLayout;
 use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{LhsReader, RhsReader};
-use crate::matmul::components::{
-    MatmulPrecision,
-    global::single_stage::{TmaLhsLoader, TmaRhsLoader},
-};
+use crate::matmul::components::stage::multi_buffer::FullReader;
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -27,10 +25,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{
-            self,
-            multi_buffer::{LhsReaderFamily, RhsReaderFamily},
-        },
+        stage::{self, multi_buffer::FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };
@@ -41,7 +36,7 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
-    SMM: stage::StageMatmulFamily<LhsReader = LhsReaderFamily, RhsReader = RhsReaderFamily>,
+    SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
@@ -118,13 +113,13 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-            RhsReader = RhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            LhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            RhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
         >,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = TmaLhsLoader<MP, SMM::Config>;
-    type RhsLoader = TmaRhsLoader<MP, SMM::Config>;
+    type LhsLoader = TmaLoader<MP, SMM::Config>;
+    type RhsLoader = TmaLoader<MP, SMM::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -135,7 +130,6 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        quantization: CubeOption<IndexedQuantization<MP::EI, MP::EO>>,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -163,7 +157,6 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                CubeOption::new_None(),
                 config.to_smm_config(),
             );
 
@@ -174,7 +167,6 @@ where
         SMM::read_accumulator::<Self::Out, Self::Config>(
             acc,
             &mut out_unloader,
-            quantization,
             config.to_smm_config(),
             config,
         );
@@ -186,6 +178,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         Self::LhsLoader::new::<Self::Config>(
@@ -193,6 +186,8 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            quantization,
+            InputIdent::Lhs,
             config,
         )
     }
@@ -203,6 +198,7 @@ where
         y_offset: u32,
         nth_batch: u32,
         _batch_offset: u32,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -210,6 +206,8 @@ where
             x_offset,
             y_offset,
             nth_batch,
+            quantization,
+            InputIdent::Rhs,
             config,
         )
     }

@@ -18,7 +18,9 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cubecl_ir::ExpandElement;
-use derive_more::derive::*;
+use derive_more::derive::{
+    Add, AddAssign, Display, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
+};
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 

@@ -74,6 +74,8 @@ pub enum Feature {
     Tma(TmaFeature),
     /// Clustered launches and intra-cluster operations like cluster shared memory
     Cluster,
+    /// Enables to change the line size of containers during kernel execution.
+    DynamicLineSize,
 }
 
 /// Atomic features that may be supported by a [cube runtime](Runtime).

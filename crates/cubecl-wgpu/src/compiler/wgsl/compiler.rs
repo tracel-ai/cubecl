@@ -987,7 +987,10 @@ impl WgslCompiler {
                     });
                 }
             }
-            cube::Operator::Bitcast(op) => instructions.push(wgsl::Instruction::Bitcast {
+            cube::Operator::ReinterpretSlice(_) => {
+                todo!()
+            }
+            cube::Operator::Reinterpret(op) => instructions.push(wgsl::Instruction::Bitcast {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),

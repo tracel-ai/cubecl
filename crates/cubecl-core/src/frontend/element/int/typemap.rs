@@ -1,7 +1,11 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::*;
 use cubecl_ir::{Elem, ExpandElement, IntKind, Scope, Variable};
-use derive_more::derive::*;
+use derive_more::derive::{
+    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
+    DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
+    SubAssign,
+};
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 

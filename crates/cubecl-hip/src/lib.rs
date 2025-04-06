@@ -27,6 +27,7 @@ mod tests {
     pub type TestRuntime = crate::HipRuntime;
 
     cubecl_core::testgen_all!();
+    cubecl_std::testgen!();
     cubecl_linalg::testgen_matmul_plane!([f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_tensor_identity!([f32, u32]);

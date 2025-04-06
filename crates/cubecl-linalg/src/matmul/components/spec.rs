@@ -26,7 +26,7 @@ impl<MP: MatmulPrecision> MatmulSpec for MP {
 }
 
 /// Matrix multiplication precisions.
-pub trait MatmulPrecision: Send + Sync + Clone + 'static {
+pub trait MatmulPrecision: Send + Sync + Copy + 'static {
     const QUANTIZED: bool;
 
     /// Element type of each input tensors of the kernel.
@@ -80,7 +80,7 @@ impl MatmulPrecision for f64 {
     type EO = f64;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ReplaceES<MP: MatmulPrecision, ES: Numeric> {
     _phantom: PhantomData<(ES, MP)>,
 }
@@ -101,7 +101,7 @@ impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision for (EI
     type EO = EO;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Quantized;
 
 impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision
@@ -116,24 +116,6 @@ impl<EI: Numeric, ES: Numeric, EA: Numeric, EO: Numeric> MatmulPrecision
 
 impl MatmulPrecision for SymQ8 {
     const QUANTIZED: bool = true;
-    type EI = i8;
-    type ES = i8;
-    type EA = i32;
-    type EO = i8;
-}
-
-impl MatmulPrecision for i8 {
-    const QUANTIZED: bool = false;
-    type EI = i8;
-    type ES = i8;
-    type EA = i32;
-    type EO = i32;
-}
-
-#[derive(Clone)]
-pub struct I8Float;
-impl MatmulPrecision for I8Float {
-    const QUANTIZED: bool = false;
     type EI = i8;
     type ES = f16;
     type EA = f16;

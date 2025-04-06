@@ -8,7 +8,7 @@ pub enum BufferId {
 }
 
 impl BufferId {
-    pub fn to_u32(&self) -> u32 {
+    pub fn to_index(&self) -> u32 {
         match self {
             BufferId::A => 0,
             BufferId::B => 1,

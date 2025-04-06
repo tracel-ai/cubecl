@@ -147,7 +147,9 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
-    let cuda_ctx = CudaContext::new(memory_management, compilation_options, stream, ctx, arch);
+    device_props.register_feature(Feature::DynamicLineSize);
+
+    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }

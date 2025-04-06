@@ -5,9 +5,8 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::matmul::components::{
-    Ident, MatmulPrecision,
-    global::single_stage::{FullLoader, SyncFullLoader},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::LhsReader},
+    Ident, InputIdent, MatmulPrecision,
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::FullReader},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -21,31 +20,6 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub stage: Stage<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
     #[cube(comptime)]
     _config: PhantomData<G>,
-}
-
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> FullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    type StageReader = LhsReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>;
-
-    fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset);
-    }
-
-    fn reader(this: &Self) -> Self::StageReader {
-        LhsReader::new(this.stage)
-    }
-}
-
-#[cube]
-impl<MP: MatmulPrecision, G: ConvGemmConfig> SyncFullLoader<MP, G> for SimpleIm2colLoader<MP, G> {
-    fn fill_stage(this: &mut Self, #[comptime] config: G) {
-        SimpleIm2col::load_to_slice::<MP, G>(
-            &this.tensor_view,
-            &mut this.stage.as_slice_mut(),
-            Ident::Lhs,
-            config,
-        );
-    }
 }
 
 #[cube]
@@ -81,6 +55,23 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
             stage,
             _config: PhantomData::<G>,
         }
+    }
+
+    pub fn advance_view(this: &mut Self, k_offset: u32) {
+        this.tensor_view.update_view(k_offset);
+    }
+
+    pub fn reader(this: &Self) -> FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>> {
+        FullReader::new(this.stage, InputIdent::Lhs)
+    }
+
+    pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
+        SimpleIm2col::load_to_slice::<MP, G>(
+            &this.tensor_view,
+            &mut this.stage.as_slice_mut(),
+            Ident::Lhs,
+            config,
+        );
     }
 }
 
