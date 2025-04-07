@@ -85,8 +85,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
         &input,
         &mut output,
         axis_reduce,
-        params.line_size_input,
-        params.line_mode,
+        params,
     );
 
     let inst = &R::Instruction::<In>::from_config(config);
