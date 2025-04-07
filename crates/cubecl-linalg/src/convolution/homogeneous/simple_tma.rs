@@ -219,8 +219,6 @@ where
         );
         let size = SMM::stage_shape(&smm_config);
 
-        println!("size: {size:?}");
-
         config::HomogeneousConfig::new(
             single_stage::Config::new(
                 smm_config,

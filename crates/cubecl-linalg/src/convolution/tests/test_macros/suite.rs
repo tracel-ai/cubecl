@@ -52,8 +52,6 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     let out_w =
         calculate_conv_output_size(kernel_size.1, stride.1, padding.1, dilation.1, problem.w);
 
-    println!("{out_h:?}, {out_w:?}");
-
     let problem = ConvolutionProblem {
         m: batches * out_h * out_w,
         n: problem.out_c,
