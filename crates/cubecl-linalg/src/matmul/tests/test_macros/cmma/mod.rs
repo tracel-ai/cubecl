@@ -7,7 +7,7 @@ macro_rules! testgen_matmul_accelerated {
     ($eg:ty, $es:ty) => {
         type Precision = ($eg, $es);
 
-        $crate::matmul_standard_tests!();
+        $crate::matmul_standard_tests!(standard);
     };
 
     ([$($float:ident),*]) => {
@@ -45,7 +45,7 @@ macro_rules! testgen_matmul_tma {
     ($eg:ty, $es:ty) => {
         type Precision = ($eg, $es);
 
-        $crate::matmul_tma_tests!();
+        $crate::matmul_standard_tests!(tma);
     };
 }
 
@@ -59,7 +59,7 @@ macro_rules! testgen_matmul_quantized {
             type Precision = $crate::matmul::tests::SymQ8;
             type TMM = $crate::matmul::components::tile::accelerated::Accelerated;
 
-            $crate::matmul_standard_tests!();
+            $crate::matmul_standard_tests!(standard);
         }
     };
 }
@@ -69,7 +69,7 @@ macro_rules! testgen_matmul_plane {
     ($float:ident) => {
         type Precision = ($eg, $es);
 
-        $crate::matmul_standard_tests!();
+        $crate::matmul_standard_tests!(standard);
     };
 
     ([$($float:ident),*]) => {
