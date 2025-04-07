@@ -99,8 +99,9 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let max_cube_count =
             CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
-        let num_streaming_multiprocessors =
-            Some(get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32);
+        let num_streaming_multiprocessors = Some(
+            get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
+        );
         let num_tensor_cores = tensor_cores_per_sm(arch.version);
 
         comp_opts.warp_size = warp_size;
@@ -114,7 +115,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
             max_units_per_cube: max_threads,
             max_cube_dim,
             num_streaming_multiprocessors,
-            num_tensor_cores
+            num_tensor_cores,
         }
     };
 
