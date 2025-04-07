@@ -99,6 +99,11 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let max_cube_count =
             CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
+        let num_streaming_multiprocessors = Some(
+            get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32,
+        );
+        let num_tensor_cores = tensor_cores_per_sm(arch.version);
+
         comp_opts.warp_size = warp_size;
 
         HardwareProperties {
@@ -109,6 +114,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
             max_cube_count,
             max_units_per_cube: max_threads,
             max_cube_dim,
+            num_streaming_multiprocessors,
+            num_tensor_cores,
         }
     };
 
@@ -149,6 +156,14 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+}
+
+fn tensor_cores_per_sm(version: u32) -> Option<u32> {
+    match version {
+        70 | 75 => Some(8),                           // Volta, Turing
+        80 | 86 | 89 | 90 | 91 | 92 | 100 => Some(4), // Ampere, Hopper, Blackwell
+        _ => None,                                    // Unknown or unsupported architecture
+    }
 }
 
 impl Runtime for CudaRuntime {
