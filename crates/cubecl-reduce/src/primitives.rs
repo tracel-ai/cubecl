@@ -5,14 +5,17 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::BoundChecksInner;
 use crate::LineMode;
+use crate::ReduceParams;
 use crate::instructions::*;
 
 /// A simple range to specify how to iterate a slice when performing a reduction.
 #[derive(CubeType)]
 pub struct ReduceRange {
-    pub start: u32,
-    pub end: u32,
-    pub step: u32,
+    pub index_start: u32,
+    pub index_step: u32,
+    pub coordinate_start: u32,
+    pub coordinate_end: u32,
+    pub coordinate_step: u32,
 }
 
 #[cube]
@@ -22,20 +25,15 @@ impl ReduceRange {
         input: &VirtualTensor<In>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
-        #[comptime] line_size: u32,
-        #[comptime] line_mode: LineMode,
+        #[comptime] params: ReduceParams,
     ) -> ReduceRange {
-        match comptime!(line_mode) {
+        match comptime!(params.line_mode) {
             LineMode::Parallel => {
-                Self::new_parallel::<In, Out>(reduce_index, input, output, axis_reduce, line_size)
+                Self::new_parallel::<In, Out>(reduce_index, input, output, axis_reduce, params)
             }
-            LineMode::Perpendicular => Self::new_perpendicular::<In, Out>(
-                reduce_index,
-                input,
-                output,
-                axis_reduce,
-                line_size,
-            ),
+            LineMode::Perpendicular => {
+                Self::new_perpendicular::<In, Out>(reduce_index, input, output, axis_reduce, params)
+            }
         }
     }
 
@@ -44,22 +42,33 @@ impl ReduceRange {
         input: &VirtualTensor<In>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
-        #[comptime] line_size: u32,
+        #[comptime] params: ReduceParams,
     ) -> ReduceRange {
-        let mut start = 0;
+        let shape_axis = input.shape(axis_reduce);
+
+        let mut index_start = 0;
         for axis in 0..input.rank() {
             let coordinate = output.coordinate(reduce_index, axis);
-            start += coordinate * input.stride(axis);
+            index_start += coordinate * input.stride(axis);
         }
-        start /= line_size;
+        index_start /= params.line_size_input;
 
-        let end = start + input.shape(axis_reduce) / line_size;
-        let end = select(end < input.buffer_len(), end, input.buffer_len());
+        let coordinate_end = shape_axis;
+
+        let coordinate_step = if params.shared.is_some() {
+            CUBE_DIM * params.line_size_input
+        } else if params.use_planes {
+            CUBE_DIM_X * params.line_size_input
+        } else {
+            params.line_size_input
+        };
 
         ReduceRange {
-            start,
-            end,
-            step: 1,
+            index_start,
+            index_step: 1,
+            coordinate_start: 0,
+            coordinate_end,
+            coordinate_step,
         }
     }
 
@@ -68,21 +77,36 @@ impl ReduceRange {
         input: &VirtualTensor<In>,
         output: &mut VirtualTensor<Out, ReadWrite>,
         axis_reduce: u32,
-        #[comptime] line_size: u32,
+        #[comptime] params: ReduceParams,
     ) -> ReduceRange {
-        let mut start = 0;
+        let shape_axis = input.shape(axis_reduce);
+
+        let mut index_start = 0;
         for axis in 0..input.rank() {
-            let coordinate = output.coordinate(reduce_index * line_size, axis);
-            start += coordinate * input.stride(axis);
+            let coordinate = output.coordinate(reduce_index * params.line_size_input, axis);
+            index_start += coordinate * input.stride(axis);
         }
-        start /= line_size;
+        index_start /= params.line_size_input;
 
-        let step = input.stride(axis_reduce) / line_size;
+        let index_step = input.stride(axis_reduce) / params.line_size_input;
 
-        let end = start + input.shape(axis_reduce) * step;
-        let end = select(end < input.buffer_len(), end, input.buffer_len());
+        let coordinate_end = shape_axis;
 
-        ReduceRange { start, end, step }
+        let coordinate_step = if params.shared.is_some() {
+            CUBE_DIM
+        } else if params.use_planes {
+            CUBE_DIM_X
+        } else {
+            1_u32
+        };
+
+        ReduceRange {
+            index_start,
+            index_step,
+            coordinate_start: 0,
+            coordinate_step,
+            coordinate_end,
+        }
     }
 }
 
@@ -103,10 +127,13 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
     #[comptime] line_mode: LineMode,
 ) -> R::AccumulatorItem {
     let mut accumulator = R::null_accumulator(inst, line_size);
-    let mut index = range.start;
-    let mut coordinate = 0;
 
-    while index < range.end {
+    let mut index = range.index_start;
+    for coordinate in range_stepped(
+        range.coordinate_start,
+        range.coordinate_end,
+        range.coordinate_step,
+    ) {
         let requirements = R::requirements(inst);
         let coordinates = if comptime![requirements.coordinates] {
             ReduceCoordinate::new_Required(fill_coordinate_line(coordinate, line_size, line_mode))
@@ -120,8 +147,7 @@ pub fn reduce_slice<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>(
             coordinates,
             false,
         );
-        index += range.step;
-        coordinate += 1;
+        index += range.index_step;
     }
 
     accumulator
@@ -148,15 +174,26 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
     #[comptime] line_mode: LineMode,
     #[comptime] bound_checks: BoundChecksInner,
 ) -> R::AccumulatorItem {
+    let plane_dim = CUBE_DIM_X;
+
     let mut accumulator = R::null_accumulator(inst, line_size);
 
-    let mut first_index = range.start;
-    let mut first_coordinate = 0;
-    while first_index < range.end {
+    let mut first_index = range.index_start;
+    for first_coordinate in range_stepped(
+        range.coordinate_start,
+        range.coordinate_end,
+        range.coordinate_step,
+    ) {
+        let unit_coordinate_offset = match line_mode {
+            LineMode::Parallel => UNIT_POS_X * line_size,
+            LineMode::Perpendicular => UNIT_POS_X,
+        };
+        let unit_coordinate = first_coordinate + unit_coordinate_offset;
+
         let requirements = R::requirements(inst);
         let coordinates = if comptime![requirements.coordinates] {
             ReduceCoordinate::new_Required(fill_coordinate_line(
-                first_coordinate + UNIT_POS_X,
+                unit_coordinate,
                 line_size,
                 line_mode,
             ))
@@ -164,16 +201,16 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
             ReduceCoordinate::new_NotRequired()
         };
 
-        let index = first_index + UNIT_POS_X * range.step;
+        let index = first_index + UNIT_POS_X * range.index_step;
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
             BoundChecksInner::Mask => {
-                let mask = index < range.end;
+                let mask = unit_coordinate < range.coordinate_end;
                 let index = index * u32::cast_from(mask);
                 select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
-                if index < range.end {
+                if unit_coordinate < range.coordinate_end {
                     items.read(index)
                 } else {
                     R::null_input(inst, line_size)
@@ -183,9 +220,7 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
 
         reduce_inplace::<N, R>(inst, &mut accumulator, item, coordinates, true);
 
-        let plane_dim = CUBE_DIM_X;
-        first_index += plane_dim * range.step;
-        first_coordinate += plane_dim;
+        first_index += plane_dim * range.index_step;
     }
     accumulator
 }
@@ -226,19 +261,29 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         R::null_accumulator(inst, line_size),
     );
 
-    let mut first_index = range.start;
-    let mut first_coordinate = 0;
-    while first_index < range.end {
-        let index = first_index + UNIT_POS * range.step;
+    let mut first_index = range.index_start;
+    for first_coordinate in range_stepped(
+        range.coordinate_start,
+        range.coordinate_end,
+        range.coordinate_step,
+    ) {
+        let unit_coordinate_offset = match line_mode {
+            LineMode::Parallel => UNIT_POS * line_size,
+            LineMode::Perpendicular => UNIT_POS,
+        };
+        let unit_coordinate = first_coordinate + unit_coordinate_offset;
+
+        let index = first_index + UNIT_POS * range.index_step;
+
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
             BoundChecksInner::Mask => {
-                let mask = index < range.end;
+                let mask = unit_coordinate < range.coordinate_end;
                 let index = index * u32::cast_from(mask);
                 select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
-                if index < range.end {
+                if unit_coordinate < range.coordinate_end {
                     items.read(index)
                 } else {
                     R::null_input(inst, line_size)
@@ -247,10 +292,9 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         };
 
         let coordinates = if comptime! {requirements.coordinates} {
-            let coordinate =
-                fill_coordinate_line(first_coordinate + UNIT_POS, line_size, line_mode);
+            let coordinate = fill_coordinate_line(unit_coordinate, line_size, line_mode);
             let coordinate = select(
-                index < range.end,
+                unit_coordinate < range.coordinate_end,
                 coordinate,
                 Line::empty(line_size).fill(u32::MAX),
             );
@@ -268,13 +312,12 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
             coordinates,
             use_planes,
         );
-        first_index += range.step * CUBE_DIM;
-        first_coordinate += CUBE_DIM;
+        first_index += range.index_step * CUBE_DIM;
     }
     accumulator
 }
 
-// If line mode is parallel, fill a line with `x, x+1, ... x+ line_size - 1` where `x = first * line_size`.
+// If line mode is parallel, fill a line with `x, x+1, ... x+ line_size - 1` where `x = first`.
 // If line mode is perpendicular, fill a line with `x, x, ... x` where `x = first`.
 #[cube]
 fn fill_coordinate_line(
@@ -284,7 +327,7 @@ fn fill_coordinate_line(
 ) -> Line<u32> {
     match comptime!(line_mode) {
         LineMode::Parallel => {
-            let mut coordinates = Line::empty(line_size).fill(first * line_size);
+            let mut coordinates = Line::empty(line_size).fill(first);
             if line_size > 1 {
                 #[unroll]
                 for j in 0..line_size {

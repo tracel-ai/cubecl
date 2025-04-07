@@ -193,6 +193,12 @@ macro_rules! testgen_reduce {
                     shape: [8, 8],
                     stride: [64, 1],
                     axis: 0,
+                },
+                {
+                    id: "broadcast_slice_0",
+                    shape: [4, 32],
+                    stride: [0, 1],
+                    axis: 0,
                 }
             ]
         );
@@ -327,7 +333,10 @@ impl TestCase {
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmax(&input_values);
+        let expected_values = match self.axis {
+            Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
+            _ => self.cpu_argmax(&input_values),
+        };
         self.run_reduce_test::<F, u32, R, ArgMax>(device, input_values, expected_values)
     }
 
@@ -351,7 +360,10 @@ impl TestCase {
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_argmin(&input_values);
+        let expected_values = match self.axis {
+            Some(axis) if self.stride[axis] == 0 => vec![0; input_values.len()],
+            _ => self.cpu_argmin(&input_values),
+        };
         self.run_reduce_test::<F, u32, R, ArgMin>(device, input_values, expected_values)
     }
 
@@ -375,7 +387,10 @@ impl TestCase {
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_mean(&input_values);
+        let expected_values = match self.axis {
+            Some(axis) if self.stride[axis] == 0 => input_values.clone(),
+            _ => self.cpu_mean(&input_values),
+        };
         self.run_reduce_test::<F, F, R, Mean>(device, input_values, expected_values)
     }
 
@@ -392,8 +407,22 @@ impl TestCase {
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_prod(&input_values);
+        let expected_values = match self.axis {
+            Some(axis) if self.stride[axis] == 0 => input_values
+                .iter()
+                .map(|v| Self::powf(*v, self.shape[axis]))
+                .collect(),
+            _ => self.cpu_prod(&input_values),
+        };
         self.run_reduce_test::<F, F, R, Prod>(device, input_values, expected_values)
+    }
+
+    fn powf<F: Float>(base: F, power: usize) -> F {
+        let mut result = F::new(1.0);
+        for _ in 0..power {
+            result *= base;
+        }
+        result
     }
 
     fn cpu_prod<F: Float>(&self, values: &[F]) -> Vec<F> {
@@ -413,7 +442,13 @@ impl TestCase {
         R: Runtime,
     {
         let input_values: Vec<F> = self.random_input_values();
-        let expected_values = self.cpu_sum(&input_values);
+        let expected_values = match self.axis {
+            Some(axis) if self.stride[axis] == 0 => input_values
+                .iter()
+                .map(|v| *v * F::from_int(self.shape[axis] as i64))
+                .collect(),
+            _ => self.cpu_sum(&input_values),
+        };
         self.run_reduce_test::<F, F, R, Sum>(device, input_values, expected_values)
     }
 
@@ -498,7 +533,6 @@ impl TestCase {
         let binding = output_handle.binding();
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
-
         assert_approx_equal(output_values, &expected_values);
     }
 
@@ -550,7 +584,13 @@ impl TestCase {
             .stride
             .iter()
             .zip(self.shape.iter())
-            .map(|(stride, shape)| (index / stride) % shape)
+            .map(|(stride, shape)| {
+                if *stride > 0 {
+                    (index / stride) % shape
+                } else {
+                    index % shape
+                }
+            })
             .collect::<Vec<usize>>();
         self.validate_input_index(index, &coordinate)
             .then_some(coordinate)
