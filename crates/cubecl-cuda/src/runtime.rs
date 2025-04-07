@@ -99,6 +99,10 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let max_cube_count =
             CubeDim::new_3d(grid_dim_x as u32, grid_dim_y as u32, grid_dim_z as u32);
 
+        let num_streaming_multiprocessors =
+            Some(get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT).unwrap() as u32);
+        let num_tensor_cores = tensor_cores_per_sm(arch.version);
+
         comp_opts.warp_size = warp_size;
 
         HardwareProperties {
@@ -109,6 +113,8 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
             max_cube_count,
             max_units_per_cube: max_threads,
             max_cube_dim,
+            num_streaming_multiprocessors,
+            num_tensor_cores
         }
     };
 
@@ -149,6 +155,21 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+}
+
+fn tensor_cores_per_sm(version: u32) -> Option<u32> {
+    match version {
+        70 => Some(8),   // Volta (SM 7.0)
+        75 => Some(8),   // Turing (SM 7.5)
+        80 => Some(4),   // Ampere A100 (SM 8.0)
+        86 => Some(16),  // Ampere GA10x (SM 8.6)
+        89 => Some(16),  // Ampere GA10B (SM 8.9, Jetson Orin)
+        90 => Some(64),  // Hopper H100 (SM 9.0)
+        91 => Some(64),  // Hopper L40S (SM 9.1)
+        92 => Some(64),  // Hopper H200 (SM 9.2)
+        100 => Some(64), // Blackwell (SM 10.0, est.)
+        _ => None,       // Unknown or unsupported architecture
+    }
 }
 
 impl Runtime for CudaRuntime {
