@@ -1,5 +1,6 @@
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
+use crate::matmul::components::global::load::strategy::base::default_sync_full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, StridedTilingLayout};
@@ -8,12 +9,30 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::SyncFullCyclicLoadingInfo;
+use super::LoadingInfo;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
 pub struct SyncFullStridedLoading {}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct SyncFullStridedLoadingInfo {
+    pub unit_position_base: u32,
+    #[cube(comptime)]
+    pub num_tasks: u32,
+    #[cube(comptime)]
+    pub unit_count: u32,
+    #[cube(comptime)]
+    pub line_size: u32,
+}
+
+#[cube]
+impl LoadingInfo for SyncFullStridedLoadingInfo {
+    fn num_tasks(this: &Self) -> u32 {
+        comptime!(this.num_tasks)
+    }
+}
 
 impl LoadingValidation for SyncFullStridedLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
@@ -37,7 +56,7 @@ impl LoadingValidation for SyncFullStridedLoading {
 #[cube]
 impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type LoadingInfo = SyncFullCyclicLoadingInfo; // TODO change
+    type LoadingInfo = SyncFullStridedLoadingInfo;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -46,35 +65,27 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let tiling = config.tiling_dimensions(input_ident);
-        let line_size = config.global_line_size(input_ident);
-        let num_stage_lines = tiling.total_size() / line_size;
-        let unit_count = config.num_planes() * config.plane_dim();
-        let num_loads_per_unit = comptime!(num_stage_lines / unit_count);
-
-        let unit_base_position = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
-
-        for i in 0..num_loads_per_unit {
-            let unit_position = unit_base_position + i * unit_count;
-
-            let line_read = read_view.load_coalesced_in_stage::<G>(
-                unit_position * line_size,
-                input_ident,
-                config,
-            );
-
-            stage.as_slice_mut()[unit_position] = match quantization {
-                CubeOption::Some(quantization) => quantization.dequantize(line_read),
-                CubeOption::None => Line::cast_from(line_read),
-            }
-        }
+        default_sync_full_load::<Self, MP, G>(read_view, stage, quantization, input_ident, config)
     }
 
     fn preliminary_computation<G: GlobalConfig>(
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::LoadingInfo {
-        todo!()
+        let tiling = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
+        let num_stage_lines = tiling.total_size() / line_size;
+        let unit_count = config.num_planes() * config.plane_dim();
+        let num_tasks = comptime!(num_stage_lines / unit_count);
+
+        let unit_position_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+
+        SyncFullStridedLoadingInfo {
+            unit_position_base,
+            num_tasks,
+            unit_count,
+            line_size,
+        }
     }
 
     fn load_task<MP: MatmulPrecision, G: GlobalConfig>(
@@ -86,6 +97,17 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        todo!()
+        let unit_position = loading_info.unit_position_base + task_id * loading_info.unit_count;
+
+        let line_read = read_view.load_coalesced_in_stage::<G>(
+            unit_position * loading_info.line_size,
+            input_ident,
+            config,
+        );
+
+        stage.as_slice_mut()[unit_position] = match quantization {
+            CubeOption::Some(quantization) => quantization.dequantize(line_read),
+            CubeOption::None => Line::cast_from(line_read),
+        }
     }
 }
