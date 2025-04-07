@@ -70,7 +70,6 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        runtime_args: RuntimeArgs,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -96,12 +95,7 @@ where
             sync_units();
 
             Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage(
-                &mut rhs_loader,
-                &barrier,
-                runtime_args.padded_channels,
-                config.to_smm_config(),
-            );
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config.to_smm_config());
 
             if UNIT_POS == 0 {
                 let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
@@ -143,17 +137,17 @@ where
         lhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, config)
+        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
     }
 
     fn init_rhs_loader(
         rhs: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
         Self::RhsLoader::new::<Self::Config>(
@@ -161,6 +155,7 @@ where
             x_offset,
             y_offset,
             CubeOption::new_None(),
+            runtime_args,
             config,
         )
     }
@@ -224,6 +219,8 @@ where
         );
         let size = SMM::stage_shape(&smm_config);
 
+        println!("size: {size:?}");
+
         config::HomogeneousConfig::new(
             single_stage::Config::new(
                 smm_config,
@@ -238,8 +235,6 @@ where
                 problem.out_line_size as u32,
                 size.k,
             ),
-            (problem.out_h as u32, problem.out_w as u32),
-            problem.padded_channels,
             problem.kernel_size,
             problem.stride,
             problem.dilation,
@@ -265,12 +260,22 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         input: InputRuntimeArg<'a, MS, R>,
         bias: Option<TensorArg<'a, R>>,
         output: OutputRuntimeArg<'a, MS, R>,
+        problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
+        let tiling_dims = config.tiling_dimensions(Ident::Lhs);
+        let padded_channels =
+            (problem.channels as u32).next_multiple_of(tiling_dims.tile_shape_col());
+
+        let size_m = problem.batches * problem.out_h * problem.out_w;
+        let size_k = config.kernel_size(0) * config.kernel_size(1) * padded_channels;
+
         let runtime_args = RuntimeArgsLaunch::new(
-            FastDivmodArgs::new(client, config.padded_channels()),
-            ScalarArg::new(config.out_shape(0)),
-            ScalarArg::new(config.out_shape(1)),
+            ScalarArg::new(size_m as u32),
+            ScalarArg::new(size_k),
+            FastDivmodArgs::new(client, padded_channels),
+            FastDivmodArgs::new(client, problem.out_h as u32),
+            FastDivmodArgs::new(client, problem.out_w as u32),
         );
 
         unsafe {

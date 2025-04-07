@@ -17,9 +17,11 @@ use super::ConvGemmConfig;
 
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct RuntimeArgs {
+    pub size_m: u32,
+    pub size_k: u32,
     pub padded_channels: FastDivmod,
-    pub out_h: u32,
-    pub out_w: u32,
+    pub out_h: FastDivmod,
+    pub out_w: FastDivmod,
 }
 
 pub trait ConvolutionFamily:
@@ -51,7 +53,6 @@ pub trait Convolution<MP: MatmulPrecision>: 'static + Send + Sync {
         unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        runtime_args: RuntimeArgs,
         #[comptime] config: Self::Config,
     );
 
@@ -123,6 +124,7 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
         input: InputRuntimeArg<'a, MS, R>,
         bias: Option<TensorArg<'a, R>>,
         output: OutputRuntimeArg<'a, MS, R>,
+        problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     );
 }
@@ -139,7 +141,6 @@ pub struct ConvolutionProblem {
     pub rhs_line_size: u8,
     pub out_line_size: u8,
 
-    pub padded_channels: u32,
     pub kernel_size: (u32, u32),
     pub stride: (u32, u32),
     pub padding: (i32, i32),

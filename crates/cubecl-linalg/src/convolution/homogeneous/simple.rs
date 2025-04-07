@@ -68,7 +68,6 @@ where
         mut out_unloader: Self::Out,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
-        _runtime_args: RuntimeArgs,
         #[comptime] config: Self::Config,
     ) {
         let k_step = config.k_step;
@@ -129,14 +128,7 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
-            lhs,
-            runtime_args.out_h,
-            runtime_args.out_w,
-            x_offset,
-            y_offset,
-            config,
-        )
+        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
     }
 
     fn init_rhs_loader(
@@ -232,8 +224,6 @@ where
                 problem.out_line_size as u32,
                 size.k,
             ),
-            (problem.out_h as u32, problem.out_w as u32),
-            problem.padded_channels,
             problem.kernel_size,
             problem.stride,
             problem.dilation,
@@ -259,12 +249,18 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         input: InputRuntimeArg<'a, MS, R>,
         bias: Option<TensorArg<'a, R>>,
         output: OutputRuntimeArg<'a, MS, R>,
+        problem: &ConvolutionProblem,
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
+        let size_m = problem.batches * problem.out_h * problem.out_w;
+        let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
+
         let runtime_args = RuntimeArgsLaunch::new(
-            FastDivmodArgs::new(client, config.padded_channels()),
-            ScalarArg::new(config.out_shape(0)),
-            ScalarArg::new(config.out_shape(1)),
+            ScalarArg::new(size_m as u32),
+            ScalarArg::new(size_k),
+            FastDivmodArgs::new(client, problem.channels as u32),
+            FastDivmodArgs::new(client, problem.out_h as u32),
+            FastDivmodArgs::new(client, problem.out_w as u32),
         );
 
         unsafe {

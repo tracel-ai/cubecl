@@ -815,36 +815,24 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { *state.1 }
     }
 
-    fn shape_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.1).shape(dim) }
     }
 
     fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
         unsafe { &*state.2 }.shape(dim)
     }
 
-    fn stride_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { &*state.0 }.stride(dim)
     }
 
-    fn stride_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { &*state.1 }.stride(dim)
     }
 
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {

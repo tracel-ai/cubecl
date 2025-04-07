@@ -78,7 +78,7 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         };
 
         let upper_corner_h =
-            problem.padding.0 - (problem.kernel_size.0 * problem.dilation.0 - 1) as i32;
+            problem.padding.0 - ((problem.kernel_size.0 - 1) * problem.dilation.0) as i32;
         let upper_corner_w =
             problem.padding.1 - ((problem.kernel_size.1 - 1) * problem.dilation.1) as i32;
         let lhs = TensorMapArg::new(

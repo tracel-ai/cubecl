@@ -109,7 +109,7 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
         .defined_plane_size()
         .unwrap_or(32);
 
-    let mut problem = ConvolutionProblem {
+    let problem = ConvolutionProblem {
         m: n * out_h * out_w,
         n: out_c,
         k: c * kh * kw,
@@ -118,7 +118,6 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
         lhs_line_size,
         rhs_line_size,
         out_line_size,
-        padded_channels: 0,
         kernel_size: (kh as u32, kw as u32),
         stride: (stride.0 as u32, stride.1 as u32),
         padding: (padding.0 as i32, padding.1 as i32),
@@ -139,7 +138,6 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     // This may improve memory coalescing, and is necessary for TMA to work properly
     // In practice, this is usually already aligned anyways, since channels tend to be a power of
     // two.
-    problem.padded_channels = (c as u32).next_multiple_of(selection.tile_shape.k);
 
     launch_kernel::<R, MP, Alg>(
         client,
@@ -223,7 +221,7 @@ where
 
     unsafe {
         Alg::GlobalConvolution::launch_unchecked::<MS, R>(
-            client, cube_dim, cube_count, input, bias, output, config,
+            client, cube_dim, cube_count, input, bias, output, &problem, config,
         );
     }
 

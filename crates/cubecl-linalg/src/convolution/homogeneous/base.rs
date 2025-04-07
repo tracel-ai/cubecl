@@ -45,7 +45,7 @@ pub(crate) fn implicit_conv<
 
     let x_offset = CUBE_POS_X * config.tiling_dimensions(Ident::Lhs).total_row();
     let y_offset = CUBE_POS_Y * config.tiling_dimensions(Ident::Rhs).total_col();
-    let k_range = (0, rhs.shape(0));
+    let k_range = (0, runtime_args.size_k);
 
     let bias = match bias {
         CubeOption::Some(bias) => {
@@ -73,7 +73,6 @@ pub(crate) fn implicit_conv<
         GMM::Convolution::<(EI, ES, EA, EO)>::init_unloader(out, x_offset, y_offset),
         &mut GMM::Convolution::<(EI, ES, EA, EO)>::init_accumulator(config),
         k_range,
-        runtime_args,
         config,
     );
 }
@@ -92,8 +91,6 @@ pub mod config {
     #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
     pub struct HomogeneousConfig<M: GlobalConfig> {
         matmul: M,
-        out_shape: (u32, u32),
-        padded_channels: u32,
         kernel_size: (u32, u32),
         stride: (u32, u32),
         dilation: (u32, u32),
@@ -153,18 +150,6 @@ pub mod config {
     }
 
     impl<M: GlobalConfig> ConvGemmConfig for HomogeneousConfig<M> {
-        fn out_shape(&self, dim: u32) -> u32 {
-            match dim {
-                0 => self.out_shape.0,
-                1 => self.out_shape.1,
-                _ => unreachable!(),
-            }
-        }
-
-        fn padded_channels(&self) -> u32 {
-            self.padded_channels
-        }
-
         fn kernel_size(&self, dim: u32) -> u32 {
             match dim {
                 0 => self.kernel_size.0,
@@ -204,8 +189,6 @@ pub mod config {
         #[allow(clippy::too_many_arguments)]
         pub fn new(
             matmul: M,
-            out_shape: (u32, u32),
-            padded_channels: u32,
             kernel_size: (u32, u32),
             stride: (u32, u32),
             dilation: (u32, u32),
@@ -213,8 +196,6 @@ pub mod config {
         ) -> Self {
             Self {
                 matmul,
-                out_shape,
-                padded_channels,
                 kernel_size,
                 stride,
                 dilation,

@@ -40,19 +40,21 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         }
     };
 
-    // TODO: Test more params
-    let batches = 2;
-    let kernel_size = (3, 3);
+    // TODO: Automate more params
+    let batches = 1;
+    let kernel_size = (4, 3);
     let stride = (1, 1);
-    let padding = (1, 1);
-    let dilation = (1, 1);
+    let padding = (3, 1);
+    let dilation = (3, 2);
 
     let out_h =
         calculate_conv_output_size(kernel_size.0, stride.0, padding.0, dilation.0, problem.h);
     let out_w =
         calculate_conv_output_size(kernel_size.1, stride.1, padding.1, dilation.1, problem.w);
 
-    let mut problem = ConvolutionProblem {
+    println!("{out_h:?}, {out_w:?}");
+
+    let problem = ConvolutionProblem {
         m: batches * out_h * out_w,
         n: problem.out_c,
         k: kernel_size.0 as usize * kernel_size.1 as usize * problem.c,
@@ -61,7 +63,6 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         lhs_line_size: 1,
         rhs_line_size: 1,
         out_line_size: 1,
-        padded_channels: 0,
         kernel_size,
         stride,
         padding,
@@ -83,10 +84,6 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,
     };
-
-    problem.padded_channels = problem
-        .channels
-        .next_multiple_of(selection.tile_shape.k as usize) as u32;
 
     test_convolution_algorithm::<A, Args, P, R>(
         client,
@@ -177,6 +174,20 @@ macro_rules! conv2d_standard_tests {
                 ConvolutionSize {
                     h: 4,
                     w: 4,
+                    c: 1,
+                    out_c: 1
+                }
+            );
+        }
+
+        mod p17x17x1x1 {
+            use super::*;
+            $crate::conv2d_standard_tests!(
+                $tile,
+                $stage,
+                ConvolutionSize {
+                    h: 17,
+                    w: 17,
                     c: 1,
                     out_c: 1
                 }
@@ -288,7 +299,7 @@ macro_rules! conv2d_standard_tests {
         use $crate::matmul::components::global::args::{TensorArgs, TensorMapArgs};
 
         #[test]
-        pub fn simple_coalesced() {
+        pub fn simple_coalesced_im2col() {
             cubecl_linalg::convolution::tests::test_algo::<
                 SimpleConvAlgorithm<TMM>,
                 TensorArgs,
@@ -298,7 +309,7 @@ macro_rules! conv2d_standard_tests {
         }
 
         #[test]
-        pub fn simple_tma() {
+        pub fn simple_tma_im2col() {
             cubecl_linalg::convolution::tests::test_algo::<
                 SimpleTmaConvAlgorithm<TMM>,
                 TensorMapArgs,

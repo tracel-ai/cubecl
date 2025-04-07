@@ -146,6 +146,10 @@ where
     let kh = problem.kernel_size.0 as usize;
     let kw = problem.kernel_size.1 as usize;
 
+    let padding = problem.padding;
+    let stride = problem.stride;
+    let dilation = problem.dilation;
+
     let mut out = vec![P::EA::from_int(0); n * out_h * out_w * out_channels];
 
     for nth_batch in 0..n {
@@ -167,8 +171,12 @@ where
                             for kx in 0..kw {
                                 let weight_pos = weight_offset + kx * c * out_channels;
 
-                                let in_y = out_y as i32 + ky as i32 - problem.padding.0;
-                                let in_x = out_x as i32 + kx as i32 - problem.padding.1;
+                                let in_y = out_y as i32 * stride.0 as i32
+                                    + ky as i32 * dilation.0 as i32
+                                    - padding.0;
+                                let in_x = out_x as i32 * stride.1 as i32
+                                    + kx as i32 * dilation.1 as i32
+                                    - padding.1;
 
                                 if in_y >= 0 && in_y < h as i32 && in_x >= 0 && in_x < w as i32 {
                                     let in_pos =

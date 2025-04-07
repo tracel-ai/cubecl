@@ -1,13 +1,9 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
-use crate::{
-    convolution::ConvGemmConfig,
-    matmul::components::{InputIdent, stage::Stage},
-};
 use crate::{
     convolution::reader::tma::Im2colTmaReader,
     matmul::components::{
@@ -16,6 +12,10 @@ use crate::{
             ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, multi_buffer::FullReader,
         },
     },
+};
+use crate::{
+    convolution::{ConvGemmConfig, base::RuntimeArgs},
+    matmul::components::{InputIdent, stage::Stage},
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
@@ -26,6 +26,7 @@ pub type TmaIm2colReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaIm2col
 pub struct TmaIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<MP::EI>,
     pub stage: Stage<MP::ES, ContiguousTilingLayout<ColMajorTilingOrder>>,
+    padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<G>,
 }
@@ -36,21 +37,20 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         tensor: VirtualTensor<MP::EI>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
 
-        let height = tensor.shape(1);
-        let width = tensor.shape(2);
-
-        let (w_offset, nh_offset) = (x_offset % width, x_offset / width);
-        let (h_offset, n_offset) = (nh_offset % height, nh_offset / height);
+        let (nh_offset, w_offset) = runtime_args.out_w.div_mod(x_offset);
+        let (n_offset, h_offset) = runtime_args.out_h.div_mod(nh_offset);
 
         let map = Im2colTmaReader::<MP::EI>::new(tensor, n_offset, h_offset, w_offset, y_offset);
 
         TmaIm2colLoader::<MP, G> {
             map,
             stage,
+            padded_channels: runtime_args.padded_channels,
             _config: PhantomData::<G>,
         }
     }
@@ -64,25 +64,30 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
             let slice_size = m_size * k_size;
             let mut full_stage = this.stage.as_slice_mut();
             let tensor = this.map.tensor.try_cast_unchecked();
-            let channels = config.padded_channels();
+
+            let in_h = (this.map.h_offset * config.stride(0)) as i32 - config.padding(0);
+            let in_w = (this.map.w_offset * config.stride(1)) as i32 - config.padding(1);
 
             #[unroll]
             for tile_k in 0..tiling_dims.tile_count_col() {
                 let k = this.map.k_offset + tile_k * k_size;
-                let (channel_start, k_idx) = (k % channels, k / channels);
-                let (k_x, k_y) = (k_idx % config.kernel_size(1), k_idx / config.kernel_size(0));
+                let (k_idx, channel_start) = this.padded_channels.div_mod(k);
+                let (k_x, k_y) = (k_idx % config.kernel_size(1), k_idx / config.kernel_size(1));
                 let slice_start = tile_k * slice_size;
                 let mut stage = full_stage.slice_mut(slice_start, slice_start + slice_size);
+
+                let offset_y = k_y * config.dilation(0);
+                let offset_x = k_x * config.dilation(1);
 
                 bar.tma_load_im2col_4d(
                     &tensor,
                     &mut stage,
                     this.map.n_offset as i32,
-                    this.map.h_offset as i32 - config.padding(0),
-                    this.map.w_offset as i32 - config.padding(1),
+                    in_h,
+                    in_w,
                     channel_start as i32,
-                    k_y as u16,
-                    k_x as u16,
+                    offset_y as u16,
+                    offset_x as u16,
                 );
             }
         }

@@ -105,9 +105,12 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &problem.as_matmul_problem(),
     );
 
+    // println!("lhs: {:?}\n", lhs.original_data.as_ref().unwrap());
+    // println!("rhs: {:?}\n", rhs.original_data.as_ref().unwrap());
+
     unsafe {
         A::GlobalConvolution::launch_unchecked::<((P::EG, P::ES, P::EA, P::EG), Args), R>(
-            &client, cube_dim, cube_count, inputs, None, output, config,
+            &client, cube_dim, cube_count, inputs, None, output, &problem, config,
         );
     }
 

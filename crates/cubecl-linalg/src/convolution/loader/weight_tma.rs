@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{CubeOption, FastDivmod};
 
-use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision, global::Quantization, stage::multi_buffer::FullReader,
 };
@@ -12,6 +11,7 @@ use crate::matmul::components::{
     global::{self, tensor_view::MappedTensorReader},
     stage::{ContiguousTilingLayout, Stage, StageConfig},
 };
+use crate::{convolution::base::RuntimeArgs, matmul::components::stage::RowMajorTilingOrder};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 pub type TmaWeightReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaWeightTiling>;
@@ -20,6 +20,7 @@ pub type TmaWeightReader<MP> = FullReader<<MP as MatmulPrecision>::ES, TmaWeight
 pub struct TmaWeightLoader<MP: MatmulPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<MP::EI>,
     pub stage: Stage<MP::ES, TmaWeightTiling>,
+    padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<S>,
 }
@@ -31,6 +32,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         x: u32,
         y: u32,
         quantization: CubeOption<Quantization<MP>>,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
         comptime! {
@@ -46,16 +48,12 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
         TmaWeightLoader::<MP, S> {
             tensor_view,
             stage,
+            padded_channels: runtime_args.padded_channels,
             _config: PhantomData::<S>,
         }
     }
 
-    pub fn fill_stage(
-        this: &mut Self,
-        barrier: &Barrier<MP::ES>,
-        padded_channels: FastDivmod,
-        #[comptime] config: S,
-    ) {
+    pub fn fill_stage(this: &mut Self, barrier: &Barrier<MP::ES>, #[comptime] config: S) {
         if UNIT_POS == 0 {
             let k = this.tensor_view.tile_x;
             let out_c = this.tensor_view.tile_y;
@@ -71,7 +69,7 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
 
                 let k = x * tiling_dims.tile_shape_row() + k;
                 let out_c = y * tiling_dims.tile_shape_col() + out_c;
-                let (in_c, k_idx) = padded_channels.div_mod(k);
+                let (k_idx, in_c) = this.padded_channels.div_mod(k);
 
                 barrier.tma_load_3d(&tensor, &mut slice, k_idx as i32, in_c as i32, out_c as i32);
             }
