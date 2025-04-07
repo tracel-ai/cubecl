@@ -3,8 +3,11 @@ use std::marker::PhantomData;
 use cubecl_core::{CubeCount, CubeDim};
 
 use crate::{
-    convolution::{base::ConvolutionProblem, homogeneous::simple_tma::SimpleTmaConvolutionFamily},
-    matmul::components::{MatmulSelection, stage, tile::TileMatmulFamily},
+    convolution::{
+        base::{ConvolutionConfigFactory, ConvolutionProblem},
+        homogeneous::simple_tma::SimpleTmaConvolutionFamily,
+    },
+    matmul::components::{InvalidConfigError, MatmulSelection, stage, tile::TileMatmulFamily},
 };
 
 use super::Algorithm;
@@ -31,4 +34,60 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
 
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
     }
+
+    fn make_config(
+        input: <Self::GlobalConvolution as ConvolutionConfigFactory>::Input,
+        problem: &ConvolutionProblem,
+        cube_dim: &CubeDim,
+        cube_count: &CubeCount,
+    ) -> Result<<Self::GlobalConvolution as ConvolutionConfigFactory>::Config, InvalidConfigError>
+    {
+        check_problem_tma(problem)?;
+
+        let config = Self::GlobalConvolution::make_config(input, problem, cube_dim, cube_count);
+        Self::GlobalConvolution::check_config(&config)?;
+        Ok(config)
+    }
+}
+
+fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {
+    fn check_range(
+        value: isize,
+        name: &str,
+        min: isize,
+        max: isize,
+    ) -> Result<(), InvalidConfigError> {
+        if value < min || value > max {
+            Err(Box::new(format!(
+                "value {name} outside of valid range ({min}, {max})"
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
+    let corner = calculate_upper_corner(problem.padding, problem.kernel_size, problem.dilation);
+    check_range(corner[0] as isize, "corner_h", -128, 127)?;
+    check_range(corner[1] as isize, "corner_w", -128, 127)?;
+
+    let offset_h = (problem.kernel_size.0 - 1) * problem.dilation.0;
+    let offset_w = (problem.kernel_size.1 - 1) * problem.dilation.1;
+    check_range(offset_h as isize, "kernel size h", 0, 255)?;
+    check_range(offset_w as isize, "kernel size w", 0, 255)?;
+
+    check_range(problem.stride.0 as isize, "stride_h", 1, 8)?;
+    check_range(problem.stride.1 as isize, "stride_w", 1, 8)?;
+
+    Ok(())
+}
+
+pub fn calculate_upper_corner(
+    padding: (i32, i32),
+    kernel_size: (u32, u32),
+    dilation: (u32, u32),
+) -> Vec<i32> {
+    let corner_h = padding.0 - (kernel_size.0 - 1) as i32 * dilation.0 as i32;
+    let corner_w = padding.1 - (kernel_size.1 - 1) as i32 * dilation.1 as i32;
+
+    vec![corner_h, corner_w]
 }

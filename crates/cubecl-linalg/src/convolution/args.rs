@@ -3,9 +3,12 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, server::TensorMapMeta};
 
-use crate::matmul::components::{
-    MatmulSelection,
-    global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+use crate::{
+    convolution::algorithm::simple_tma::calculate_upper_corner,
+    matmul::components::{
+        MatmulSelection,
+        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+    },
 };
 
 use super::base::ConvolutionProblem;
@@ -77,14 +80,14 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
             EI::as_elem_native_unchecked()
         };
 
-        let upper_corner_h =
-            problem.padding.0 - ((problem.kernel_size.0 - 1) * problem.dilation.0) as i32;
-        let upper_corner_w =
-            problem.padding.1 - ((problem.kernel_size.1 - 1) * problem.dilation.1) as i32;
         let lhs = TensorMapArg::new(
             TensorMapFormat::Im2col {
                 pixel_box_lower_corner: vec![-problem.padding.0, -problem.padding.1],
-                pixel_box_upper_corner: vec![upper_corner_h, upper_corner_w],
+                pixel_box_upper_corner: calculate_upper_corner(
+                    problem.padding,
+                    problem.kernel_size,
+                    problem.dilation,
+                ),
                 channels_per_pixel: selection.tile_shape.k,
                 pixels_per_column: stage_m,
             },
