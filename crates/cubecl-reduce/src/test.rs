@@ -533,8 +533,6 @@ impl TestCase {
         let binding = output_handle.binding();
         let bytes = client.read_one(binding);
         let output_values = O::from_bytes(&bytes);
-        println!("expected: {:#?}", expected_values);
-        println!("output: {:#?}", output_values);
         assert_approx_equal(output_values, &expected_values);
     }
 
