@@ -38,7 +38,6 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceF
         bound_checks: config.bound_checks,
         bound_checks_inner: config.bound_checks_inner,
     };
-    println!("{:#?}", settings);
     unsafe {
         reduce_kernel::launch_unchecked::<In, Out, Rd, TensorArgs, Run>(
             client,
