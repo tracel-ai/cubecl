@@ -12,7 +12,6 @@ use crate::instructions::*;
 #[derive(CubeType)]
 pub struct ReduceRange {
     pub index_start: u32,
-    pub index_end: u32,
     pub index_step: u32,
     pub coordinate_start: u32,
     pub coordinate_end: u32,
@@ -54,13 +53,6 @@ impl ReduceRange {
         }
         index_start /= params.line_size_input;
 
-        let index_end = index_start + shape_axis / params.line_size_input;
-        let index_end = select(
-            index_end < input.buffer_len(),
-            index_end,
-            input.buffer_len(),
-        );
-
         let coordinate_end = shape_axis;
 
         let coordinate_step = if params.shared.is_some() {
@@ -73,7 +65,6 @@ impl ReduceRange {
 
         ReduceRange {
             index_start,
-            index_end,
             index_step: 1,
             coordinate_start: 0,
             coordinate_end,
@@ -99,13 +90,6 @@ impl ReduceRange {
 
         let index_step = input.stride(axis_reduce) / params.line_size_input;
 
-        let index_end = index_start + shape_axis * index_step;
-        let index_end = select(
-            index_end < input.buffer_len(),
-            index_end,
-            input.buffer_len(),
-        );
-
         let coordinate_end = shape_axis;
 
         let coordinate_step = if params.shared.is_some() {
@@ -118,7 +102,6 @@ impl ReduceRange {
 
         ReduceRange {
             index_start,
-            index_end,
             index_step,
             coordinate_start: 0,
             coordinate_step,
