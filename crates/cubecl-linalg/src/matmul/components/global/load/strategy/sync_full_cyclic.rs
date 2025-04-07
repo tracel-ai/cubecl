@@ -37,8 +37,7 @@ pub struct SyncFullCyclicLoadingInfo {
 #[cube]
 impl LoadingInfo for SyncFullCyclicLoadingInfo {
     fn num_tasks(this: &Self) -> u32 {
-        panic!("moutarede")
-        // comptime!(this.num_tasks)
+        comptime!(this.num_tasks)
     }
 }
 
