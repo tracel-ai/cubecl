@@ -1,3 +1,6 @@
+mod base;
+pub use base::LoadingInfo;
+
 mod async_buffer_maximize_slice_length;
 mod async_full_cooperative;
 mod async_full_cyclic;

@@ -13,6 +13,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
+use super::SyncFullCyclicLoadingInfo;
+
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
@@ -51,6 +53,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 #[cube]
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
+    type LoadingInfo = SyncFullCyclicLoadingInfo; // TODO change
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -93,5 +96,24 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
                 CubeOption::None => Line::cast_from(line_read),
             }
         }
+    }
+
+    fn preliminary_computation<G: GlobalConfig>(
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::LoadingInfo {
+        todo!()
+    }
+
+    fn load_task<MP: MatmulPrecision, G: GlobalConfig>(
+        task_id: u32,
+        loading_info: Self::LoadingInfo,
+        read_view: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, <Self as SyncFullLoadingStrategy>::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) {
+        todo!()
     }
 }
