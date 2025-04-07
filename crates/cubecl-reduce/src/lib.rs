@@ -112,8 +112,6 @@ pub fn reduce<R: Runtime, In: Numeric, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    println!("{:#?}", config);
-
     launch_reduce::<R, In, Out, Inst>(
         client,
         input,
