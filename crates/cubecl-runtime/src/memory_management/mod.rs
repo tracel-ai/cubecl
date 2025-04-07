@@ -112,6 +112,10 @@ pub struct HardwareProperties {
     pub max_units_per_cube: u32,
     /// Maximum `CubeDim` in x, y, and z dimensions
     pub max_cube_dim: CubeDim,
+    /// Number of streaming multiprocessors (SM), if available
+    pub num_streaming_multiprocessors: Option<u32>,
+    /// Number of tensor cores per SM, if any
+    pub num_tensor_cores: Option<u32>,
 }
 
 impl HardwareProperties {

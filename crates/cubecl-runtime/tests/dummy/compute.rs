@@ -44,6 +44,8 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         max_cube_count: CubeDim::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
         max_units_per_cube: 1024,
         max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
+        num_streaming_multiprocessors: None,
+        num_tensor_cores: None,
     };
     let memory_management = MemoryManagement::from_configuration(
         storage,
