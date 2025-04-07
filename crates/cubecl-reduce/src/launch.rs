@@ -14,13 +14,14 @@ use crate::{LineMode, ReduceConfig, ReduceStrategy};
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>(
+pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceFamily>(
     client: &ComputeClient<Run::Server, Run::Channel>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,
     config: ReduceConfig,
     strategy: ReduceStrategy,
+    inst: Rd::Config,
 ) {
     let settings = ReduceParams {
         shared: strategy.shared.then(|| {
@@ -46,6 +47,7 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: Reduce>
             output.as_tensor_arg(config.line_size_output as u8),
             ScalarArg::new(axis),
             settings,
+            inst,
         );
     }
 }
@@ -62,11 +64,12 @@ pub struct ReduceParams {
 }
 
 #[cube(launch_unchecked)]
-pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
+pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>(
     input: &RA::Input<In>,
     output: &mut RA::Output<Out>,
     axis_reduce: u32,
     #[comptime] params: ReduceParams,
+    #[comptime] config: R::Config,
 ) {
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     let reduce_index = get_reduce_index(params);
@@ -86,10 +89,12 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
         params.line_mode,
     );
 
+    let inst = &R::Instruction::<In>::from_config(config);
     let accumulator = match comptime!((params.shared, params.use_planes)) {
         (Some(accumulator_size), use_planes) => {
             let mut accumulator = reduce_slice_shared::<In, VirtualTensor<In>, R::Instruction<In>>(
                 &input,
+                inst,
                 range,
                 accumulator_size,
                 params.line_size_input,
@@ -98,10 +103,11 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
                 params.bound_checks_inner,
             );
             sync_units();
-            reduce_tree::<In, R::Instruction<In>>(&mut accumulator, accumulator_size)
+            reduce_tree::<In, R::Instruction<In>>(inst, &mut accumulator, accumulator_size)
         }
         (None, true) => reduce_slice_plane::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
+            inst,
             range,
             params.line_size_input,
             params.line_mode,
@@ -110,6 +116,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
         (None, false) => reduce_slice::<In, VirtualTensor<In>, R::Instruction<In>>(
             &input,
             range,
+            inst,
             params.line_size_input,
             params.line_mode,
         ),
@@ -122,6 +129,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: Reduce, RA: ReduceArgs>(
             reduce_index,
             input.shape(axis_reduce),
             params,
+            inst,
         );
     }
 }
@@ -163,14 +171,15 @@ fn write_to_output<In: Numeric, Out: Numeric, R: ReduceInstruction<In>>(
     reduce_index: u32,
     shape_axis_reduce: u32,
     #[comptime] settings: ReduceParams,
+    inst: &R,
 ) {
     match comptime!(settings.line_mode) {
         LineMode::Parallel => {
-            let result = R::merge_line::<Out>(accumulator, shape_axis_reduce);
+            let result = R::merge_line::<Out>(inst, accumulator, shape_axis_reduce);
             output.write(reduce_index, Line::cast_from(result))
         }
         LineMode::Perpendicular => {
-            let out = R::to_output_perpendicular(accumulator, shape_axis_reduce);
+            let out = R::to_output_perpendicular(inst, accumulator, shape_axis_reduce);
 
             if comptime![settings.line_size_output == settings.line_size_input] {
                 output.write(reduce_index, out);
