@@ -170,6 +170,10 @@ impl<D: Dialect> Unary<D> for Log1p {
     ) -> std::fmt::Result {
         D::compile_instruction_log1p_scalar(f, input)
     }
+
+    fn can_optimize() -> bool {
+        false
+    }
 }
 
 pub struct Tanh;
@@ -181,6 +185,10 @@ impl<D: Dialect> Unary<D> for Tanh {
         _elem: Elem<D>,
     ) -> std::fmt::Result {
         D::compile_instruction_tanh_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
     }
 }
 

@@ -468,7 +468,13 @@ pub trait DialectInstructions<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         input: T,
     ) -> std::fmt::Result {
-        write!(f, "log1p({input})")
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{}(log1p(float({input})))", elem)
+            }
+            _ => write!(f, "log1p({input})"),
+        }
     }
 
     // sync
@@ -480,7 +486,13 @@ pub trait DialectInstructions<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         input: T,
     ) -> std::fmt::Result {
-        write!(f, "tanh({input})")
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{}(tanh(float({input})))", elem)
+            }
+            _ => write!(f, "tanh({input})"),
+        }
     }
 
     // unary
