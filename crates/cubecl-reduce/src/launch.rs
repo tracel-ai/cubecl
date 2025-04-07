@@ -80,14 +80,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
         terminate!();
     }
 
-    let range = ReduceRange::new::<In, Out>(
-        reduce_index,
-        &input,
-        &mut output,
-        axis_reduce,
-        params.line_size_input,
-        params.line_mode,
-    );
+    let range = ReduceRange::new::<In, Out>(reduce_index, &input, &mut output, axis_reduce, params);
 
     let inst = &R::Instruction::<In>::from_config(config);
     let accumulator = match comptime!((params.shared, params.use_planes)) {
