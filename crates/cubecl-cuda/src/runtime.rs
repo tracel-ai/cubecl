@@ -160,16 +160,9 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {
     match version {
-        70 => Some(8),   // Volta (SM 7.0)
-        75 => Some(8),   // Turing (SM 7.5)
-        80 => Some(4),   // Ampere A100 (SM 8.0)
-        86 => Some(16),  // Ampere GA10x (SM 8.6)
-        89 => Some(16),  // Ampere GA10B (SM 8.9, Jetson Orin)
-        90 => Some(64),  // Hopper H100 (SM 9.0)
-        91 => Some(64),  // Hopper L40S (SM 9.1)
-        92 => Some(64),  // Hopper H200 (SM 9.2)
-        100 => Some(64), // Blackwell (SM 10.0, est.)
-        _ => None,       // Unknown or unsupported architecture
+        70 | 75 => Some(8),                           // Volta, Turing
+        80 | 86 | 89 | 90 | 91 | 92 | 100 => Some(4), // Ampere, Hopper, Blackwell
+        _ => None,                                    // Unknown or unsupported architecture
     }
 }
 
