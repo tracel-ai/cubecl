@@ -478,9 +478,25 @@ pub trait DialectInstructions<D: Dialect> {
         writeln!(f, "printf(\"{format_string}\"{args});")
     }
 
+    // logs
+    fn compile_instruction_log1p_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "log1p({input})")
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    // trigo
+    fn compile_instruction_tanh_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "tanh({input})")
+    }
 
     // unary
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
@@ -527,6 +543,43 @@ pub trait DialectInstructions<D: Dialect> {
                 (size_of::<u32>() - output.size()) * 8
             ),
         }
+    }
+
+    // others
+    fn compile_instruction_max_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let max = match item.elem() {
+            Elem::F16 | Elem::BF16 => "__hmax",
+            Elem::F162 | Elem::BF162 => "__hmax2",
+            _ => "max",
+        };
+        write!(f, "{max}")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let min = match item.elem() {
+            Elem::F16 | Elem::BF16 => "__hmin",
+            Elem::F162 | Elem::BF162 => "__hmin2",
+            _ => "min",
+        };
+        write!(f, "{min}")
+    }
+
+    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "powf")
+    }
+
+    fn compile_instruction_half_function_name_prefix() -> &'static str {
+        "h"
+    }
+
+    fn compile_instruction_half2_function_name_prefix() -> &'static str {
+        "h2"
     }
 
     // warp

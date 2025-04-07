@@ -17,7 +17,7 @@ use cubecl_core::{
 
 use super::{
     AddressSpace, Extension, arch::MetalArchitecture, format_erf, format_global_binding_arg,
-    format_metal_builtin_binding_arg,
+    format_metal_builtin_binding_arg, format_safe_tanh,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,6 +50,7 @@ using namespace metal;
         for extension in extensions {
             match extension {
                 Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::NoExtension => {}
             }
         }
@@ -66,6 +67,9 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
+            }
+            shared::Instruction::<Self>::Tanh(instruction) => {
+                register_extension(Extension::SafeTanh(instruction.input.item()));
             }
             _ => {}
         }
@@ -207,8 +211,7 @@ void {}(",
             "Tensor maps aren't supported for metal"
         );
         for (i, b) in buffers.iter().enumerate() {
-            format_global_binding_arg("buffer", b, Some(&i.to_string()), buffer_idx, f)?;
-            buffer_idx += 1;
+            format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
         }
         if flags.static_meta_length > 0 {
             let binding = Binding {
@@ -218,7 +221,7 @@ void {}(",
                 size: None,
                 vis: Visibility::Read,
             };
-            format_global_binding_arg("info", &binding, None, buffer_idx, f)?;
+            format_global_binding_arg("info", &binding, None, &mut buffer_idx, f)?;
         }
         for (elem, _) in scalars.iter() {
             let binding = Binding {
@@ -230,8 +233,7 @@ void {}(",
             };
 
             let name = format!("scalars_{elem}");
-            format_global_binding_arg(&name, &binding, None, buffer_idx, f)?;
-            buffer_idx += 1;
+            format_global_binding_arg(&name, &binding, None, &mut buffer_idx, f)?;
         }
 
         // Global metal builtins args
@@ -240,14 +242,26 @@ void {}(",
                 flags.indexes.absolute_pos_tuple,
                 Variable::<Self>::AbsolutePosBaseName,
             ),
-            (flags.indexes.cube_dim_tuple, Variable::CubeDimBaseName),
-            (flags.indexes.cube_count_tuple, Variable::CubeCountBaseName),
-            (flags.indexes.unit_pos, Variable::UnitPos),
-            (flags.indexes.unit_pos_tuple, Variable::UnitPosBaseName),
-            (flags.indexes.cube_pos_tuple, Variable::CubePosBaseName),
-            (flags.indexes.unit_pos_plane, Variable::UnitPosPlane),
-            (flags.indexes.plane_dim, Variable::PlaneDim),
-            (flags.indexes.plane_index, Variable::PlanePos),
+            (
+                flags.indexes.cube_dim_tuple,
+                Variable::<Self>::CubeDimBaseName,
+            ),
+            (
+                flags.indexes.cube_count_tuple,
+                Variable::<Self>::CubeCountBaseName,
+            ),
+            (flags.indexes.unit_pos, Variable::<Self>::UnitPos),
+            (
+                flags.indexes.unit_pos_tuple,
+                Variable::<Self>::UnitPosBaseName,
+            ),
+            (
+                flags.indexes.cube_pos_tuple,
+                Variable::<Self>::CubePosBaseName,
+            ),
+            (flags.indexes.unit_pos_plane, Variable::<Self>::UnitPosPlane),
+            (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
+            (flags.indexes.plane_index, Variable::<Self>::PlanePos),
         ];
         let comma = !buffers.is_empty() || flags.static_meta_length > 0 || !scalars.is_empty();
         builtins
@@ -266,22 +280,21 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     /// For instance in metal we have a built-in for the Unit plane position
     /// so we don't rely on other builtins.
     fn builtin_rules(flags: &CubeIndexFlags) -> CubeIndexFlags {
-        let plane_index = flags.plane_index;
-        let unit_pos_plane = flags.unit_pos_plane || plane_index;
-        let plane_dim_checked = flags.plane_dim_checked;
-        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
         let absolute_pos = flags.absolute_pos;
-        let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
-        let cube_dim = flags.cube_dim;
-        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
-        let unit_pos = flags.unit_pos;
-        let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         let cube_count = flags.cube_count;
-        let cube_count_tuple = flags.cube_count_tuple || absolute_pos;
+        let cube_dim = flags.cube_dim;
         let cube_pos = flags.cube_pos;
+        let plane_dim_checked = flags.plane_dim_checked;
+        let plane_index = flags.plane_index;
+        let unit_pos = flags.unit_pos;
+        let absolute_pos_tuple = flags.absolute_pos_tuple || absolute_pos;
+        let cube_count_tuple = flags.cube_count_tuple || cube_count || cube_pos || absolute_pos;
+        let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
         let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
         let cluster_pos = flags.cluster_pos;
-
+        let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
+        let unit_pos_plane = flags.unit_pos_plane || plane_index;
+        let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
         CubeIndexFlags {
             absolute_pos_tuple,
             absolute_pos,
@@ -382,7 +395,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_cube_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("thread_index_in_grid")
+        f.write_str("threadgroup_index_in_grid")
     }
 
     fn compile_cube_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -410,7 +423,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("tid")
+        f.write_str("thread_index_in_threadgroup")
     }
 
     fn compile_unit_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -608,6 +621,19 @@ impl DialectInstructions<Self> for MslDialect {
         writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
     }
 
+    // logs
+    fn compile_instruction_log1p_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "log(half(1.0f) + {input})")
+            }
+            _ => write!(f, "log(1.0f + {input})"),
+        }
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
@@ -615,6 +641,14 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_thread_fence(mem_flags::mem_device);")
+    }
+
+    // trigo
+    fn compile_instruction_tanh_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        write!(f, "safe_tanh_scalar({input})")
     }
 
     // unary
@@ -670,6 +704,33 @@ impl DialectInstructions<Self> for MslDialect {
         }
     }
 
+    // others
+    fn compile_instruction_max_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "max")
+    }
+
+    fn compile_instruction_min_function_name(
+        f: &mut std::fmt::Formatter<'_>,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "min")
+    }
+
+    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "pow")
+    }
+
+    fn compile_instruction_half_function_name_prefix() -> &'static str {
+        ""
+    }
+
+    fn compile_instruction_half2_function_name_prefix() -> &'static str {
+        ""
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
@@ -716,18 +777,8 @@ impl DialectInstructions<Self> for MslDialect {
         input: &Variable<Self>,
         output: &Variable<Self>,
     ) -> std::fmt::Result {
-        // we need to be extra carreful here to be sure to replicate the exact same
-        // semantic as CUDA __ballot_sync.
-        // __ballot_sync returns a bitmaks of active threads that evaluated to true.
-        // simd_ballot returns a simd_vote class which contains the bits that represent
-        // all the thread as a private member, the bit is true if the thread evaluated to
-        // true. On this class the all() method returns true if all the ACTIVE thread
-        // evaluates to true.
         let out_elem = output.item().elem;
-        write!(
-            f,
-            "({out_elem})(uint64_t(simd_ballot({input})) & uint64_t(-1))"
-        )
+        write!(f, "({out_elem})(uint64_t(simd_ballot({input})))")
     }
 }
 
@@ -842,13 +893,14 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 };
                 match ty {
                     Elem::BF16 => {
+                        let addr_space = Self::address_space_for_variable(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{
     {ty} elem = {ty}({input}.thread_elements()[e]);
-    {output}.thread_elements()[e] = *reinterpret_cast<{elem} *>(&elem);
+    {output}.thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
 }}"
                         )
                     }

@@ -127,6 +127,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_cube_count,
         max_units_per_cube: prop_max_threads,
         max_cube_dim,
+        num_streaming_multiprocessors: None,
+        num_tensor_cores: None,
     };
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);

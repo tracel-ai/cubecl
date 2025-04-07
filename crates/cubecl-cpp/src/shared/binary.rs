@@ -177,9 +177,14 @@ impl<D: Dialect> Binary<D> for Powf {
         let elem = item.elem;
         match elem {
             Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{elem}(powf(float({lhs}), float({rhs})))")
+                write!(f, "{elem}(")?;
+                D::compile_instruction_powf(f)?;
+                write!(f, "(float({lhs}), float({rhs})))")
             }
-            _ => write!(f, "powf({lhs}, {rhs})"),
+            _ => {
+                D::compile_instruction_powf(f)?;
+                write!(f, "({lhs}, {rhs})")
+            }
         }
     }
 
@@ -216,13 +221,8 @@ impl<D: Dialect> Binary<D> for Max {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmax",
-            Elem::F162 | Elem::BF162 => "__hmax2",
-            _ => "max",
-        };
-
-        write!(f, "{max}({lhs}, {rhs})")
+        D::compile_instruction_max_function_name(f, item)?;
+        write!(f, "({lhs}, {rhs})")
     }
 }
 
@@ -235,13 +235,8 @@ impl<D: Dialect> Binary<D> for Min {
         rhs: Rhs,
         item: Item<D>,
     ) -> std::fmt::Result {
-        let min = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmin",
-            Elem::F162 | Elem::BF162 => "__hmin2",
-            _ => "min",
-        };
-
-        write!(f, "{min}({lhs}, {rhs})")
+        D::compile_instruction_min_function_name(f, item)?;
+        write!(f, "({lhs}, {rhs})")
     }
 }
 
@@ -350,7 +345,8 @@ impl<D: Dialect> Binary<D> for Index {
 
         let item_out = out.item();
         if let Elem::Atomic(inner) = item_out.elem {
-            write!(f, "{inner}* {out} = &{lhs}[{rhs}];")
+            let addr_space = D::address_space_for_variable(lhs);
+            writeln!(f, "{addr_space}{inner}* {out} = &{lhs}[{rhs}];")
         } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
