@@ -72,32 +72,32 @@ The position of the working unit inside the cube along the Z axis.
 );
 
 constant!(
-    CLUSTER_DIM,
-    crate::ir::Builtin::ClusterDim,
+    CUBE_CLUSTER_DIM,
+    crate::ir::Builtin::CubeClusterDim,
     r"
 The total amount of cubes in a cluster.
 "
 );
 
 constant!(
-    CLUSTER_DIM_X,
-    crate::ir::Builtin::ClusterDimX,
+    CUBE_CLUSTER_DIM_X,
+    crate::ir::Builtin::CubeClusterDimX,
     r"
 The dimension of the cluster along the X axis.
 "
 );
 
 constant!(
-    CLUSTER_DIM_Y,
-    crate::ir::Builtin::ClusterDimY,
+    CUBE_CLUSTER_DIM_Y,
+    crate::ir::Builtin::CubeClusterDimY,
     r"
 The dimension of the cluster along the Y axis.
 "
 );
 
 constant!(
-    CLUSTER_DIM_Z,
-    crate::ir::Builtin::ClusterDimZ,
+    CUBE_CLUSTER_DIM_Z,
+    crate::ir::Builtin::CubeClusterDimZ,
     r"
 The dimension of the cluster along the Z axis.
 "

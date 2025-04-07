@@ -5,10 +5,10 @@ use crate::{Feature, prelude::*};
 fn cluster_meta_kernel(out: &mut Array<u32>) {
     if UNIT_POS == 0 {
         if CUBE_POS == 0 {
-            out[0] = CLUSTER_DIM;
-            out[1] = CLUSTER_DIM_X;
-            out[2] = CLUSTER_DIM_Y;
-            out[3] = CLUSTER_DIM_Z;
+            out[0] = CUBE_CLUSTER_DIM;
+            out[1] = CUBE_CLUSTER_DIM_X;
+            out[2] = CUBE_CLUSTER_DIM_Y;
+            out[3] = CUBE_CLUSTER_DIM_Z;
         }
 
         let offset = CUBE_POS * 4 + 4;
@@ -21,7 +21,7 @@ fn cluster_meta_kernel(out: &mut Array<u32>) {
 }
 
 pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.properties().feature_enabled(Feature::Cluster) {
+    if !client.properties().feature_enabled(Feature::CubeCluster) {
         return;
     }
 

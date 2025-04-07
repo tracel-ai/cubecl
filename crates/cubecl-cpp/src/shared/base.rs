@@ -1252,10 +1252,10 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.indexes.cube_dim_tuple = true;
                     Variable::CubeDimZ
                 }
-                gpu::Builtin::ClusterDim => const_u32(self.cluster_dim.num_elems()),
-                gpu::Builtin::ClusterDimX => const_u32(self.cluster_dim.x),
-                gpu::Builtin::ClusterDimY => const_u32(self.cluster_dim.y),
-                gpu::Builtin::ClusterDimZ => const_u32(self.cluster_dim.z),
+                gpu::Builtin::CubeClusterDim => const_u32(self.cluster_dim.num_elems()),
+                gpu::Builtin::CubeClusterDimX => const_u32(self.cluster_dim.x),
+                gpu::Builtin::CubeClusterDimY => const_u32(self.cluster_dim.y),
+                gpu::Builtin::CubeClusterDimZ => const_u32(self.cluster_dim.z),
                 gpu::Builtin::CubePos => {
                     self.flags.indexes.cube_pos = true;
                     Variable::CubePos

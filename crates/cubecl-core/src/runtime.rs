@@ -73,7 +73,7 @@ pub enum Feature {
     /// Tensor Memory Accelerator features. Minimum H100/RTX 5000 series for base set
     Tma(TmaFeature),
     /// Clustered launches and intra-cluster operations like cluster shared memory
-    Cluster,
+    CubeCluster,
     /// Enables to change the line size of containers during kernel execution.
     DynamicLineSize,
 }

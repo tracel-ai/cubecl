@@ -131,7 +131,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     }
     if arch.version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
-        device_props.register_feature(Feature::Cluster);
+        device_props.register_feature(Feature::CubeCluster);
         compilation_options.supports_clusters = true;
     }
     if arch.version >= 100 {

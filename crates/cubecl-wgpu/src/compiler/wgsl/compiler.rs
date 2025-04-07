@@ -289,10 +289,10 @@ impl WgslCompiler {
                 cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
                 cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
                 cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
-                cube::Builtin::ClusterDim
-                | cube::Builtin::ClusterDimX
-                | cube::Builtin::ClusterDimY
-                | cube::Builtin::ClusterDimZ => self.constant_var(1),
+                cube::Builtin::CubeClusterDim
+                | cube::Builtin::CubeClusterDimX
+                | cube::Builtin::CubeClusterDimY
+                | cube::Builtin::CubeClusterDimZ => self.constant_var(1),
                 cube::Builtin::CubeCountX => {
                     self.num_workgroups = true;
                     wgsl::Variable::NumWorkgroupsX

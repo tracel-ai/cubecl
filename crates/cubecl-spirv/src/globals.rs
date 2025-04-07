@@ -74,10 +74,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Builtin::CubeDimX => Variable::WorkgroupSizeX(self.state.cube_dims[0]),
             Builtin::CubeDimY => Variable::WorkgroupSizeY(self.state.cube_dims[1]),
             Builtin::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
-            Builtin::ClusterDim
-            | Builtin::ClusterDimX
-            | Builtin::ClusterDimY
-            | Builtin::ClusterDimZ => self.constant_var(1),
+            Builtin::CubeClusterDim
+            | Builtin::CubeClusterDimX
+            | Builtin::CubeClusterDimY
+            | Builtin::CubeClusterDimZ => self.constant_var(1),
             Builtin::CubeCount => Variable::WorkgroupSize(self.get_or_insert_global(
                 Globals::NumWorkgroupsTotal,
                 |b: &mut SpirvCompiler<T>| {

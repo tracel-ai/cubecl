@@ -222,10 +222,10 @@ impl Uniformity {
                 | Builtin::CubeDimX
                 | Builtin::CubeDimY
                 | Builtin::CubeDimZ
-                | Builtin::ClusterDim
-                | Builtin::ClusterDimX
-                | Builtin::ClusterDimY
-                | Builtin::ClusterDimZ
+                | Builtin::CubeClusterDim
+                | Builtin::CubeClusterDimX
+                | Builtin::CubeClusterDimY
+                | Builtin::CubeClusterDimZ
                 | Builtin::CubeCount
                 | Builtin::CubeCountX
                 | Builtin::CubeCountY
