@@ -62,9 +62,6 @@ impl ReduceRange {
         );
 
         let coordinate_end = shape_axis;
-        // if shared {
-        //     todo!()
-        // }
 
         let coordinate_step = if params.shared.is_some() {
             CUBE_DIM * params.line_size_input
@@ -102,7 +99,7 @@ impl ReduceRange {
 
         let index_step = input.stride(axis_reduce) / params.line_size_input;
 
-        let index_end = index_start + input.shape(axis_reduce) * index_step;
+        let index_end = index_start + shape_axis * index_step;
         let index_end = select(
             index_end < input.buffer_len(),
             index_end,
@@ -204,14 +201,16 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
         range.coordinate_end,
         range.coordinate_step,
     ) {
+        let unit_coordinate_offset = match line_mode {
+            LineMode::Parallel => UNIT_POS_X * line_size,
+            LineMode::Perpendicular => UNIT_POS_X,
+        };
+        let unit_coordinate = first_coordinate + unit_coordinate_offset;
+
         let requirements = R::requirements(inst);
         let coordinates = if comptime![requirements.coordinates] {
-            let unit_coordinate_offset = match line_mode {
-                LineMode::Parallel => UNIT_POS_X * line_size,
-                LineMode::Perpendicular => UNIT_POS_X,
-            };
             ReduceCoordinate::new_Required(fill_coordinate_line(
-                first_coordinate + unit_coordinate_offset,
+                unit_coordinate,
                 line_size,
                 line_mode,
             ))
@@ -223,12 +222,12 @@ pub fn reduce_slice_plane<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>>
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
             BoundChecksInner::Mask => {
-                let mask = index < range.index_end;
+                let mask = unit_coordinate < range.coordinate_end;
                 let index = index * u32::cast_from(mask);
                 select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
-                if index < range.index_end {
+                if unit_coordinate < range.coordinate_end {
                     items.read(index)
                 } else {
                     R::null_input(inst, line_size)
@@ -285,16 +284,23 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         range.coordinate_end,
         range.coordinate_step,
     ) {
+        let unit_coordinate_offset = match line_mode {
+            LineMode::Parallel => UNIT_POS * line_size,
+            LineMode::Perpendicular => UNIT_POS,
+        };
+        let unit_coordinate = first_coordinate + unit_coordinate_offset;
+
         let index = first_index + UNIT_POS * range.index_step;
+
         let item = match bound_checks {
             BoundChecksInner::None => items.read(index),
             BoundChecksInner::Mask => {
-                let mask = index < range.index_end;
+                let mask = unit_coordinate < range.coordinate_end;
                 let index = index * u32::cast_from(mask);
                 select(mask, items.read(index), R::null_input(inst, line_size))
             }
             BoundChecksInner::Branch => {
-                if index < range.index_end {
+                if unit_coordinate < range.coordinate_end {
                     items.read(index)
                 } else {
                     R::null_input(inst, line_size)
@@ -303,17 +309,9 @@ pub fn reduce_slice_shared<N: Numeric, I: List<Line<N>>, R: ReduceInstruction<N>
         };
 
         let coordinates = if comptime! {requirements.coordinates} {
-            let unit_coordinate_offset = match line_mode {
-                LineMode::Parallel => UNIT_POS * line_size,
-                LineMode::Perpendicular => UNIT_POS,
-            };
-            let coordinate = fill_coordinate_line(
-                first_coordinate + unit_coordinate_offset,
-                line_size,
-                line_mode,
-            );
+            let coordinate = fill_coordinate_line(unit_coordinate, line_size, line_mode);
             let coordinate = select(
-                index < range.index_end,
+                unit_coordinate < range.coordinate_end,
                 coordinate,
                 Line::empty(line_size).fill(u32::MAX),
             );

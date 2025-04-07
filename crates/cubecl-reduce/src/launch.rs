@@ -38,6 +38,7 @@ pub(crate) fn launch_reduce<Run: Runtime, In: Numeric, Out: Numeric, Rd: ReduceF
         bound_checks: config.bound_checks,
         bound_checks_inner: config.bound_checks_inner,
     };
+    println!("{:#?}", settings);
     unsafe {
         reduce_kernel::launch_unchecked::<In, Out, Rd, TensorArgs, Run>(
             client,
@@ -80,13 +81,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
         terminate!();
     }
 
-    let range = ReduceRange::new::<In, Out>(
-        reduce_index,
-        &input,
-        &mut output,
-        axis_reduce,
-        params,
-    );
+    let range = ReduceRange::new::<In, Out>(reduce_index, &input, &mut output, axis_reduce, params);
 
     let inst = &R::Instruction::<In>::from_config(config);
     let accumulator = match comptime!((params.shared, params.use_planes)) {
