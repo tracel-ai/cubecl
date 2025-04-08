@@ -22,10 +22,10 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// The [LoadingJob] for this strategy
+    /// The [LoadingJob] for this strategy.
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
 
-    /// Immediately load the stage only at the buffer identified by buffer_index
+    /// Immediately load the stage for the buffer identified by buffer_index.
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,

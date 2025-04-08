@@ -69,8 +69,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
     for (b, m, n, k) in [
         (1, 6144, 6144, 6144),
-        // (1, 5000, 5000, 5000),
-        // (2, 4096, 4096, 4096),
+        (1, 5000, 5000, 5000),
+        (2, 4096, 4096, 4096),
     ] {
         let bench = MatmulBench::<R, MP> {
             b,

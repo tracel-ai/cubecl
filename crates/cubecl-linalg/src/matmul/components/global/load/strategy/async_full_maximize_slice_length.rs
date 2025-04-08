@@ -9,7 +9,7 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::CubeOption;
+use cubecl_std::{CubeOption, div_ceil};
 
 use super::LoadingJob;
 
@@ -64,7 +64,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         };
         let unit_count = config.plane_dim() * config.num_planes();
 
-        let num_tasks = comptime!((num_slices + unit_count - 1) / unit_count);
+        let num_tasks = comptime!(div_ceil(num_slices, unit_count));
 
         AsyncFullMaximizeSliceLengthJob::<MP, CM> {
             stage,

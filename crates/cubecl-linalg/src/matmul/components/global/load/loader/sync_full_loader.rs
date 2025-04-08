@@ -15,12 +15,12 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-/// A strategy for fully and synchronously loading a stage, either eagerly or as a deferred job.
+/// A strategy for fully and synchronously loading a stage.
 pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// The [LoadingJob] for this strategy
+    /// The [LoadingJob] for this strategy.
     type Job<MP: MatmulPrecision>: LoadingJob<MP>;
 
     /// Loads the entire stage immediately from the tensor reader.
