@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -18,14 +16,9 @@ use super::LoadingJob;
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per unit.
 /// The objective is to reduce branching, prioritizing this over maximizing memory slice length.
-pub struct AsyncFullMaximizeUnitCountLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    #[cube(comptime)]
-    _phantom: PhantomData<(MP, CM)>,
-}
+pub struct AsyncFullMaximizeUnitCountLoading {}
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
-    for AsyncFullMaximizeUnitCountLoading<MP, CM>
-{
+impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
@@ -59,13 +52,12 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncFullLoadingStrategy<MP, CM>
-    for AsyncFullMaximizeUnitCountLoading<MP, CM>
-{
+impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job = AsyncFullMaximizeUnitCountJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> =
+        AsyncFullMaximizeUnitCountJob<MP, CM>;
 
-    fn load_full<G: GlobalConfig>(
+    fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -83,7 +75,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncFullLoadingStrategy<MP
         )
     }
 
-    fn job<G: GlobalConfig>(
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,

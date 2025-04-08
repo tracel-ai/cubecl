@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -20,27 +18,20 @@ use super::LoadingJob;
 /// dividing the stage into the smallest possible contiguous slices.  
 ///
 /// Each `memcpy_async` is called with the same arguments for cooperative behaviour
-pub struct AsyncFullCooperativeLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    #[cube(comptime)]
-    _phantom: PhantomData<(MP, CM)>,
-}
+pub struct AsyncFullCooperativeLoading {}
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
-    for AsyncFullCooperativeLoading<MP, CM>
-{
+impl LoadingValidation for AsyncFullCooperativeLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncFullLoadingStrategy<MP, CM>
-    for AsyncFullCooperativeLoading<MP, CM>
-{
+impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job = AsyncFullCooperativeJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = AsyncFullCooperativeJob<MP, CM>;
 
-    fn load_full<G: GlobalConfig>(
+    fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -75,7 +66,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncFullLoadingStrategy<MP
         }
     }
 
-    fn job<G: GlobalConfig>(
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,

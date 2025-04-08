@@ -126,8 +126,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, Pipeline<MP::ES>, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, Pipeline<MP::ES>, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -164,8 +164,8 @@ where
 
             // Start loading
             pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut lhs_loader, &pipeline, config);
-            Self::RhsLoader::fill_stage::<Pipeline<MP::ES>>(&mut rhs_loader, &pipeline, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, pipeline, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, pipeline, config);
             pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);

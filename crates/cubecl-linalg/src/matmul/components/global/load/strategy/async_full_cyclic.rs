@@ -17,14 +17,12 @@ use super::LoadingJob;
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct AsyncFullCyclicLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
+pub struct AsyncFullCyclicLoading<T: TilingOrder> {
     #[cube(comptime)]
-    _phantom: PhantomData<(MP, CM, T)>,
+    _phantom: PhantomData<T>,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingValidation
-    for AsyncFullCyclicLoading<MP, CM, T>
-{
+impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -41,13 +39,11 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingVali
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder>
-    AsyncFullLoadingStrategy<MP, CM> for AsyncFullCyclicLoading<MP, CM, T>
-{
+impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Job = AsyncFullCyclicJob<MP, CM, T>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = AsyncFullCyclicJob<MP, CM, T>;
 
-    fn load_full<G: GlobalConfig>(
+    fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -115,7 +111,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder>
         }
     }
 
-    fn job<G: GlobalConfig>(
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,

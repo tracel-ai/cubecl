@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
