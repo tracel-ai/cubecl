@@ -12,15 +12,19 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
+use super::LoadingJob;
+
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct AsyncFullCyclicLoading<T: TilingOrder> {
+pub struct AsyncFullCyclicLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
     #[cube(comptime)]
-    tiling_order: PhantomData<T>,
+    _phantom: PhantomData<(MP, CM, T)>,
 }
 
-impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingValidation
+    for AsyncFullCyclicLoading<MP, CM, T>
+{
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -37,13 +41,16 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder>
+    AsyncFullLoadingStrategy<MP, CM> for AsyncFullCyclicLoading<MP, CM, T>
+{
     type TilingLayout = ContiguousTilingLayout<T>;
+    type Job = AsyncFullCyclicJob<MP, CM, T>;
 
-    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
+    fn load_full<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
@@ -100,7 +107,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
                 );
 
                 CM::memcpy_async(
-                    mechanism,
+                    &mechanism,
                     &window.slice.try_cast_unchecked(),
                     &mut destination,
                 );
@@ -108,7 +115,39 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
         }
     }
 
+    fn job<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> AsyncFullCyclicJob<MP, CM, T> {
+        todo!()
+    }
+
     fn barrier_level() -> BarrierLevel {
         BarrierLevel::cube_manual(0u32)
+    }
+}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct AsyncFullCyclicJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
+    mechanism: CM,
+    _quantization: CubeOption<Quantization<MP>>,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<MP>
+    for AsyncFullCyclicJob<MP, CM, T>
+{
+    fn len(_this: &Self) -> u32 {
+        todo!()
+    }
+
+    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+        // TODO
     }
 }

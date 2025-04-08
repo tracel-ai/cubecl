@@ -92,7 +92,7 @@ pub(crate) fn default_async_full_load<
 
 #[cube]
 pub(crate) fn default_async_buffer_load<
-    LS: AsyncBufferLoadingStrategy,
+    LS: AsyncBufferLoadingStrategy<MP, CM>,
     MP: MatmulPrecision,
     G: GlobalConfig,
     CM: CopyMechanism<MP::ES>,
@@ -105,7 +105,7 @@ pub(crate) fn default_async_buffer_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G, CM>(
+    let mut job = LS::job::<G>(
         read_view,
         stage,
         mechanism,

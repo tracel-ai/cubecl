@@ -1,8 +1,10 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        load::AsyncFullLoadingStrategy,
+        load::{AsyncFullLoadingStrategy, default_async_full_load},
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
@@ -11,29 +13,57 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
+use super::LoadingJob;
+
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct AsyncFullMaximizeSliceLengthLoading {}
+pub struct AsyncFullMaximizeSliceLengthLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+    #[cube(comptime)]
+    _phantom: PhantomData<(MP, CM)>,
+}
 
-impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
+    for AsyncFullMaximizeSliceLengthLoading<MP, CM>
+{
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncFullLoadingStrategy<MP, CM>
+    for AsyncFullMaximizeSliceLengthLoading<MP, CM>
+{
     type TilingLayout = StridedTilingLayout;
+    type Job = AsyncFullMaximizeSliceLengthJob<MP, CM>;
 
-    fn load_full<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
-        _quantization: CubeOption<Quantization<MP>>,
+    fn load_full<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
+        default_async_full_load::<Self, MP, G, CM>(
+            read_view,
+            stage,
+            mechanism,
+            quantization,
+            input_ident,
+            config,
+        )
+    }
+
+    fn job<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -54,9 +84,9 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
             if comptime!(num_slices % unit_count == 0) {
                 load_nth_slice::<MP::EI, MP::ES, CM, G>(
                     nth_slice,
-                    read_view,
-                    stage,
-                    mechanism,
+                    &read_view,
+                    &mut stage,
+                    &mechanism,
                     input_ident,
                     config,
                 );
@@ -64,19 +94,42 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
                 if nth_slice < num_slices {
                     load_nth_slice::<MP::EI, MP::ES, CM, G>(
                         nth_slice,
-                        read_view,
-                        stage,
-                        mechanism,
+                        &read_view,
+                        &mut stage,
+                        &mechanism,
                         input_ident,
                         config,
                     );
                 }
             };
         }
+
+        todo!()
     }
 
     fn barrier_level() -> BarrierLevel {
         BarrierLevel::cube_manual(0u32)
+    }
+}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct AsyncFullMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, StridedTilingLayout>,
+    mechanism: CM,
+    _quantization: CubeOption<Quantization<MP>>,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
+    for AsyncFullMaximizeSliceLengthJob<MP, CM>
+{
+    fn len(_this: &Self) -> u32 {
+        1u32
+    }
+
+    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+        // TODO
     }
 }
 

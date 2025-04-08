@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -11,25 +13,35 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
+use super::LoadingJob;
+
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct AsyncBufferMaximizeSliceLengthLoading {}
+pub struct AsyncBufferMaximizeSliceLengthLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+    #[cube(comptime)]
+    _phantom: PhantomData<(MP, CM)>,
+}
 
-impl LoadingValidation for AsyncBufferMaximizeSliceLengthLoading {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
+    for AsyncBufferMaximizeSliceLengthLoading<MP, CM>
+{
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncBufferLoadingStrategy<MP, CM>
+    for AsyncBufferMaximizeSliceLengthLoading<MP, CM>
+{
     type TilingLayout = StridedTilingLayout;
+    type Job = AsyncBufferMaximizeSliceLengthJob<MP, CM>;
 
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
+    fn load_buffer<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
@@ -93,7 +105,7 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
                 read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
             let mut destination: SliceMut<Line<MP::ES>> =
                 StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                    stage,
+                    &mut stage,
                     nth_slice,
                     comptime!(input_ident.as_ident()),
                     config.to_smm_config(),
@@ -112,16 +124,49 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(num_slices % unit_count == 0) {
-                CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
+                CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
             } else {
                 if nth_slice_in_buffer < num_slices {
-                    CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
+                    CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
                 }
             };
         }
     }
 
+    fn job<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> AsyncBufferMaximizeSliceLengthJob<MP, CM> {
+        todo!()
+    }
+
     fn barrier_level() -> BarrierLevel {
         BarrierLevel::cube_manual(0u32)
+    }
+}
+
+#[derive(CubeType, Clone, Copy)]
+pub struct AsyncBufferMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, StridedTilingLayout>,
+    mechanism: CM,
+    quantization: CubeOption<Quantization<MP>>,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
+    for AsyncBufferMaximizeSliceLengthJob<MP, CM>
+{
+    fn len(_this: &Self) -> u32 {
+        todo!()
+    }
+
+    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+        // TODO
     }
 }
