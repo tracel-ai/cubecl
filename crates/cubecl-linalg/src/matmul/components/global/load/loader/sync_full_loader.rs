@@ -15,13 +15,13 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-/// A strategy for fully loading a tiled stage, either eagerly or as a deferred job.
+/// A strategy for fully loading a stage, either eagerly or as a deferred job.
 pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
     /// A representation of deferred and partial loading work.
-    type Job<MP: MatmulPrecision, G: GlobalConfig>: LoadingJob<MP, G>;
+    type Job<MP: MatmulPrecision>: LoadingJob<MP>;
 
     /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
@@ -39,7 +39,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP, G>;
+    ) -> Self::Job<MP>;
 }
 
 #[derive(CubeType)]

@@ -43,7 +43,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
 #[cube]
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision, G: GlobalConfig> = Job<MP, T, G>;
+    type Job<MP: MatmulPrecision> = SyncFullCyclicJob<MP, T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
@@ -61,7 +61,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP, G> {
+    ) -> Self::Job<MP> {
         let tiling = config.tiling_dimensions(input_ident);
         let tile_num_elements = tiling.tile_size();
         let line_size = config.global_line_size(input_ident);
@@ -72,7 +72,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        Job::<MP, T, G> {
+        SyncFullCyclicJob::<MP, T> {
             unit_position_base,
             read_view,
             stage,
@@ -82,13 +82,12 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
             jump_length,
             line_size,
             input_ident,
-            config,
         }
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
+pub struct SyncFullCyclicJob<MP: MatmulPrecision, T: TilingOrder> {
     unit_position_base: u32,
 
     read_view: TensorReader<MP::EI>,
@@ -105,17 +104,15 @@ pub struct Job<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
     line_size: u32,
     #[cube(comptime)]
     input_ident: InputIdent,
-    #[cube(comptime)]
-    config: G,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G> for Job<MP, T, G> {
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullCyclicJob<MP, T> {
     fn len(this: &Self) -> u32 {
         this.num_tasks.runtime()
     }
 
-    fn execute_task(this: &mut Self, task_id: u32) {
+    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         let nth_tile = unit_position / this.tile_num_elements;
@@ -124,7 +121,7 @@ impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G> for
         let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
             nth_tile,
             comptime!(this.input_ident.as_ident()),
-            comptime!(this.config.to_smm_config()),
+            comptime!(config.to_smm_config()),
         );
 
         let line_read = this.read_view.load_coalesced_in_tile::<G>(
@@ -132,7 +129,7 @@ impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G> for
             tile_y,
             pos_within_tile,
             this.input_ident,
-            this.config,
+            config,
         );
 
         this.stage.as_slice_mut()[unit_position / this.line_size] = match this.quantization {

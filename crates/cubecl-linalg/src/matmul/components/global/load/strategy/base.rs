@@ -11,8 +11,8 @@ use cubecl_core::prelude::*;
 use cubecl_std::CubeOption;
 
 #[cube]
-pub trait LoadingJob<MP: MatmulPrecision, G: GlobalConfig>: CubeType + Copy + Clone {
-    fn execute_task(this: &mut Self, task_id: u32);
+pub trait LoadingJob<MP: MatmulPrecision>: CubeType + Copy + Clone {
+    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G);
     fn len(this: &Self) -> u32;
 }
 
@@ -31,7 +31,7 @@ pub(crate) fn default_sync_full_load<
     let mut job = LS::job::<MP, G>(read_view, stage, quantization, input_ident, config);
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute_task(&mut job, task_id);
+        LS::Job::execute_task::<G>(&mut job, task_id, config);
     }
 }
 
@@ -41,13 +41,18 @@ pub(crate) fn default_sync_buffer_load<
     MP: MatmulPrecision,
     G: GlobalConfig,
 >(
-    read_view: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, LS::TilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
+    #[comptime] buffer_index: u32,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    todo!()
+    let mut job = LS::job::<MP, G>(read_view, stage, quantization, buffer_index, input_ident, config);
+
+    for task_id in 0..LS::Job::len(&job) {
+        LS::Job::execute_task::<G>(&mut job, task_id, config);
+    }
 }
 
 #[cube]

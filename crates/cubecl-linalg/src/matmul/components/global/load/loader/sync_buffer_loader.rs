@@ -6,6 +6,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::TilingLayout;
@@ -16,19 +17,33 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
+/// A strategy for loading a buffer (partial stage), either eagerly or as a deferred job.
 pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
+    /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
+
+    /// A representation of deferred and partial loading work.
+    type Job<MP: MatmulPrecision>: LoadingJob<MP>;
 
     /// Load the stage only at the buffer identified by buffer_index
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        buffer_index: u32,
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
+
+    /// Returns a job that can perform the loading in a deferred manner.
+    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::Job<MP>;
 }
 
 #[derive(Clone, CubeType)]
@@ -86,10 +101,10 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 
     pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
         L::load_buffer::<MP, G>(
-            &this.tensor_view,
-            &mut this.stage,
-            buffer.to_index(),
+            this.tensor_view,
+            this.stage,
             this.quantization,
+            buffer.to_index(),
             this.input_ident,
             config,
         );
