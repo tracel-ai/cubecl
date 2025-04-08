@@ -31,7 +31,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         AsyncFullMaximizeSliceLengthJob<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -49,7 +49,6 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
@@ -68,7 +67,6 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         let num_tasks = comptime!((num_slices + unit_count - 1) / unit_count);
 
         AsyncFullMaximizeSliceLengthJob::<MP, CM> {
-            read_view,
             stage,
             mechanism,
             num_tasks,
@@ -85,7 +83,6 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct AsyncFullMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
 
@@ -107,14 +104,19 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let nth_slice = this.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices % this.unit_count == 0) {
             load_nth_slice::<MP::EI, MP::ES, CM, G>(
                 nth_slice,
-                &this.read_view,
+                read_view,
                 &mut this.stage,
                 &this.mechanism,
                 this.input_ident,
@@ -124,7 +126,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
             if nth_slice < this.num_slices {
                 load_nth_slice::<MP::EI, MP::ES, CM, G>(
                     nth_slice,
-                    &this.read_view,
+                    read_view,
                     &mut this.stage,
                     &this.mechanism,
                     this.input_ident,

@@ -46,7 +46,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type Job<MP: MatmulPrecision> = SyncFullCyclicJob<MP, T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -56,7 +56,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     }
 
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -74,7 +73,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
 
         SyncFullCyclicJob::<MP, T> {
             unit_position_base,
-            read_view,
             stage,
             quantization,
             num_tasks,
@@ -90,7 +88,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
 pub struct SyncFullCyclicJob<MP: MatmulPrecision, T: TilingOrder> {
     unit_position_base: u32,
 
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
 
@@ -112,7 +109,12 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullCyclicJob<M
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         let nth_tile = unit_position / this.tile_num_elements;
@@ -124,7 +126,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullCyclicJob<M
             comptime!(config.to_smm_config()),
         );
 
-        let line_read = this.read_view.load_coalesced_in_tile::<G>(
+        let line_read = read_view.load_coalesced_in_tile::<G>(
             tile_x,
             tile_y,
             pos_within_tile,

@@ -31,7 +31,7 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         AsyncBufferMaximizeSliceLengthJob<MP, CM>;
 
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -51,7 +51,6 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
@@ -107,7 +106,6 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         let num_tasks = (num_slices + unit_count - 1) / unit_count;
 
         AsyncBufferMaximizeSliceLengthJob::<MP, CM> {
-            read_view,
             stage,
             mechanism,
             num_tasks,
@@ -127,7 +125,6 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct AsyncBufferMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
 
@@ -155,14 +152,18 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let nth_slice_in_buffer = this.unit_count * task_id + UNIT_POS;
 
         let nth_slice = nth_slice_in_buffer + this.num_slices_buffer_offset;
 
         let window: Window<MP::EI> =
-            this.read_view
-                .load_window_in_stage::<G>(nth_slice, this.input_ident, config);
+            read_view.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 &mut this.stage,

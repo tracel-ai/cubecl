@@ -27,7 +27,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 
     /// Immediately load the stage only at the buffer identified by buffer_index
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
@@ -37,7 +37,6 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 
     /// Returns a job that can perform the loading in a deferred manner.
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
@@ -101,7 +100,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
 
     pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
         L::load_buffer::<MP, G>(
-            this.tensor_view,
+            &this.tensor_view,
             this.stage,
             this.quantization,
             buffer.to_index(),

@@ -41,7 +41,7 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type Job<MP: MatmulPrecision> = SyncFullStridedJob<MP>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -51,7 +51,6 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     }
 
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -67,7 +66,6 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 
         SyncFullStridedJob::<MP> {
             unit_position_base,
-            read_view,
             stage,
             quantization,
             num_tasks,
@@ -82,7 +80,6 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 pub struct SyncFullStridedJob<MP: MatmulPrecision> {
     unit_position_base: u32,
 
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
 
@@ -102,10 +99,15 @@ impl<MP: MatmulPrecision> LoadingJob<MP> for SyncFullStridedJob<MP> {
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let line_read = this.read_view.load_coalesced_in_stage::<G>(
+        let line_read = read_view.load_coalesced_in_stage::<G>(
             unit_position * this.line_size,
             this.input_ident,
             config,

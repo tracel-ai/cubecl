@@ -56,7 +56,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type Job<MP: MatmulPrecision> = SyncFullTilewiseJob<MP, T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -66,7 +66,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     }
 
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -91,7 +90,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
         SyncFullTilewiseJob::<MP, T> {
             tile,
             offset_base,
-            read_view,
             stage,
             quantization,
             num_tasks,
@@ -106,7 +104,6 @@ pub struct SyncFullTilewiseJob<MP: MatmulPrecision, T: TilingOrder> {
     tile: (u32, u32),
     offset_base: u32,
 
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
 
@@ -124,10 +121,15 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullTilewiseJob
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let pos_within_tile = task_id * comptime!(config.plane_dim()) + UNIT_POS_X;
 
-        let line_read = this.read_view.load_coalesced_in_tile::<G>(
+        let line_read = read_view.load_coalesced_in_tile::<G>(
             this.tile.0,
             this.tile.1,
             pos_within_tile * this.line_size,

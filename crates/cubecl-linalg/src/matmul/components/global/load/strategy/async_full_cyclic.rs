@@ -45,7 +45,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = AsyncFullCyclicJob<MP, CM, T>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -63,7 +63,6 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
@@ -92,7 +91,6 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
 
         AsyncFullCyclicJob::<MP, CM, T> {
             unit_id,
-            read_view,
             stage,
             mechanism,
             num_tasks,
@@ -113,7 +111,6 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
 pub struct AsyncFullCyclicJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
     unit_id: u32,
 
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     mechanism: CM,
 
@@ -139,7 +136,12 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
@@ -152,7 +154,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
 
         // TODO make branching comptime conditional
         if slice_index < this.num_slices {
-            let window = this.read_view.load_window_in_tile::<G>(
+            let window = read_view.load_window_in_tile::<G>(
                 (tile_x, tile_y),
                 nth_slice,
                 this.input_ident,

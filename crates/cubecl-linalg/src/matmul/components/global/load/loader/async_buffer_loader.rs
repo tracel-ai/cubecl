@@ -27,7 +27,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
     /// Immediately load the stage only at the buffer identified by buffer_index
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -38,7 +38,6 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
     /// Returns a job that can perform the loading in a deferred manner.
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -119,7 +118,7 @@ impl<
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
         L::load_buffer::<MP, CM, CommonGlobalConfig<S>>(
-            this.tensor_view,
+            &this.tensor_view,
             this.stage,
             mechanism,
             this.quantization,

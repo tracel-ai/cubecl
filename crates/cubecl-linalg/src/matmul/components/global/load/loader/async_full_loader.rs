@@ -25,7 +25,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 
     /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -35,7 +35,6 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 
     /// Returns a job that can perform the loading in a deferred manner.
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -128,7 +127,7 @@ impl<
 
     pub fn fill_stage(this: &mut Self, mechanism: CM, #[comptime] config: single_stage::Config<S>) {
         L::load_full::<MP, CM, single_stage::Config<S>>(
-            this.tensor_view,
+            &this.tensor_view,
             this.stage,
             mechanism,
             this.quantization,

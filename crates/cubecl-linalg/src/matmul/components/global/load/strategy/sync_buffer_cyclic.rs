@@ -63,7 +63,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
     type Job<MP: MatmulPrecision> = SyncBufferCyclicJob<MP, T>;
 
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
@@ -81,7 +81,6 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
     }
 
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
@@ -110,7 +109,6 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
 
         SyncBufferCyclicJob::<MP, T> {
             unit_position_base,
-            read_view,
             stage,
             quantization,
             num_tasks,
@@ -126,7 +124,6 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
 pub struct SyncBufferCyclicJob<MP: MatmulPrecision, T: TilingOrder> {
     unit_position_base: u32,
 
-    read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
 
@@ -148,7 +145,12 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob
         this.num_tasks.runtime()
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
         let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
             let tiling_dimensions = config.tiling_dimensions(this.input_ident);
             (
@@ -174,7 +176,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob
 
         let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
 
-        let line_read = this.read_view.load_coalesced_in_tile::<G>(
+        let line_read = read_view.load_coalesced_in_tile::<G>(
             tile_x,
             tile_y,
             pos_within_tile,

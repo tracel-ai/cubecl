@@ -12,7 +12,12 @@ use cubecl_std::CubeOption;
 
 #[cube]
 pub trait LoadingJob<MP: MatmulPrecision>: CubeType + Copy + Clone {
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G);
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    );
     fn len(this: &Self) -> u32;
 }
 
@@ -22,16 +27,16 @@ pub(crate) fn default_sync_full_load<
     MP: MatmulPrecision,
     G: GlobalConfig,
 >(
-    read_view: TensorReader<MP::EI>,
+    read_view: &TensorReader<MP::EI>,
     stage: Stage<MP::ES, LS::TilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G>(read_view, stage, quantization, input_ident, config);
+    let mut job = LS::job::<MP, G>(stage, quantization, input_ident, config);
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute_task::<G>(&mut job, task_id, config);
+        LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
 
@@ -41,24 +46,17 @@ pub(crate) fn default_sync_buffer_load<
     MP: MatmulPrecision,
     G: GlobalConfig,
 >(
-    read_view: TensorReader<MP::EI>,
+    read_view: &TensorReader<MP::EI>,
     stage: Stage<MP::ES, LS::TilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] buffer_index: u32,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G>(
-        read_view,
-        stage,
-        quantization,
-        buffer_index,
-        input_ident,
-        config,
-    );
+    let mut job = LS::job::<MP, G>(stage, quantization, buffer_index, input_ident, config);
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute_task::<G>(&mut job, task_id, config);
+        LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
 
@@ -69,24 +67,17 @@ pub(crate) fn default_async_full_load<
     G: GlobalConfig,
     CM: CopyMechanism<MP::ES>,
 >(
-    read_view: TensorReader<MP::EI>,
+    read_view: &TensorReader<MP::EI>,
     stage: Stage<MP::ES, LS::TilingLayout>,
     mechanism: CM,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, CM, G>(
-        read_view,
-        stage,
-        mechanism,
-        quantization,
-        input_ident,
-        config,
-    );
+    let mut job = LS::job::<MP, CM, G>(stage, mechanism, quantization, input_ident, config);
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute_task::<G>(&mut job, task_id, config);
+        LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
 
@@ -97,7 +88,7 @@ pub(crate) fn default_async_buffer_load<
     G: GlobalConfig,
     CM: CopyMechanism<MP::ES>,
 >(
-    read_view: TensorReader<MP::EI>,
+    read_view: &TensorReader<MP::EI>,
     stage: Stage<MP::ES, LS::TilingLayout>,
     mechanism: CM,
     quantization: CubeOption<Quantization<MP>>,
@@ -106,7 +97,6 @@ pub(crate) fn default_async_buffer_load<
     #[comptime] config: G,
 ) {
     let mut job = LS::job::<MP, CM, G>(
-        read_view,
         stage,
         mechanism,
         quantization,
@@ -116,6 +106,6 @@ pub(crate) fn default_async_buffer_load<
     );
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute_task::<G>(&mut job, task_id, config);
+        LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }

@@ -58,7 +58,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         AsyncFullMaximizeUnitCountJob<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
+        read_view: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -76,7 +76,6 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
         mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
@@ -100,12 +99,10 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
         let unit_count = config.plane_dim() * config.num_planes();
 
-        let units_per_slice = unit_count / num_slices;
+        let units_per_slice = comptime!(unit_count / num_slices);
         let nth_slice = UNIT_POS / units_per_slice;
 
-        let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-        let mut destination: SliceMut<Line<MP::ES>> =
+        let destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 &mut stage,
                 nth_slice,
@@ -113,19 +110,16 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
                 config.to_smm_config(),
             );
 
-        let segment_length = slice_length / units_per_slice;
+        let segment_length = comptime!(slice_length / units_per_slice);
         let nth_segment = UNIT_POS % units_per_slice;
 
-        let seg_start = Min::min(nth_segment * segment_length, window.size);
-        let seg_end = Min::min((nth_segment + 1) * segment_length, window.size);
-
-        let src_segment = window.slice.slice(seg_start, seg_end);
-        let dest_segment = destination.slice_mut(seg_start, seg_end);
-
         AsyncFullMaximizeUnitCountJob::<MP, CM> {
-            src_segment,
-            dest_segment,
+            destination,
             mechanism,
+            nth_slice,
+            nth_segment,
+            segment_length,
+            input_ident,
         }
     }
 
@@ -136,9 +130,14 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct AsyncFullMaximizeUnitCountJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    src_segment: Slice<Line<MP::EI>>,
-    dest_segment: SliceMut<Line<MP::ES>>,
+    destination: SliceMut<Line<MP::ES>>,
     mechanism: CM,
+    nth_slice: u32,
+    nth_segment: u32,
+    #[cube(comptime)]
+    segment_length: u32,
+    #[cube(comptime)]
+    input_ident: InputIdent,
 }
 
 #[cube]
@@ -149,11 +148,24 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         1u32
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, _task_id: u32, #[comptime] _config: G) {
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        _task_id: u32,
+        read_view: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
+        let window: Window<MP::EI> =
+            read_view.load_window_in_stage::<G>(this.nth_slice, this.input_ident, config);
+        let seg_start = Min::min(this.nth_segment * this.segment_length, window.size);
+        let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.size);
+
+        let src_segment = window.slice.slice(seg_start, seg_end);
+        let mut dest_segment = this.destination.slice_mut(seg_start, seg_end);
+
         CM::memcpy_async(
             &this.mechanism,
-            &this.src_segment.try_cast_unchecked(),
-            &mut this.dest_segment,
+            &src_segment.try_cast_unchecked(),
+            &mut dest_segment,
         );
     }
 }
