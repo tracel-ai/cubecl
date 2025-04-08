@@ -17,15 +17,26 @@ use cubecl_std::CubeOption;
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<MP: MatmulPrecision>: CubeType + Copy + Clone {
+    type Config: LoadingJobConfig<MP, Self>;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     );
-
-    fn len(this: &Self) -> u32;
 }
+
+pub trait LoadingJobConfig<MP: MatmulPrecision, LJ: LoadingJob<MP>> {
+    fn len(job: &LJ) -> u32;
+
+    fn __expand_len(
+        context: &mut cubecl::prelude::Scope,
+        job: <LJ as cubecl::prelude::CubeType>::ExpandType,
+    ) -> u32;
+}
+
+pub type JobConfig<MP: MatmulPrecision, Job> = <Job as LoadingJob<MP>>::Config;
 
 #[cube]
 pub(crate) fn default_sync_full_load<
@@ -41,7 +52,8 @@ pub(crate) fn default_sync_full_load<
 ) {
     let mut job = LS::job::<MP, G>(stage, quantization, input_ident, config);
 
-    for task_id in 0..LS::Job::len(&job) {
+    let len = JobConfig::<MP, LS::Job<MP>>::len(&job);
+    for task_id in 0..len {
         LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
@@ -61,7 +73,8 @@ pub(crate) fn default_sync_buffer_load<
 ) {
     let mut job = LS::job::<MP, G>(stage, quantization, buffer_index, input_ident, config);
 
-    for task_id in 0..LS::Job::len(&job) {
+    let len = JobConfig::<MP, LS::Job<MP>>::len(&job);
+    for task_id in 0..len {
         LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
@@ -82,7 +95,8 @@ pub(crate) fn default_async_full_load<
 ) {
     let mut job = LS::job::<MP, CM, G>(stage, mechanism, quantization, input_ident, config);
 
-    for task_id in 0..LS::Job::len(&job) {
+    let len = JobConfig::<MP, LS::Job<MP, CM>>::len(&job);
+    for task_id in 0..len {
         LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
@@ -111,7 +125,8 @@ pub(crate) fn default_async_buffer_load<
         config,
     );
 
-    for task_id in 0..LS::Job::len(&job) {
+    let len = JobConfig::<MP, LS::Job<MP, CM>>::len(&job);
+    for task_id in 0..len {
         LS::Job::execute_task::<G>(&mut job, task_id, read_view, config);
     }
 }
