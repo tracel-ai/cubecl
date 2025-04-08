@@ -20,7 +20,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// A representation of deferred and partial loading work.
+    /// The [LoadingJob] for this strategy
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
 
     /// Loads the entire stage immediately from the tensor reader.
@@ -33,7 +33,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
         #[comptime] config: G,
     );
 
-    /// Returns a job that can perform the loading in a deferred manner.
+    /// Returns the job with preliminary calculations done.
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,

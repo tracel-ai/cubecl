@@ -22,7 +22,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// A representation of deferred and partial loading work.
+    /// The [LoadingJob] for this strategy
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
 
     /// Immediately load the stage only at the buffer identified by buffer_index
@@ -36,7 +36,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
         #[comptime] config: G,
     );
 
-    /// Returns a job that can perform the loading in a deferred manner.
+    /// Returns the job with preliminary calculations done.
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
