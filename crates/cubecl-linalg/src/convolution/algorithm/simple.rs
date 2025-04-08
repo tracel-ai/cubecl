@@ -4,7 +4,9 @@ use cubecl_core::{CubeCount, CubeDim};
 
 use crate::{
     convolution::{base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily},
-    matmul::components::{MatmulSelection, stage, tile::TileMatmulFamily},
+    matmul::components::{
+        MatmulSelection, global::args::TensorArgs, stage, tile::TileMatmulFamily,
+    },
 };
 
 use super::Algorithm;
@@ -18,6 +20,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
+
+    type Args = TensorArgs;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)

@@ -1,6 +1,7 @@
 use crate::matmul::{
     components::{
         CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSelection,
+        global::args::MatmulArgs,
         stage::{StageBuffering, StageMatmulFamily},
         tile::TileMatmulFamily,
     },
@@ -20,6 +21,8 @@ pub trait Algorithm {
     type TileMatmul: TileMatmulFamily;
     type StageMatmul: StageMatmulFamily<Input = StageInput>;
     type GlobalConvolution: ConvolutionFamily<Input = StageInput>;
+
+    type Args: MatmulArgs;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim;
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount;

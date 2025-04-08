@@ -1,4 +1,7 @@
+use std::any::TypeId;
+
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*, tensor_line_size_parallel};
+use half::f16;
 
 use crate::{
     convolution::base::ConvolutionLaunch,
@@ -6,10 +9,7 @@ use crate::{
 };
 use crate::{
     matmul::{
-        components::{
-            EI, EO, MatmulSpec,
-            global::args::{MatmulArgs, OutputLaunch},
-        },
+        components::global::args::{MatmulArgs, OutputLaunch},
         kernels::MatmulLaunchError,
     },
     tensor::into_contiguous_pitched,
@@ -23,10 +23,14 @@ use super::{
     selection::select_matmul,
 };
 
+type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<<MP as MatmulPrecision>::EI>;
+type Output<Alg, MP> =
+    <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
+
 pub struct ConvolutionArgs {
-    stride: (usize, usize),
-    padding: (usize, usize),
-    dilation: (usize, usize),
+    pub stride: (usize, usize),
+    pub padding: (usize, usize),
+    pub dilation: (usize, usize),
 }
 
 /// Perform a 2D convolution using the implicit GEMM (im2col) algorithm, using cubecl tiling matmul
@@ -44,7 +48,10 @@ pub fn launch_conv2d_nhwc<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     args: ConvolutionArgs,
-) -> Result<(), ConvLaunchError> {
+) -> Result<(), ConvLaunchError>
+where
+    Input<Alg, MP>: ConvInputsLaunch,
+{
     let in_contiguous = is_contiguous_4d(input);
     let weight_contiguous = is_contiguous_4d(weight);
 
@@ -80,7 +87,10 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     args: ConvolutionArgs,
-) -> Result<(), ConvLaunchError> {
+) -> Result<(), ConvLaunchError>
+where
+    Input<Alg, MP>: ConvInputsLaunch,
+{
     let ConvolutionArgs {
         stride,
         padding,
@@ -134,12 +144,17 @@ fn prepare_problem<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
 
     let (selection, config_input) = select_matmul::<Alg, R, MP>(client, &problem, plane_dim);
 
-    // Pad channels to tile size to align loads, so we only ever load one kernel position at a time
-    // This may improve memory coalescing, and is necessary for TMA to work properly
-    // In practice, this is usually already aligned anyways, since channels tend to be a power of
-    // two.
+    let launch = if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
+        if tf32::is_supported(client) {
+            launch_kernel::<R, (MP::EI, tf32, f32, MP::EO), Alg>
+        } else {
+            launch_kernel::<R, (MP::EI, f16, f32, MP::EO), Alg>
+        }
+    } else {
+        launch_kernel::<R, MP, Alg>
+    };
 
-    launch_kernel::<R, MP, Alg>(
+    launch(
         client,
         input,
         weight,
@@ -164,11 +179,8 @@ fn is_contiguous_4d<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
     strides[2] * handle.shape[2] == strides[1] && strides[1] * handle.shape[1] == handle.strides[0]
 }
 
-type Input<MS> = <<MS as MatmulSpec>::Args as MatmulArgs>::Input<EI<MS>>;
-type Output<MS> = <<MS as MatmulSpec>::Args as MatmulArgs>::Output<EO<MS>>;
-
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-pub fn launch_kernel<R: Runtime, MS: MatmulSpec, Alg: Algorithm>(
+pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<'_, R>,
     weight: &TensorHandleRef<'_, R>,
@@ -179,7 +191,7 @@ pub fn launch_kernel<R: Runtime, MS: MatmulSpec, Alg: Algorithm>(
     config_input: StageInput,
 ) -> Result<(), ConvLaunchError>
 where
-    Input<MS>: ConvInputsLaunch,
+    Input<Alg, MP>: ConvInputsLaunch,
 {
     // Reshape weight to (K, N)
     let weight_shape = [weight.shape[0..3].iter().product(), weight.shape[3]];
@@ -208,19 +220,19 @@ where
     let config = Alg::make_config(config_input, &problem, &cube_dim, &cube_count)
         .map_err(MatmulLaunchError::InvalidConfig)?;
 
-    <Alg::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MS::Precision>(
+    <Alg::GlobalConvolution as ConvolutionConfigFactory>::check_availability::<R, MP>(
         client, &config,
     )?;
 
-    let input = <Input<MS> as ConvInputsLaunch>::create(input, &weight, &selection, &problem);
+    let input = <Input<Alg, MP> as ConvInputsLaunch>::create(input, &weight, &selection, &problem);
     let output =
-        <Output<MS> as OutputLaunch>::create(&out, &selection, &problem.as_matmul_problem());
+        <Output<Alg, MP> as OutputLaunch>::create(&out, &selection, &problem.as_matmul_problem());
     let bias = bias
         .as_ref()
         .map(|bias| bias.as_tensor_arg(problem.out_line_size));
 
     unsafe {
-        Alg::GlobalConvolution::launch_unchecked::<MS, R>(
+        Alg::GlobalConvolution::launch_unchecked::<(MP, Alg::Args), R>(
             client, cube_dim, cube_count, input, bias, output, &problem, config,
         );
     }

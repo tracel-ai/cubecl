@@ -7,7 +7,10 @@ use crate::{
         base::{ConvolutionConfigFactory, ConvolutionProblem},
         homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     },
-    matmul::components::{InvalidConfigError, MatmulSelection, stage, tile::TileMatmulFamily},
+    matmul::components::{
+        InvalidConfigError, MatmulSelection, global::args::TensorMapArgs, stage,
+        tile::TileMatmulFamily,
+    },
 };
 
 use super::Algorithm;
@@ -21,6 +24,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
+
+    type Args = TensorMapArgs;
 
     fn cube_dim(selection: &MatmulSelection) -> CubeDim {
         CubeDim::new(selection.plane_dim, selection.tile_count.m, 1)
