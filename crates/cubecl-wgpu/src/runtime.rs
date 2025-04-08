@@ -202,6 +202,8 @@ pub(crate) fn create_client_on_setup(
             adapter_limits.max_compute_workgroup_size_y,
             adapter_limits.max_compute_workgroup_size_z,
         ),
+        num_streaming_multiprocessors: None,
+        num_tensor_cores: None,
     };
 
     let mut compilation_options = Default::default();
