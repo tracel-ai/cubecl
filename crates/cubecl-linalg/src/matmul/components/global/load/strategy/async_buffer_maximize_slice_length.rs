@@ -84,45 +84,11 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         };
 
         let unit_count = config.plane_dim() * config.num_planes();
-        let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
+        let num_tasks = (num_slices + unit_count - 1) / unit_count;
 
         // Typically there will be only 1 slice per unit
-        #[unroll(slices_per_unit==1)]
-        for nth_slice_local in 0..slices_per_unit {
-            let nth_slice_in_buffer = unit_count * nth_slice_local + UNIT_POS;
-
-            let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
-
-            let window: Window<MP::EI> =
-                read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-            let mut destination: SliceMut<Line<MP::ES>> =
-                StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                    &mut stage,
-                    nth_slice,
-                    comptime!(input_ident.as_ident()),
-                    config.to_smm_config(),
-                );
-
-            let start = slice_buffer_offset;
-            let limit = select(
-                slice_buffer_offset < window.size,
-                slice_buffer_offset,
-                window.size,
-            );
-            let end = start + Min::min(window.size - limit, slice_length);
-
-            let src = window.slice.slice(start, end);
-            let mut dest = destination.slice_mut(start, end);
-
-            #[allow(clippy::collapsible_else_if)]
-            if comptime!(num_slices % unit_count == 0) {
-                CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
-            } else {
-                if nth_slice_in_buffer < num_slices {
-                    CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
-                }
-            };
-        }
+        #[unroll(num_tasks==1)]
+        for nth_slice_local in 0..num_tasks {}
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
@@ -148,17 +114,52 @@ pub struct AsyncBufferMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechan
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
     quantization: CubeOption<Quantization<MP>>,
+
+    #[cube(comptime)]
+    num_tasks: u32,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
     for AsyncBufferMaximizeSliceLengthJob<MP, CM>
 {
-    fn len(_this: &Self) -> u32 {
-        todo!()
+    fn len(this: &Self) -> u32 {
+        this.num_tasks
     }
 
     fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
-        // TODO
+        let nth_slice_in_buffer = unit_count * task_id + UNIT_POS;
+
+        let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
+
+        let window: Window<MP::EI> =
+            read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
+        let mut destination: SliceMut<Line<MP::ES>> =
+            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+                &mut stage,
+                nth_slice,
+                comptime!(input_ident.as_ident()),
+                config.to_smm_config(),
+            );
+
+        let start = slice_buffer_offset;
+        let limit = select(
+            slice_buffer_offset < window.size,
+            slice_buffer_offset,
+            window.size,
+        );
+        let end = start + Min::min(window.size - limit, slice_length);
+
+        let src = window.slice.slice(start, end);
+        let mut dest = destination.slice_mut(start, end);
+
+        #[allow(clippy::collapsible_else_if)]
+        if comptime!(num_slices % unit_count == 0) {
+            CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
+        } else {
+            if nth_slice_in_buffer < num_slices {
+                CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
+            }
+        };
     }
 }
