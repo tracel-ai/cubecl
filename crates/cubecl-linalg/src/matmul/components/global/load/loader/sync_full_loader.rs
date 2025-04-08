@@ -15,12 +15,15 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
+/// A strategy for fully loading a tiled stage, either eagerly or as a deferred job.
 pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
+    /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
+
+    /// A representation of deferred and partial loading work.
     type Job<MP: MatmulPrecision, G: GlobalConfig>: LoadingJob<MP, G>;
 
-    /// Load the full stage
+    /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
@@ -29,6 +32,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
         #[comptime] config: G,
     );
 
+    /// Returns a job that can perform the loading in a deferred manner.
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
@@ -45,16 +49,6 @@ pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFul
     pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     input_ident: InputIdent,
-    #[cube(comptime)]
-    _phantom: PhantomData<(S, L)>,
-}
-
-#[derive(CubeType)]
-pub struct SyncFullRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-{
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     _phantom: PhantomData<(S, L)>,
 }
