@@ -11,7 +11,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -111,11 +111,13 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
             unit_position_base,
             stage,
             quantization,
-            num_tasks,
-            buffer_index,
-            jump_length,
-            num_lines_per_tile,
-            input_ident,
+            job_config: comptime!(SyncBufferCyclicJobConfig {
+                num_tasks,
+                buffer_index,
+                jump_length,
+                num_lines_per_tile,
+                input_ident,
+            }),
         }
     }
 }
@@ -128,22 +130,36 @@ pub struct SyncBufferCyclicJob<MP: MatmulPrecision, T: TilingOrder> {
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
+    job_config: SyncBufferCyclicJobConfig,
+}
+
+#[derive(Copy, Clone)]
+pub struct SyncBufferCyclicJobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     buffer_index: u32,
-    #[cube(comptime)]
     jump_length: u32,
-    #[cube(comptime)]
     num_lines_per_tile: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
+}
+
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, SyncBufferCyclicJob<MP, T>>
+    for SyncBufferCyclicJobConfig
+{
+    fn len(job: &SyncBufferCyclicJob<MP, T>) -> u32 {
+        job.job_config.num_tasks
+    }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <SyncBufferCyclicJob<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob<MP, T> {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
-    }
+    type LoadingJobConfig = SyncBufferCyclicJobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -151,17 +167,19 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
+        let jc = this.job_config;
+
         let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
-            let tiling_dimensions = config.tiling_dimensions(this.input_ident);
+            let tiling_dimensions = config.tiling_dimensions(jc.input_ident);
             (
-                config.stage_line_size(this.input_ident),
+                config.stage_line_size(jc.input_ident),
                 tiling_dimensions.tile_size(),
                 tiling_dimensions.tile_count_row(),
                 tiling_dimensions.tile_count_col()
             )
         };
 
-        let unit_position = this.unit_position_base + task_id * this.jump_length;
+        let unit_position = this.unit_position_base + task_id * jc.jump_length;
 
         // We assume unit_position < total_num_lines * line_size;
         // This is caught by the loading validation
@@ -169,9 +187,9 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob
         let unit_pos_in_buffer = unit_position / tile_size;
         let pos_within_tile = unit_position % tile_size;
 
-        let (tile_x, tile_y) = match comptime!(this.input_ident) {
-            InputIdent::Lhs => (unit_pos_in_buffer, this.buffer_index.runtime()),
-            InputIdent::Rhs => (this.buffer_index.runtime(), unit_pos_in_buffer),
+        let (tile_x, tile_y) = match comptime!(jc.input_ident) {
+            InputIdent::Lhs => (unit_pos_in_buffer, jc.buffer_index.runtime()),
+            InputIdent::Rhs => (jc.buffer_index.runtime(), unit_pos_in_buffer),
         };
 
         let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
@@ -180,12 +198,12 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncBufferCyclicJob
             tile_x,
             tile_y,
             pos_within_tile,
-            this.input_ident,
+            jc.input_ident,
             config,
         );
 
-        let tile_start = nth_tile * this.num_lines_per_tile;
-        let tile_end = tile_start + this.num_lines_per_tile;
+        let tile_start = nth_tile * jc.num_lines_per_tile;
+        let tile_end = tile_start + jc.num_lines_per_tile;
         let mut tile_slice = this.stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
         tile_slice[pos_within_tile / line_size] = match this.quantization {

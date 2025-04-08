@@ -17,7 +17,7 @@ use cubecl_std::CubeOption;
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<MP: MatmulPrecision>: CubeType + Copy + Clone {
-    type Config: LoadingJobConfig<MP, Self>;
+    type LoadingJobConfig: LoadingJobConfig<MP, Self>;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -36,7 +36,7 @@ pub trait LoadingJobConfig<MP: MatmulPrecision, LJ: LoadingJob<MP>> {
     ) -> u32;
 }
 
-pub type JobConfig<MP: MatmulPrecision, Job> = <Job as LoadingJob<MP>>::Config;
+type JobConfig<MP: MatmulPrecision, Job> = <Job as LoadingJob<MP>>::LoadingJobConfig;
 
 #[cube]
 pub(crate) fn default_sync_full_load<
