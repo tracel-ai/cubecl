@@ -1,5 +1,3 @@
-use std::ops::IndexMut;
-
 use crate::matmul::components::global::load::{
     AsyncBufferLoadingStrategy, AsyncFullLoadingStrategy, SyncBufferLoadingStrategy,
     SyncFullLoadingStrategy,
