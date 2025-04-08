@@ -59,56 +59,20 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
-        let line_size = config.global_line_size(input_ident);
-
-        let (num_slices, slice_length) = match matrix_layout {
-            MatrixLayout::RowMajor => (
-                tiling_dimensions.total_row(),
-                tiling_dimensions.total_col() / line_size,
-            ),
-            MatrixLayout::ColMajor => (
-                tiling_dimensions.total_col(),
-                tiling_dimensions.total_row() / line_size,
-            ),
-        };
-
-        let unit_count = config.plane_dim() * config.num_planes();
-
-        let units_per_slice = unit_count / num_slices;
-        let nth_slice = UNIT_POS / units_per_slice;
-
-        let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-        let mut destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                &mut stage,
-                nth_slice,
-                input_ident.as_ident(),
-                config.to_smm_config(),
-            );
-
-        let segment_length = slice_length / units_per_slice;
-        let nth_segment = UNIT_POS % units_per_slice;
-
-        let seg_start = Min::min(nth_segment * segment_length, window.size);
-        let seg_end = Min::min((nth_segment + 1) * segment_length, window.size);
-
-        let src_segment = window.slice.slice(seg_start, seg_end);
-        let mut dest_segment = destination.slice_mut(seg_start, seg_end);
-
-        CM::memcpy_async(
-            &mechanism,
-            &src_segment.try_cast_unchecked(),
-            &mut dest_segment,
-        );
+        default_async_full_load::<Self, MP, G, CM>(
+            read_view,
+            stage,
+            mechanism,
+            quantization,
+            input_ident,
+            config,
+        )
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
@@ -156,19 +120,12 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         let seg_end = Min::min((nth_segment + 1) * segment_length, window.size);
 
         let src_segment = window.slice.slice(seg_start, seg_end);
-        let mut dest_segment = destination.slice_mut(seg_start, seg_end);
-
-        CM::memcpy_async(
-            &mechanism,
-            &src_segment.try_cast_unchecked(),
-            &mut dest_segment,
-        );
+        let dest_segment = destination.slice_mut(seg_start, seg_end);
 
         AsyncFullMaximizeUnitCountJob::<MP, CM> {
-            read_view,
-            stage,
+            src_segment,
+            dest_segment,
             mechanism,
-            _quantization,
         }
     }
 
@@ -179,10 +136,9 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct AsyncFullMaximizeUnitCountJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    read_view: TensorReader<MP::EI>,
-    stage: Stage<MP::ES, StridedTilingLayout>,
+    src_segment: Slice<Line<MP::EI>>,
+    dest_segment: SliceMut<Line<MP::ES>>,
     mechanism: CM,
-    _quantization: CubeOption<Quantization<MP>>,
 }
 
 #[cube]
@@ -193,7 +149,11 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         1u32
     }
 
-    fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
-        // TODO
+    fn execute_task<G: GlobalConfig>(this: &mut Self, _task_id: u32, #[comptime] _config: G) {
+        CM::memcpy_async(
+            &this.mechanism,
+            &this.src_segment.try_cast_unchecked(),
+            &mut this.dest_segment,
+        );
     }
 }
