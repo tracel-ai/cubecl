@@ -1,108 +1,150 @@
-// use std::marker::PhantomData;
+use std::marker::PhantomData;
 
-// use crate::matmul::components::global::Quantization;
-// use crate::matmul::components::global::load::SyncFullLoadingStrategy;
-// use crate::matmul::components::{
-//     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
-// };
-// use crate::matmul::components::{
-//     global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
-//     stage::{ContiguousTilingLayout, Stage, TilingOrder},
-// };
-// use cubecl_core as cubecl;
-// use cubecl_core::prelude::*;
-// use cubecl_std::{CubeOption, CubeOptionExpand};
+use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::{SyncFullLoadingStrategy, default_sync_full_load};
+use crate::matmul::components::{
+    FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
+};
+use crate::matmul::components::{
+    global::{GlobalConfig, LoadingValidation, tensor_view::TensorReader},
+    stage::{ContiguousTilingLayout, Stage, TilingOrder},
+};
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
-// #[derive(CubeType, Clone, Copy)]
-// /// Loads the content of all tiles in the tensor view using
-// /// one plane per tile.
-// pub struct SyncFullTilewiseLoading<T: TilingOrder> {
-//     #[cube(comptime)]
-//     tiling_order: PhantomData<T>,
-// }
+use super::LoadingJob;
 
-// impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
-//     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
-//         let tiling = config.tiling_dimensions(ident);
-//         let line_size = config.global_line_size(ident);
+#[derive(CubeType, Clone, Copy)]
+/// Loads the content of all tiles in the tensor view using
+/// one plane per tile.
+pub struct SyncFullTilewiseLoading<T: TilingOrder> {
+    #[cube(comptime)]
+    tiling_order: PhantomData<T>,
+}
 
-//         let num_planes = config.num_planes();
-//         let num_tiles = tiling.tile_count();
+impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
+    fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
+        let tiling = config.tiling_dimensions(ident);
+        let line_size = config.global_line_size(ident);
 
-//         if num_planes != num_tiles {
-//             return Err(FormattedConfigError::new(move || {
-//                 format!(
-//                     "Number of planes {:?} must equal number of tiles {:?} for tilewise loading.",
-//                     num_planes, num_tiles,
-//                 )
-//             }));
-//         }
+        let num_planes = config.num_planes();
+        let num_tiles = tiling.tile_count();
 
-//         if line_size != config.stage_line_size(ident) {
-//             return Err(Box::new(
-//                 "Global and stage line sizes must match for tilewise loading.",
-//             ));
-//         }
+        if num_planes != num_tiles {
+            return Err(FormattedConfigError::new(move || {
+                format!(
+                    "Number of planes {:?} must equal number of tiles {:?} for tilewise loading.",
+                    num_planes, num_tiles,
+                )
+            }));
+        }
 
-//         Ok(())
-//     }
-// }
+        if line_size != config.stage_line_size(ident) {
+            return Err(Box::new(
+                "Global and stage line sizes must match for tilewise loading.",
+            ));
+        }
 
-// #[cube]
-// impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
-//     type TilingLayout = ContiguousTilingLayout<T>;
-//     type Job<MP: MatmulPrecision, G: GlobalConfig> = SyncFullCyclicTask<MP, T, G>; // TODO change
+        Ok(())
+    }
+}
 
-//     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-//         read_view: TensorReader<MP::EI>,
-//         mut stage: Stage<MP::ES, Self::TilingLayout>,
-//         quantization: CubeOption<Quantization<MP>>,
-//         #[comptime] input_ident: InputIdent,
-//         #[comptime] config: G,
-//     ) {
-//         let tiling = config.tiling_dimensions(input_ident);
-//         let line_size = config.global_line_size(input_ident);
+#[cube]
+impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
+    type TilingLayout = ContiguousTilingLayout<T>;
+    type Job<MP: MatmulPrecision, G: GlobalConfig> = SyncFullTilewiseJob<MP, T, G>;
 
-//         let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
+    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) {
+        default_sync_full_load::<Self, MP, G>(read_view, stage, quantization, input_ident, config)
+    }
 
-//         let nth_tile = UNIT_POS_Y;
-//         let offset_base = num_lines_per_tile * nth_tile;
+    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::Job<MP, G> {
+        let tiling = config.tiling_dimensions(input_ident);
+        let line_size = config.global_line_size(input_ident);
 
-//         let num_loads_per_unit = num_lines_per_tile / config.plane_dim();
+        let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
 
-//         let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
-//             nth_tile,
-//             input_ident.as_ident(),
-//             config.to_smm_config(),
-//         );
+        let nth_tile = UNIT_POS_Y;
+        let offset_base = num_lines_per_tile * nth_tile;
 
-//         for i in 0..num_loads_per_unit {
-//             let pos_within_tile = i * config.plane_dim() + UNIT_POS_X;
+        let num_tasks = num_lines_per_tile / config.plane_dim();
 
-//             let line_read = read_view.load_coalesced_in_tile::<G>(
-//                 tile_x,
-//                 tile_y,
-//                 pos_within_tile * line_size,
-//                 input_ident,
-//                 config,
-//             );
+        let tile = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+            nth_tile,
+            input_ident.as_ident(),
+            config.to_smm_config(),
+        );
 
-//             let offset = offset_base + pos_within_tile;
+        SyncFullTilewiseJob::<MP, T, G> {
+            tile,
+            offset_base,
+            read_view,
+            stage,
+            quantization,
+            num_tasks,
+            line_size,
+            input_ident,
+            config,
+        }
+    }
+}
 
-//             stage.as_slice_mut()[offset] = match quantization {
-//                 CubeOption::Some(quantization) => quantization.dequantize(line_read),
-//                 CubeOption::None => Line::cast_from(line_read),
-//             }
-//         }
-//     }
+#[derive(CubeType, Clone, Copy)]
+pub struct SyncFullTilewiseJob<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
+    tile: (u32, u32),
+    offset_base: u32,
 
-//     fn job<MP: MatmulPrecision, G: GlobalConfig>(
-//         read_view: TensorReader<MP::EI>,
-//         stage: Stage<MP::ES, Self::TilingLayout>,
-//         quantization: CubeOption<Quantization<MP>>,
-//         #[comptime] input_ident: InputIdent,
-//         #[comptime] config: G,
-//     ) -> Self::Job<MP, G> {
-//         todo!()
-//     }
-// }
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
+    quantization: CubeOption<Quantization<MP>>,
+
+    #[cube(comptime)]
+    num_tasks: u32,
+    #[cube(comptime)]
+    line_size: u32,
+    #[cube(comptime)]
+    input_ident: InputIdent,
+    #[cube(comptime)]
+    config: G,
+}
+
+#[cube]
+impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G>
+    for SyncFullTilewiseJob<MP, T, G>
+{
+    fn len(this: &Self) -> u32 {
+        this.num_tasks.runtime()
+    }
+
+    fn execute_task(this: &mut Self, task_id: u32) {
+        let pos_within_tile = task_id * comptime!(this.config.plane_dim()) + UNIT_POS_X;
+
+        let line_read = this.read_view.load_coalesced_in_tile::<G>(
+            this.tile.0,
+            this.tile.1,
+            pos_within_tile * this.line_size,
+            this.input_ident,
+            this.config,
+        );
+
+        let offset = this.offset_base + pos_within_tile;
+
+        this.stage.as_slice_mut()[offset] = match this.quantization {
+            CubeOption::Some(quantization) => quantization.dequantize(line_read),
+            CubeOption::None => Line::cast_from(line_read),
+        }
+    }
+}

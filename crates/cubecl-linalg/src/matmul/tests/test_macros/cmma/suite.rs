@@ -299,10 +299,9 @@ macro_rules! matmul_standard_tests {
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::load::{
             AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
-            SyncFullStridedLoading,
-             AsyncFullCooperativeLoading,
+            SyncFullStridedLoading, SyncFullTilewiseLoading, AsyncFullCooperativeLoading,
         };
-        use $crate::matmul::components::stage::ColMajorTilingOrder;
+        use $crate::matmul::components::stage::{ColMajorTilingOrder, RowMajorTilingOrder};
         use $crate::matmul::kernels::matmul::double_buffering::DoubleBufferingAlgorithm;
         use $crate::matmul::kernels::matmul::double_buffering_barrier::DoubleBufferingBarrierAlgorithm;
         use $crate::matmul::kernels::matmul::simple::SimpleAlgorithm;
@@ -324,6 +323,20 @@ macro_rules! matmul_standard_tests {
         pub fn simple_strided() {
             cubecl_linalg::matmul::tests::test_algo::<
                 SimpleAlgorithm<TMM, SyncFullStridedLoading, SyncFullStridedLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
+
+        #[test]
+        pub fn simple_tilewise() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleAlgorithm<TMM, SyncFullTilewiseLoading<ColMajorTilingOrder>, SyncFullTilewiseLoading<RowMajorTilingOrder>>,
                 Precision,
                 TestRuntime,
             >(

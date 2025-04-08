@@ -82,6 +82,7 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 #[derive(CubeType, Clone, Copy)]
 pub struct SyncFullStridedJob<MP: MatmulPrecision, G: GlobalConfig> {
     unit_position_base: u32,
+
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     quantization: CubeOption<Quantization<MP>>,

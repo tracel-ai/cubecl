@@ -90,6 +90,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
 #[derive(CubeType, Clone, Copy)]
 pub struct Job<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
     unit_position_base: u32,
+
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
