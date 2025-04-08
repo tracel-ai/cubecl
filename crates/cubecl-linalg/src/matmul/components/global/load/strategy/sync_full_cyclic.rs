@@ -43,7 +43,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
 #[cube]
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision> = SyncFullCyclicJob<MP, T>;
+    type Job<MP: MatmulPrecision> = Job<MP, T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -71,11 +71,11 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        SyncFullCyclicJob::<MP, T> {
+        Job::<MP, T> {
             unit_position_base,
             stage,
             quantization,
-            job_config: comptime!(SyncFullCyclicJobConfig {
+            job_config: comptime!(JobConfig {
                 num_tasks,
                 tile_num_elements,
                 jump_length,
@@ -87,18 +87,18 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct SyncFullCyclicJob<MP: MatmulPrecision, T: TilingOrder> {
+struct Job<MP: MatmulPrecision, T: TilingOrder> {
     unit_position_base: u32,
 
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
-    job_config: SyncFullCyclicJobConfig,
+    job_config: JobConfig,
 }
 
 #[derive(Copy, Clone)]
-pub struct SyncFullCyclicJobConfig {
+struct JobConfig {
     num_tasks: u32,
     tile_num_elements: u32,
     jump_length: u32,
@@ -106,24 +106,22 @@ pub struct SyncFullCyclicJobConfig {
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, SyncFullCyclicJob<MP, T>>
-    for SyncFullCyclicJobConfig
-{
-    fn len(job: &SyncFullCyclicJob<MP, T>) -> u32 {
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, Job<MP, T>> for JobConfig {
+    fn len(job: &Job<MP, T>) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <SyncFullCyclicJob<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullCyclicJob<MP, T> {
-    type LoadingJobConfig = SyncFullCyclicJobConfig;
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,

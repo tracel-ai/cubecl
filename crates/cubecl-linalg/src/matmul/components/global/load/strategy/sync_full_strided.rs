@@ -38,7 +38,7 @@ impl LoadingValidation for SyncFullStridedLoading {
 #[cube]
 impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = SyncFullStridedJob<MP>;
+    type Job<MP: MatmulPrecision> = Job<MP>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -64,11 +64,11 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 
         let unit_position_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        SyncFullStridedJob::<MP> {
+        Job::<MP> {
             unit_position_base,
             stage,
             quantization,
-            job_config: comptime!(SyncFullStridedJobConfig {
+            job_config: comptime!(JobConfig {
                 num_tasks,
                 unit_count,
                 line_size,
@@ -79,42 +79,40 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct SyncFullStridedJob<MP: MatmulPrecision> {
+struct Job<MP: MatmulPrecision> {
     unit_position_base: u32,
 
     stage: Stage<MP::ES, StridedTilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
-    job_config: SyncFullStridedJobConfig,
+    job_config: JobConfig,
 }
 
 #[derive(Copy, Clone)]
-pub struct SyncFullStridedJobConfig {
+struct JobConfig {
     num_tasks: u32,
     unit_count: u32,
     line_size: u32,
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision> LoadingJobConfig<MP, SyncFullStridedJob<MP>>
-    for SyncFullStridedJobConfig
-{
-    fn len(job: &SyncFullStridedJob<MP>) -> u32 {
+impl<MP: MatmulPrecision> LoadingJobConfig<MP, Job<MP>> for JobConfig {
+    fn len(job: &Job<MP>) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <SyncFullStridedJob<MP> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job<MP> as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP> for SyncFullStridedJob<MP> {
-    type LoadingJobConfig = SyncFullStridedJobConfig;
+impl<MP: MatmulPrecision> LoadingJob<MP> for Job<MP> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,

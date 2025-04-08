@@ -13,7 +13,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
@@ -53,7 +53,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 #[cube]
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision> = SyncFullTilewiseJob<MP, T>;
+    type Job<MP: MatmulPrecision> = Job<MP, T>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -87,20 +87,22 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
             config.to_smm_config(),
         );
 
-        SyncFullTilewiseJob::<MP, T> {
+        Job::<MP, T> {
             tile,
             offset_base,
             stage,
             quantization,
-            num_tasks,
-            line_size,
-            input_ident,
+            job_config: comptime!(JobConfig {
+                num_tasks,
+                line_size,
+                input_ident,
+            }),
         }
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct SyncFullTilewiseJob<MP: MatmulPrecision, T: TilingOrder> {
+struct Job<MP: MatmulPrecision, T: TilingOrder> {
     tile: (u32, u32),
     offset_base: u32,
 
@@ -108,18 +110,32 @@ pub struct SyncFullTilewiseJob<MP: MatmulPrecision, T: TilingOrder> {
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Copy, Clone)]
+struct JobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-#[cube]
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullTilewiseJob<MP, T> {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, Job<MP, T>> for JobConfig {
+    fn len(job: &Job<MP, T>) -> u32 {
+        job.job_config.num_tasks
     }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -132,8 +148,8 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for SyncFullTilewiseJob
         let line_read = read_view.load_coalesced_in_tile::<G>(
             this.tile.0,
             this.tile.1,
-            pos_within_tile * this.line_size,
-            this.input_ident,
+            pos_within_tile * this.job_config.line_size,
+            this.job_config.input_ident,
             config,
         );
 
