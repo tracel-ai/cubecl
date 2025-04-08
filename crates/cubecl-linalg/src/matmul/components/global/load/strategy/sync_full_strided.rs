@@ -9,7 +9,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
@@ -68,10 +68,12 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
             unit_position_base,
             stage,
             quantization,
-            num_tasks,
-            unit_count,
-            line_size,
-            input_ident,
+            job_config: comptime!(SyncFullStridedJobConfig {
+                num_tasks,
+                unit_count,
+                line_size,
+                input_ident
+            }),
         }
     }
 }
@@ -84,20 +86,35 @@ pub struct SyncFullStridedJob<MP: MatmulPrecision> {
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
+    job_config: SyncFullStridedJobConfig,
+}
+
+#[derive(Copy, Clone)]
+pub struct SyncFullStridedJobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     unit_count: u32,
-    #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
+}
+
+impl<MP: MatmulPrecision> LoadingJobConfig<MP, SyncFullStridedJob<MP>>
+    for SyncFullStridedJobConfig
+{
+    fn len(job: &SyncFullStridedJob<MP>) -> u32 {
+        job.job_config.num_tasks
+    }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <SyncFullStridedJob<MP> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision> LoadingJob<MP> for SyncFullStridedJob<MP> {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
-    }
+    type LoadingJobConfig = SyncFullStridedJobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -105,11 +122,12 @@ impl<MP: MatmulPrecision> LoadingJob<MP> for SyncFullStridedJob<MP> {
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
-        let unit_position = this.unit_position_base + task_id * this.unit_count;
+        let jc = this.job_config;
+        let unit_position = this.unit_position_base + task_id * jc.unit_count;
 
         let line_read = read_view.load_coalesced_in_stage::<G>(
-            unit_position * this.line_size,
-            this.input_ident,
+            unit_position * jc.line_size,
+            jc.input_ident,
             config,
         );
 
