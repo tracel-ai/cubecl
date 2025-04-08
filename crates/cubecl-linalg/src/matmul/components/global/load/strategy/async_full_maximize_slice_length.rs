@@ -32,30 +32,12 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+        mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        default_async_full_load::<Self, MP, G, CM>(
-            read_view,
-            stage,
-            mechanism,
-            quantization,
-            input_ident,
-            config,
-        )
-    }
-
-    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
-        _quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -95,7 +77,16 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
                 }
             };
         }
+    }
 
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
         todo!()
     }
 
