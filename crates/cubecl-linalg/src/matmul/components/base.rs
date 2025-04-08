@@ -10,6 +10,7 @@ pub struct MatmulSize {
     pub k: u32,
 }
 
+#[derive(Debug)]
 pub struct MatmulSelection {
     pub tile_shape: MatmulSize,
     pub tile_count: MatmulSize,

@@ -1,10 +1,18 @@
-use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
+use cubecl_core::{
+    Feature, Runtime,
+    client::ComputeClient,
+    ir::Elem,
+    prelude::{CubePrimitive, TensorHandleRef},
+};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
     components::{
-        CompleteStageTiling, EA, ES, InputRuntimeArg, MatmulProblem, MatmulSelection, MatmulSize,
-        MatmulSpec, OutputRuntimeArg, stage::STAGE_BUFFERING, tile::TileMatmulFamily,
+        CompleteStageTiling, EA, ES, InputArg, MatmulProblem, MatmulSelection, MatmulSize,
+        MatmulSpec, OutputArg,
+        global::args::{InputsLaunch, OutputLaunch},
+        stage::STAGE_BUFFERING,
+        tile::TileMatmulFamily,
     },
     kernels::{MatmulLaunchError, matmul::base::matmul_cube_preparation},
 };
@@ -17,10 +25,11 @@ const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 /// Select which kernel to launch for the given Algorithm.
 #[allow(clippy::result_large_err)]
-pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
+    lhs: &TensorHandleRef<'_, R>,
+    rhs: &TensorHandleRef<'_, R>,
+    out: &TensorHandleRef<'_, R>,
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
@@ -32,8 +41,8 @@ pub fn select_kernel<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
 
     matmul_cube_preparation::<MS, R, A>(
         client,
-        input,
-        output,
+        <InputArg<MS> as InputsLaunch>::create(lhs, rhs, &selection, &problem),
+        <OutputArg<MS> as OutputLaunch>::create(out, &selection, &problem),
         problem,
         (config_input, STAGE_BUFFERING),
         selection,
@@ -80,7 +89,9 @@ pub(crate) fn find_stage_size_m_n(
     instruction_m: usize,
     instruction_n: usize,
 ) -> usize {
-    let mut dim_num_tiles = max_tensor_cores;
+    let min_inst = instruction_m.min(instruction_n);
+    let max_tiles = 256 / min_inst;
+    let mut dim_num_tiles = max_tensor_cores.min(max_tiles);
 
     let total_tiles_m = (m + instruction_m - 1) / instruction_m;
     let total_tiles_n = (n + instruction_n - 1) / instruction_n;
