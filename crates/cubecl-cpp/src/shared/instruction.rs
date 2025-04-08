@@ -729,7 +729,7 @@ impl<D: Dialect> Remainder<D> {
         let floor = |elem| {
             let prefix = match elem {
                 Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F162 | Elem::BF162 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}floor")
