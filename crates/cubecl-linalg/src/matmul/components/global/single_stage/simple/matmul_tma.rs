@@ -1,15 +1,13 @@
-use crate::matmul::components::InputIdent;
-use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalMatmul;
 use crate::matmul::components::global::Quantization;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::stage::ContiguousTilingLayout;
-use crate::matmul::components::stage::RowMajorTilingOrder;
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::stage::multi_buffer::FullReader;
+use crate::matmul::components::{Ident, MatmulPrecision};
+use crate::matmul::components::{InputIdent, stage::StridedTilingLayout};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -17,7 +15,7 @@ use cubecl_core::{self as cubecl};
 use cubecl_core::{Feature, TmaFeature};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, tensor::r#virtual::ReadWrite};
-use std::marker::PhantomData;
+use std::{any::TypeId, marker::PhantomData};
 
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient};
 
@@ -38,14 +36,8 @@ impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
-        MP,
-        SMM::Matmul<
-            MP,
-            ContiguousTilingLayout<RowMajorTilingOrder>,
-            ContiguousTilingLayout<RowMajorTilingOrder>,
-        >,
-    >;
+    type Matmul<MP: MatmulPrecision> =
+        SimpleTmaMatmul<MP, SMM::Matmul<MP, StridedTilingLayout, StridedTilingLayout>>;
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
@@ -64,6 +56,14 @@ where
         config: &Self::Config,
     ) -> Result<(), MatmulAvailabilityError> {
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())?;
+
+        let ei_id = TypeId::of::<MP::EI>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if ei_id != es_id && !is_tf32 {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
+        }
 
         if !client
             .properties()
@@ -113,8 +113,8 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
-            RhsReader = FullReader<MP::ES, ContiguousTilingLayout<RowMajorTilingOrder>>,
+            LhsReader = FullReader<MP::ES, StridedTilingLayout>,
+            RhsReader = FullReader<MP::ES, StridedTilingLayout>,
         >,
 {
     type Config = Config<SMM::Config>;
@@ -139,7 +139,7 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
         SMM::zero_accumulator(acc, config.to_smm_config());
 
-        let barrier = Barrier::<MP::ES>::new(BarrierLevel::unit());
+        let barrier = Barrier::<MP::ES>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_units();
@@ -147,6 +147,16 @@ where
             // Start loading
             Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
             Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+
+            if UNIT_POS == 0 {
+                let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()
+                    + config.tiling_dimensions(Ident::Lhs).total_size();
+                barrier.arrive_tx(1, total_stage * MP::ES::elem_size());
+            } else {
+                barrier.arrive();
+            }
+
+            barrier.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);

@@ -1,21 +1,40 @@
+use std::any::TypeId;
+
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, server::TensorMapMeta};
 use cubecl_std::{
     ReinterpretSlice,
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
-use crate::matmul::components::MatmulPrecision;
+use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
 
 use super::Quantization;
+
+pub trait InputsLaunch: LaunchArg {
+    fn create<'a, R: Runtime>(
+        lhs: &'a TensorHandleRef<'a, R>,
+        rhs: &'a TensorHandleRef<'a, R>,
+        selection: &MatmulSelection,
+        problem: &MatmulProblem,
+    ) -> Self::RuntimeArg<'a, R>;
+}
+
+pub trait OutputLaunch: LaunchArg {
+    fn create<'a, R: Runtime>(
+        out: &'a TensorHandleRef<'a, R>,
+        selection: &MatmulSelection,
+        problem: &MatmulProblem,
+    ) -> Self::RuntimeArg<'a, R>;
+}
 
 #[cube]
 /// Arguments for the matrix multiplication algorithm.
 pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<EI: Numeric>: LaunchArg + CubeType;
+    type Input<EI: Numeric>: InputsLaunch + CubeType;
     /// Type used for the output.
-    type Output<EO: Numeric>: LaunchArg + CubeType;
+    type Output<EO: Numeric>: OutputLaunch + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
     type State<EI: Numeric, EO: Numeric>: CubeType;
@@ -423,6 +442,30 @@ pub struct TensorInputs<EG: Numeric> {
     pub rhs: Tensor<Line<EG>>,
 }
 
+impl<EG: Numeric> InputsLaunch for TensorInputs<EG> {
+    fn create<'a, R: Runtime>(
+        lhs: &'a TensorHandleRef<'a, R>,
+        rhs: &'a TensorHandleRef<'a, R>,
+        _selection: &MatmulSelection,
+        problem: &MatmulProblem,
+    ) -> Self::RuntimeArg<'a, R> {
+        TensorInputsLaunch::new(
+            lhs.as_tensor_arg(problem.lhs_line_size),
+            rhs.as_tensor_arg(problem.rhs_line_size),
+        )
+    }
+}
+
+impl<EG: Numeric> OutputLaunch for Tensor<Line<EG>> {
+    fn create<'a, R: Runtime>(
+        out: &'a TensorHandleRef<'a, R>,
+        _selection: &MatmulSelection,
+        problem: &MatmulProblem,
+    ) -> Self::RuntimeArg<'a, R> {
+        out.as_tensor_arg(problem.out_line_size)
+    }
+}
+
 #[cube]
 impl MatmulArgs for TensorArgs {
     type Output<EO: Numeric> = Tensor<Line<EO>>;
@@ -593,6 +636,125 @@ pub struct TensorMapInputs<EG: Numeric> {
     pub lhs: TensorMap<EG>,
     /// The rhs tensor.
     pub rhs: TensorMap<EG>,
+}
+
+impl<EG: Numeric> InputsLaunch for TensorMapInputs<EG> {
+    fn create<'a, R: Runtime>(
+        lhs: &'a TensorHandleRef<'a, R>,
+        rhs: &'a TensorHandleRef<'a, R>,
+        selection: &MatmulSelection,
+        problem: &MatmulProblem,
+    ) -> Self::RuntimeArg<'a, R> {
+        let stage_m = selection.tile_count.m * selection.tile_shape.m;
+        let stage_n = selection.tile_count.n * selection.tile_shape.n;
+        let stage_k = selection.tile_count.k * selection.tile_shape.k;
+        let stage_size_lhs = match problem.lhs_layout {
+            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
+            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+        };
+        let stage_size_rhs = match problem.rhs_layout {
+            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
+            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+        };
+
+        let elem_size = size_of::<EG>();
+
+        let lhs_rank = lhs.shape.len();
+        let mut lhs_shape = vec![
+            problem.batches.0[0],
+            lhs.shape[lhs_rank - 2],
+            lhs.shape[lhs_rank - 1],
+        ];
+        let mut lhs_strides = if lhs_rank > 2 {
+            lhs.strides[lhs_rank - 3..].to_vec()
+        } else {
+            vec![1, lhs.strides[lhs_rank - 2], lhs.strides[lhs_rank - 1]]
+        };
+
+        let rhs_rank = rhs.shape.len();
+        let mut rhs_shape = vec![
+            problem.batches.1[0],
+            rhs.shape[rhs_rank - 2],
+            rhs.shape[rhs_rank - 1],
+        ];
+        let mut rhs_strides = if rhs_rank > 2 {
+            rhs.strides[rhs_rank - 3..].to_vec()
+        } else {
+            vec![1, rhs.strides[rhs_rank - 2], rhs.strides[rhs_rank - 1]]
+        };
+
+        // TMA assumes the last stride is contiguous and won't even take it, so we need to map it
+        // with transposed shape and stride. Tensor metadata still has the normal layout.
+        if matches!(problem.lhs_layout, components::MatrixLayout::ColMajor) {
+            lhs_shape.swap(lhs_rank - 1, lhs_rank - 2);
+            lhs_strides.swap(lhs_rank - 1, lhs_rank - 2);
+        }
+        if matches!(problem.rhs_layout, components::MatrixLayout::ColMajor) {
+            rhs_shape.swap(rhs_rank - 1, rhs_rank - 2);
+            rhs_strides.swap(rhs_rank - 1, rhs_rank - 2);
+        }
+
+        fn prefetch(bytes: usize) -> TensorMapPrefetch {
+            match bytes {
+                ..64 => TensorMapPrefetch::None,
+                64..128 => TensorMapPrefetch::B64,
+                128..256 => TensorMapPrefetch::B128,
+                256.. => TensorMapPrefetch::B256,
+            }
+        }
+
+        let prefetch_lhs = prefetch(stage_size_lhs[2] as usize * elem_size);
+        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * elem_size);
+
+        // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
+        // It shouldn't matter, but it's better to be safe.
+        let elem = if TypeId::of::<EG>() == TypeId::of::<f32>() {
+            tf32::as_elem_native_unchecked()
+        } else {
+            EG::as_elem_native_unchecked()
+        };
+
+        let meta_lhs = TensorMapMeta {
+            format: TensorMapFormat::Tiled {
+                tile_size: stage_size_lhs,
+            },
+            rank: 3,
+            shape: lhs_shape,
+            strides: lhs_strides,
+            elem_stride: vec![1, 1, 1],
+            interleave: TensorMapInterleave::None,
+            swizzle: TensorMapSwizzle::None,
+            prefetch: prefetch_lhs,
+            oob_fill: OobFill::Zero,
+            elem,
+        };
+
+        let meta_rhs = TensorMapMeta {
+            format: TensorMapFormat::Tiled {
+                tile_size: stage_size_rhs,
+            },
+            rank: 3,
+            shape: rhs_shape,
+            strides: rhs_strides,
+            elem_stride: vec![1, 1, 1],
+            interleave: TensorMapInterleave::None,
+            swizzle: TensorMapSwizzle::None,
+            prefetch: prefetch_rhs,
+            oob_fill: OobFill::Zero,
+            elem,
+        };
+
+        let lhs = TensorMapArg {
+            tensor: lhs.as_tensor_arg(problem.lhs_line_size),
+            metadata: meta_lhs,
+        };
+        let rhs = TensorMapArg {
+            tensor: rhs.as_tensor_arg(problem.rhs_line_size),
+            metadata: meta_rhs,
+        };
+
+        TensorMapInputsLaunch::new(lhs, rhs)
+    }
 }
 
 #[cube]

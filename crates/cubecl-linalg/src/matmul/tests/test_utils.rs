@@ -26,8 +26,8 @@ pub struct QuantizationParams<N: Numeric> {
 
 pub trait TestPrecision {
     type EG: Numeric + CubeElement + Display + CastInto<Self::ES> + Sample;
-    type ES: Numeric + CubeElement + Display + CastInto<Self::EA>;
-    type EA: Numeric + CubeElement + Display + CastInto<Self::EG>;
+    type ES: Numeric + Display + CastInto<Self::EA>;
+    type EA: Numeric + Display + CastInto<Self::EG>;
     const QUANTIZED: bool;
 
     fn quantization_params(ident: Ident) -> Option<QuantizationParams<Self::EG>>;
@@ -46,7 +46,7 @@ pub trait TestPrecision {
 impl<EG, ES> TestPrecision for (EG, ES)
 where
     EG: Float + CubeElement + Display + CastInto<ES> + Sample,
-    ES: Float + CubeElement + Display + CastInto<f32>,
+    ES: Numeric + Display + CastInto<f32>,
     f32: CastInto<EG>,
 {
     type EG = EG;
@@ -67,7 +67,7 @@ where
         shape: &[usize],
         strides: &[usize],
     ) {
-        let maybe_cmma = client.properties().feature_enabled(Feature::Cmma {
+        let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
             a: ES::as_elem_native().expect("To be a native type"),
             b: ES::as_elem_native().expect("To be a native type"),
             c: EG::as_elem_native().expect("To be a native type"),
@@ -75,9 +75,17 @@ where
             k: 16,
             n: 16,
         });
+        let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
+            a: ES::as_elem_native().expect("To be a native type"),
+            b: ES::as_elem_native().expect("To be a native type"),
+            c: EG::as_elem_native().expect("To be a native type"),
+            m: 16,
+            k: 8,
+            n: 16,
+        });
 
         // Need to compensate for the temporary conversion to f16/tf32
-        let epsilon = match maybe_cmma {
+        let epsilon = match maybe_f16 || maybe_tf32 {
             true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
             false => 10e-5,
         };
@@ -316,6 +324,18 @@ impl CastInto<half::bf16> for flex32 {
 impl CastInto<flex32> for f32 {
     fn cast_into(self) -> flex32 {
         flex32::from_f32(self)
+    }
+}
+
+impl CastInto<f32> for tf32 {
+    fn cast_into(self) -> f32 {
+        self.to_f32()
+    }
+}
+
+impl CastInto<tf32> for f32 {
+    fn cast_into(self) -> tf32 {
+        tf32::from_f32(self)
     }
 }
 

@@ -9,7 +9,7 @@ use syn::{Ident, Type, parse_quote};
 
 use crate::parse::kernel::KernelParam;
 
-pub const KEYWORDS: [&str; 22] = [
+pub const KEYWORDS: [&str; 30] = [
     "ABSOLUTE_POS",
     "ABSOLUTE_POS_X",
     "ABSOLUTE_POS_Y",
@@ -32,6 +32,14 @@ pub const KEYWORDS: [&str; 22] = [
     "CUBE_COUNT_Z",
     "PLANE_DIM",
     "UNIT_POS_PLANE",
+    "CLUSTER_DIM",
+    "CLUSTER_DIM_X",
+    "CLUSTER_DIM_Y",
+    "CLUSTER_DIM_Z",
+    "CUBE_POS_CLUSTER",
+    "CUBE_POS_CLUSTER_X",
+    "CUBE_POS_CLUSTER_Y",
+    "CUBE_POS_CLUSTER_Z",
 ];
 
 pub type Scope = usize;

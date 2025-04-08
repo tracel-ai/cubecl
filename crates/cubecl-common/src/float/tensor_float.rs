@@ -2,8 +2,8 @@
 #![allow(clippy::transmute_float_to_int)] // prev=1.83.
 
 use bytemuck::{Pod, Zeroable};
-use core::mem::transmute;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::{fmt::Display, mem::transmute};
 use num_traits::{NumCast, ToPrimitive};
 
 /// A 19-bit floating point type implementing the [`tfloat32`] format.
@@ -161,5 +161,11 @@ impl ToPrimitive for tf32 {
 impl NumCast for tf32 {
     fn from<T: num_traits::ToPrimitive>(n: T) -> Option<Self> {
         Some(Self::from_f32(n.to_f32()?))
+    }
+}
+
+impl Display for tf32 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
