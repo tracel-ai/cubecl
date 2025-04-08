@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::LoadingTask;
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
 use crate::matmul::components::stage::TilingLayout;
@@ -18,7 +18,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout into which the loader will fill the stage
     type TilingLayout: TilingLayout;
-    type Task<MP: MatmulPrecision, G: GlobalConfig>: LoadingTask<MP, G>;
+    type Job<MP: MatmulPrecision, G: GlobalConfig>: LoadingJob<MP, G>;
 
     /// Load the full stage
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
@@ -35,7 +35,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
-    ) -> Sequence<Self::Task<MP, G>>;
+    ) -> Self::Job<MP, G>;
 }
 
 #[derive(CubeType)]

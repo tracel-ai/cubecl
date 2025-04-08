@@ -11,7 +11,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::LoadingTask;
+use super::LoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
@@ -43,7 +43,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullCyclicLoading<T> {
 #[cube]
 impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Task<MP: MatmulPrecision, G: GlobalConfig> = Task<MP, T, G>;
+    type Job<MP: MatmulPrecision, G: GlobalConfig> = Job<MP, T, G>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
@@ -61,7 +61,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Sequence<Self::Task<MP, G>> {
+    ) -> Self::Job<MP, G> {
         let tiling = config.tiling_dimensions(input_ident);
         let tile_num_elements = tiling.tile_size();
         let line_size = config.global_line_size(input_ident);
@@ -72,39 +72,29 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<T> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        let mut job = Sequence::new();
-        let mut task_id = comptime![0];
-
-        for _ in 0..num_tasks {
-            let task = Task::<MP, T, G> {
-                unit_position_base,
-                read_view,
-                stage,
-                quantization,
-                task_id,
-                tile_num_elements,
-                jump_length,
-                line_size,
-                input_ident,
-                config,
-            };
-
-            job.push(task);
-            comptime![task_id += 1];
+        Job::<MP, T, G> {
+            unit_position_base,
+            read_view,
+            stage,
+            quantization,
+            num_tasks,
+            tile_num_elements,
+            jump_length,
+            line_size,
+            input_ident,
+            config,
         }
-
-        job
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Task<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
+pub struct Job<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
     unit_position_base: u32,
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
-    task_id: u32,
+    num_tasks: u32,
     #[cube(comptime)]
     tile_num_elements: u32,
     #[cube(comptime)]
@@ -118,9 +108,13 @@ pub struct Task<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingTask<MP, G> for Task<MP, T, G> {
-    fn execute(this: &mut Self) {
-        let unit_position = this.unit_position_base + this.task_id * this.jump_length;
+impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G> for Job<MP, T, G> {
+    fn len(this: &Self) -> u32 {
+        this.num_tasks.runtime()
+    }
+
+    fn execute(this: &mut Self, task_id: u32) {
+        let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         let nth_tile = unit_position / this.tile_num_elements;
         let pos_within_tile = unit_position % this.tile_num_elements;
