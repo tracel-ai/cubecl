@@ -129,7 +129,7 @@ pub trait ConvolutionLaunch: ConvolutionConfigFactory {
     );
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Description of a matmul problem to solve, regardless of actual data
 pub struct ConvolutionProblem {
     pub m: usize,

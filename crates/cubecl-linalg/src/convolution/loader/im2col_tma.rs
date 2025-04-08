@@ -40,7 +40,7 @@ impl<MP: MatmulPrecision, G: ConvGemmConfig> TmaIm2colLoader<MP, G> {
         runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
-        let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
+        let stage = Stage::new_aligned::<G::SmmConfig>(Ident::Lhs, 128u32, config.to_smm_config());
 
         let (nh_offset, w_offset) = runtime_args.out_w.div_mod(x_offset);
         let (n_offset, h_offset) = runtime_args.out_h.div_mod(nh_offset);

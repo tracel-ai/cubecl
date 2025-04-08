@@ -48,4 +48,6 @@ pub trait Algorithm {
             client, config,
         )
     }
+
+    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool;
 }

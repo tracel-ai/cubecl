@@ -52,10 +52,10 @@ pub fn launch_conv2d_nhwc<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
 where
     Input<Alg, MP>: ConvInputsLaunch,
 {
-    let in_contiguous = is_contiguous_4d(input);
-    let weight_contiguous = is_contiguous_4d(weight);
+    let in_valid = Alg::has_valid_layout(input);
+    let weight_valid = Alg::has_valid_layout(weight);
 
-    match (in_contiguous, weight_contiguous) {
+    match (in_valid, weight_valid) {
         (true, true) => prepare_problem::<R, MP, Alg>(client, input, weight, bias, out, args),
         (true, false) => {
             let weight = into_contiguous_pitched::<R, MP::EI>(client, weight);
@@ -164,19 +164,6 @@ where
         selection,
         config_input,
     )
-}
-
-fn is_contiguous_4d<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
-    let mut strides = handle.strides.to_vec();
-    strides.sort();
-
-    // Permuted strides
-    if handle.strides != strides {
-        return false;
-    }
-
-    // channels doesn't need to be contiguous with the rest of the tensor
-    strides[2] * handle.shape[2] == strides[1] && strides[1] * handle.shape[1] == handle.strides[0]
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]

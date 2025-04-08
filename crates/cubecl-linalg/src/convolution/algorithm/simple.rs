@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim};
+use cubecl_core::{CubeCount, CubeDim, Runtime, prelude::TensorHandleRef};
 
 use crate::{
     convolution::{base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily},
@@ -34,5 +34,19 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
+    }
+
+    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
+        let mut strides = handle.strides.to_vec();
+        strides.sort();
+
+        // Permuted strides
+        if handle.strides != strides {
+            return false;
+        }
+
+        // channels doesn't need to be contiguous with the rest of the tensor
+        strides[2] * handle.shape[2] == strides[1]
+            && strides[1] * handle.shape[1] == handle.strides[0]
     }
 }

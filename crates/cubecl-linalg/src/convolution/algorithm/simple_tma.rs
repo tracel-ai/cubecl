@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim};
+use cubecl_core::{CubeCount, CubeDim, Runtime, prelude::TensorHandleRef};
 
 use crate::{
     convolution::{
@@ -14,6 +14,8 @@ use crate::{
 };
 
 use super::Algorithm;
+
+pub const TMA_STRIDE_ALIGN: usize = 16;
 
 /// Cmma convolution
 pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
@@ -52,6 +54,27 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         let config = Self::GlobalConvolution::make_config(input, problem, cube_dim, cube_count);
         Self::GlobalConvolution::check_config(&config)?;
         Ok(config)
+    }
+
+    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
+        let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
+
+        let mut strides = handle.strides.to_vec();
+        strides.sort();
+
+        // Permuted strides
+        if handle.strides != strides {
+            return false;
+        }
+
+        let aligned = handle.strides[..3]
+            .iter()
+            .all(|stride| stride % stride_align == 0);
+
+        // channels doesn't need to be contiguous with the rest of the tensor
+        strides[2] * handle.shape[2] == strides[1]
+            && strides[1] * handle.shape[1] == handle.strides[0]
+            && aligned
     }
 }
 

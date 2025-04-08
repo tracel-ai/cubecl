@@ -19,8 +19,8 @@ use crate::matmul::{
 
 use super::Algorithm;
 
-const NUM_SM_APPROX: u32 = 50;
-const NUM_TENSOR_CORES_APPROX: u32 = 4;
+pub(crate) const NUM_SM_APPROX: u32 = 50;
+pub(crate) const NUM_TENSOR_CORES_APPROX: u32 = 4;
 const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 /// Select which kernel to launch for the given Algorithm.

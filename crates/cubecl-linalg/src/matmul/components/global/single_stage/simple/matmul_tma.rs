@@ -80,7 +80,14 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let mut problem = problem.clone();
+
+        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
+        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
+        problem.lhs_line_size = 1;
+        problem.rhs_line_size = 1;
+
+        let smm_config = SMM::make_config(input, &problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(

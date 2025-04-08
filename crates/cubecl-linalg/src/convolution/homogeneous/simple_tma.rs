@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{any::TypeId, marker::PhantomData};
 
 use crate::{
     convolution::{
@@ -13,14 +13,17 @@ use crate::{
             weight_tma::{TmaWeightLoader, TmaWeightTiling},
         },
     },
-    matmul::components::{
-        EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulPrecision, MatmulSpec,
-        OutputRuntimeArg,
-        global::{AccumulatorLoader, GlobalConfig, output_loader::Unloader, single_stage},
-        stage::{
-            StageMatmul, StageMatmulFamily,
-            multi_buffer::{FullReader, FullReaderFamily},
+    matmul::{
+        components::{
+            EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
+            MatmulSpec, OutputRuntimeArg,
+            global::{AccumulatorLoader, GlobalConfig, output_loader::Unloader, single_stage},
+            stage::{
+                StageMatmul, StageMatmulFamily,
+                multi_buffer::{FullReader, FullReaderFamily},
+            },
         },
+        kernels::MatmulAvailabilityError,
     },
 };
 use cubecl_core::prelude::*;
@@ -210,6 +213,13 @@ where
         cube_dim: &CubeDim,
         cube_count: &CubeCount,
     ) -> Self::Config {
+        let mut problem = problem.clone();
+
+        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
+        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
+        problem.lhs_line_size = 1;
+        problem.rhs_line_size = 1;
+
         let smm_config = SMM::make_config(
             input,
             &problem.as_matmul_problem(),
@@ -243,7 +253,15 @@ where
     fn check_availability<R: Runtime, MP: MatmulPrecision>(
         client: &ComputeClient<R::Server, R::Channel>,
         config: &Self::Config,
-    ) -> Result<(), crate::matmul::kernels::MatmulAvailabilityError> {
+    ) -> Result<(), MatmulAvailabilityError> {
+        let id_ei = TypeId::of::<MP::EI>();
+        let id_es = TypeId::of::<MP::ES>();
+        let is_tf32 = id_ei == TypeId::of::<f32>() && id_es == TypeId::of::<tf32>();
+
+        if id_ei != id_es && !is_tf32 {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
+        }
+
         SMM::check_availability::<R, MP>(client, &config.to_smm_config())
     }
 }

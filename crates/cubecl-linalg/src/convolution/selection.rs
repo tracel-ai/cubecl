@@ -6,10 +6,10 @@ use super::{
 };
 use crate::matmul::{
     components::{
-        CompleteStageTiling, MatmulPrecision, MatmulProblem, MatmulSelection,
+        CompleteStageTiling, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
         stage::STAGE_BUFFERING, tile::TileMatmulFamily,
     },
-    kernels::matmul::find_instruction_shape,
+    kernels::matmul::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_shape},
 };
 
 pub fn select_matmul<A: Algorithm, R: Runtime, MP: MatmulPrecision>(
@@ -42,15 +42,16 @@ pub(crate) fn find_stage_size_m_n(
     instruction_n: usize,
     stage_size_k: usize,
 ) -> (usize, usize) {
-    let min_inst = instruction_m.min(instruction_n);
-    let max_tiles_elems = 256 / min_inst;
+    let max_tiles_elems_m = 256 / instruction_m;
+    let max_tiles_elems_n = 256 / instruction_n;
     let max_tiles_total_stage = 16 / stage_size_k;
+
     let mut dim_num_tiles_m = max_tensor_cores
-        .min(max_tiles_elems)
+        .min(max_tiles_elems_m)
         .min(max_tiles_total_stage);
 
     let mut dim_num_tiles_n = max_tensor_cores
-        .min(max_tiles_elems)
+        .min(max_tiles_elems_n)
         .min(max_tiles_total_stage);
 
     let total_tiles_m = m.div_ceil(instruction_m);
@@ -116,16 +117,22 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         },
         problem.m,
         problem.n,
-        stage_size_k,
     );
 
-    let stage_size_m_n = find_stage_size_m_n(
+    let hardware = client.properties().hardware_properties();
+    let num_sm = hardware
+        .num_streaming_multiprocessors
+        .unwrap_or(NUM_TENSOR_CORES_APPROX);
+    let max_tensor_cores = hardware.num_tensor_cores.unwrap_or(NUM_SM_APPROX);
+
+    let (stage_size_m, stage_size_n) = find_stage_size_m_n(
         problem.m,
         problem.n,
-        NUM_SM_APPROX,
-        NUM_TENSOR_CORES_APPROX,
+        num_sm as usize,
+        max_tensor_cores as usize,
         instruction_m,
         instruction_n,
+        stage_size_k,
     );
 
     MatmulSelection {
@@ -135,9 +142,9 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
             k: instruction_k as u32,
         },
         tile_count: MatmulSize {
-            m: stage_size_m_n as u32,
-            n: stage_size_m_n as u32,
-            k: stage_size_k,
+            m: stage_size_m as u32,
+            n: stage_size_n as u32,
+            k: stage_size_k as u32,
         },
         plane_dim,
     }
