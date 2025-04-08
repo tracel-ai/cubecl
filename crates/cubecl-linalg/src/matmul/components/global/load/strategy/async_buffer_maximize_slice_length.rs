@@ -2,7 +2,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        load::AsyncBufferLoadingStrategy,
+        load::{AsyncBufferLoadingStrategy, default_async_buffer_load},
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
@@ -32,13 +32,33 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
 
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) {
+        default_async_buffer_load::<Self, MP, G, CM>(
+            read_view,
+            stage,
+            mechanism,
+            quantization,
+            buffer_index,
+            input_ident,
+            config,
+        )
+    }
+
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) {
+    ) -> AsyncBufferMaximizeSliceLengthJob<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
@@ -86,21 +106,18 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         let unit_count = config.plane_dim() * config.num_planes();
         let num_tasks = (num_slices + unit_count - 1) / unit_count;
 
-        // Typically there will be only 1 slice per unit
-        #[unroll(num_tasks==1)]
-        for nth_slice_local in 0..num_tasks {}
-    }
-
-    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
-        _quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> AsyncBufferMaximizeSliceLengthJob<MP, CM> {
-        todo!()
+        AsyncBufferMaximizeSliceLengthJob::<MP, CM> {
+            read_view,
+            stage,
+            mechanism,
+            num_tasks,
+            unit_count,
+            num_slices_buffer_offset,
+            input_ident,
+            slice_buffer_offset,
+            slice_length,
+            num_slices,
+        }
     }
 
     fn barrier_level() -> BarrierLevel {
@@ -113,10 +130,21 @@ pub struct AsyncBufferMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechan
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
-    quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
     num_tasks: u32,
+    #[cube(comptime)]
+    unit_count: u32,
+    #[cube(comptime)]
+    num_slices_buffer_offset: u32,
+    #[cube(comptime)]
+    input_ident: InputIdent,
+    #[cube(comptime)]
+    slice_buffer_offset: u32,
+    #[cube(comptime)]
+    slice_length: u32,
+    #[cube(comptime)]
+    num_slices: u32,
 }
 
 #[cube]
@@ -124,41 +152,42 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
     for AsyncBufferMaximizeSliceLengthJob<MP, CM>
 {
     fn len(this: &Self) -> u32 {
-        this.num_tasks
+        this.num_tasks.runtime()
     }
 
     fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
-        let nth_slice_in_buffer = unit_count * task_id + UNIT_POS;
+        let nth_slice_in_buffer = this.unit_count * task_id + UNIT_POS;
 
-        let nth_slice = nth_slice_in_buffer + num_slices_buffer_offset;
+        let nth_slice = nth_slice_in_buffer + this.num_slices_buffer_offset;
 
         let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
+            this.read_view
+                .load_window_in_stage::<G>(nth_slice, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                &mut stage,
+                &mut this.stage,
                 nth_slice,
-                comptime!(input_ident.as_ident()),
+                comptime!(this.input_ident.as_ident()),
                 config.to_smm_config(),
             );
 
-        let start = slice_buffer_offset;
+        let start = this.slice_buffer_offset;
         let limit = select(
-            slice_buffer_offset < window.size,
-            slice_buffer_offset,
+            this.slice_buffer_offset < window.size,
+            this.slice_buffer_offset,
             window.size,
         );
-        let end = start + Min::min(window.size - limit, slice_length);
+        let end = start + Min::min(window.size - limit, this.slice_length);
 
         let src = window.slice.slice(start, end);
         let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(num_slices % unit_count == 0) {
-            CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
+        if comptime!(this.num_slices % this.unit_count == 0) {
+            CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
         } else {
-            if nth_slice_in_buffer < num_slices {
-                CM::memcpy_async(&mechanism, &src.try_cast_unchecked(), &mut dest);
+            if nth_slice_in_buffer < this.num_slices {
+                CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
             }
         };
     }
