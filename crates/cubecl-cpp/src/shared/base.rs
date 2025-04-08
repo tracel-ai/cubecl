@@ -1,13 +1,13 @@
 use std::{collections::HashSet, fmt::Debug, num::NonZero};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::io::read_tensor_checked;
-use cubecl_core::ir::{ExpandElement, VariableKind};
+use cubecl_core::ir::{ExpandElement, UIntKind, VariableKind};
 use cubecl_core::prelude::{FloatExpand, Line};
 use cubecl_core::{
     Compiler, Feature,
     ir::{self as gpu},
 };
+use cubecl_core::{CubeDim, io::read_tensor_checked};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition, expand_checked_index_assign},
@@ -29,6 +29,7 @@ pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
 pub struct CompilationOptions {
     pub warp_size: u32,
     pub grid_constants: bool,
+    pub supports_clusters: bool,
 }
 
 impl Default for CompilationOptions {
@@ -36,6 +37,7 @@ impl Default for CompilationOptions {
         Self {
             warp_size: 32,
             grid_constants: false,
+            supports_clusters: false,
         }
     }
 }
@@ -58,6 +60,7 @@ pub struct CubeIndexFlags {
     pub unit_pos: bool,
     pub unit_pos_tuple: bool,
     pub unit_pos_plane: bool,
+    pub cluster_pos: bool,
 }
 
 /// Flags gathered during Cube IR translation for the kernel compilation.
@@ -74,6 +77,7 @@ pub struct Flags {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub cluster_dim: Option<CubeDim>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -83,6 +87,7 @@ pub struct CppCompiler<D: Dialect> {
     compilation_options: CompilationOptions,
     const_arrays: Vec<ConstArray<D>>,
     ext_meta_positions: Vec<u32>,
+    cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
     flags: Flags,
     items: HashSet<Item<D>>,
@@ -100,12 +105,17 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 
     fn compile(
         &mut self,
-        kernel: KernelDefinition,
+        mut kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         strategy: ExecutionMode,
     ) -> Self::Representation {
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
+
+        if !self.compilation_options.supports_clusters {
+            kernel.options.cluster_dim = None;
+        }
+        self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
 
         let ir = self.clone().compile_ir(kernel);
         COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -155,6 +165,7 @@ impl<D: Dialect> CppCompiler<D> {
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
             static_meta_length: self.metadata.static_len() as usize,
+            cluster_dim: value.options.cluster_dim,
         };
 
         let body = Body {
@@ -165,6 +176,11 @@ impl<D: Dialect> CppCompiler<D> {
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
         };
+
+        let mut cluster_dim = value.options.cluster_dim;
+        if !self.compilation_options.supports_clusters {
+            cluster_dim = None;
+        }
 
         ComputeKernel {
             tensor_maps: value.tensor_maps,
@@ -177,6 +193,7 @@ impl<D: Dialect> CppCompiler<D> {
             flags,
             items: self.items,
             kernel_name: value.options.kernel_name,
+            cluster_dim,
         }
     }
 
@@ -1187,6 +1204,28 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.indexes.absolute_pos = true;
                     Variable::AbsolutePos
                 }
+                gpu::Builtin::CubePosCluster if self.compilation_options.supports_clusters => {
+                    self.flags.indexes.cluster_pos = true;
+                    Variable::ClusterRank
+                }
+                gpu::Builtin::CubePosClusterX if self.compilation_options.supports_clusters => {
+                    self.flags.indexes.cluster_pos = true;
+                    Variable::ClusterIndexX
+                }
+                gpu::Builtin::CubePosClusterY if self.compilation_options.supports_clusters => {
+                    self.flags.indexes.cluster_pos = true;
+                    Variable::ClusterIndexY
+                }
+                gpu::Builtin::CubePosClusterZ if self.compilation_options.supports_clusters => {
+                    self.flags.indexes.cluster_pos = true;
+                    Variable::ClusterIndexZ
+                }
+                // Fallback if clusters aren't supported, ID is always 0 since clusters are always
+                // (1, 1, 1) if unsupported
+                gpu::Builtin::CubePosCluster
+                | gpu::Builtin::CubePosClusterX
+                | gpu::Builtin::CubePosClusterY
+                | gpu::Builtin::CubePosClusterZ => const_u32(0),
                 gpu::Builtin::AbsolutePosX => {
                     self.flags.indexes.absolute_pos_tuple = true;
                     Variable::AbsolutePosX
@@ -1215,6 +1254,10 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.indexes.cube_dim_tuple = true;
                     Variable::CubeDimZ
                 }
+                gpu::Builtin::CubeClusterDim => const_u32(self.cluster_dim.num_elems()),
+                gpu::Builtin::CubeClusterDimX => const_u32(self.cluster_dim.x),
+                gpu::Builtin::CubeClusterDimY => const_u32(self.cluster_dim.y),
+                gpu::Builtin::CubeClusterDimZ => const_u32(self.cluster_dim.z),
                 gpu::Builtin::CubePos => {
                     self.flags.indexes.cube_pos = true;
                     Variable::CubePos
@@ -1426,6 +1469,13 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Elem::Bool => Elem::Bool,
         }
     }
+}
+
+fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
+    Variable::ConstantScalar(
+        gpu::ConstantScalarValue::UInt(value as u64, UIntKind::U32),
+        Elem::U32,
+    )
 }
 
 pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
