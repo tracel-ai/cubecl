@@ -17,7 +17,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-/// A strategy for loading a buffer (partial stage), either eagerly or as a deferred job.
+/// A strategy for synchronously loading a buffer (partial stage), either eagerly or as a deferred job.
 pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
@@ -25,7 +25,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
     /// A representation of deferred and partial loading work.
     type Job<MP: MatmulPrecision>: LoadingJob<MP>;
 
-    /// Load the stage only at the buffer identified by buffer_index
+    /// Immediately load the stage only at the buffer identified by buffer_index
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,

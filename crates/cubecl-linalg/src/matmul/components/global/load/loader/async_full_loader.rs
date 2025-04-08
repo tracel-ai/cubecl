@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
@@ -14,26 +15,47 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
-pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
+/// A strategy for fully and asynchronously loading a stage, either eagerly or as a deferred job.
+pub trait AsyncFullLoadingStrategy<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>:
+    'static + Send + Sync + Clone + LoadingValidation
+{
+    /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// Load the full stage
-    fn load_full<MP: MatmulPrecision, G: global::GlobalConfig, CM: CopyMechanism<MP::ES>>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
+    /// A representation of deferred and partial loading work.
+    type Job: LoadingJob<MP>;
+
+    /// Loads the entire stage immediately from the tensor reader.
+    fn load_full<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
+
+    /// Returns a job that can perform the loading in a deferred manner.
+    fn job<G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::Job;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
 }
 
 #[derive(CubeType)]
-pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy> {
+pub struct AsyncLoader<
+    MP: MatmulPrecision,
+    CM: CopyMechanism<MP::ES>,
+    S: stage::StageConfig,
+    L: AsyncFullLoadingStrategy<MP, CM>,
+> {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
     pub quantization: CubeOption<Quantization<MP>>,
@@ -44,8 +66,12 @@ pub struct AsyncLoader<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullL
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
-    AsyncLoader<MP, S, L>
+impl<
+    MP: MatmulPrecision,
+    CM: CopyMechanism<MP::ES>,
+    S: stage::StageConfig,
+    L: AsyncFullLoadingStrategy<MP, CM>,
+> AsyncLoader<MP, CM, S, L>
 {
     pub fn new<G: global::GlobalConfig>(
         tensor: VirtualTensor<MP::EI>,
@@ -93,7 +119,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
 
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncLoader::<MP, S, L> {
+        AsyncLoader::<MP, CM, S, L> {
             tensor_view,
             stage,
             quantization,
@@ -102,14 +128,14 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncFullLoadingStrategy>
         }
     }
 
-    pub fn fill_stage<CM: CopyMechanism<MP::ES>>(
+    pub fn fill_stage(
         this: &mut Self,
-        mechanism: &CM,
+        mechanism: CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_full::<MP, single_stage::Config<S>, CM>(
-            &this.tensor_view,
-            &mut this.stage,
+        L::load_full::<single_stage::Config<S>>(
+            this.tensor_view,
+            this.stage,
             mechanism,
             this.quantization,
             this.ident,

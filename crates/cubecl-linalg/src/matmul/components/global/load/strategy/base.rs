@@ -48,7 +48,14 @@ pub(crate) fn default_sync_buffer_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G>(read_view, stage, quantization, buffer_index, input_ident, config);
+    let mut job = LS::job::<MP, G>(
+        read_view,
+        stage,
+        quantization,
+        buffer_index,
+        input_ident,
+        config,
+    );
 
     for task_id in 0..LS::Job::len(&job) {
         LS::Job::execute_task::<G>(&mut job, task_id, config);
@@ -57,19 +64,30 @@ pub(crate) fn default_sync_buffer_load<
 
 #[cube]
 pub(crate) fn default_async_full_load<
-    LS: AsyncFullLoadingStrategy,
+    LS: AsyncFullLoadingStrategy<MP, CM>,
     MP: MatmulPrecision,
     G: GlobalConfig,
     CM: CopyMechanism<MP::ES>,
 >(
-    read_view: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: &CM,
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, LS::TilingLayout>,
+    mechanism: CM,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    todo!()
+    let mut job = LS::job::<G>(
+        read_view,
+        stage,
+        mechanism,
+        quantization,
+        input_ident,
+        config,
+    );
+
+    for task_id in 0..LS::Job::len(&job) {
+        LS::Job::execute_task::<G>(&mut job, task_id, config);
+    }
 }
 
 #[cube]
@@ -79,12 +97,25 @@ pub(crate) fn default_async_buffer_load<
     G: GlobalConfig,
     CM: CopyMechanism<MP::ES>,
 >(
-    read_view: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: &CM,
+    read_view: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, LS::TilingLayout>,
+    mechanism: CM,
     quantization: CubeOption<Quantization<MP>>,
+    #[comptime] buffer_index: u32,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    todo!()
+    let mut job = LS::job::<MP, G, CM>(
+        read_view,
+        stage,
+        mechanism,
+        quantization,
+        buffer_index,
+        input_ident,
+        config,
+    );
+
+    for task_id in 0..LS::Job::len(&job) {
+        LS::Job::execute_task::<G>(&mut job, task_id, config);
+    }
 }
