@@ -18,27 +18,21 @@ use super::LoadingJob;
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct AsyncBufferMaximizeSliceLengthLoading<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    #[cube(comptime)]
-    _phantom: PhantomData<(MP, CM)>,
-}
+pub struct AsyncBufferMaximizeSliceLengthLoading {}
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingValidation
-    for AsyncBufferMaximizeSliceLengthLoading<MP, CM>
-{
+impl LoadingValidation for AsyncBufferMaximizeSliceLengthLoading {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncBufferLoadingStrategy<MP, CM>
-    for AsyncBufferMaximizeSliceLengthLoading<MP, CM>
-{
+impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job = AsyncBufferMaximizeSliceLengthJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> =
+        AsyncBufferMaximizeSliceLengthJob<MP, CM>;
 
-    fn load_buffer<G: GlobalConfig>(
+    fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -133,7 +127,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> AsyncBufferLoadingStrategy<
         }
     }
 
-    fn job<G: GlobalConfig>(
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,

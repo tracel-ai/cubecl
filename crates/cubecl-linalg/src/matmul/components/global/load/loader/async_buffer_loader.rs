@@ -18,17 +18,15 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
 /// A strategy for asynchronously loading a buffer (partial stage), either eagerly or as a deferred job.
-pub trait AsyncBufferLoadingStrategy<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>:
-    'static + Send + Sync + Clone + LoadingValidation
-{
+pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
     /// A representation of deferred and partial loading work.
-    type Job: LoadingJob<MP>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
 
     /// Immediately load the stage only at the buffer identified by buffer_index
-    fn load_buffer<G: GlobalConfig>(
+    fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -39,7 +37,7 @@ pub trait AsyncBufferLoadingStrategy<MP: MatmulPrecision, CM: CopyMechanism<MP::
     );
 
     /// Returns a job that can perform the loading in a deferred manner.
-    fn job<G: GlobalConfig>(
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
@@ -47,7 +45,7 @@ pub trait AsyncBufferLoadingStrategy<MP: MatmulPrecision, CM: CopyMechanism<MP::
         #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
-    ) -> Self::Job;
+    ) -> Self::Job<MP, CM>;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
@@ -58,7 +56,7 @@ pub struct AsyncBufferLoader<
     MP: MatmulPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism<MP::ES>,
-    L: AsyncBufferLoadingStrategy<MP, CM>,
+    L: AsyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<MP::EI>,
     pub stage: Stage<MP::ES, L::TilingLayout>,
@@ -66,7 +64,7 @@ pub struct AsyncBufferLoader<
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    _phantom: PhantomData<(S, CM)>,
 }
 
 #[cube]
@@ -74,7 +72,7 @@ impl<
     MP: MatmulPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism<MP::ES>,
-    L: AsyncBufferLoadingStrategy<MP, CM>,
+    L: AsyncBufferLoadingStrategy,
 > AsyncBufferLoader<MP, S, CM, L>
 {
     pub fn new(
@@ -99,7 +97,7 @@ impl<
             stage,
             quantization,
             input_ident,
-            _config: PhantomData::<S>,
+            _phantom: PhantomData::<(S, CM)>,
         }
     }
 
@@ -120,7 +118,7 @@ impl<
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<CommonGlobalConfig<S>>(
+        L::load_buffer::<MP, CM, CommonGlobalConfig<S>>(
             this.tensor_view,
             this.stage,
             mechanism,
