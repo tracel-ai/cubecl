@@ -32,12 +32,30 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
+        default_async_full_load::<Self, MP, G, CM>(
+            read_view,
+            stage,
+            mechanism,
+            quantization,
+            input_ident,
+            config,
+        )
+    }
+
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        read_view: TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        _quantization: CubeOption<Quantization<MP>>,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -47,47 +65,17 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         };
         let unit_count = config.plane_dim() * config.num_planes();
 
-        let slices_per_unit = (num_slices + unit_count - 1) / unit_count;
+        let num_tasks = comptime!((num_slices + unit_count - 1) / unit_count);
 
-        // Typically there will be only 1 slice per unit
-        #[unroll(slices_per_unit==1)]
-        for nth_slice_local in 0..slices_per_unit {
-            let nth_slice = unit_count * nth_slice_local + UNIT_POS;
-
-            #[allow(clippy::collapsible_else_if)]
-            if comptime!(num_slices % unit_count == 0) {
-                load_nth_slice::<MP::EI, MP::ES, CM, G>(
-                    nth_slice,
-                    &read_view,
-                    &mut stage,
-                    &mechanism,
-                    input_ident,
-                    config,
-                );
-            } else {
-                if nth_slice < num_slices {
-                    load_nth_slice::<MP::EI, MP::ES, CM, G>(
-                        nth_slice,
-                        &read_view,
-                        &mut stage,
-                        &mechanism,
-                        input_ident,
-                        config,
-                    );
-                }
-            };
+        AsyncFullMaximizeSliceLengthJob::<MP, CM> {
+            read_view,
+            stage,
+            mechanism,
+            num_tasks,
+            unit_count,
+            num_slices,
+            input_ident,
         }
-    }
-
-    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
-        _quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
-        todo!()
     }
 
     fn barrier_level() -> BarrierLevel {
@@ -100,19 +88,50 @@ pub struct AsyncFullMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanis
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
-    _quantization: CubeOption<Quantization<MP>>,
+
+    #[cube(comptime)]
+    num_tasks: u32,
+    #[cube(comptime)]
+    unit_count: u32,
+    #[cube(comptime)]
+    num_slices: u32,
+    #[cube(comptime)]
+    input_ident: InputIdent,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
     for AsyncFullMaximizeSliceLengthJob<MP, CM>
 {
-    fn len(_this: &Self) -> u32 {
-        1u32
+    fn len(this: &Self) -> u32 {
+        this.num_tasks.runtime()
     }
 
     fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
-        // TODO
+        let nth_slice = this.unit_count * task_id + UNIT_POS;
+
+        #[allow(clippy::collapsible_else_if)]
+        if comptime!(this.num_slices % this.unit_count == 0) {
+            load_nth_slice::<MP::EI, MP::ES, CM, G>(
+                nth_slice,
+                &this.read_view,
+                &mut this.stage,
+                &this.mechanism,
+                this.input_ident,
+                config,
+            );
+        } else {
+            if nth_slice < this.num_slices {
+                load_nth_slice::<MP::EI, MP::ES, CM, G>(
+                    nth_slice,
+                    &this.read_view,
+                    &mut this.stage,
+                    &this.mechanism,
+                    this.input_ident,
+                    config,
+                );
+            }
+        };
     }
 }
 

@@ -69,7 +69,6 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
             read_view,
             stage,
             mechanism,
-            _quantization,
             num_slices,
             input_ident,
         }
@@ -85,7 +84,6 @@ pub struct AsyncFullCooperativeJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
-    _quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
