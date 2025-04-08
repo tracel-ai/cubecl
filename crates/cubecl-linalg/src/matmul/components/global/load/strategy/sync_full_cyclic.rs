@@ -93,6 +93,7 @@ pub struct Job<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> {
     read_view: TensorReader<MP::EI>,
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
+
     #[cube(comptime)]
     num_tasks: u32,
     #[cube(comptime)]
@@ -113,7 +114,7 @@ impl<MP: MatmulPrecision, T: TilingOrder, G: GlobalConfig> LoadingJob<MP, G> for
         this.num_tasks.runtime()
     }
 
-    fn execute(this: &mut Self, task_id: u32) {
+    fn execute_task(this: &mut Self, task_id: u32) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         let nth_tile = unit_position / this.tile_num_elements;

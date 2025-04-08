@@ -12,7 +12,7 @@ use cubecl_std::CubeOption;
 
 #[cube]
 pub trait LoadingJob<MP: MatmulPrecision, G: GlobalConfig>: CubeType + Copy + Clone {
-    fn execute(this: &mut Self, task_id: u32);
+    fn execute_task(this: &mut Self, task_id: u32);
     fn len(this: &Self) -> u32;
 }
 
@@ -31,7 +31,7 @@ pub(crate) fn default_sync_full_load<
     let mut job = LS::job::<MP, G>(read_view, stage, quantization, input_ident, config);
 
     for task_id in 0..LS::Job::len(&job) {
-        LS::Job::execute(&mut job, task_id);
+        LS::Job::execute_task(&mut job, task_id);
     }
 }
 

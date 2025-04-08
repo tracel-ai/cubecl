@@ -8,7 +8,7 @@ use super::{
         global::load::{
             AsyncFullCooperativeLoading, AsyncFullCyclicLoading,
             AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
-            // SyncFullStridedLoading,
+            SyncFullStridedLoading,
         },
         stage::ColMajorTilingOrder,
         tile::accelerated::Accelerated,
@@ -46,7 +46,7 @@ pub enum Strategy {
 #[derive(Debug, Clone)]
 pub enum SyncLoadingStrategy {
     Cyclic,
-    // Strided,
+    Strided,
 }
 
 #[derive(Debug, Clone)]
@@ -88,11 +88,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             SyncLoadingStrategy::Cyclic => {
                 matmul::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(client, lhs, rhs, out)
             }
-            // SyncLoadingStrategy::Strided => matmul::launch_ref::<
-            //     R,
-            //     MP,
-            //     SimpleAlgorithm<Accelerated, SyncFullStridedLoading, SyncFullStridedLoading>,
-            // >(client, lhs, rhs, out),
+            SyncLoadingStrategy::Strided => matmul::launch_ref::<
+                R,
+                MP,
+                SimpleAlgorithm<Accelerated, SyncFullStridedLoading, SyncFullStridedLoading>,
+            >(client, lhs, rhs, out),
         },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
             AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<

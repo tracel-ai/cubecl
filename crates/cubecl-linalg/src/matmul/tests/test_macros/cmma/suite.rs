@@ -299,7 +299,7 @@ macro_rules! matmul_standard_tests {
     ($lhs_layout:ident, $rhs_layout:ident, $tile:expr, $stage:expr, $problem:expr) => {
         use $crate::matmul::components::global::load::{
             AsyncFullCyclicLoading, AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
-            // SyncFullStridedLoading,
+            SyncFullStridedLoading,
              AsyncFullCooperativeLoading,
         };
         use $crate::matmul::components::stage::ColMajorTilingOrder;
@@ -320,19 +320,19 @@ macro_rules! matmul_standard_tests {
             );
         }
 
-        // #[test]
-        // pub fn simple_strided() {
-        //     cubecl_linalg::matmul::tests::test_algo::<
-        //         SimpleAlgorithm<TMM, SyncFullStridedLoading, SyncFullStridedLoading>,
-        //         Precision,
-        //         TestRuntime,
-        //     >(
-        //         (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
-        //         $tile,
-        //         $stage,
-        //         $problem,
-        //     );
-        // }
+        #[test]
+        pub fn simple_strided() {
+            cubecl_linalg::matmul::tests::test_algo::<
+                SimpleAlgorithm<TMM, SyncFullStridedLoading, SyncFullStridedLoading>,
+                Precision,
+                TestRuntime,
+            >(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+            );
+        }
 
         #[test]
         pub fn simple_pipelined() {
