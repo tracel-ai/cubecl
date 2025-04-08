@@ -19,8 +19,9 @@ use crate::matmul::{
 
 use super::Algorithm;
 
-const NUM_SM_APPROX: usize = 50;
-const NUM_TENSOR_CORES_APPROX: usize = 8;
+const NUM_SM_APPROX: u32 = 50;
+const NUM_TENSOR_CORES_APPROX: u32 = 4;
+const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 /// Select which kernel to launch for the given Algorithm.
 #[allow(clippy::result_large_err)]
@@ -150,12 +151,22 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         problem.n,
     );
 
+    let num_tensor_cores = client
+        .properties()
+        .hardware_properties()
+        .num_tensor_cores
+        .unwrap_or(NUM_TENSOR_CORES_APPROX);
+
     let stage_size_m_n = find_stage_size_m_n(
         problem.m,
         problem.n,
         problem.num_batches(),
-        NUM_SM_APPROX,
-        NUM_TENSOR_CORES_APPROX,
+        client
+            .properties()
+            .hardware_properties()
+            .num_streaming_multiprocessors
+            .unwrap_or(NUM_SM_APPROX) as usize,
+        (num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize,
         instruction_m,
         instruction_n,
     );

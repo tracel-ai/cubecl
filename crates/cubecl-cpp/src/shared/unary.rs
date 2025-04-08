@@ -86,14 +86,15 @@ pub trait FunctionFmt<D: Dialect> {
     fn base_function_name() -> &'static str;
     fn function_name(elem: Elem<D>) -> String {
         if Self::half_support() {
-            match elem {
-                Elem::F16 | Elem::BF16 => return format!("h{}", Self::base_function_name()),
-                Elem::F162 | Elem::BF162 => return format!("h2{}", Self::base_function_name()),
-                _ => (),
+            let prefix = match elem {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
+                _ => "",
             };
+            format!("{prefix}{}", Self::base_function_name())
+        } else {
+            Self::base_function_name().into()
         }
-
-        Self::base_function_name().into()
     }
     fn format_unary<Input: Display>(
         f: &mut std::fmt::Formatter<'_>,
@@ -101,14 +102,14 @@ pub trait FunctionFmt<D: Dialect> {
         elem: Elem<D>,
     ) -> std::fmt::Result {
         if Self::half_support() {
-            return write!(f, "{}({input})", Self::function_name(elem));
-        }
-
-        match elem {
-            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
-                write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+            write!(f, "{}({input})", Self::function_name(elem))
+        } else {
+            match elem {
+                Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
-            _ => write!(f, "{}({input})", Self::function_name(elem)),
         }
     }
 
@@ -148,7 +149,6 @@ macro_rules! function {
 }
 
 function!(Log, "log");
-function!(Log1p, "log1p", false);
 function!(Cos, "cos");
 function!(Sin, "sin");
 function!(Sqrt, "sqrt");
@@ -157,9 +157,32 @@ function!(Ceil, "ceil");
 function!(Floor, "floor");
 function!(Round, "rint");
 
-function!(Tanh, "tanh", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
+
+pub struct Log1p;
+
+impl<D: Dialect> Unary<D> for Log1p {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_log1p_scalar(f, input)
+    }
+}
+
+pub struct Tanh;
+
+impl<D: Dialect> Unary<D> for Tanh {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_tanh_scalar(f, input)
+    }
+}
 
 pub fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
     match input.elem() {

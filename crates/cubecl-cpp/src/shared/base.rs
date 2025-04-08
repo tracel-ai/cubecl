@@ -846,7 +846,9 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Sin(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Tanh(op) => {
-                instructions.push(Instruction::Tanh(self.compile_unary(op, out)))
+                let instruction = Instruction::Tanh(self.compile_unary(op, out));
+                D::register_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Powf(op) => {
                 instructions.push(Instruction::Powf(self.compile_binary(op, out)))
