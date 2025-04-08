@@ -291,6 +291,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
         let cube_count_tuple = flags.cube_count_tuple || cube_count || cube_pos || absolute_pos;
         let cube_dim_tuple = flags.cube_dim_tuple || cube_dim || absolute_pos || plane_dim_checked;
         let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
+        let cluster_pos = flags.cluster_pos;
         let plane_dim = flags.plane_dim || plane_dim_checked || plane_index;
         let unit_pos_plane = flags.unit_pos_plane || plane_index;
         let unit_pos_tuple = flags.unit_pos_tuple || unit_pos;
@@ -309,6 +310,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
             unit_pos_tuple,
             unit_pos,
             unit_pos_plane,
+            cluster_pos,
         }
     }
 

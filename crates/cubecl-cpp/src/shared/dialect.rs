@@ -129,6 +129,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let cube_count_tuple = flags.cube_count_tuple || absolute_pos;
         let cube_pos = flags.cube_pos;
         let cube_pos_tuple = flags.cube_pos_tuple || cube_pos;
+        let cluster_group = flags.cluster_pos;
 
         CubeIndexFlags {
             absolute_pos,
@@ -145,6 +146,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
             unit_pos_tuple,
             unit_pos,
             unit_pos_plane,
+            cluster_pos: cluster_group,
         }
     }
 
@@ -318,6 +320,19 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let plane_dim = Variable::<D>::PlaneDim;
         write!(f, "{absolute_pos} % {plane_dim}")
     }
+
+    fn compile_cluster_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0")
+    }
+    fn compile_cluster_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0")
+    }
+    fn compile_cluster_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0")
+    }
+    fn compile_cluster_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0")
+    }
 }
 
 // Instructions
@@ -471,7 +486,13 @@ pub trait DialectInstructions<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         input: T,
     ) -> std::fmt::Result {
-        write!(f, "log1p({input})")
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{}(log1p(float({input})))", elem)
+            }
+            _ => write!(f, "log1p({input})"),
+        }
     }
 
     // sync
@@ -483,7 +504,13 @@ pub trait DialectInstructions<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         input: T,
     ) -> std::fmt::Result {
-        write!(f, "tanh({input})")
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F162 | Elem::BF16 | Elem::BF162 => {
+                write!(f, "{}(tanh(float({input})))", elem)
+            }
+            _ => write!(f, "tanh({input})"),
+        }
     }
 
     // unary

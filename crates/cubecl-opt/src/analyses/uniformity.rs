@@ -214,10 +214,18 @@ impl Uniformity {
                 | Builtin::CubePosX
                 | Builtin::CubePosY
                 | Builtin::CubePosZ
+                | Builtin::CubePosCluster
+                | Builtin::CubePosClusterX
+                | Builtin::CubePosClusterY
+                | Builtin::CubePosClusterZ
                 | Builtin::CubeDim
                 | Builtin::CubeDimX
                 | Builtin::CubeDimY
                 | Builtin::CubeDimZ
+                | Builtin::CubeClusterDim
+                | Builtin::CubeClusterDimX
+                | Builtin::CubeClusterDimY
+                | Builtin::CubeClusterDimZ
                 | Builtin::CubeCount
                 | Builtin::CubeCountX
                 | Builtin::CubeCountY

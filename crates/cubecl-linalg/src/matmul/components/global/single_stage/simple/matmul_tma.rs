@@ -63,6 +63,14 @@ where
             return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
+        let ei_id = TypeId::of::<MP::EI>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if ei_id != es_id && !is_tf32 {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
+        }
+
         if !client
             .properties()
             .feature_enabled(Feature::Tma(TmaFeature::Base))

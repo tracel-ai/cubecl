@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self, Builtin};
+use cubecl_core::ir::{self, Builtin, UIntKind};
 use rspirv::spirv::{BuiltIn, Word};
 
 use crate::{
@@ -66,10 +66,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     id
                 }))
             }
+            Builtin::CubePosCluster
+            | Builtin::CubePosClusterX
+            | Builtin::CubePosClusterY
+            | Builtin::CubePosClusterZ => self.constant_var(0),
             Builtin::CubeDim => Variable::WorkgroupSize(self.state.cube_size),
             Builtin::CubeDimX => Variable::WorkgroupSizeX(self.state.cube_dims[0]),
             Builtin::CubeDimY => Variable::WorkgroupSizeY(self.state.cube_dims[1]),
             Builtin::CubeDimZ => Variable::WorkgroupSizeZ(self.state.cube_dims[2]),
+            Builtin::CubeClusterDim
+            | Builtin::CubeClusterDimX
+            | Builtin::CubeClusterDimY
+            | Builtin::CubeClusterDimZ => self.constant_var(1),
             Builtin::CubeCount => Variable::WorkgroupSize(self.get_or_insert_global(
                 Globals::NumWorkgroupsTotal,
                 |b: &mut SpirvCompiler<T>| {
@@ -192,6 +200,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::GlobalInvocationIdZ(id)
             }
         }
+    }
+
+    fn constant_var(&mut self, value: u32) -> Variable {
+        let var =
+            ir::Variable::constant(ir::ConstantScalarValue::UInt(value as u64, UIntKind::U32));
+        self.compile_variable(var)
     }
 
     fn extract(&mut self, global: Globals, builtin: BuiltIn, idx: u32) -> Word {
