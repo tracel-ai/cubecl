@@ -2,7 +2,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        load::AsyncFullLoadingStrategy,
+        load::{AsyncFullLoadingStrategy, default_async_full_load},
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
@@ -33,37 +33,20 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: TensorReader<MP::EI>,
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
-        _quantization: CubeOption<Quantization<MP>>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        let matrix_layout = config.matrix_layout(input_ident);
-        let tiling_dimensions = config.tiling_dimensions(input_ident);
-
-        let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
-            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
-        };
-
-        for nth_slice in 0..num_slices {
-            let window: Window<MP::EI> =
-                read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
-            let mut destination: SliceMut<Line<MP::ES>> =
-                StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                    &mut stage,
-                    nth_slice,
-                    input_ident.as_ident(),
-                    config.to_smm_config(),
-                );
-
-            CM::memcpy_async(
-                &mechanism,
-                &window.slice.try_cast_unchecked(),
-                &mut destination,
-            );
-        }
+        default_async_full_load::<Self, MP, G, CM>(
+            read_view,
+            stage,
+            mechanism,
+            quantization,
+            input_ident,
+            config,
+        )
     }
 
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
@@ -74,7 +57,22 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> AsyncFullCooperativeJob<MP, CM> {
-        todo!()
+        let matrix_layout = config.matrix_layout(input_ident);
+        let tiling_dimensions = config.tiling_dimensions(input_ident);
+
+        let num_slices = match matrix_layout {
+            MatrixLayout::RowMajor => tiling_dimensions.total_row(),
+            MatrixLayout::ColMajor => tiling_dimensions.total_col(),
+        };
+
+        AsyncFullCooperativeJob::<MP, CM> {
+            read_view,
+            stage,
+            mechanism,
+            _quantization,
+            num_slices,
+            input_ident,
+        }
     }
 
     fn barrier_level() -> BarrierLevel {
@@ -88,17 +86,36 @@ pub struct AsyncFullCooperativeJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
     _quantization: CubeOption<Quantization<MP>>,
+    #[cube(comptime)]
+    num_slices: u32,
+    #[cube(comptime)]
+    input_ident: InputIdent,
 }
 
 #[cube]
 impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
     for AsyncFullCooperativeJob<MP, CM>
 {
-    fn len(_this: &Self) -> u32 {
-        todo!()
+    fn len(this: &Self) -> u32 {
+        this.num_slices.runtime()
     }
 
     fn execute_task<G: GlobalConfig>(this: &mut Self, task_id: u32, #[comptime] config: G) {
-        // TODO
+        let window: Window<MP::EI> =
+            this.read_view
+                .load_window_in_stage::<G>(task_id, this.input_ident, config);
+        let mut destination: SliceMut<Line<MP::ES>> =
+            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+                &mut this.stage,
+                task_id,
+                comptime!(this.input_ident.as_ident()),
+                config.to_smm_config(),
+            );
+
+        CM::memcpy_async(
+            &this.mechanism,
+            &window.slice.try_cast_unchecked(),
+            &mut destination,
+        );
     }
 }
