@@ -266,7 +266,7 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let k_iterations = config.tile_count().k;
+        let k_iterations = comptime!(RL::num_k_iterations(config));
         let acc_iterations = acc.len();
         let acc_total_iterations = comptime![k_iterations * acc_iterations];
 
@@ -338,7 +338,7 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
-        let k_iterations = config.tile_count().k;
+        let k_iterations = comptime!(RL::num_k_iterations(config));
         let num_accumulators = acc.len();
         let acc_total_iterations = comptime![k_iterations * num_accumulators];
 
