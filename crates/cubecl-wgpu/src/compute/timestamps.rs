@@ -3,15 +3,15 @@ use wgpu::{QuerySet, QuerySetDescriptor, QueryType};
 
 #[derive(Debug)]
 pub enum KernelTimestamps {
-    Native { query_set: QuerySet, init: bool },
-    Inferred { start_time: Instant },
+    Device { query_set: QuerySet, init: bool },
+    Full { start_time: Instant },
     Disabled,
 }
 
 impl KernelTimestamps {
-    pub fn enable(&mut self, device: &wgpu::Device) {
+    pub fn start(&mut self, device: &wgpu::Device) {
         if !matches!(self, Self::Disabled) {
-            return;
+            panic!("Cannot recursively start timestamps currently");
         }
 
         if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
@@ -20,19 +20,18 @@ impl KernelTimestamps {
                 ty: QueryType::Timestamp,
                 count: 2,
             });
-
-            *self = Self::Native {
+            *self = Self::Device {
                 query_set,
                 init: false,
             };
         } else {
-            *self = Self::Inferred {
+            *self = Self::Full {
                 start_time: Instant::now(),
             };
         };
     }
 
-    pub fn disable(&mut self) {
-        *self = Self::Disabled;
+    pub fn stop(&mut self) -> Self {
+        std::mem::replace(self, Self::Disabled)
     }
 }

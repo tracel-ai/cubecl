@@ -1,6 +1,9 @@
+use cubecl_core::benchmark::ClientProfile;
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
+
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
@@ -18,7 +21,6 @@ use cubecl_core::{
 };
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
     storage::ComputeStorage,
@@ -35,7 +37,6 @@ use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::Instant;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -67,28 +68,6 @@ pub struct PtxCacheEntry {
     cube_dim: (u32, u32, u32),
     cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<i8>,
-}
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
-}
-
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
-
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
-    }
-
-    fn disable(&mut self) {
-        *self = Self::Disabled;
-    }
 }
 
 #[derive(Debug)]
@@ -550,22 +529,16 @@ impl ComputeServer for CudaServer {
         self.sync_stream_async()
     }
 
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+    fn start_measure(&mut self) {
+        // Wait for current work to be done.
+        self.ctx.sync();
+        self.ctx.timestamps.start();
+    }
+
+    fn stop_measure(&mut self) -> ClientProfile {
         self.logger.profile_summary();
-
-        let ctx = self.get_context();
-        ctx.sync();
-
-        let duration = match &mut ctx.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
+        self.ctx.sync();
+        self.ctx.timestamps.stop()
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
@@ -584,16 +557,6 @@ impl ComputeServer for CudaServer {
 
     fn memory_cleanup(&mut self) {
         self.ctx.memory_management.cleanup(true);
-    }
-
-    fn enable_timestamps(&mut self) {
-        self.ctx.timestamps.enable();
-    }
-
-    fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
-        }
     }
 }
 
@@ -619,7 +582,7 @@ impl CudaContext {
             ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
             stream,
             arch,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::default(),
             compilation_options,
         }
     }
@@ -788,11 +751,8 @@ impl CudaContext {
 
 impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(mut ctx: CudaContext) -> Self {
+    pub(crate) fn new(ctx: CudaContext) -> Self {
         let logger = DebugLogger::default();
-        if logger.profile_level().is_some() {
-            ctx.timestamps.enable();
-        }
         Self { ctx, logger }
     }
 

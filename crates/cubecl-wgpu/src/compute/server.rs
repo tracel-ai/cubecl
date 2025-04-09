@@ -6,6 +6,7 @@ use crate::AutoCompiler;
 use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
 use cubecl_common::future;
+use cubecl_core::benchmark::ClientProfile;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -13,7 +14,6 @@ use cubecl_core::{
     server::{Binding, BindingWithMeta, Bindings, Handle},
 };
 use cubecl_runtime::{
-    TimestampsError, TimestampsResult,
     debug::{DebugLogger, ProfileLevel},
     memory_management::MemoryDeviceProperties,
     server::{self, ComputeServer},
@@ -49,7 +49,7 @@ impl WgpuServer {
         let mut timestamps = KernelTimestamps::Disabled;
 
         if logger.profile_level().is_some() {
-            timestamps.enable(&device);
+            timestamps.start(&device);
         }
 
         let stream = WgpuStream::new(
@@ -170,13 +170,12 @@ impl ComputeServer for WgpuServer {
         };
 
         if profile_level.is_some() {
-            let fut = self.stream.sync_elapsed();
-            if let Ok(duration) = future::block_on(fut) {
-                if let Some(profiled) = &mut self.duration_profiled {
-                    *profiled += duration;
-                } else {
-                    self.duration_profiled = Some(duration);
-                }
+            let fut = self.stream.stop_measure();
+            let duration = future::block_on(fut.resolve());
+            if let Some(profiled) = &mut self.duration_profiled {
+                *profiled += duration;
+            } else {
+                self.duration_profiled = Some(duration);
             }
         }
 
@@ -189,27 +188,27 @@ impl ComputeServer for WgpuServer {
             let (name, kernel_id) = profile_info.unwrap();
 
             // Execute the task.
-            if let Ok(duration) = future::block_on(self.stream.sync_elapsed()) {
-                if let Some(profiled) = &mut self.duration_profiled {
-                    *profiled += duration;
-                } else {
-                    self.duration_profiled = Some(duration);
-                }
+            let duration = future::block_on(self.stream.stop_measure().resolve());
 
-                let info = match level {
-                    ProfileLevel::Basic | ProfileLevel::Medium => {
-                        if let Some(val) = name.split("<").next() {
-                            val.split("::").last().unwrap_or(name).to_string()
-                        } else {
-                            name.to_string()
-                        }
-                    }
-                    ProfileLevel::Full => {
-                        format!("{name}: {kernel_id} CubeCount {count:?}")
-                    }
-                };
-                self.logger.register_profiled(info, duration);
+            if let Some(profiled) = &mut self.duration_profiled {
+                *profiled += duration;
+            } else {
+                self.duration_profiled = Some(duration);
             }
+
+            let info = match level {
+                ProfileLevel::Basic | ProfileLevel::Medium => {
+                    if let Some(val) = name.split("<").next() {
+                        val.split("::").last().unwrap_or(name).to_string()
+                    } else {
+                        name.to_string()
+                    }
+                }
+                ProfileLevel::Full => {
+                    format!("{name}: {kernel_id} CubeCount {count:?}")
+                }
+            };
+            self.logger.register_profiled(info, duration);
         }
     }
 
@@ -224,31 +223,22 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    /// Returns the total time of GPU work this sync completes.
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+    fn start_measure(&mut self) {
+        self.stream.timestamps.start(&self.device);
+    }
+
+    fn stop_measure(&mut self) -> ClientProfile {
         self.logger.profile_summary();
 
-        let fut = self.stream.sync_elapsed();
-
-        let profiled = self.duration_profiled;
+        // TODO: Deal with BS recursive profile thing...
+        let profile = self.stream.stop_measure();
+        let duration_profiled = self.duration_profiled;
         self.duration_profiled = None;
 
-        async move {
-            match fut.await {
-                Ok(duration) => match profiled {
-                    Some(profiled) => Ok(duration + profiled),
-                    None => Ok(duration),
-                },
-                Err(err) => match err {
-                    TimestampsError::Disabled => Err(err),
-                    TimestampsError::Unavailable => match profiled {
-                        Some(profiled) => Ok(profiled),
-                        None => Err(err),
-                    },
-                    TimestampsError::Unknown(_) => Err(err),
-                },
-            }
-        }
+        // Add in profiled duration if needed.
+        ClientProfile::from_future(async move {
+            profile.resolve().await + duration_profiled.unwrap_or(Duration::from_secs(0))
+        })
     }
 
     fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
@@ -257,17 +247,6 @@ impl ComputeServer for WgpuServer {
 
     fn memory_cleanup(&mut self) {
         self.stream.mem_manage.memory_cleanup(true);
-    }
-
-    fn enable_timestamps(&mut self) {
-        self.stream.timestamps.enable(&self.device);
-    }
-
-    fn disable_timestamps(&mut self) {
-        // Only disable timestamps if profiling isn't enabled.
-        if self.logger.profile_level().is_none() {
-            self.stream.timestamps.disable();
-        }
     }
 
     fn read_tensor(

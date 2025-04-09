@@ -5,7 +5,7 @@ use cubecl::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl::prelude::*;
 use std::marker::PhantomData;
 
-use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::frontend::Float;
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
@@ -764,8 +764,8 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ClientProfile {
+        self.client.profile(|| self.execute(args))
     }
 }
 

@@ -1,5 +1,4 @@
 use cubecl::{calculate_cube_count_elemwise, frontend, prelude::*};
-use cubecl_runtime::TimestampsResult;
 use std::marker::PhantomData;
 
 #[cfg(feature = "cuda")]
@@ -67,8 +66,8 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ClientProfile {
+        self.client.profile(|| self.execute(args))
     }
 }
 
@@ -84,8 +83,6 @@ struct UnaryBench<R: Runtime, E> {
 #[allow(dead_code)]
 fn run<R: Runtime, E: frontend::Float>(device: R::Device, vectorization: u8) {
     let client = R::client(&device);
-    client.enable_timestamps();
-
     let bench = UnaryBench::<R, E> {
         shape: vec![32, 512, 2048],
         vectorization,

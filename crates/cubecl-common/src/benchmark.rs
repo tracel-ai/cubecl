@@ -1,10 +1,48 @@
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Display;
 
+use core::pin::Pin;
 use core::time::Duration;
+
+/// Result from profiling between two measurements. This can either be a duration or a future that resolves to a duration.
+pub enum ClientProfile {
+    /// Client profile contains a full duration.
+    Full(Duration),
+    /// Client profile measures the device duration, and requires to be resolved.
+    DeviceDuration(Pin<Box<dyn Future<Output = Duration> + Send + 'static>>),
+}
+
+impl ClientProfile {
+    /// Create a new `ClientProfile` straight from a duration.
+    pub fn from_duration(duration: Duration) -> Self {
+        ClientProfile::Full(duration)
+    }
+
+    /// Create a new `ClientProfile` from a future that resolves to a duration.
+    pub fn from_future(future: impl Future<Output = Duration> + Send + 'static) -> Self {
+        ClientProfile::DeviceDuration(Box::pin(future))
+    }
+
+    /// The method used to measure the execution time.
+    pub fn timing_method(&self) -> TimingMethod {
+        match self {
+            ClientProfile::Full(_) => TimingMethod::Full,
+            ClientProfile::DeviceDuration(_) => TimingMethod::DeviceOnly,
+        }
+    }
+
+    /// Resolve the actual duration of the profile, possibly by waiting for the future to complete.
+    pub async fn resolve(self) -> Duration {
+        match self {
+            ClientProfile::Full(duration) => duration,
+            ClientProfile::DeviceDuration(future) => future.await,
+        }
+    }
+}
 
 /// How a benchmark's execution times are measured.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -28,20 +66,6 @@ impl Display for TimingMethod {
     }
 }
 
-/// Error that can occurred when collecting timestamps from a device.
-#[derive(Debug)]
-pub enum TimestampsError {
-    /// Collecting timestamps is disabled, make sure to enable it.
-    Disabled,
-    /// Collecting timestamps isn't available.
-    Unavailable,
-    /// An unknown error occurred while collecting timestamps.
-    Unknown(String),
-}
-
-/// Result when collecting timestamps.
-pub type TimestampsResult = Result<Duration, TimestampsError>;
-
 /// Results of a benchmark run.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Default, Clone)]
@@ -53,6 +77,24 @@ pub struct BenchmarkDurations {
 }
 
 impl BenchmarkDurations {
+    /// Construct from a list of profiles.
+    pub async fn from_profiles(profiles: Vec<ClientProfile>) -> Self {
+        // Assume all profiles were collected using the same timing method.
+        let timing_method = profiles
+            .first()
+            .expect("need at least 1 profile")
+            .timing_method();
+
+        let mut durations = Vec::new();
+        for profile in profiles {
+            durations.push(profile.resolve().await);
+        }
+        Self {
+            timing_method,
+            durations,
+        }
+    }
+
     /// Returns a tuple of durations: (min, max, median)
     fn min_max_median_durations(&self) -> (Duration, Duration, Duration) {
         let mut sorted = self.durations.clone();
@@ -188,13 +230,25 @@ pub trait Benchmark {
     fn shapes(&self) -> Vec<Vec<usize>> {
         vec![]
     }
+
     /// Wait for computation to complete.
     fn sync(&self);
 
-    /// Wait for computation to complete and return hardware reported
-    /// computation duration.
-    fn sync_elapsed(&self) -> TimestampsResult {
-        Err(TimestampsError::Unavailable)
+    /// Start measuring the computation duration.
+    #[cfg(feature = "std")]
+    fn profile(&self, args: Self::Args) -> ClientProfile {
+        self.profile_full(args)
+    }
+
+    /// Start measuring the computation duration. Use the full duration irregardlesss of whether
+    /// device duration is available or not.
+    #[cfg(feature = "std")]
+    fn profile_full(&self, args: Self::Args) -> ClientProfile {
+        self.sync();
+        let start_time = std::time::Instant::now();
+        self.execute(args);
+        self.sync();
+        ClientProfile::from_duration(start_time.elapsed())
     }
 
     /// Run the benchmark a number of times.
@@ -202,74 +256,30 @@ pub trait Benchmark {
     fn run(&self, timing_method: TimingMethod) -> BenchmarkDurations {
         #[cfg(not(feature = "std"))]
         panic!("Attempting to run benchmark in a no-std environment");
+
         #[cfg(feature = "std")]
         {
             // Warmup
             let args = self.prepare();
-
             for _ in 0..self.num_samples() {
                 self.execute(args.clone());
-            }
-
-            match timing_method {
-                TimingMethod::Full => self.sync(),
-                TimingMethod::DeviceOnly => {
-                    let _ = self.sync_elapsed();
-                }
             }
             std::thread::sleep(Duration::from_secs(1));
 
             let mut durations = Vec::with_capacity(self.num_samples());
 
             for _ in 0..self.num_samples() {
-                match timing_method {
-                    TimingMethod::Full => durations.push(self.run_one_full(args.clone())),
-                    TimingMethod::DeviceOnly => {
-                        durations.push(self.run_one_device_only(args.clone()))
-                    }
-                }
+                let profile = match timing_method {
+                    TimingMethod::Full => self.profile_full(args.clone()),
+                    TimingMethod::DeviceOnly => self.profile(args.clone()),
+                };
+                durations.push(crate::future::block_on(profile.resolve()));
             }
 
             BenchmarkDurations {
                 timing_method,
                 durations,
             }
-        }
-    }
-    #[cfg(feature = "std")]
-    /// Collect one sample directly measuring the full execute + sync
-    /// step.
-    fn run_one_full(&self, args: Self::Args) -> Duration {
-        let start = std::time::Instant::now();
-        self.execute(args);
-        self.sync();
-        start.elapsed()
-    }
-    /// Collect one sample using timing measurements reported by the
-    /// device.
-    #[cfg(feature = "std")]
-    fn run_one_device_only(&self, args: Self::Args) -> Duration {
-        let start = std::time::Instant::now();
-
-        self.execute(args);
-
-        let result = self.sync_elapsed();
-
-        match result {
-            Ok(time) => time,
-            Err(err) => match err {
-                TimestampsError::Disabled => {
-                    panic!(
-                        "Collecting timestamps is deactivated, make sure to enable it before running the benchmark"
-                    );
-                }
-                TimestampsError::Unavailable => start.elapsed(),
-                TimestampsError::Unknown(err) => {
-                    panic!(
-                        "An unknown error occurred while collecting the timestamps when benchmarking: {err}"
-                    );
-                }
-            },
         }
     }
 }

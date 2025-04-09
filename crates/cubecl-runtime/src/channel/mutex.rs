@@ -3,7 +3,8 @@ use crate::server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount
 use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
+use cubecl_common::ExecutionMode;
+use cubecl_common::benchmark::ClientProfile;
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server
@@ -108,16 +109,6 @@ where
         fut.await
     }
 
-    async fn sync_elapsed(&self) -> TimestampsResult {
-        // Nb: The order here is really important - the mutex guard has to be dropped before
-        // the future is polled. Just calling lock().sync().await can deadlock.
-        let fut = {
-            let mut server = self.server.lock();
-            server.sync_elapsed()
-        };
-        fut.await
-    }
-
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         self.server.lock().memory_usage()
     }
@@ -126,11 +117,11 @@ where
         self.server.lock().memory_cleanup();
     }
 
-    fn enable_timestamps(&self) {
-        self.server.lock().enable_timestamps();
+    fn start_measure(&self) {
+        self.server.lock().start_measure();
     }
 
-    fn disable_timestamps(&self) {
-        self.server.lock().disable_timestamps();
+    fn stop_measure(&self) -> ClientProfile {
+        self.server.lock().stop_measure()
     }
 }

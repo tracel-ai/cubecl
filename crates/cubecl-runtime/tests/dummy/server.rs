@@ -1,11 +1,8 @@
-use cubecl_common::ExecutionMode;
-use cubecl_runtime::{
-    TimestampsError, TimestampsResult,
-    server::{BindingWithMeta, Bindings},
-};
+use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
+use cubecl_runtime::server::{BindingWithMeta, Bindings};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
 
 use super::DummyKernel;
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -23,28 +20,6 @@ use cubecl_runtime::{
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: KernelTimestamps,
-}
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
-}
-
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
-
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
-    }
-
-    fn disable(&mut self) {
-        *self = Self::Disabled;
-    }
 }
 
 impl ComputeServer for DummyServer {
@@ -161,20 +136,6 @@ impl ComputeServer for DummyServer {
         async move {}
     }
 
-    #[allow(clippy::manual_async_fn)]
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        let duration = match &mut self.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
-    }
-
     fn memory_usage(&self) -> MemoryUsage {
         self.memory_management.memory_usage()
     }
@@ -183,12 +144,12 @@ impl ComputeServer for DummyServer {
         self.memory_management.cleanup(true);
     }
 
-    fn enable_timestamps(&mut self) {
-        self.timestamps.enable();
+    fn start_measure(&mut self) {
+        self.timestamps.start();
     }
 
-    fn disable_timestamps(&mut self) {
-        self.timestamps.disable();
+    fn stop_measure(&mut self) -> ClientProfile {
+        self.timestamps.stop()
     }
 }
 
@@ -196,7 +157,7 @@ impl DummyServer {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
             memory_management,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::default(),
         }
     }
 }

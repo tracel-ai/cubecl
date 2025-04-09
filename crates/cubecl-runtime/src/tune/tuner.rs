@@ -1,3 +1,5 @@
+use alloc::format;
+use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
 use cubecl_common::future;
 use hashbrown::HashSet;
@@ -9,8 +11,7 @@ use core::time::Duration;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use cubecl_common::benchmark::BenchmarkComputations;
+use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
@@ -202,36 +203,47 @@ impl<K: AutotuneKey> Tuner<K> {
 
         let test_inputs = tunables.generate_inputs(&key, inputs);
 
-        spawn_benchmark_task(async move {
+        #[cfg(feature = "autotune-checks")]
+        let mut checks_outputs = Vec::new();
+
+        let mut profiles = Vec::with_capacity(autotunables.len());
+
+        for (index, op) in autotunables.into_iter() {
+            let name = op.name().to_string();
+            let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
             #[cfg(feature = "autotune-checks")]
-            let mut checks_outputs = Vec::new();
+            checks_outputs.push(tuner.output_for_checks());
+            let bench = tuner.sample_durations();
+            profiles.push(bench.map(|bench| (name.clone(), index, bench)));
+        }
 
-            let mut bench_results = Vec::with_capacity(autotunables.len());
-
-            for (index, op) in autotunables.into_iter() {
-                let name = op.name().to_string();
-                let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
-
-                #[cfg(feature = "autotune-checks")]
-                checks_outputs.push(tuner.output_for_checks());
-
-                let sample_fut = tuner.sample_durations();
-                let result = sample_fut.await;
-                let result = result.map(|durations| {
-                    log::info!("Name: {name} => {}", durations);
-                    AutotuneOutcome::new(name, index, BenchmarkComputations::new(&durations))
-                });
-
-                bench_results.push(result);
+        // Panic if all tuners panicked.
+        if profiles.iter().all(|result| result.is_err()) {
+            let first_error = profiles.into_iter().next().unwrap().err().unwrap();
+            match first_error {
+                AutotuneError::Unknown(reason) => panic!("{reason}"),
             }
+        }
 
-            // Panic if all tuners panicked.
-            #[cfg(all(feature = "std", not(target_family = "wasm")))]
-            if bench_results.iter().all(|result| result.is_err()) {
-                let first_error = bench_results.into_iter().next().unwrap().err().unwrap();
+        spawn_benchmark_task(async move {
+            let mut bench_results = Vec::new();
 
-                match first_error {
-                    AutotuneError::Unknown(reason) => panic!("{reason}"),
+            for result in profiles {
+                match result {
+                    Ok(result) => {
+                        let (name, index, bench) = result;
+                        // Wait for the results to come in, and determine the outcome.
+                        let durations = BenchmarkDurations::from_profiles(bench).await;
+                        let outcome = Ok(AutotuneOutcome::new(
+                            name,
+                            index,
+                            BenchmarkComputations::new(&durations),
+                        ));
+                        bench_results.push(outcome);
+                    }
+                    Err(err) => {
+                        bench_results.push(Err(format!("{err:?}")));
+                    }
                 }
             }
 
@@ -279,10 +291,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     #[cfg(autotune_persistent_cache)]
                     checksum,
                     #[cfg(autotune_persistent_cache)]
-                    results: bench_results
-                        .into_iter()
-                        .map(|result| result.map_err(|err| format!("{err:?}")))
-                        .collect(),
+                    results: bench_results,
                     #[cfg(feature = "autotune-checks")]
                     autotune_checks: Box::new(|| {
                         check_autotune_outputs(checks_outputs);
