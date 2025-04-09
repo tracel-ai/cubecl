@@ -41,13 +41,19 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision> = Job<MP>;
 
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
-        default_sync_full_load::<Self, MP, G>(read_view, stage, quantization, input_ident, config)
+        default_sync_full_load::<Self, MP, G>(
+            tensor_reader,
+            stage,
+            quantization,
+            input_ident,
+            config,
+        )
     }
 
     fn job<MP: MatmulPrecision, G: GlobalConfig>(
@@ -117,13 +123,13 @@ impl<MP: MatmulPrecision> LoadingJob<MP> for Job<MP> {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
         let unit_position = this.unit_position_base + task_id * jc.unit_count;
 
-        let line_read = read_view.load_coalesced_in_stage::<G>(
+        let line_read = tensor_reader.load_coalesced_in_stage::<G>(
             unit_position * jc.line_size,
             jc.input_ident,
             config,

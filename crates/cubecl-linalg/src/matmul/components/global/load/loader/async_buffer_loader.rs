@@ -27,7 +27,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
     /// Immediately load the stage for the buffer identified by buffer_index.
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,

@@ -63,7 +63,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
     type Job<MP: MatmulPrecision> = Job<MP, T>;
 
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
@@ -71,7 +71,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
         #[comptime] config: G,
     ) {
         default_sync_buffer_load::<Self, MP, G>(
-            read_view,
+            tensor_reader,
             stage,
             quantization,
             buffer_index,
@@ -162,7 +162,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -192,7 +192,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
 
         let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
 
-        let line_read = read_view.load_coalesced_in_tile::<G>(
+        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             tile_x,
             tile_y,
             pos_within_tile,

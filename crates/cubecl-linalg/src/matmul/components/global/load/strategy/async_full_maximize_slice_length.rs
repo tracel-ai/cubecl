@@ -30,7 +30,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -38,7 +38,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) {
         default_async_full_load::<Self, MP, G, CM>(
-            read_view,
+            tensor_reader,
             stage,
             mechanism,
             quantization,
@@ -121,7 +121,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -131,7 +131,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
         if comptime!(jc.num_slices % jc.unit_count == 0) {
             load_nth_slice::<MP::EI, MP::ES, CM, G>(
                 nth_slice,
-                read_view,
+                tensor_reader,
                 &mut this.stage,
                 &this.mechanism,
                 jc.input_ident,
@@ -141,7 +141,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
             if nth_slice < jc.num_slices {
                 load_nth_slice::<MP::EI, MP::ES, CM, G>(
                     nth_slice,
-                    read_view,
+                    tensor_reader,
                     &mut this.stage,
                     &this.mechanism,
                     jc.input_ident,
@@ -155,13 +155,14 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
 #[cube]
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism<ES>, G: GlobalConfig>(
     nth_slice: u32,
-    read_view: &TensorReader<EG>,
+    tensor_reader: &TensorReader<EG>,
     stage: &mut Stage<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = read_view.load_window_in_stage::<G>(nth_slice, input_ident, config);
+    let window: Window<EG> =
+        tensor_reader.load_window_in_stage::<G>(nth_slice, input_ident, config);
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES, G::SmmConfig>(
         stage,
         nth_slice,

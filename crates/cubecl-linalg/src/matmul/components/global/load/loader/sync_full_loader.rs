@@ -25,7 +25,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
 
     /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,

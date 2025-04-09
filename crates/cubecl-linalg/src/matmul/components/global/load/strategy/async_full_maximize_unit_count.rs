@@ -57,7 +57,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -65,7 +65,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         #[comptime] config: G,
     ) {
         default_async_full_load::<Self, MP, G, CM>(
-            read_view,
+            tensor_reader,
             stage,
             mechanism,
             quantization,
@@ -167,12 +167,12 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
         let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(this.nth_slice, jc.input_ident, config);
+            tensor_reader.load_window_in_stage::<G>(this.nth_slice, jc.input_ident, config);
         let seg_start = Min::min(this.nth_segment * jc.segment_length, window.size);
         let seg_end = Min::min((this.nth_segment + 1) * jc.segment_length, window.size);
 

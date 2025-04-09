@@ -45,7 +45,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
     type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM, T>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
@@ -53,7 +53,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
         #[comptime] config: G,
     ) {
         default_async_full_load::<Self, MP, G, CM>(
-            read_view,
+            tensor_reader,
             stage,
             mechanism,
             quantization,
@@ -154,7 +154,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        read_view: &TensorReader<MP::EI>,
+        tensor_reader: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -171,7 +171,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
 
         // TODO make branching comptime conditional
         if slice_index < jc.num_slices {
-            let window = read_view.load_window_in_tile::<G>(
+            let window = tensor_reader.load_window_in_tile::<G>(
                 (tile_x, tile_y),
                 nth_slice,
                 jc.input_ident,
