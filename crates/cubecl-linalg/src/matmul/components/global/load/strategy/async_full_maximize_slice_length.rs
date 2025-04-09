@@ -50,10 +50,16 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
-        _quantization: CubeOption<Quantization<MP>>,
+        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job<MP, CM> {
+        comptime! {
+            if quantization.is_some() {
+                panic!("Quantization not supported on async loaders.")
+            }
+        }
+
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
