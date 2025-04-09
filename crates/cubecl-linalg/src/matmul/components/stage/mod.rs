@@ -1,11 +1,9 @@
 pub mod plane_row_matmul;
-// pub mod multi_buffer;
-// pub mod single_buffer;
 
-mod reader;
 mod base;
 mod event_listener;
 mod layout;
+mod reader;
 pub(super) mod shared;
 mod staging;
 
