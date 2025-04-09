@@ -2,7 +2,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        load::{AsyncFullLoadingStrategy, default_async_full_load},
+        load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
     stage::{Stage, StridedTilingLayout},
@@ -55,24 +55,6 @@ impl LoadingValidation for LoadingStrategy {
 impl AsyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
     type Job<MP: MatmulPrecision> = Job;
-
-    fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) {
-        default_async_full_load::<Self, MP, G, CM>(
-            tensor_reader,
-            stage,
-            mechanism,
-            quantization,
-            input_ident,
-            config,
-        )
-    }
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,

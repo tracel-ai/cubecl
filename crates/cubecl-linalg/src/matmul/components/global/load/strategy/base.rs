@@ -1,14 +1,9 @@
-use crate::matmul::components::global::load::{
-    AsyncBufferLoadingStrategy, AsyncFullLoadingStrategy, SyncBufferLoadingStrategy,
-    SyncFullLoadingStrategy,
-};
+use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig, Quantization};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
 use crate::matmul::components::stage::{Stage, TilingLayout};
-use crate::matmul::components::{InputIdent, MatmulPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 
 #[cube]
 /// A loading job represents a group of loading tasks.
@@ -63,89 +58,3 @@ pub trait AsyncLoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: Async
 
 pub type JobConfig<MP, TL, Job> = <Job as LoadingJob<MP, TL>>::LoadingJobConfig;
 pub type AsyncJobConfig<MP, TL, Job> = <Job as AsyncLoadingJob<MP, TL>>::LoadingJobConfig;
-
-#[cube]
-pub(crate) fn default_sync_full_load<
-    LS: SyncFullLoadingStrategy,
-    MP: MatmulPrecision,
-    G: GlobalConfig,
->(
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    quantization: CubeOption<Quantization<MP>>,
-    #[comptime] input_ident: InputIdent,
-    #[comptime] config: G,
-) {
-    let mut job = LS::new_job::<MP, G>(quantization, input_ident, config);
-
-    let len = JobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
-    for task_id in 0..len {
-        LS::Job::execute_task::<G>(&mut job, task_id, tensor_reader, stage, config);
-    }
-}
-
-#[cube]
-pub(crate) fn default_sync_buffer_load<
-    LS: SyncBufferLoadingStrategy,
-    MP: MatmulPrecision,
-    G: GlobalConfig,
->(
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    quantization: CubeOption<Quantization<MP>>,
-    #[comptime] buffer_index: u32,
-    #[comptime] input_ident: InputIdent,
-    #[comptime] config: G,
-) {
-    let mut job = LS::new_job::<MP, G>(quantization, buffer_index, input_ident, config);
-
-    let len = JobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
-    for task_id in 0..len {
-        LS::Job::execute_task::<G>(&mut job, task_id, tensor_reader, stage, config);
-    }
-}
-
-#[cube]
-pub(crate) fn default_async_full_load<
-    LS: AsyncFullLoadingStrategy,
-    MP: MatmulPrecision,
-    G: GlobalConfig,
-    CM: CopyMechanism<MP::ES>,
->(
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: &CM,
-    quantization: CubeOption<Quantization<MP>>,
-    #[comptime] input_ident: InputIdent,
-    #[comptime] config: G,
-) {
-    let mut job = LS::new_job::<MP, G>(quantization, input_ident, config);
-
-    let len = AsyncJobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
-    for task_id in 0..len {
-        LS::Job::execute_task::<CM, G>(&mut job, task_id, tensor_reader, stage, mechanism, config);
-    }
-}
-
-#[cube]
-pub(crate) fn default_async_buffer_load<
-    LS: AsyncBufferLoadingStrategy,
-    MP: MatmulPrecision,
-    G: GlobalConfig,
-    CM: CopyMechanism<MP::ES>,
->(
-    tensor_reader: &TensorReader<MP::EI>,
-    stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: &CM,
-    quantization: CubeOption<Quantization<MP>>,
-    #[comptime] buffer_index: u32,
-    #[comptime] input_ident: InputIdent,
-    #[comptime] config: G,
-) {
-    let mut job = LS::new_job::<MP, G>(quantization, buffer_index, input_ident, config);
-
-    let len = AsyncJobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
-    for task_id in 0..len {
-        LS::Job::execute_task::<CM, G>(&mut job, task_id, tensor_reader, stage, mechanism, config);
-    }
-}

@@ -26,17 +26,6 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     /// The [LoadingJob] for this strategy.
     type Job<MP: MatmulPrecision>: AsyncLoadingJob<MP, Self::TilingLayout>;
 
-    /// Immediately load the stage for the buffer identified by buffer_index.
-    fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
-
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,

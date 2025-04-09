@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::AsyncLoadingJob;
+use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
+use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
@@ -23,16 +24,6 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     /// The [LoadingJob] for this strategy.
     type Job<MP: MatmulPrecision>: AsyncLoadingJob<MP, Self::TilingLayout>;
 
-    /// Loads the entire stage immediately from the tensor reader.
-    fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
-
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
@@ -51,9 +42,9 @@ pub struct AsyncLoader<
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
+    tensor_reader: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, L::TilingLayout>,
+    loading_job: L::Job<MP>,
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
@@ -84,6 +75,7 @@ impl<
         }
 
         let mut stage = Stage::new::<G::SmmConfig>(ident.as_ident(), config.to_smm_config());
+        let loading_job = L::new_job::<MP, G>(quantization, ident, config);
 
         match ident {
             InputIdent::Lhs =>
@@ -112,12 +104,12 @@ impl<
             }
         }
 
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
         AsyncLoader::<MP, CM, S, L> {
-            tensor_view,
+            tensor_reader,
             stage,
-            quantization,
+            loading_job,
             ident,
             _phantom: PhantomData::<(S, L, CM)>,
         }
@@ -128,14 +120,17 @@ impl<
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        L::load_full::<MP, CM, single_stage::Config<S>>(
-            &this.tensor_view,
-            &mut this.stage,
-            mechanism,
-            this.quantization,
-            this.ident,
-            config,
-        );
+        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&this.loading_job);
+        for task_id in 0..len {
+            L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
+                &mut this.loading_job,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage,
+                mechanism,
+                config,
+            );
+        }
     }
 
     pub fn clear_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
@@ -147,6 +142,6 @@ impl<
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
+        this.tensor_reader.update_view(k_offset, this.ident);
     }
 }

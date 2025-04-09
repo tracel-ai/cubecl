@@ -27,16 +27,6 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
     /// The [LoadingJob] for this strategy.
     type Job<MP: MatmulPrecision>: LoadingJob<MP, Self::TilingLayout>;
 
-    /// Immediately load the stage for the buffer identified by buffer_index.
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
-
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,

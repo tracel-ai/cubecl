@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::{
-    SyncBufferLoadingStrategy, default_sync_buffer_load,
-};
+use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
@@ -61,24 +59,6 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
 impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type Job<MP: MatmulPrecision> = Job<MP>;
-
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) {
-        default_sync_buffer_load::<Self, MP, G>(
-            tensor_reader,
-            stage,
-            quantization,
-            buffer_index,
-            input_ident,
-            config,
-        )
-    }
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,

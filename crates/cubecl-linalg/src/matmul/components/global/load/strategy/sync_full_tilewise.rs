@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::{SyncFullLoadingStrategy, default_sync_full_load};
+use crate::matmul::components::global::load::SyncFullLoadingStrategy;
 use crate::matmul::components::{
     FormattedConfigError, Ident, InputIdent, InvalidConfigError, MatmulPrecision,
 };
@@ -54,22 +54,6 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 impl<T: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
     type Job<MP: MatmulPrecision> = Job<MP>;
-
-    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) {
-        default_sync_full_load::<Self, MP, G>(
-            tensor_reader,
-            stage,
-            quantization,
-            input_ident,
-            config,
-        )
-    }
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
