@@ -11,24 +11,23 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::{CubeOption, div_ceil};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct AsyncBufferMaximizeSliceLengthLoading {}
+pub struct LoadingStrategy {}
 
-impl LoadingValidation for AsyncBufferMaximizeSliceLengthLoading {
+impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
+impl AsyncBufferLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> =
-        AsyncBufferMaximizeSliceLengthJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -57,7 +56,7 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> AsyncBufferMaximizeSliceLengthJob<MP, CM> {
+    ) -> Job<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
@@ -105,16 +104,18 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
         let unit_count = config.plane_dim() * config.num_planes();
         let num_tasks = comptime!(div_ceil(num_slices, unit_count));
 
-        AsyncBufferMaximizeSliceLengthJob::<MP, CM> {
+        Job::<MP, CM> {
             stage,
             mechanism,
-            num_tasks,
-            unit_count,
-            num_slices_buffer_offset,
-            input_ident,
-            slice_buffer_offset,
-            slice_length,
-            num_slices,
+            job_config: comptime!(JobConfig {
+                num_tasks,
+                unit_count,
+                num_slices_buffer_offset,
+                input_ident,
+                slice_buffer_offset,
+                slice_length,
+                num_slices,
+            }),
         }
     }
 
@@ -124,33 +125,43 @@ impl AsyncBufferLoadingStrategy for AsyncBufferMaximizeSliceLengthLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncBufferMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
 
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Clone, Copy)]
+pub struct JobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     unit_count: u32,
-    #[cube(comptime)]
     num_slices_buffer_offset: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
-    #[cube(comptime)]
     slice_buffer_offset: u32,
-    #[cube(comptime)]
     slice_length: u32,
-    #[cube(comptime)]
     num_slices: u32,
 }
 
-#[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
-    for AsyncBufferMaximizeSliceLengthJob<MP, CM>
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
+    for JobConfig
 {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
+    fn len(job: &Job<MP, CM>) -> u32 {
+        job.job_config.num_tasks
     }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -158,36 +169,38 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
-        let nth_slice_in_buffer = this.unit_count * task_id + UNIT_POS;
+        let jc = this.job_config;
 
-        let nth_slice = nth_slice_in_buffer + this.num_slices_buffer_offset;
+        let nth_slice_in_buffer = jc.unit_count * task_id + UNIT_POS;
+
+        let nth_slice = nth_slice_in_buffer + jc.num_slices_buffer_offset;
 
         let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
+            read_view.load_window_in_stage::<G>(nth_slice, jc.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 &mut this.stage,
                 nth_slice,
-                comptime!(this.input_ident.as_ident()),
+                comptime!(jc.input_ident.as_ident()),
                 config.to_smm_config(),
             );
 
-        let start = this.slice_buffer_offset;
+        let start = jc.slice_buffer_offset;
         let limit = select(
-            this.slice_buffer_offset < window.size,
-            this.slice_buffer_offset,
+            jc.slice_buffer_offset < window.size,
+            jc.slice_buffer_offset,
             window.size,
         );
-        let end = start + Min::min(window.size - limit, this.slice_length);
+        let end = start + Min::min(window.size - limit, jc.slice_length);
 
         let src = window.slice.slice(start, end);
         let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(this.num_slices % this.unit_count == 0) {
+        if comptime!(jc.num_slices % jc.unit_count == 0) {
             CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
         } else {
-            if nth_slice_in_buffer < this.num_slices {
+            if nth_slice_in_buffer < jc.num_slices {
                 CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
             }
         };

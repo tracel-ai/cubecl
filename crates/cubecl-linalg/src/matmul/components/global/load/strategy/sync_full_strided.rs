@@ -14,9 +14,9 @@ use super::{LoadingJob, LoadingJobConfig};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct SyncFullStridedLoading {}
+pub struct LoadingStrategy {}
 
-impl LoadingValidation for SyncFullStridedLoading {
+impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -36,7 +36,7 @@ impl LoadingValidation for SyncFullStridedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for SyncFullStridedLoading {
+impl SyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
     type Job<MP: MatmulPrecision> = Job<MP>;
 
@@ -79,7 +79,7 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-struct Job<MP: MatmulPrecision> {
+pub struct Job<MP: MatmulPrecision> {
     unit_position_base: u32,
 
     stage: Stage<MP::ES, StridedTilingLayout>,
@@ -90,7 +90,7 @@ struct Job<MP: MatmulPrecision> {
 }
 
 #[derive(Copy, Clone)]
-struct JobConfig {
+pub struct JobConfig {
     num_tasks: u32,
     unit_count: u32,
     line_size: u32,

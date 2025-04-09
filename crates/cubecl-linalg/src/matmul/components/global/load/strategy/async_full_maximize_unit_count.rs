@@ -11,14 +11,14 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per unit.
 /// The objective is to reduce branching, prioritizing this over maximizing memory slice length.
-pub struct AsyncFullMaximizeUnitCountLoading {}
+pub struct LoadingStrategy {}
 
-impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
+impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
@@ -52,10 +52,9 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
+impl AsyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> =
-        AsyncFullMaximizeUnitCountJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -81,7 +80,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> AsyncFullMaximizeUnitCountJob<MP, CM> {
+    ) -> Job<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
@@ -113,13 +112,15 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         let segment_length = comptime!(slice_length / units_per_slice);
         let nth_segment = UNIT_POS % units_per_slice;
 
-        AsyncFullMaximizeUnitCountJob::<MP, CM> {
+        Job::<MP, CM> {
             destination,
             mechanism,
             nth_slice,
             nth_segment,
-            segment_length,
-            input_ident,
+            job_config: comptime!(JobConfig {
+                segment_length,
+                input_ident
+            }),
         }
     }
 
@@ -129,24 +130,39 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncFullMaximizeUnitCountJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
     destination: SliceMut<Line<MP::ES>>,
     mechanism: CM,
     nth_slice: u32,
     nth_segment: u32,
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Clone, Copy)]
+pub struct JobConfig {
     segment_length: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-#[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
-    for AsyncFullMaximizeUnitCountJob<MP, CM>
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
+    for JobConfig
 {
-    fn len(_this: &Self) -> u32 {
-        1u32
+    fn len(_job: &Job<MP, CM>) -> u32 {
+        1
     }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        _job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        1
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -154,10 +170,11 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
+        let jc = this.job_config;
         let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(this.nth_slice, this.input_ident, config);
-        let seg_start = Min::min(this.nth_segment * this.segment_length, window.size);
-        let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.size);
+            read_view.load_window_in_stage::<G>(this.nth_slice, jc.input_ident, config);
+        let seg_start = Min::min(this.nth_segment * jc.segment_length, window.size);
+        let seg_end = Min::min((this.nth_segment + 1) * jc.segment_length, window.size);
 
         let src_segment = window.slice.slice(seg_start, seg_end);
         let mut dest_segment = this.destination.slice_mut(seg_start, seg_end);

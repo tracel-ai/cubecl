@@ -13,17 +13,17 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct AsyncFullCyclicLoading<T: TilingOrder> {
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     _phantom: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
+impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let total_units = config.num_planes() * config.plane_dim();
@@ -40,9 +40,9 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
+impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = AsyncFullCyclicJob<MP, CM, T>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM, T>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -68,7 +68,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> AsyncFullCyclicJob<MP, CM, T> {
+    ) -> Job<MP, CM, T> {
         let stage_dim = config.tiling_dimensions(input_ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(input_ident);
@@ -89,16 +89,18 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        AsyncFullCyclicJob::<MP, CM, T> {
+        Job::<MP, CM, T> {
             unit_id,
             stage,
             mechanism,
-            num_tasks,
-            total_units,
-            num_slices,
-            input_ident,
-            num_slices_per_tile,
-            slice_length_in_lines,
+            job_config: comptime!(JobConfig {
+                num_tasks,
+                total_units,
+                num_slices,
+                input_ident,
+                num_slices_per_tile,
+                slice_length_in_lines,
+            }),
         }
     }
 
@@ -108,33 +110,46 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncFullCyclicJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
     unit_id: u32,
 
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     mechanism: CM,
 
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Clone, Copy)]
+pub struct JobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     total_units: u32,
-    #[cube(comptime)]
     num_slices: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
-    #[cube(comptime)]
     num_slices_per_tile: u32,
-    #[cube(comptime)]
     slice_length_in_lines: u32,
+}
+
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder>
+    LoadingJobConfig<MP, Job<MP, CM, T>> for JobConfig
+{
+    fn len(job: &Job<MP, CM, T>) -> u32 {
+        job.job_config.num_tasks
+    }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, CM, T> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<MP>
-    for AsyncFullCyclicJob<MP, CM, T>
+    for Job<MP, CM, T>
 {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
-    }
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -142,33 +157,35 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
-        let slice_index = this.unit_id + this.total_units * task_id;
+        let jc = this.job_config;
 
-        let nth_tile = slice_index / this.num_slices_per_tile;
+        let slice_index = this.unit_id + jc.total_units * task_id;
+
+        let nth_tile = slice_index / jc.num_slices_per_tile;
         let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
             nth_tile,
-            comptime!(this.input_ident.as_ident()),
+            comptime!(jc.input_ident.as_ident()),
             config.to_smm_config(),
         );
-        let nth_slice = slice_index % this.num_slices_per_tile;
+        let nth_slice = slice_index % jc.num_slices_per_tile;
 
         // TODO make branching comptime conditional
-        if slice_index < this.num_slices {
+        if slice_index < jc.num_slices {
             let window = read_view.load_window_in_tile::<G>(
                 (tile_x, tile_y),
                 nth_slice,
-                this.input_ident,
+                jc.input_ident,
                 config,
             );
 
             // Where this unit writes source in the stage
             let slice_destination_offset =
-                (nth_tile * this.num_slices_per_tile + nth_slice) * this.slice_length_in_lines;
+                (nth_tile * jc.num_slices_per_tile + nth_slice) * jc.slice_length_in_lines;
 
             // Make destination start at offset
             let mut destination = this.stage.as_slice_mut().slice_mut(
                 slice_destination_offset,
-                slice_destination_offset + this.slice_length_in_lines,
+                slice_destination_offset + jc.slice_length_in_lines,
             );
 
             CM::memcpy_async(

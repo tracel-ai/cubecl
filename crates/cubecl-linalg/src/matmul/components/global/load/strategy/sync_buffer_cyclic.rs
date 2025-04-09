@@ -16,12 +16,12 @@ use super::{LoadingJob, LoadingJobConfig};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct SyncBufferCyclicLoading<T: TilingOrder> {
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
+impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -58,7 +58,7 @@ impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
     type Job<MP: MatmulPrecision> = Job<MP, T>;
 
@@ -123,7 +123,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-struct Job<MP: MatmulPrecision, T: TilingOrder> {
+pub struct Job<MP: MatmulPrecision, T: TilingOrder> {
     unit_position_base: u32,
 
     stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
@@ -134,7 +134,7 @@ struct Job<MP: MatmulPrecision, T: TilingOrder> {
 }
 
 #[derive(Copy, Clone)]
-struct JobConfig {
+pub struct JobConfig {
     num_tasks: u32,
     buffer_index: u32,
     jump_length: u32,

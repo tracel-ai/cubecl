@@ -9,7 +9,7 @@ use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatrixLayout,
     global::{
         self, AccumulatorLoader, GlobalConfig,
-        load::{SyncFullCyclicLoading, SyncFullLoader},
+        load::{SyncFullLoader, sync_full_cyclic},
         output_loader::Unloader,
         single_stage,
     },
@@ -63,7 +63,8 @@ where
 {
     type LhsLoader = SimpleIm2colLoader<MP, Self::Config>;
     type Config = HomogeneousConfig<single_stage::Config<SMM::Config>>;
-    type RhsLoader = SyncFullLoader<MP, SMM::Config, SyncFullCyclicLoading<RowMajorTilingOrder>>;
+    type RhsLoader =
+        SyncFullLoader<MP, SMM::Config, sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>>;
     type AccumulatorLoader = BiasLoader<MP, SMM::Config>;
 
     type Out = Unloader<MP::EO>;

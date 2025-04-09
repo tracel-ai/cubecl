@@ -11,25 +11,25 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without modification,  
 /// dividing the stage into the smallest possible contiguous slices.  
 ///
 /// Each `memcpy_async` is called with the same arguments for cooperative behaviour
-pub struct AsyncFullCooperativeLoading {}
+pub struct LoadingStrategy {}
 
-impl LoadingValidation for AsyncFullCooperativeLoading {
+impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
+impl AsyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = AsyncFullCooperativeJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -55,7 +55,7 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> AsyncFullCooperativeJob<MP, CM> {
+    ) -> Job<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -64,11 +64,13 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
             MatrixLayout::ColMajor => tiling_dimensions.total_col(),
         };
 
-        AsyncFullCooperativeJob::<MP, CM> {
+        Job::<MP, CM> {
             stage,
             mechanism,
-            num_slices,
-            input_ident,
+            job_config: comptime!(JobConfig {
+                num_slices,
+                input_ident,
+            }),
         }
     }
 
@@ -78,22 +80,37 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncFullCooperativeJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Clone, Copy)]
+pub struct JobConfig {
     num_slices: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-#[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
-    for AsyncFullCooperativeJob<MP, CM>
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
+    for JobConfig
 {
-    fn len(this: &Self) -> u32 {
-        this.num_slices.runtime()
+    fn len(job: &Job<MP, CM>) -> u32 {
+        job.job_config.num_slices
     }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_slices
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -101,13 +118,15 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
+        let input_ident = this.job_config.input_ident;
+
         let window: Window<MP::EI> =
-            read_view.load_window_in_stage::<G>(task_id, this.input_ident, config);
+            read_view.load_window_in_stage::<G>(task_id, input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 &mut this.stage,
                 task_id,
-                comptime!(this.input_ident.as_ident()),
+                comptime!(input_ident.as_ident()),
                 config.to_smm_config(),
             );
 

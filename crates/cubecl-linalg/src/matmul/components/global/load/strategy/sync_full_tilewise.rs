@@ -18,12 +18,12 @@ use super::{LoadingJob, LoadingJobConfig};
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using
 /// one plane per tile.
-pub struct SyncFullTilewiseLoading<T: TilingOrder> {
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
+impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling = config.tiling_dimensions(ident);
         let line_size = config.global_line_size(ident);
@@ -51,7 +51,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
+impl<T: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
     type Job<MP: MatmulPrecision> = Job<MP, T>;
 
@@ -102,7 +102,7 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-struct Job<MP: MatmulPrecision, T: TilingOrder> {
+pub struct Job<MP: MatmulPrecision, T: TilingOrder> {
     tile: (u32, u32),
     offset_base: u32,
 
@@ -114,7 +114,7 @@ struct Job<MP: MatmulPrecision, T: TilingOrder> {
 }
 
 #[derive(Copy, Clone)]
-struct JobConfig {
+pub struct JobConfig {
     num_tasks: u32,
     line_size: u32,
     input_ident: InputIdent,

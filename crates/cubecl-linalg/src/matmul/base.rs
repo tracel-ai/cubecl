@@ -6,9 +6,8 @@ use super::{
     components::{
         MatmulPrecision,
         global::load::{
-            AsyncFullCooperativeLoading, AsyncFullCyclicLoading,
-            AsyncFullMaximizeSliceLengthLoading, AsyncFullMaximizeUnitCountLoading,
-            SyncFullStridedLoading, SyncFullTilewiseLoading,
+            async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
+            async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
         },
         stage::{ColMajorTilingOrder, RowMajorTilingOrder},
         tile::accelerated::Accelerated,
@@ -92,15 +91,19 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             SyncLoadingStrategy::Strided => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleAlgorithm<Accelerated, SyncFullStridedLoading, SyncFullStridedLoading>,
+                SimpleAlgorithm<
+                    Accelerated,
+                    sync_full_strided::LoadingStrategy,
+                    sync_full_strided::LoadingStrategy,
+                >,
             >(client, lhs, rhs, out),
             SyncLoadingStrategy::Tilewise => matmul::launch_ref::<
                 R,
                 MP,
                 SimpleAlgorithm<
                     Accelerated,
-                    SyncFullTilewiseLoading<ColMajorTilingOrder>,
-                    SyncFullTilewiseLoading<RowMajorTilingOrder>,
+                    sync_full_tilewise::LoadingStrategy<ColMajorTilingOrder>,
+                    sync_full_tilewise::LoadingStrategy<RowMajorTilingOrder>,
                 >,
             >(client, lhs, rhs, out),
         },
@@ -108,22 +111,31 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             AsyncLoadingStrategy::Cooperative => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, AsyncFullCooperativeLoading>,
+                SimpleBarrierAlgorithm<Accelerated, async_full_cooperative::LoadingStrategy>,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::Cyclic => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, AsyncFullCyclicLoading<ColMajorTilingOrder>>,
+                SimpleBarrierAlgorithm<
+                    Accelerated,
+                    async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+                >,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeSliceLength => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, AsyncFullMaximizeSliceLengthLoading>,
+                SimpleBarrierAlgorithm<
+                    Accelerated,
+                    async_full_maximize_slice_length::LoadingStrategy,
+                >,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::MaximizeUnitCount => matmul::launch_ref::<
                 R,
                 MP,
-                SimpleBarrierAlgorithm<Accelerated, AsyncFullMaximizeUnitCountLoading>,
+                SimpleBarrierAlgorithm<
+                    Accelerated,
+                    async_full_maximize_unit_count::LoadingStrategy,
+                >,
             >(client, lhs, rhs, out),
             AsyncLoadingStrategy::Tma => matmul::matmul_cmma_tma_ref_no_check::<
                 R,

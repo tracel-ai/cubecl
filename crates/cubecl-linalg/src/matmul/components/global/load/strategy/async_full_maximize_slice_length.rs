@@ -11,24 +11,23 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::{CubeOption, div_ceil};
 
-use super::LoadingJob;
+use super::{LoadingJob, LoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
 /// The goal is to reduce the total number of memcpy_async calls, though it may result in idle threads.
-pub struct AsyncFullMaximizeSliceLengthLoading {}
+pub struct LoadingStrategy {}
 
-impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
+impl LoadingValidation for LoadingStrategy {
     fn check<C: GlobalConfig>(_config: &C, _ident: Ident) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
 
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
+impl AsyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> =
-        AsyncFullMaximizeSliceLengthJob<MP, CM>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         read_view: &TensorReader<MP::EI>,
@@ -54,7 +53,7 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         _quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> AsyncFullMaximizeSliceLengthJob<MP, CM> {
+    ) -> Job<MP, CM> {
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -66,13 +65,15 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
         let num_tasks = comptime!(div_ceil(num_slices, unit_count));
 
-        AsyncFullMaximizeSliceLengthJob::<MP, CM> {
+        Job::<MP, CM> {
             stage,
             mechanism,
-            num_tasks,
-            unit_count,
-            num_slices,
-            input_ident,
+            job_config: comptime!(JobConfig {
+                num_tasks,
+                unit_count,
+                num_slices,
+                input_ident,
+            }),
         }
     }
 
@@ -82,27 +83,40 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsyncFullMaximizeSliceLengthJob<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
     stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
 
     #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Clone, Copy)]
+pub struct JobConfig {
     num_tasks: u32,
-    #[cube(comptime)]
     unit_count: u32,
-    #[cube(comptime)]
     num_slices: u32,
-    #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-#[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
-    for AsyncFullMaximizeSliceLengthJob<MP, CM>
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
+    for JobConfig
 {
-    fn len(this: &Self) -> u32 {
-        this.num_tasks.runtime()
+    fn len(job: &Job<MP, CM>) -> u32 {
+        job.job_config.num_tasks
     }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+    type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -110,26 +124,27 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP>
         read_view: &TensorReader<MP::EI>,
         #[comptime] config: G,
     ) {
-        let nth_slice = this.unit_count * task_id + UNIT_POS;
+        let jc = this.job_config;
+        let nth_slice = jc.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(this.num_slices % this.unit_count == 0) {
+        if comptime!(jc.num_slices % jc.unit_count == 0) {
             load_nth_slice::<MP::EI, MP::ES, CM, G>(
                 nth_slice,
                 read_view,
                 &mut this.stage,
                 &this.mechanism,
-                this.input_ident,
+                jc.input_ident,
                 config,
             );
         } else {
-            if nth_slice < this.num_slices {
+            if nth_slice < jc.num_slices {
                 load_nth_slice::<MP::EI, MP::ES, CM, G>(
                     nth_slice,
                     read_view,
                     &mut this.stage,
                     &this.mechanism,
-                    this.input_ident,
+                    jc.input_ident,
                     config,
                 );
             }
