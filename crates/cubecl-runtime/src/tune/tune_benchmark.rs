@@ -46,19 +46,23 @@ impl<
     /// Benchmark how long this operation takes for a number of samples.
     pub fn sample_durations(self) -> Result<Vec<ClientProfile>, AutotuneError> {
         let operation = self.operation;
-        // If the inner operation need autotuning as well, we need to call it before.
+        // If the inner operation need autotuning as well, we need to call it before. This will
+        // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
+        // does a depth-first traversal of the operation tree. Without this, client.profile() would have to
+        // support profiling recursively.
         operation.clone().execute(self.inputs.clone())?;
+
         let num_samples = 10;
-        let mut durations = Vec::with_capacity(num_samples);
-        for _ in 0..num_samples {
-            let duration = self.client.profile(|| {
-                operation
-                    .clone()
-                    .execute(self.inputs.clone())
-                    .expect("Should not fail when previously tried during the warmup.");
-            });
-            durations.push(duration);
-        }
+        let durations = (0..num_samples)
+            .map(|_| {
+                self.client.profile(|| {
+                    operation
+                        .clone()
+                        .execute(self.inputs.clone())
+                        .expect("Should not fail when previously tried during the warmup.");
+                })
+            })
+            .collect();
         Ok(durations)
     }
 }

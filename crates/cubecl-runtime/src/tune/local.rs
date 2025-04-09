@@ -131,22 +131,9 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             TuneCacheResult::Miss => {
                 if run_autotune {
                     // We don't know the results yet, start autotuning.
-                    //
-                    // Running benchmarks should't lock the tuner, since an autotune operation can recursively use the
-                    // same tuner.
-                    //
-                    // # Example
-                    //
-                    // ```
-                    // - tune_1 start
-                    //   - tune_2 start
-                    //   - tune_2 save
-                    // - tune_1 save
-                    // ```
-                    let state = self.state.read();
-                    let state = state.as_ref().expect("Should be initialized");
-                    let tuner = state.get(id).expect("Should be initialized");
-
+                    let mut state = self.state.write();
+                    let state = state.as_mut().expect("Should be initialized");
+                    let tuner = state.get_mut(id).expect("Should be initialized");
                     tuner.execute_autotune(key.clone(), &inputs, operations, client);
                 } else {
                     // We're waiting for results to come in.
@@ -165,8 +152,8 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
             let state = state.as_mut().expect("Should be initialized");
             let tuner = state.get_mut(id).expect("Should be initialized");
 
-            // Now read all results that have come in since.
-            tuner.resolve();
+            // Read all results that have come in since.
+            tuner.check_results();
 
             // Check again what the fastest option is, new results might have come in.
             match tuner.fastest(&key) {
