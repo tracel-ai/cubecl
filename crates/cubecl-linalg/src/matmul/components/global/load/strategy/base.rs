@@ -36,7 +36,7 @@ pub trait LoadingJobConfig<MP: MatmulPrecision, LJ: LoadingJob<MP>> {
     ) -> u32;
 }
 
-type JobConfig<MP: MatmulPrecision, Job> = <Job as LoadingJob<MP>>::LoadingJobConfig;
+type JobConfig<MP, Job> = <Job as LoadingJob<MP>>::LoadingJobConfig;
 
 #[cube]
 pub(crate) fn default_sync_full_load<
