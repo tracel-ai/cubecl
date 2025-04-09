@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -13,7 +11,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::{CubeOption, div_ceil};
 
-use super::{LoadingJob, LoadingJobConfig};
+use super::{AsyncLoadingJob, AsyncLoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
@@ -29,12 +27,12 @@ impl LoadingValidation for LoadingStrategy {
 #[cube]
 impl AsyncBufferLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
+        mechanism: &CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
@@ -51,13 +49,12 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         )
     }
 
-    fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        mechanism: CM,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job<MP, CM> {
+    ) -> Job {
         comptime! {
             if quantization.is_some() {
                 panic!("Quantization not supported on async loaders.")
@@ -111,8 +108,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         let unit_count = config.plane_dim() * config.num_planes();
         let num_tasks = comptime!(div_ceil(num_slices, unit_count));
 
-        Job::<MP, CM> {
-            mechanism,
+        Job {
             job_config: comptime!(JobConfig {
                 num_tasks,
                 unit_count,
@@ -122,7 +118,6 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
                 slice_length,
                 num_slices,
             }),
-            _phantom: PhantomData,
         }
     }
 
@@ -132,13 +127,9 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    mechanism: CM,
-
+pub struct Job {
     #[cube(comptime)]
     job_config: JobConfig,
-    #[cube(comptime)]
-    _phantom: PhantomData<MP>,
 }
 
 #[derive(Clone, Copy)]
@@ -152,32 +143,29 @@ pub struct JobConfig {
     num_slices: u32,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>
-    LoadingJobConfig<MP, StridedTilingLayout, Job<MP, CM>> for JobConfig
-{
-    fn len(job: &Job<MP, CM>) -> u32 {
+impl<MP: MatmulPrecision> AsyncLoadingJobConfig<MP, StridedTilingLayout, Job> for JobConfig {
+    fn len(job: &Job) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP, StridedTilingLayout>
-    for Job<MP, CM>
-{
+impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
     type LoadingJobConfig = JobConfig;
 
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, StridedTilingLayout>,
+        mechanism: &CM,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -209,10 +197,10 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP, StridedTilin
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(jc.num_slices % jc.unit_count == 0) {
-            CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
+            CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
         } else {
             if nth_slice_in_buffer < jc.num_slices {
-                CM::memcpy_async(&this.mechanism, &src.try_cast_unchecked(), &mut dest);
+                CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
             }
         };
     }

@@ -164,8 +164,8 @@ where
 
             // Start loading
             pipeline.producer_acquire();
-            Self::LhsLoader::fill_stage(&mut lhs_loader, pipeline, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, pipeline, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &pipeline, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &pipeline, config);
             pipeline.producer_commit();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);

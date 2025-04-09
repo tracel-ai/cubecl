@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::LoadingJob;
+use crate::matmul::components::global::load::AsyncLoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
@@ -21,25 +21,24 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP, Self::TilingLayout>;
+    type Job<MP: MatmulPrecision>: AsyncLoadingJob<MP, Self::TilingLayout>;
 
     /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
+        mechanism: &CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        mechanism: CM,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP, CM>;
+    ) -> Self::Job<MP>;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
@@ -124,7 +123,11 @@ impl<
         }
     }
 
-    pub fn fill_stage(this: &mut Self, mechanism: CM, #[comptime] config: single_stage::Config<S>) {
+    pub fn fill_stage(
+        this: &mut Self,
+        mechanism: &CM,
+        #[comptime] config: single_stage::Config<S>,
+    ) {
         L::load_full::<MP, CM, single_stage::Config<S>>(
             &this.tensor_view,
             &mut this.stage,

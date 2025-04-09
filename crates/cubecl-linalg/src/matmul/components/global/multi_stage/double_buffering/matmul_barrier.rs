@@ -177,8 +177,8 @@ where
                 sync_units();
             }
         }
-        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_a, BufferId::A, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_a, BufferId::A, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_a, BufferId::A, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_a, BufferId::A, config);
         barrier_a.arrive();
 
         // So it can do the first iteration
@@ -186,8 +186,8 @@ where
 
         for loop_iter in 0..num_loops {
             barrier_b.wait();
-            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_b, BufferId::B, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_b, BufferId::B, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_b, BufferId::B, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_b, BufferId::B, config);
             barrier_b.arrive();
 
             barrier_a.wait();
@@ -225,8 +225,8 @@ where
                     sync_units();
                 }
             }
-            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_a, BufferId::A, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_a, BufferId::A, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_a, BufferId::A, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_a, BufferId::A, config);
             barrier_a.arrive();
         }
 
@@ -238,8 +238,8 @@ where
             // TODO can we remove
             sync_units();
         }
-        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_b, BufferId::B, config);
-        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_b, BufferId::B, config);
+        Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_b, BufferId::B, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_b, BufferId::B, config);
         barrier_b.arrive();
 
         barrier_a.wait();

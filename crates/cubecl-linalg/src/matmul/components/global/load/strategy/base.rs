@@ -28,6 +28,20 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
     );
 }
 
+#[cube]
+pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+    type LoadingJobConfig: AsyncLoadingJobConfig<MP, TL, Self>;
+
+    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, TL>,
+        mechanism: &CM,
+        #[comptime] config: G,
+    );
+}
+
 pub trait LoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: LoadingJob<MP, TL>> {
     fn len(job: &LJ) -> u32;
 
@@ -37,7 +51,18 @@ pub trait LoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: LoadingJob
     ) -> u32;
 }
 
+pub trait AsyncLoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: AsyncLoadingJob<MP, TL>>
+{
+    fn len(job: &LJ) -> u32;
+
+    fn __expand_len(
+        context: &mut cubecl::prelude::Scope,
+        job: <LJ as cubecl::prelude::CubeType>::ExpandType,
+    ) -> u32;
+}
+
 pub type JobConfig<MP, TL, Job> = <Job as LoadingJob<MP, TL>>::LoadingJobConfig;
+pub type AsyncJobConfig<MP, TL, Job> = <Job as AsyncLoadingJob<MP, TL>>::LoadingJobConfig;
 
 #[cube]
 pub(crate) fn default_sync_full_load<
@@ -89,16 +114,16 @@ pub(crate) fn default_async_full_load<
 >(
     tensor_reader: &TensorReader<MP::EI>,
     stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: CM,
+    mechanism: &CM,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::new_job::<MP, CM, G>(mechanism, quantization, input_ident, config);
+    let mut job = LS::new_job::<MP, G>(quantization, input_ident, config);
 
-    let len = JobConfig::<MP, LS::TilingLayout, LS::Job<MP, CM>>::len(&job);
+    let len = AsyncJobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
     for task_id in 0..len {
-        LS::Job::execute_task::<G>(&mut job, task_id, tensor_reader, stage, config);
+        LS::Job::execute_task::<CM, G>(&mut job, task_id, tensor_reader, stage, mechanism, config);
     }
 }
 
@@ -111,17 +136,16 @@ pub(crate) fn default_async_buffer_load<
 >(
     tensor_reader: &TensorReader<MP::EI>,
     stage: &mut Stage<MP::ES, LS::TilingLayout>,
-    mechanism: CM,
+    mechanism: &CM,
     quantization: CubeOption<Quantization<MP>>,
     #[comptime] buffer_index: u32,
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job =
-        LS::new_job::<MP, CM, G>(mechanism, quantization, buffer_index, input_ident, config);
+    let mut job = LS::new_job::<MP, G>(quantization, buffer_index, input_ident, config);
 
-    let len = JobConfig::<MP, LS::TilingLayout, LS::Job<MP, CM>>::len(&job);
+    let len = AsyncJobConfig::<MP, LS::TilingLayout, LS::Job<MP>>::len(&job);
     for task_id in 0..len {
-        LS::Job::execute_task::<G>(&mut job, task_id, tensor_reader, stage, config);
+        LS::Job::execute_task::<CM, G>(&mut job, task_id, tensor_reader, stage, mechanism, config);
     }
 }

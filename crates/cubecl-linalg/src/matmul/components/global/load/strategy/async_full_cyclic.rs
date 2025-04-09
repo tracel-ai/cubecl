@@ -13,7 +13,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
 use cubecl_std::CubeOption;
 
-use super::{LoadingJob, LoadingJobConfig};
+use super::{AsyncLoadingJob, AsyncLoadingJobConfig};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
@@ -42,12 +42,12 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 #[cube]
 impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
+        mechanism: &CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
@@ -62,12 +62,11 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
         )
     }
 
-    fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        mechanism: CM,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job<MP, CM> {
+    ) -> Job {
         comptime! {
             if   quantization.is_some() {
                 panic!("Quantization not supported on async loaders.")
@@ -94,9 +93,8 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        Job::<MP, CM> {
+        Job {
             unit_id,
-            mechanism,
             job_config: comptime!(JobConfig {
                 num_tasks,
                 total_units,
@@ -105,7 +103,6 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
                 num_slices_per_tile,
                 slice_length_in_lines,
             }),
-            _phantom: PhantomData,
         }
     }
 
@@ -115,15 +112,11 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
+pub struct Job {
     unit_id: u32,
-
-    mechanism: CM,
 
     #[cube(comptime)]
     job_config: JobConfig,
-    #[cube(comptime)]
-    _phantom: PhantomData<MP>,
 }
 
 #[derive(Clone, Copy)]
@@ -136,32 +129,31 @@ pub struct JobConfig {
     slice_length_in_lines: u32,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, TO: TilingOrder>
-    LoadingJobConfig<MP, ContiguousTilingLayout<TO>, Job<MP, CM>> for JobConfig
+impl<MP: MatmulPrecision, TO: TilingOrder>
+    AsyncLoadingJobConfig<MP, ContiguousTilingLayout<TO>, Job> for JobConfig
 {
-    fn len(job: &Job<MP, CM>) -> u32 {
+    fn len(job: &Job) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, TO: TilingOrder>
-    LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP, CM>
-{
+impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
     type LoadingJobConfig = JobConfig;
 
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        mechanism: &CM,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -196,7 +188,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, TO: TilingOrder>
             );
 
             CM::memcpy_async(
-                &this.mechanism,
+                mechanism,
                 &window.slice.try_cast_unchecked(),
                 &mut destination,
             );
