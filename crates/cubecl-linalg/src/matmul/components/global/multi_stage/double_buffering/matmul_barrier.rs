@@ -7,7 +7,7 @@ use crate::matmul::components::global::load::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
-use crate::matmul::components::stage::single_buffer::BufferReader;
+use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::{MatmulPrecision, stage};
 use cubecl_core::Feature;
 use cubecl_core::prelude::barrier::Barrier;
@@ -22,7 +22,7 @@ use crate::matmul::components::InvalidConfigError;
 use crate::matmul::components::MatmulConfigFactory;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::global::GlobalMatmulFamily;
-use crate::matmul::components::stage::single_buffer::BufferReaderFamily;
+use crate::matmul::components::stage::BufferReaderFamily;
 use crate::matmul::kernels::MatmulAvailabilityError;
 
 pub struct DoubleBufferingBarrierMatmulFamily<

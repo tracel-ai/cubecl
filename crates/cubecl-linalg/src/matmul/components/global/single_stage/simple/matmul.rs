@@ -6,7 +6,7 @@ use crate::matmul::components::{
         output_loader::Unloader,
         single_stage::Config,
     },
-    stage::{StageMatmul, multi_buffer::FullReader},
+    stage::{FullReader, StageMatmul},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -18,7 +18,7 @@ use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, multi_buffer::FullReaderFamily},
+        stage::{self, FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };

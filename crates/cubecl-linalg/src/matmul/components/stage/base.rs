@@ -8,10 +8,10 @@ use crate::matmul::components::{
     tile::TileConfig,
 };
 
-use super::{StageEventListener, TilingLayout};
+use super::{Reader, StageEventListener, TilingLayout};
 
-pub trait ReaderFamily {
-    type Reader<I: Numeric, T: TilingLayout>: CubeType;
+pub trait ReaderFamily: Send + Sync + 'static {
+    type Reader<ES: Numeric, T: TilingLayout>: Reader<ES>;
 }
 
 pub trait StageMatmulFamily:

@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision,
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::FullReader},
+    stage::{ContiguousTilingLayout, FullReader, RowMajorTilingOrder},
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
