@@ -133,8 +133,8 @@ where
     RL: AsyncBufferLoadingStrategy,
 {
     type Config = CommonGlobalConfig<SMM::Config>;
-    type LhsLoader = AsyncBufferLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncBufferLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncBufferLoader<MP, SMM::Config, Barrier<MP::ES>, LL>;
+    type RhsLoader = AsyncBufferLoader<MP, SMM::Config, Barrier<MP::ES>, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -166,7 +166,6 @@ where
         let rhs_buffer_reader_b = Self::RhsLoader::reader(&rhs_loader, BufferId::B);
 
         let barrier_level = LL::barrier_level();
-        comptime!(assert!(barrier_level == RL::barrier_level()));
         let barrier_a = Barrier::<MP::ES>::new(barrier_level);
         let barrier_b = Barrier::<MP::ES>::new(barrier_level);
 
@@ -178,18 +177,8 @@ where
                 sync_units();
             }
         }
-        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut lhs_loader,
-            &barrier_a,
-            BufferId::A,
-            config,
-        );
-        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut rhs_loader,
-            &barrier_a,
-            BufferId::A,
-            config,
-        );
+        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_a, BufferId::A, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_a, BufferId::A, config);
         barrier_a.arrive();
 
         // So it can do the first iteration
@@ -197,18 +186,8 @@ where
 
         for loop_iter in 0..num_loops {
             barrier_b.wait();
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut lhs_loader,
-                &barrier_b,
-                BufferId::B,
-                config,
-            );
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut rhs_loader,
-                &barrier_b,
-                BufferId::B,
-                config,
-            );
+            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_b, BufferId::B, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_b, BufferId::B, config);
             barrier_b.arrive();
 
             barrier_a.wait();
@@ -246,18 +225,8 @@ where
                     sync_units();
                 }
             }
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut lhs_loader,
-                &barrier_a,
-                BufferId::A,
-                config,
-            );
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-                &mut rhs_loader,
-                &barrier_a,
-                BufferId::A,
-                config,
-            );
+            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_a, BufferId::A, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_a, BufferId::A, config);
             barrier_a.arrive();
         }
 
@@ -269,18 +238,8 @@ where
             // TODO can we remove
             sync_units();
         }
-        Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut lhs_loader,
-            &barrier_b,
-            BufferId::B,
-            config,
-        );
-        Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(
-            &mut rhs_loader,
-            &barrier_b,
-            BufferId::B,
-            config,
-        );
+        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier_b, BufferId::B, config);
+        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier_b, BufferId::B, config);
         barrier_b.arrive();
 
         barrier_a.wait();

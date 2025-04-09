@@ -1,5 +1,6 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
@@ -16,20 +17,34 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
+/// A strategy for asynchronously loading a buffer (partial stage), either eagerly or as a deferred job.
 pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
+    /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// Load the stage only at the buffer identified by buffer_index
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig, CM: CopyMechanism<MP::ES>>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        mechanism: &CM,
+    /// The [LoadingJob] for this strategy.
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
+
+    /// Immediately load the stage for the buffer identified by buffer_index.
+    fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        tensor_reader: &TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
+
+    /// Returns the job with preliminary calculations done.
+    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        mechanism: CM,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::Job<MP, CM>;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
@@ -39,6 +54,7 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 pub struct AsyncBufferLoader<
     MP: MatmulPrecision,
     S: stage::StageConfig,
+    CM: CopyMechanism<MP::ES>,
     L: AsyncBufferLoadingStrategy,
 > {
     pub tensor_view: TensorReader<MP::EI>,
@@ -47,12 +63,16 @@ pub struct AsyncBufferLoader<
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    _phantom: PhantomData<(S, CM)>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
-    AsyncBufferLoader<MP, S, L>
+impl<
+    MP: MatmulPrecision,
+    S: stage::StageConfig,
+    CM: CopyMechanism<MP::ES>,
+    L: AsyncBufferLoadingStrategy,
+> AsyncBufferLoader<MP, S, CM, L>
 {
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
@@ -71,12 +91,12 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
         let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
         let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
 
-        AsyncBufferLoader::<MP, S, L> {
+        AsyncBufferLoader::<MP, S, CM, L> {
             tensor_view,
             stage,
             quantization,
             input_ident,
-            _config: PhantomData::<S>,
+            _phantom: PhantomData::<(S, CM)>,
         }
     }
 
@@ -91,15 +111,15 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: AsyncBufferLoadingStrategy>
         this.tensor_view.update_view(k_offset, this.input_ident);
     }
 
-    pub fn fill_stage<CM: CopyMechanism<MP::ES>>(
+    pub fn fill_stage(
         this: &mut Self,
-        mechanism: &CM,
+        mechanism: CM,
         #[comptime] buffer: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<MP, CommonGlobalConfig<S>, CM>(
+        L::load_buffer::<MP, CM, CommonGlobalConfig<S>>(
             &this.tensor_view,
-            &mut this.stage,
+            this.stage,
             mechanism,
             this.quantization,
             buffer.to_index(),

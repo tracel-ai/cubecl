@@ -10,8 +10,8 @@ use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorReader<EG: Numeric> {
-    pub tensor: VirtualTensor<EG>,
+pub struct TensorReader<EI: Numeric> {
+    pub tensor: VirtualTensor<EI>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,
@@ -35,8 +35,8 @@ pub struct MappedTensorReader<EG: Numeric> {
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
-pub struct TensorWriter<EG: Numeric> {
-    pub tensor: VirtualTensor<EG, ReadWrite>,
+pub struct TensorWriter<EO: Numeric> {
+    pub tensor: VirtualTensor<EO, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub stride_x: u32,

@@ -645,11 +645,7 @@ impl Block {
         let ret = if let Some(ret) = self.ret.as_ref() {
             let as_const = ret.as_const(context);
             if let Some(as_const) = as_const {
-                if ret.is_verbatim() {
-                    quote![panic!()]
-                } else {
-                    quote![#as_const.__expand_runtime_method(context)]
-                }
+                quote![#as_const.__expand_runtime_method(context)]
             } else {
                 ret.to_tokens(context)
             }

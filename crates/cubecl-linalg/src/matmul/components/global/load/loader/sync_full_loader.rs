@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
 use crate::matmul::components::stage::TilingLayout;
@@ -14,18 +15,30 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[cube]
+/// A strategy for fully and synchronously loading a stage.
 pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValidation {
-    /// The layout into which the loader will fill the stage
+    /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
 
-    /// Load the full stage
+    /// The [LoadingJob] for this strategy.
+    type Job<MP: MatmulPrecision>: LoadingJob<MP>;
+
+    /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
+        tensor_reader: &TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     );
+
+    /// Returns the job with preliminary calculations done.
+    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Self::Job<MP>;
 }
 
 #[derive(CubeType)]
@@ -35,16 +48,6 @@ pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFul
     pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     input_ident: InputIdent,
-    #[cube(comptime)]
-    _phantom: PhantomData<(S, L)>,
-}
-
-#[derive(CubeType)]
-pub struct SyncFullRhsLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
-{
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
     #[cube(comptime)]
     _phantom: PhantomData<(S, L)>,
 }
@@ -85,7 +88,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     pub fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
         L::load_full::<MP, single_stage::Config<S>>(
             &this.tensor_view,
-            &mut this.stage,
+            this.stage,
             this.quantization,
             this.input_ident,
             config,
