@@ -36,7 +36,7 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
     );
 
     /// Returns the job with preliminary calculations done.
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,

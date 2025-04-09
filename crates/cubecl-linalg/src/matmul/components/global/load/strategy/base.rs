@@ -50,7 +50,7 @@ pub(crate) fn default_sync_full_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G>(stage, quantization, input_ident, config);
+    let mut job = LS::new_job::<MP, G>(stage, quantization, input_ident, config);
 
     let len = JobConfig::<MP, LS::Job<MP>>::len(&job);
     for task_id in 0..len {
@@ -71,7 +71,7 @@ pub(crate) fn default_sync_buffer_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, G>(stage, quantization, buffer_index, input_ident, config);
+    let mut job = LS::new_job::<MP, G>(stage, quantization, buffer_index, input_ident, config);
 
     let len = JobConfig::<MP, LS::Job<MP>>::len(&job);
     for task_id in 0..len {
@@ -93,7 +93,7 @@ pub(crate) fn default_async_full_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, CM, G>(stage, mechanism, quantization, input_ident, config);
+    let mut job = LS::new_job::<MP, CM, G>(stage, mechanism, quantization, input_ident, config);
 
     let len = JobConfig::<MP, LS::Job<MP, CM>>::len(&job);
     for task_id in 0..len {
@@ -116,7 +116,7 @@ pub(crate) fn default_async_buffer_load<
     #[comptime] input_ident: InputIdent,
     #[comptime] config: G,
 ) {
-    let mut job = LS::job::<MP, CM, G>(
+    let mut job = LS::new_job::<MP, CM, G>(
         stage,
         mechanism,
         quantization,

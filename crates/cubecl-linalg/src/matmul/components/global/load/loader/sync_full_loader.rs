@@ -33,7 +33,7 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
     );
 
     /// Returns the job with preliminary calculations done.
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,

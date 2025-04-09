@@ -80,7 +80,7 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
         )
     }
 
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,

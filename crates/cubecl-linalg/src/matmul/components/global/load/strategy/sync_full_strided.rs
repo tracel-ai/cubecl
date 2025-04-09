@@ -56,7 +56,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         )
     }
 
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
