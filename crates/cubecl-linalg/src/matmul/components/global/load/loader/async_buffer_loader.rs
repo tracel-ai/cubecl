@@ -5,8 +5,8 @@ use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
 };
-use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::BufferReader;
+use crate::matmul::components::stage::TilingLayout;
 use crate::matmul::components::stage::{self, Stage};
 use crate::matmul::components::{InputIdent, MatmulPrecision};
 use core::marker::PhantomData;
