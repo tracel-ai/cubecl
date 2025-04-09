@@ -37,7 +37,7 @@ pub trait LoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: LoadingJob
     ) -> u32;
 }
 
-type JobConfig<MP, TL, Job> = <Job as LoadingJob<MP, TL>>::LoadingJobConfig;
+pub type JobConfig<MP, TL, Job> = <Job as LoadingJob<MP, TL>>::LoadingJobConfig;
 
 #[cube]
 pub(crate) fn default_sync_full_load<
