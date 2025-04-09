@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -58,7 +60,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -75,7 +77,6 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     }
 
     fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        mut stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -107,19 +108,10 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         let units_per_slice = comptime!(unit_count / num_slices);
         let nth_slice = UNIT_POS / units_per_slice;
 
-        let destination: SliceMut<Line<MP::ES>> =
-            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                &mut stage,
-                nth_slice,
-                input_ident.as_ident(),
-                config.to_smm_config(),
-            );
-
         let segment_length = comptime!(slice_length / units_per_slice);
         let nth_segment = UNIT_POS % units_per_slice;
 
         Job::<MP, CM> {
-            destination,
             mechanism,
             nth_slice,
             nth_segment,
@@ -127,6 +119,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
                 segment_length,
                 input_ident
             }),
+            _phantom: PhantomData,
         }
     }
 
@@ -137,12 +130,13 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    destination: SliceMut<Line<MP::ES>>,
     mechanism: CM,
     nth_slice: u32,
     nth_segment: u32,
     #[cube(comptime)]
     job_config: JobConfig,
+    #[cube(comptime)]
+    _phantom: PhantomData<MP>,
 }
 
 #[derive(Clone, Copy)]
@@ -151,8 +145,8 @@ pub struct JobConfig {
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
-    for JobConfig
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>
+    LoadingJobConfig<MP, StridedTilingLayout, Job<MP, CM>> for JobConfig
 {
     fn len(_job: &Job<MP, CM>) -> u32 {
         1
@@ -167,23 +161,35 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP, StridedTilingLayout>
+    for Job<MP, CM>
+{
     type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
+
+        let mut destination: SliceMut<Line<MP::ES>> =
+            StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
+                stage,
+                this.nth_slice,
+                comptime!(jc.input_ident.as_ident()),
+                config.to_smm_config(),
+            );
+
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(this.nth_slice, jc.input_ident, config);
         let seg_start = Min::min(this.nth_segment * jc.segment_length, window.size);
         let seg_end = Min::min((this.nth_segment + 1) * jc.segment_length, window.size);
 
         let src_segment = window.slice.slice(seg_start, seg_end);
-        let mut dest_segment = this.destination.slice_mut(seg_start, seg_end);
+        let mut dest_segment = destination.slice_mut(seg_start, seg_end);
 
         CM::memcpy_async(
             &this.mechanism,

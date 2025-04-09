@@ -40,13 +40,13 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
-    type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM, T>;
+impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
+    type TilingLayout = ContiguousTilingLayout<TO>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> = Job<MP, CM>;
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -63,12 +63,11 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
     }
 
     fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job<MP, CM, T> {
+    ) -> Job<MP, CM> {
         comptime! {
             if   quantization.is_some() {
                 panic!("Quantization not supported on async loaders.")
@@ -95,9 +94,8 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        Job::<MP, CM, T> {
+        Job::<MP, CM> {
             unit_id,
-            stage,
             mechanism,
             job_config: comptime!(JobConfig {
                 num_tasks,
@@ -107,6 +105,7 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
                 num_slices_per_tile,
                 slice_length_in_lines,
             }),
+            _phantom: PhantomData,
         }
     }
 
@@ -116,14 +115,15 @@ impl<T: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> {
+pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
     unit_id: u32,
 
-    stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     mechanism: CM,
 
     #[cube(comptime)]
     job_config: JobConfig,
+    #[cube(comptime)]
+    _phantom: PhantomData<MP>,
 }
 
 #[derive(Clone, Copy)]
@@ -136,24 +136,24 @@ pub struct JobConfig {
     slice_length_in_lines: u32,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder>
-    LoadingJobConfig<MP, Job<MP, CM, T>> for JobConfig
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, TO: TilingOrder>
+    LoadingJobConfig<MP, ContiguousTilingLayout<TO>, Job<MP, CM>> for JobConfig
 {
-    fn len(job: &Job<MP, CM, T>) -> u32 {
+    fn len(job: &Job<MP, CM>) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP, CM, T> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job<MP, CM> as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<MP>
-    for Job<MP, CM, T>
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, TO: TilingOrder>
+    LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP, CM>
 {
     type LoadingJobConfig = JobConfig;
 
@@ -161,6 +161,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let jc = this.job_config;
@@ -168,7 +169,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
         let slice_index = this.unit_id + jc.total_units * task_id;
 
         let nth_tile = slice_index / jc.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<T>::to_x_y::<G::SmmConfig>(
+        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
             nth_tile,
             comptime!(jc.input_ident.as_ident()),
             config.to_smm_config(),
@@ -189,7 +190,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, T: TilingOrder> LoadingJob<
                 (nth_tile * jc.num_slices_per_tile + nth_slice) * jc.slice_length_in_lines;
 
             // Make destination start at offset
-            let mut destination = this.stage.as_slice_mut().slice_mut(
+            let mut destination = stage.as_slice_mut().slice_mut(
                 slice_destination_offset,
                 slice_destination_offset + jc.slice_length_in_lines,
             );

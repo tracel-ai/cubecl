@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
@@ -33,7 +35,7 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -50,7 +52,6 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     }
 
     fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
@@ -71,12 +72,12 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         };
 
         Job::<MP, CM> {
-            stage,
             mechanism,
             job_config: comptime!(JobConfig {
                 num_slices,
                 input_ident,
             }),
+            _phantom: PhantomData,
         }
     }
 
@@ -87,10 +88,11 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 
 #[derive(CubeType, Clone, Copy)]
 pub struct Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> {
-    stage: Stage<MP::ES, StridedTilingLayout>,
     mechanism: CM,
     #[cube(comptime)]
     job_config: JobConfig,
+    #[cube(comptime)]
+    _phantom: PhantomData<MP>,
 }
 
 #[derive(Clone, Copy)]
@@ -99,8 +101,8 @@ pub struct JobConfig {
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP, CM>>
-    for JobConfig
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>
+    LoadingJobConfig<MP, StridedTilingLayout, Job<MP, CM>> for JobConfig
 {
     fn len(job: &Job<MP, CM>) -> u32 {
         job.job_config.num_slices
@@ -115,13 +117,16 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJobConfig<MP, Job<MP
 }
 
 #[cube]
-impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, CM> {
+impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP, StridedTilingLayout>
+    for Job<MP, CM>
+{
     type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let input_ident = this.job_config.input_ident;
@@ -130,7 +135,7 @@ impl<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>> LoadingJob<MP> for Job<MP, 
             tensor_reader.load_window_in_stage::<G>(task_id, input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
-                &mut this.stage,
+                stage,
                 task_id,
                 comptime!(input_ident.as_ident()),
                 config.to_smm_config(),

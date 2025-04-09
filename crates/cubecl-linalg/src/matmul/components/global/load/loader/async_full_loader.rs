@@ -21,12 +21,12 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
+    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP, Self::TilingLayout>;
 
     /// Loads the entire stage immediately from the tensor reader.
     fn load_full<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+        stage: &mut Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
@@ -35,7 +35,6 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
         mechanism: CM,
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
@@ -128,7 +127,7 @@ impl<
     pub fn fill_stage(this: &mut Self, mechanism: CM, #[comptime] config: single_stage::Config<S>) {
         L::load_full::<MP, CM, single_stage::Config<S>>(
             &this.tensor_view,
-            this.stage,
+            &mut this.stage,
             mechanism,
             this.quantization,
             this.ident,
