@@ -30,22 +30,23 @@ impl WgpuServer {
             Some(AutoRepresentation::SpirV(repr)) => {
                 let spirv = repr.assemble();
                 unsafe {
-                    self.device
-                        .create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
-                            label: Some(&kernel.entrypoint_name),
-                            source: Cow::Borrowed(&spirv),
-                        })
+                    self.device.create_shader_module_passthrough(
+                        wgpu::ShaderModuleDescriptorPassthrough::SpirV(
+                            wgpu::ShaderModuleDescriptorSpirV {
+                                label: Some(&kernel.entrypoint_name),
+                                source: Cow::Borrowed(&spirv),
+                            },
+                        ),
+                    )
                 }
             }
             #[cfg(all(feature = "msl", target_os = "macos"))]
             Some(AutoRepresentation::Msl(repr)) => {
-                // TODO remove the panic once metal passthrough is available in wgpu
-                // panic!("cubecl msl compiler not yet supported in wgpu");
                 let source = &kernel.source;
                 unsafe {
                     self.device.create_shader_module_passthrough(
-                        &wgpu::ShaderModuleDescriptorPassthrough::Msl(
-                            &wgpu::ShaderModuleDescriptorMsl {
+                        wgpu::ShaderModuleDescriptorPassthrough::Msl(
+                            wgpu::ShaderModuleDescriptorMsl {
                                 entry_point: kernel.entrypoint_name.clone(),
                                 label: Some(&kernel.entrypoint_name),
                                 source: Cow::Borrowed(source),
