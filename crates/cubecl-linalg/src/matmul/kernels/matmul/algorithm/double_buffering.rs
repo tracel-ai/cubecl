@@ -1,9 +1,9 @@
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::sync_buffer_cyclic;
 use crate::matmul::components::MatmulProblem;
 use crate::matmul::components::batch::{CubeCountDispatch, CubeDispatch};
+use crate::matmul::components::global::load::sync_buffer_cyclic;
 use crate::matmul::components::stage::{self, RowMajorTilingOrder};
 use crate::matmul::components::{MatmulSelection, tile};
 use crate::matmul::components::{batch, global};
