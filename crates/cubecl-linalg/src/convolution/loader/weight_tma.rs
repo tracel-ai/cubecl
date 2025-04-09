@@ -60,18 +60,18 @@ impl<MP: MatmulPrecision, S: StageConfig> TmaWeightLoader<MP, S> {
             let tiling_dims = config.tiling_dimensions(Ident::Rhs);
 
             let tensor = this.tensor_view.tensor.try_cast_unchecked();
+            let mut stage = this.stage.as_slice_mut();
+            let slice_size = tiling_dims.total_col() * tiling_dims.tile_shape_row();
 
             #[unroll]
-            for tile in 0..tiling_dims.tile_count() {
-                let (x, y) = TmaWeightTiling::to_x_y::<S>(tile, Ident::Rhs, config);
-                let mut tile = this.stage.get_tile::<S>(x, y, Ident::Rhs, config);
-                let mut slice = tile.slice.to_slice_mut();
+            for tile_k in 0..tiling_dims.tile_count_row() {
+                let slice_start = slice_size * tile_k;
+                let mut slice = stage.slice_mut(slice_start, slice_size);
 
-                let k = x * tiling_dims.tile_shape_row() + k;
-                let out_c = y * tiling_dims.tile_shape_col() + out_c;
+                let k = k + tile_k * tiling_dims.tile_shape_row();
                 let (k_idx, in_c) = this.padded_channels.div_mod(k);
 
-                barrier.tma_load_3d(&tensor, &mut slice, k_idx as i32, in_c as i32, out_c as i32);
+                barrier.tma_load_3d(&tensor, &mut slice, out_c as i32, k_idx as i32, in_c as i32);
             }
         }
     }

@@ -1,12 +1,17 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim, Runtime, prelude::TensorHandleRef};
+use cubecl_core::{
+    CubeCount, CubeDim, Runtime,
+    client::ComputeClient,
+    prelude::{Numeric, TensorHandleRef},
+};
 
 use crate::{
     convolution::{base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily},
     matmul::components::{
-        MatmulSelection, global::args::TensorArgs, stage, tile::TileMatmulFamily,
+        InputIdent, MatmulSelection, global::args::TensorArgs, stage, tile::TileMatmulFamily,
     },
+    tensor::{TensorHandle, into_contiguous},
 };
 
 use super::Algorithm;
@@ -36,17 +41,38 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         CubeCount::Static(cubes_needed_m, cubes_needed_n, 1)
     }
 
-    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
-        let mut strides = handle.strides.to_vec();
-        strides.sort();
-
-        // Permuted strides
-        if handle.strides != strides {
-            return false;
+    fn into_tensor_handle<R: Runtime, E: Numeric>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        handle: &TensorHandleRef<'_, R>,
+        ident: crate::matmul::components::InputIdent,
+    ) -> TensorHandle<R, E> {
+        let mut handle = if has_valid_layout(handle, ident) {
+            TensorHandle::from_ref(handle)
+        } else {
+            into_contiguous(client, handle)
+        };
+        match ident {
+            InputIdent::Lhs => handle,
+            InputIdent::Rhs => {
+                // Reshape to (K, N) so the loader knows how to handle it
+                handle.shape = vec![handle.shape[1..].iter().product(), handle.shape[0]];
+                handle.strides = vec![handle.strides[3], handle.strides[0]];
+                handle
+            }
         }
+    }
+}
 
-        // channels doesn't need to be contiguous with the rest of the tensor
-        strides[2] * handle.shape[2] == strides[1]
-            && strides[1] * handle.shape[1] == handle.strides[0]
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
+    match ident {
+        InputIdent::Lhs => handle.strides[3] == 1,
+        InputIdent::Rhs => {
+            let mut strides = handle.strides.to_vec();
+            strides.sort();
+            let ordered = handle.strides == strides;
+            let contiguous_k = strides[3] * handle.shape[3] == strides[2]
+                && strides[2] * handle.shape[2] == handle.strides[1];
+            ordered && contiguous_k
+        }
     }
 }

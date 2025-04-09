@@ -41,7 +41,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     };
 
     // TODO: Automate more params
-    let batches = 1;
+    let batches = 2;
     let kernel_size = (4, 3);
     let stride = (1, 1);
     let padding = (3, 1);
@@ -57,7 +57,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         n: problem.out_c,
         k: kernel_size.0 as usize * kernel_size.1 as usize * problem.c,
         lhs_layout: MatrixLayout::RowMajor,
-        rhs_layout: MatrixLayout::RowMajor,
+        rhs_layout: MatrixLayout::ColMajor,
         lhs_line_size: 1,
         rhs_line_size: 1,
         out_line_size: 1,

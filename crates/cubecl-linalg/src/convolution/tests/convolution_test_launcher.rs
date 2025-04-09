@@ -2,11 +2,11 @@ use cubecl_core::CubeElement;
 use cubecl_core::prelude::*;
 use cubecl_core::tensor_line_size_parallel;
 
-use crate::convolution::base::ConvolutionLaunch;
 use crate::convolution::base::ConvolutionProblem;
 use crate::matmul::tests::test_utils::Sample;
 use crate::matmul::{components::Ident, tests::cmma_matmul::matmul_test_launcher::TensorRawParts};
 use crate::{convolution::algorithm::Algorithm, matmul::components::MatmulSelection};
+use crate::{convolution::base::ConvolutionLaunch, matmul::components::InputIdent};
 use crate::{
     convolution::{args::ConvInputsLaunch, base::ConvolutionConfigFactory},
     matmul::components::global::args::{MatmulArgs, OutputLaunch},
@@ -92,6 +92,12 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let out_handle = unsafe {
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
+
+    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, InputIdent::Lhs);
+    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, InputIdent::Rhs);
+
+    let lhs_handle = lhs_handle.as_ref();
+    let rhs_handle = rhs_handle.as_ref();
 
     let inputs = <Input<Args, P::EG> as ConvInputsLaunch>::create(
         &lhs_handle,
@@ -194,8 +200,10 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: Ident) -> Vec<usize> {
             problem.channels,
         ],
         Ident::Rhs => vec![
-            problem.kernel_size.0 as usize * problem.kernel_size.1 as usize * problem.channels,
             problem.n,
+            problem.kernel_size.0 as usize,
+            problem.kernel_size.1 as usize,
+            problem.channels,
         ],
         Ident::Out => vec![problem.batches * problem.out_h * problem.out_w, problem.n],
     }

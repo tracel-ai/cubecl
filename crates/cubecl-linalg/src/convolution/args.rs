@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, server::TensorMapMeta};
+use cubecl_core as cubecl;
 
 use crate::{
     convolution::algorithm::simple_tma::calculate_upper_corner,
@@ -44,21 +44,10 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         problem: &ConvolutionProblem,
     ) -> Self::RuntimeArg<'a, R> {
         let stage_m = selection.tile_count.m * selection.tile_shape.m;
-        let stage_size_rhs = vec![1, selection.tile_shape.k, selection.tile_shape.n];
+        let stage_n = selection.tile_count.n * selection.tile_shape.n;
+        let stage_size_rhs = vec![stage_n, 1, selection.tile_shape.k];
 
         let elem_size = size_of::<EI>();
-
-        // Reset to 4D so we can pad the channels
-        let rhs_shape = vec![
-            problem.kernel_size.0 as usize * problem.kernel_size.1 as usize,
-            problem.channels,
-            problem.n,
-        ];
-        let rhs_strides = vec![
-            rhs.strides[0] * problem.channels,
-            rhs.strides[0],
-            rhs.strides[1],
-        ];
 
         fn prefetch(bytes: usize) -> TensorMapPrefetch {
             match bytes {
@@ -102,25 +91,14 @@ impl<EI: Numeric> ConvInputsLaunch for TensorMapInputs<EI> {
         ])
         .with_prefetch(prefetch_lhs);
 
-        let meta_rhs = TensorMapMeta {
-            format: TensorMapFormat::Tiled {
+        let rhs = TensorMapArg::new(
+            TensorMapFormat::Tiled {
                 tile_size: stage_size_rhs,
             },
-            rank: 3,
-            shape: rhs_shape,
-            strides: rhs_strides,
-            elem_stride: vec![1, 1, 1],
-            interleave: TensorMapInterleave::None,
-            swizzle: TensorMapSwizzle::None,
-            prefetch: prefetch_rhs,
-            oob_fill: OobFill::Zero,
-            elem,
-        };
-
-        let rhs = TensorMapArg {
-            tensor: rhs.as_tensor_arg(problem.rhs_line_size),
-            metadata: meta_rhs,
-        };
+            rhs.as_tensor_arg(1),
+            EI::as_elem_native_unchecked(),
+        )
+        .with_prefetch(prefetch_rhs);
 
         TensorMapInputsLaunch::new(lhs, rhs)
     }

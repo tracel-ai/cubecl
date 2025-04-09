@@ -18,6 +18,7 @@ use super::ConvGemmConfig;
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct RuntimeArgs {
     pub size_m: u32,
+    pub size_n: u32,
     pub size_k: u32,
     pub padded_channels: FastDivmod,
     pub out_h: FastDivmod,

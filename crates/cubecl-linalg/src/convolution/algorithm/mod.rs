@@ -1,11 +1,14 @@
-use crate::matmul::{
-    components::{
-        CompleteStageTiling, InvalidConfigError, MatmulPrecision, MatmulSelection,
-        global::args::MatmulArgs,
-        stage::{StageBuffering, StageMatmulFamily},
-        tile::TileMatmulFamily,
+use crate::{
+    matmul::{
+        components::{
+            CompleteStageTiling, InputIdent, InvalidConfigError, MatmulPrecision, MatmulSelection,
+            global::args::MatmulArgs,
+            stage::{StageBuffering, StageMatmulFamily},
+            tile::TileMatmulFamily,
+        },
+        kernels::MatmulAvailabilityError,
     },
-    kernels::MatmulAvailabilityError,
+    tensor::TensorHandle,
 };
 use cubecl_core::prelude::*;
 
@@ -49,5 +52,9 @@ pub trait Algorithm {
         )
     }
 
-    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool;
+    fn into_tensor_handle<R: Runtime, E: Numeric>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        handle: &TensorHandleRef<'_, R>,
+        ident: InputIdent,
+    ) -> TensorHandle<R, E>;
 }

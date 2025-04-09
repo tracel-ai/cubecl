@@ -1,6 +1,10 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{CubeCount, CubeDim, Runtime, prelude::TensorHandleRef};
+use cubecl_core::{
+    CubeCount, CubeDim, Runtime,
+    client::ComputeClient,
+    prelude::{Numeric, TensorHandleRef},
+};
 
 use crate::{
     convolution::{
@@ -8,9 +12,10 @@ use crate::{
         homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     },
     matmul::components::{
-        InvalidConfigError, MatmulSelection, global::args::TensorMapArgs, stage,
+        InputIdent, InvalidConfigError, MatmulSelection, global::args::TensorMapArgs, stage,
         tile::TileMatmulFamily,
     },
+    tensor::{TensorHandle, into_contiguous_pitched},
 };
 
 use super::Algorithm;
@@ -56,26 +61,48 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
         Ok(config)
     }
 
-    fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>) -> bool {
-        let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
-
-        let mut strides = handle.strides.to_vec();
-        strides.sort();
-
-        // Permuted strides
-        if handle.strides != strides {
-            return false;
+    fn into_tensor_handle<R: Runtime, E: Numeric>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        handle: &TensorHandleRef<'_, R>,
+        ident: InputIdent,
+    ) -> TensorHandle<R, E> {
+        let mut handle = if has_valid_layout(handle, ident) {
+            TensorHandle::from_ref(handle)
+        } else {
+            into_contiguous_pitched(client, handle)
+        };
+        match ident {
+            InputIdent::Lhs => handle,
+            InputIdent::Rhs => {
+                handle.shape = vec![
+                    handle.shape[0],
+                    handle.shape[1] * handle.shape[2],
+                    handle.shape[3],
+                ];
+                handle.strides = vec![handle.strides[0], handle.strides[2], handle.strides[3]];
+                handle
+            }
         }
-
-        let aligned = handle.strides[..3]
-            .iter()
-            .all(|stride| stride % stride_align == 0);
-
-        // channels doesn't need to be contiguous with the rest of the tensor
-        strides[2] * handle.shape[2] == strides[1]
-            && strides[1] * handle.shape[1] == handle.strides[0]
-            && aligned
     }
+}
+
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: InputIdent) -> bool {
+    let stride_align = TMA_STRIDE_ALIGN / handle.elem_size;
+
+    let aligned = handle.strides[..3]
+        .iter()
+        .all(|stride| stride % stride_align == 0);
+
+    let valid_layout = match ident {
+        InputIdent::Lhs => handle.strides[3] == 1,
+        InputIdent::Rhs => {
+            let c_major = handle.strides[3] == 1;
+            let kernel_contig = handle.strides[2] * handle.shape[2] == handle.strides[1];
+            c_major && kernel_contig
+        }
+    };
+
+    valid_layout && aligned
 }
 
 fn check_problem_tma(problem: &ConvolutionProblem) -> Result<(), InvalidConfigError> {

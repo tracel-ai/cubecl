@@ -253,10 +253,12 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         config: <Self as ConvolutionConfigFactory>::Config,
     ) {
         let size_m = problem.batches * problem.out_h * problem.out_w;
+        let size_n = problem.n;
         let size_k = config.kernel_size(0) * config.kernel_size(1) * problem.channels as u32;
 
         let runtime_args = RuntimeArgsLaunch::new(
             ScalarArg::new(size_m as u32),
+            ScalarArg::new(size_n as u32),
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, problem.channels as u32),
             FastDivmodArgs::new(client, problem.out_h as u32),
