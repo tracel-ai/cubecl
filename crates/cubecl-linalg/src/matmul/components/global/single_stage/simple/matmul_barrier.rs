@@ -128,8 +128,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = Config<SMM::Config>;
-    type LhsLoader = AsyncLoader<MP, SMM::Config, LL>;
-    type RhsLoader = AsyncLoader<MP, SMM::Config, RL>;
+    type LhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, LL>;
+    type RhsLoader = AsyncLoader<MP, Barrier<MP::ES>, SMM::Config, RL>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Out = Unloader<MP::EO>;
     type Accumulator = SMM::Accumulator;
@@ -150,7 +150,6 @@ where
         SMM::zero_accumulator(acc, config.to_smm_config());
 
         let barrier_level = LL::barrier_level();
-        comptime!(assert!(barrier_level == RL::barrier_level()));
         let barrier = Barrier::<MP::ES>::new(barrier_level);
 
         for loop_iter in 0..num_loops {
@@ -166,8 +165,8 @@ where
             }
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, config);
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);

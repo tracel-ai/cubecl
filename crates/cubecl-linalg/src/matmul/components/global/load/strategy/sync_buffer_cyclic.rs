@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
+use crate::matmul::components::global::load::{
+    SyncBufferLoadingStrategy, default_sync_buffer_load,
+};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
@@ -9,15 +11,17 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
+use super::{LoadingJob, LoadingJobConfig};
+
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes,
 /// iterating with steps determined by the plane's dimension.
-pub struct SyncBufferCyclicLoading<T: TilingOrder> {
+pub struct LoadingStrategy<T: TilingOrder> {
     #[cube(comptime)]
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
+impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -54,17 +58,35 @@ impl<T: TilingOrder> LoadingValidation for SyncBufferCyclicLoading<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
+impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
     type TilingLayout = ContiguousTilingLayout<T>;
+    type Job<MP: MatmulPrecision> = Job<MP, T>;
 
     fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        read_view: &TensorReader<MP::EI>,
-        stage: &mut Stage<MP::ES, Self::TilingLayout>,
-        buffer_index: u32,
+        tensor_reader: &TensorReader<MP::EI>,
+        stage: Stage<MP::ES, Self::TilingLayout>,
         quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) {
+        default_sync_buffer_load::<Self, MP, G>(
+            tensor_reader,
+            stage,
+            quantization,
+            buffer_index,
+            input_ident,
+            config,
+        )
+    }
+
+    fn job<MP: MatmulPrecision, G: GlobalConfig>(
+        stage: Stage<MP::ES, Self::TilingLayout>,
+        quantization: CubeOption<Quantization<MP>>,
+        #[comptime] buffer_index: u32,
+        #[comptime] input_ident: InputIdent,
+        #[comptime] config: G,
+    ) -> Job<MP, T> {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.stage_line_size(input_ident);
         let tile_size = tiling_dimensions.tile_size();
@@ -80,43 +102,111 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for SyncBufferCyclicLoading<T> {
             InputIdent::Rhs => tile_count_col,
         }};
         let total_num_lines = num_tiles_in_buffer * num_lines_per_tile;
-        let num_lines_per_unit = (total_num_lines + total_units - 1) / total_units;
+        let num_tasks = (total_num_lines + total_units - 1) / total_units;
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        for i in 0..num_lines_per_unit {
-            let unit_position = unit_position_base + i * jump_length;
-
-            // We assume unit_position < total_num_lines * line_size;
-            // This is caught by the loading validation
-
-            let unit_pos_in_buffer = unit_position / tile_size;
-            let pos_within_tile = unit_position % tile_size;
-
-            let (tile_x, tile_y) = match input_ident {
-                InputIdent::Lhs => (unit_pos_in_buffer, buffer_index),
-                InputIdent::Rhs => (buffer_index, unit_pos_in_buffer),
-            };
-
-            let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
-
-            let line_read = read_view.load_coalesced_in_tile::<G>(
-                tile_x,
-                tile_y,
-                pos_within_tile,
+        Job::<MP, T> {
+            unit_position_base,
+            stage,
+            quantization,
+            job_config: comptime!(JobConfig {
+                num_tasks,
+                buffer_index,
+                jump_length,
+                num_lines_per_tile,
                 input_ident,
-                config,
-            );
+            }),
+        }
+    }
+}
 
-            let tile_start = nth_tile * num_lines_per_tile;
-            let tile_end = tile_start + num_lines_per_tile;
-            let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
+#[derive(CubeType, Clone, Copy)]
+pub struct Job<MP: MatmulPrecision, T: TilingOrder> {
+    unit_position_base: u32,
 
-            tile_slice[pos_within_tile / line_size] = match quantization {
-                CubeOption::Some(quantization) => quantization.dequantize(line_read),
-                CubeOption::None => Line::cast_from(line_read),
-            }
+    stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
+    quantization: CubeOption<Quantization<MP>>,
+
+    #[cube(comptime)]
+    job_config: JobConfig,
+}
+
+#[derive(Copy, Clone)]
+pub struct JobConfig {
+    num_tasks: u32,
+    buffer_index: u32,
+    jump_length: u32,
+    num_lines_per_tile: u32,
+    input_ident: InputIdent,
+}
+
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, Job<MP, T>> for JobConfig {
+    fn len(job: &Job<MP, T>) -> u32 {
+        job.job_config.num_tasks
+    }
+
+    fn __expand_len(
+        _context: &mut cubecl_core::prelude::Scope,
+        job: <Job<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
+    ) -> u32 {
+        job.job_config.num_tasks
+    }
+}
+
+#[cube]
+impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
+    type LoadingJobConfig = JobConfig;
+
+    fn execute_task<G: GlobalConfig>(
+        this: &mut Self,
+        task_id: u32,
+        tensor_reader: &TensorReader<MP::EI>,
+        #[comptime] config: G,
+    ) {
+        let jc = this.job_config;
+
+        let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
+            let tiling_dimensions = config.tiling_dimensions(jc.input_ident);
+            (
+                config.stage_line_size(jc.input_ident),
+                tiling_dimensions.tile_size(),
+                tiling_dimensions.tile_count_row(),
+                tiling_dimensions.tile_count_col()
+            )
+        };
+
+        let unit_position = this.unit_position_base + task_id * jc.jump_length;
+
+        // We assume unit_position < total_num_lines * line_size;
+        // This is caught by the loading validation
+
+        let unit_pos_in_buffer = unit_position / tile_size;
+        let pos_within_tile = unit_position % tile_size;
+
+        let (tile_x, tile_y) = match comptime!(jc.input_ident) {
+            InputIdent::Lhs => (unit_pos_in_buffer, jc.buffer_index.runtime()),
+            InputIdent::Rhs => (jc.buffer_index.runtime(), unit_pos_in_buffer),
+        };
+
+        let nth_tile = T::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
+
+        let line_read = tensor_reader.load_coalesced_in_tile::<G>(
+            tile_x,
+            tile_y,
+            pos_within_tile,
+            jc.input_ident,
+            config,
+        );
+
+        let tile_start = nth_tile * jc.num_lines_per_tile;
+        let tile_end = tile_start + jc.num_lines_per_tile;
+        let mut tile_slice = this.stage.as_slice_mut().slice_mut(tile_start, tile_end);
+
+        tile_slice[pos_within_tile / line_size] = match this.quantization {
+            CubeOption::Some(quantization) => quantization.dequantize(line_read),
+            CubeOption::None => Line::cast_from(line_read),
         }
     }
 }

@@ -1,9 +1,7 @@
-use cubecl_core::{
-    Feature, Runtime,
-    client::ComputeClient,
-    ir::Elem,
-    prelude::{CubePrimitive, TensorHandleRef},
-};
+use std::cmp::min;
+
+use cubecl_core::prelude::TensorHandleRef;
+use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
 use crate::matmul::{
@@ -85,13 +83,13 @@ pub(crate) fn find_stage_size_m_n(
     n: usize,
     num_batches: usize,
     num_sm: usize,
-    max_tensor_cores: usize,
+    virtual_tensor_cores: usize,
     instruction_m: usize,
     instruction_n: usize,
 ) -> usize {
     let min_inst = instruction_m.min(instruction_n);
     let max_tiles = 256 / min_inst;
-    let mut dim_num_tiles = max_tensor_cores.min(max_tiles);
+    let mut dim_num_tiles = virtual_tensor_cores.min(max_tiles);
 
     let total_tiles_m = (m + instruction_m - 1) / instruction_m;
     let total_tiles_n = (n + instruction_n - 1) / instruction_n;
@@ -155,6 +153,8 @@ pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime
         .hardware_properties()
         .num_tensor_cores
         .unwrap_or(NUM_TENSOR_CORES_APPROX);
+    // Going over 8 does not work well for now
+    let virtual_tensor_cores = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
     let stage_size_m_n = find_stage_size_m_n(
         problem.m,
@@ -165,7 +165,7 @@ pub(crate) fn matmul_selection<TMM: TileMatmulFamily, MS: MatmulSpec, R: Runtime
             .hardware_properties()
             .num_streaming_multiprocessors
             .unwrap_or(NUM_SM_APPROX) as usize,
-        (num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize,
+        virtual_tensor_cores,
         instruction_m,
         instruction_n,
     );

@@ -7,7 +7,7 @@ use crate::matmul::components::{
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{
         self,
-        load::{SyncFullCyclicLoading, SyncFullLoadingStrategy},
+        load::{SyncFullLoadingStrategy, sync_full_cyclic},
     },
     stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
     tile,
@@ -15,26 +15,26 @@ use crate::matmul::components::{
 
 pub struct SimpleAlgorithm<
     TMM,
-    LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
-    LR = SyncFullCyclicLoading<RowMajorTilingOrder>,
+    LL = sync_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,
+    RL = sync_full_cyclic::LoadingStrategy<RowMajorTilingOrder>,
     Dispatch = batch::TransposedDispatch,
 > {
     pub _tmm: PhantomData<TMM>,
     pub _ll: PhantomData<LL>,
-    pub _lr: PhantomData<LR>,
+    pub _rl: PhantomData<RL>,
     pub _dispatch: PhantomData<Dispatch>,
 }
 
-impl<TMM, LL, LR, Dispatch> base::Algorithm for SimpleAlgorithm<TMM, LL, LR, Dispatch>
+impl<TMM, LL, RL, Dispatch> base::Algorithm for SimpleAlgorithm<TMM, LL, RL, Dispatch>
 where
     TMM: tile::TileMatmulFamily,
     LL: SyncFullLoadingStrategy,
-    LR: SyncFullLoadingStrategy,
+    RL: SyncFullLoadingStrategy,
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
     type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
-    type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, LR>;
+    type GlobalMatmul = global::single_stage::simple::SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;
 

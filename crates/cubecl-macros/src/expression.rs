@@ -278,13 +278,6 @@ impl Expression {
         }
     }
 
-    pub fn is_verbatim(&self) -> bool {
-        matches!(
-            self,
-            Expression::Verbatim { .. } | Expression::VerbatimTerminated { .. }
-        )
-    }
-
     pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
         match self {
             Expression::Index { expr, index, .. } => Some((&**expr, &**index)),

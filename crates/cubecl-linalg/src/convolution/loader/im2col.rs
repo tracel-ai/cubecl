@@ -83,7 +83,7 @@ pub struct SimpleIm2col;
 #[cube]
 impl SimpleIm2col {
     pub fn load_to_slice<MP: MatmulPrecision, G: ConvGemmConfig>(
-        read_view: &Im2colReader<MP::EI>,
+        tensor_reader: &Im2colReader<MP::EI>,
         slice: &mut SliceMut<Line<MP::ES>>,
         #[comptime] ident: Ident,
         #[comptime] config: G,
@@ -114,7 +114,7 @@ impl SimpleIm2col {
             >(nth_tile, ident, config.to_smm_config());
 
             let line_read =
-                read_view.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);
+                tensor_reader.load_simple::<G>(tile_x, tile_y, pos_within_tile, ident, config);
 
             slice[unit_position / line_size] = Line::cast_from(line_read);
         }

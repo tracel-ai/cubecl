@@ -4,7 +4,7 @@ use cubecl_core::prelude::pipeline::Pipeline;
 use cubecl_core::prelude::*;
 
 #[cube]
-pub trait CopyMechanism<ES: Numeric>: CubeType + Sync + Send + 'static {
+pub trait CopyMechanism<ES: Numeric>: CubeType + Clone + Copy + Sync + Send + 'static {
     fn memcpy_async(this: &Self, source: &Slice<Line<ES>>, destination: &mut SliceMut<Line<ES>>);
     fn memcpy_async_tensor_to_shared_3d(
         this: &Self,
