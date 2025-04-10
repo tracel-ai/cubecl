@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::LoadingJob;
+use crate::matmul::components::global::load::strategy::LoadingJobConfig;
+use crate::matmul::components::global::load::{JobConfig, LoadingJob};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
 use crate::matmul::components::stage::TilingLayout;
@@ -21,20 +22,10 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision>: LoadingJob<MP>;
-
-    /// Loads the entire stage immediately from the tensor reader.
-    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
+    type Job<MP: MatmulPrecision>: LoadingJob<MP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
@@ -43,9 +34,9 @@ pub trait SyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValida
 
 #[derive(CubeType)]
 pub struct SyncFullLoader<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy> {
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
+    tensor_reader: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, L::TilingLayout>,
+    loading_job: L::Job<MP>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -66,12 +57,13 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let loading_job = L::new_job::<MP, G>(quantization, input_ident, config);
 
         SyncFullLoader::<MP, S, L> {
-            tensor_view,
+            tensor_reader,
             stage,
-            quantization,
+            loading_job,
             input_ident,
             _phantom: PhantomData::<(S, L)>,
         }
@@ -82,16 +74,19 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.input_ident);
+        this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        L::load_full::<MP, single_stage::Config<S>>(
-            &this.tensor_view,
-            this.stage,
-            this.quantization,
-            this.input_ident,
-            config,
-        );
+        let len = JobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&this.loading_job);
+        for task_id in 0..len {
+            L::Job::<MP>::execute_task::<single_stage::Config<S>>(
+                &mut this.loading_job,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage,
+                config,
+            );
+        }
     }
 }
