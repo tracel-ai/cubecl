@@ -3,6 +3,7 @@ use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::tensor_view::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::div_ceil;
 
 #[derive(CubeType)]
 /// Writes the contents of a tile to the tensor view using a single plane,
@@ -19,20 +20,31 @@ impl TilewiseUnloading {
         #[comptime] config: G,
     ) {
         let tiling = config.tiling_dimensions(Ident::Out);
+        let tile_size = tiling.tile_size();
         let slice_line_size = config.stage_line_size(Ident::Out);
         let out_line_size = config.global_line_size(Ident::Out);
-
-        let unit_step = config.plane_dim() * out_line_size;
-        let num_unit_writes = tiling.tile_size() / unit_step;
 
         #[allow(clippy::all)]
         let _ = comptime!(check_line_size(out_line_size, slice_line_size));
 
+        let unit_step = config.plane_dim() * out_line_size;
+        let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
+        let unit_divide_writes = comptime!(tile_size % unit_step == 0);
+
+        #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {
             let unit_write = UNIT_POS_X * out_line_size + i * unit_step;
 
-            let value = slice[unit_write / out_line_size];
-            write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
+            #[allow(clippy::collapsible_else_if)]
+            if comptime!(unit_divide_writes) {
+                let value = slice[unit_write / out_line_size];
+                write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
+            } else {
+                if unit_write < tile_size {
+                    let value = slice[unit_write / out_line_size];
+                    write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
+                }
+            }
         }
     }
 }
