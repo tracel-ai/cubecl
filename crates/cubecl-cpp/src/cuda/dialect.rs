@@ -6,8 +6,9 @@ use crate::{
     Dialect,
     cuda::ptx::TMA_LOAD_IM2COL,
     shared::{
-        self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
-        DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item, SharedMemory, Variable,
+        self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        DialectInstructions, DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item,
+        SharedMemory, Variable,
     },
 };
 
@@ -272,11 +273,19 @@ impl DialectInstructions<Self> for CudaDialect {
     ) -> std::fmt::Result {
         write!(f, "__shfl_down_sync(-1, {var}, {offset})")
     }
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__all_sync(-1, {var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        _out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "__all_sync(-1, {input})")
     }
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__any_sync(-1, {var})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        _out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "__any_sync(-1, {input})")
     }
 
     fn compile_warp_ballot(

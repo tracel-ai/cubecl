@@ -3,7 +3,7 @@ use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::ir::Id;
 
-use crate::shared::{DialectInstructions, Elem, Instruction, SharedMemory, Variable};
+use crate::shared::{Component, DialectInstructions, Elem, Instruction, SharedMemory, Variable};
 use crate::{
     Dialect,
     cuda::CudaDialect,
@@ -215,11 +215,23 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     ) -> std::fmt::Result {
         write!(f, "__shfl_down({var}, {offset})")
     }
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "__all({var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let item = out.item();
+        let elem = item.elem;
+        write!(f, "static_cast<{elem}>(__all({input}))")
     }
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        write!(f, "__any({out})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        out: &Variable<Self>,
+    ) -> std::fmt::Result {
+        let item = out.item();
+        let elem = item.elem;
+        write!(f, "static_cast<{elem}>(__any({input}))")
     }
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,

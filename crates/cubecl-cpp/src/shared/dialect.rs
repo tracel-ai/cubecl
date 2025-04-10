@@ -622,8 +622,16 @@ pub trait DialectInstructions<D: Dialect> {
         var: &str,
         offset: &str,
     ) -> std::fmt::Result;
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result;
+    fn compile_warp_all<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        out: &Variable<D>,
+    ) -> std::fmt::Result;
+    fn compile_warp_any<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+        out: &Variable<D>,
+    ) -> std::fmt::Result;
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<D>,
