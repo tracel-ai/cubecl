@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{CubeOption, FastDivmod};
 
 use crate::matmul::components::{
-    Ident, InputIdent, MatmulPrecision, global::Quantization, stage::multi_buffer::FullReader,
+    Ident, InputIdent, MatmulPrecision, global::Quantization, stage::FullReader,
 };
 use crate::matmul::components::{
     global::{self, tensor_view::MappedTensorReader},

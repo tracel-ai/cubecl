@@ -19,8 +19,8 @@ use crate::{
             single_stage,
         },
         stage::{
-            ContiguousTilingLayout, RowMajorTilingOrder, StageMatmul, StageMatmulFamily,
-            multi_buffer::{FullReader, FullReaderFamily},
+            ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder, StageMatmul,
+            StageMatmulFamily,
         },
     },
 };

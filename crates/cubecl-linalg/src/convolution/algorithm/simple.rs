@@ -9,7 +9,10 @@ use cubecl_core::{
 use crate::{
     convolution::{base::ConvolutionProblem, homogeneous::simple::SimpleConvolutionFamily},
     matmul::components::{
-        InputIdent, MatmulSelection, global::args::TensorArgs, stage, tile::TileMatmulFamily,
+        InputIdent, MatmulSelection,
+        global::args::TensorArgs,
+        stage::{FullReaderFamily, plane_row_matmul::PlaneRowMatmulFamily},
+        tile::TileMatmulFamily,
     },
     tensor::{TensorHandle, into_contiguous},
 };
@@ -23,7 +26,7 @@ pub struct SimpleConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorArgs;

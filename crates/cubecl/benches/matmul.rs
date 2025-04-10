@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 use cubecl::{Feature, TmaFeature, prelude::*};
-use cubecl_linalg::matmul::{self, SyncLoadingStrategy};
-use cubecl_linalg::matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
 
 use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
 use cubecl::future;
@@ -93,18 +92,18 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
     // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    );
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    // );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
     // );
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Tiling2D(Default::default()),
@@ -144,9 +143,9 @@ fn main() {
     #[cfg(feature = "cuda")]
     {
         // run_benches::<cubecl::cuda::CudaRuntime, f32>();
-        // run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
+        run_benches::<cubecl::cuda::CudaRuntime, half::f16>();
         //run_benches::<cubecl::cuda::CudaRuntime, SymQ8>();
-        run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
+        // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, i8, i32, i8)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();

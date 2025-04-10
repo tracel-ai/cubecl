@@ -1,15 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::r#virtual::{ReadWrite, VirtualTensor},
+};
 
-use crate::convolution::base::{Convolution, ConvolutionFamily};
 use crate::{
-    convolution::base::RuntimeArgs,
+    convolution::base::{Convolution, ConvolutionFamily, RuntimeArgs},
     matmul::components::{
-        Ident, MatrixLayout,
+        Ident,
         global::{
-            self, GlobalConfig,
+            GlobalConfig,
             args::{MatmulArgs, TensorInput, TensorInputIdent, TensorOutput},
         },
     },
@@ -82,9 +83,8 @@ pub mod config {
 
     use crate::{
         convolution::ConvGemmConfig,
-        matmul::components::{MatmulConfig, TilingDimensions},
+        matmul::components::{MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig},
     };
-    use global::GlobalConfig;
 
     use super::*;
 

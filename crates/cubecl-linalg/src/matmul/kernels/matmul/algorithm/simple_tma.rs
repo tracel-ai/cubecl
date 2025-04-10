@@ -6,7 +6,8 @@ use crate::matmul::components::{
     MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self},
-    stage, tile,
+    stage::{self, FullReaderFamily},
+    tile,
 };
 
 pub struct SimpleTmaAlgorithm<TMM, Dispatch = batch::TransposedDispatch> {
@@ -20,7 +21,8 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul =
+        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimpleTmaMatmulFamily<Self::StageMatmul>;
 
     type BatchMatmul = batch::one_to_one::OneToOneMatmulFamily<Self::GlobalMatmul, Dispatch>;

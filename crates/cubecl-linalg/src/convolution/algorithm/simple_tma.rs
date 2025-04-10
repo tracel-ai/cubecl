@@ -12,7 +12,9 @@ use crate::{
         homogeneous::simple_tma::SimpleTmaConvolutionFamily,
     },
     matmul::components::{
-        InputIdent, InvalidConfigError, MatmulSelection, global::args::TensorMapArgs, stage,
+        InputIdent, InvalidConfigError, MatmulSelection,
+        global::args::TensorMapArgs,
+        stage::{FullReaderFamily, plane_row_matmul::PlaneRowMatmulFamily},
         tile::TileMatmulFamily,
     },
     tensor::{TensorHandle, into_contiguous_pitched},
@@ -29,7 +31,7 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

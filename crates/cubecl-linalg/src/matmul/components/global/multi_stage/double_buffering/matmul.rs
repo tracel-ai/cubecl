@@ -5,16 +5,14 @@ use crate::matmul::components::global::load::{
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::{self, CommonGlobalConfig};
 use crate::matmul::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::StageEvent;
 use crate::matmul::components::stage::StageEventListener;
-use crate::matmul::components::stage::single_buffer::BufferReader;
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatmulProblem,
     stage,
 };
-use crate::matmul::components::{
-    global::GlobalMatmulFamily, stage::single_buffer::BufferReaderFamily,
-};
+use crate::matmul::components::{global::GlobalMatmulFamily, stage::BufferReaderFamily};
 use crate::matmul::kernels::MatmulAvailabilityError;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

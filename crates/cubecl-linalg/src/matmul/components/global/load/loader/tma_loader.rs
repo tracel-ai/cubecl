@@ -4,11 +4,10 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::CubeOption;
 
-use crate::matmul::components::stage::RowMajorTilingOrder;
+use crate::matmul::components::stage::{FullReader, RowMajorTilingOrder};
 use crate::matmul::components::{
     Ident, InputIdent, MatmulPrecision, MatrixLayout,
     global::{Quantization, single_stage},
-    stage::multi_buffer::FullReader,
 };
 use crate::matmul::components::{
     global::{self, GlobalConfig, tensor_view::MappedTensorReader},

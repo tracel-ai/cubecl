@@ -22,7 +22,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, multi_buffer::FullReaderFamily},
+        stage::{self, FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };

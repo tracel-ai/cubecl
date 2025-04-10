@@ -8,7 +8,7 @@ use crate::{
     convolution::base::RuntimeArgs,
     matmul::components::{
         Ident, InputIdent, MatmulPrecision,
-        stage::{ContiguousTilingLayout, RowMajorTilingOrder, multi_buffer::FullReader},
+        stage::{ContiguousTilingLayout, FullReader, RowMajorTilingOrder},
     },
 };
 use crate::{

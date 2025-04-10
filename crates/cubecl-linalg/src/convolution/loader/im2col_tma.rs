@@ -8,9 +8,7 @@ use crate::{
     convolution::reader::tma::Im2colTmaReader,
     matmul::components::{
         Ident, MatmulPrecision,
-        stage::{
-            ColMajorTilingOrder, ContiguousTilingLayout, StageConfig, multi_buffer::FullReader,
-        },
+        stage::{ColMajorTilingOrder, ContiguousTilingLayout, FullReader, StageConfig},
     },
 };
 use crate::{
