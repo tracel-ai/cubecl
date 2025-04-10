@@ -926,6 +926,12 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 vec![(8, 8, 8)],
             ),
             (
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::Elem::Float(gpu::FloatKind::F32),
+                vec![(8, 8, 8)],
+            ),
+            (
                 gpu::Elem::Float(gpu::FloatKind::BF16),
                 gpu::Elem::Float(gpu::FloatKind::BF16),
                 gpu::Elem::Float(gpu::FloatKind::BF16),
