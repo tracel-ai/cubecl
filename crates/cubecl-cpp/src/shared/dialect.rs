@@ -549,8 +549,10 @@ pub trait DialectInstructions<D: Dialect> {
         output: Elem<D>,
     ) -> std::fmt::Result {
         match output {
-            Elem::I32 | Elem::U32 => write!(f, "__brev({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__brevll({input})"),
+            Elem::I32 => write!(f, "static_cast<{output}>(__brev({input}))"),
+            Elem::U32 => write!(f, "__brev({input})"),
+            Elem::I64 => write!(f, "__brevll({input})"),
+            Elem::U64 => write!(f, "static_cast<{output}>(__brevll({input}))"),
             _ => write!(
                 f,
                 "{output}(__brev({}) >> {})",
