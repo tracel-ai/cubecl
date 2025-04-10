@@ -6,6 +6,7 @@ use crate::runtime::HipCompiler;
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
+use cubecl_common::benchmark::ClientProfile;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
@@ -23,7 +24,6 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::Instant;
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -517,7 +517,7 @@ impl HipContext {
 
 impl HipServer {
     /// Create a new hip server.
-    pub(crate) fn new(mut ctx: HipContext) -> Self {
+    pub(crate) fn new(ctx: HipContext) -> Self {
         let logger = DebugLogger::default();
         Self { ctx, logger }
     }
