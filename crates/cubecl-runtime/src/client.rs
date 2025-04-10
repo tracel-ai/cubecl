@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use spin::Mutex;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
@@ -228,7 +228,7 @@ where
     ///
     /// Nb: this function will only allow one function at a time to be submitted when multithrading.
     /// Recursive measurements are not allowed and will deadlock.
-    pub fn profile(&self, func: impl FnOnce()) -> ClientProfile {
+    pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
         self.state.profile_lock.lock();
         self.channel.start_profile();
         func();

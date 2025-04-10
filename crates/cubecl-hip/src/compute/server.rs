@@ -6,7 +6,7 @@ use crate::runtime::HipCompiler;
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
-use cubecl_common::benchmark::ClientProfile;
+use cubecl_common::benchmark::ProfileDuration;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
@@ -288,7 +288,7 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.start();
     }
 
-    fn end_profile(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ProfileDuration {
         self.logger.profile_summary();
         cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop()

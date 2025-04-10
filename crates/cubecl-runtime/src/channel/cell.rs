@@ -4,7 +4,7 @@ use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
-use cubecl_common::benchmark::ClientProfile;
+use cubecl_common::benchmark::ProfileDuration;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -128,7 +128,7 @@ where
         self.server.borrow_mut().start_profile()
     }
 
-    fn end_profile(&self) -> ClientProfile {
+    fn end_profile(&self) -> ProfileDuration {
         self.server.borrow_mut().end_profile()
     }
 }

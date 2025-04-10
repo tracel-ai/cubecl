@@ -4,7 +4,7 @@ use crate::storage::{BindingResource, ComputeStorage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
-use cubecl_common::benchmark::ClientProfile;
+use cubecl_common::benchmark::ProfileDuration;
 use spin::Mutex;
 
 /// The MutexComputeChannel ensures thread-safety by locking the server
@@ -121,7 +121,7 @@ where
         self.server.lock().start_profile();
     }
 
-    fn end_profile(&self) -> ClientProfile {
+    fn end_profile(&self) -> ProfileDuration {
         self.server.lock().end_profile()
     }
 }

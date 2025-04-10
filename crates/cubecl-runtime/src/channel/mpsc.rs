@@ -1,6 +1,6 @@
 use std::{sync::Arc, thread};
 
-use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
 use super::ComputeChannel;
 use crate::{
@@ -49,8 +49,8 @@ where
     Sync(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
-    StartMeasure,
-    StopMeasure(Callback<ClientProfile>),
+    StartProfile,
+    StopMeasure(Callback<ProfileDuration>),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -111,7 +111,7 @@ where
                         Message::MemoryCleanup => {
                             server.memory_cleanup();
                         }
-                        Message::StartMeasure => {
+                        Message::StartProfile => {
                             server.start_profile();
                         }
                         Message::StopMeasure(callback) => {
@@ -272,11 +272,11 @@ where
     fn start_profile(&self) {
         self.state
             .sender
-            .send_blocking(Message::StartMeasure)
+            .send_blocking(Message::StartProfile)
             .unwrap();
     }
 
-    fn end_profile(&self) -> ClientProfile {
+    fn end_profile(&self) -> ProfileDuration {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender

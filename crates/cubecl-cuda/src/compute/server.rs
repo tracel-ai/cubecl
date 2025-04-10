@@ -1,4 +1,4 @@
-use cubecl_core::benchmark::ClientProfile;
+use cubecl_core::benchmark::ProfileDuration;
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
@@ -535,7 +535,7 @@ impl ComputeServer for CudaServer {
         self.ctx.timestamps.start();
     }
 
-    fn end_profile(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ProfileDuration {
         self.logger.profile_summary();
         self.ctx.sync();
         self.ctx.timestamps.stop()

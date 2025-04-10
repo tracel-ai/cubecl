@@ -46,7 +46,7 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ClientProfile {
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }

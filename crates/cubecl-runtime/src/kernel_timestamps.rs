@@ -1,4 +1,4 @@
-use cubecl_common::benchmark::ClientProfile;
+use cubecl_common::benchmark::ProfileDuration;
 use std::time::Instant;
 
 #[derive(Debug, Default)]
@@ -18,8 +18,8 @@ impl KernelTimestamps {
     }
 
     /// Stop measuring
-    pub fn stop(&mut self) -> ClientProfile {
-        ClientProfile::from_duration(
+    pub fn stop(&mut self) -> ProfileDuration {
+        ProfileDuration::from_duration(
             self.start
                 .take()
                 .expect("Stopped timestamp before starting one.")

@@ -764,7 +764,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ClientProfile {
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
         self.client.profile(|| self.execute(args))
     }
 }

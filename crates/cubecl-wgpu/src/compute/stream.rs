@@ -1,6 +1,6 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    benchmark::ClientProfile,
+    benchmark::ProfileDuration,
     future,
     server::{Binding, Bindings, Handle},
 };
@@ -293,7 +293,7 @@ impl WgpuStream {
         }
     }
 
-    pub fn stop_profile(&mut self) -> ClientProfile {
+    pub fn stop_profile(&mut self) -> ProfileDuration {
         self.compute_pass = None;
 
         let timestamp = std::mem::replace(&mut self.timestamps, KernelTimestamps::Disabled);
@@ -302,9 +302,9 @@ impl WgpuStream {
             KernelTimestamps::Device { query_set, init } => {
                 if !init {
                     // If there was no work done between the start and stop of the profile, logically the
-                    // time should be 0. We could use a ClientProfile::from_duration here,
+                    // time should be 0. We could use a ProfileDuration::from_duration here,
                     // but it seems better to always return things as 'device' timing method.
-                    ClientProfile::from_future(async move { Duration::from_secs(0) })
+                    ProfileDuration::from_future(async move { Duration::from_secs(0) })
                 } else {
                     let (handle, resource) = self.mem_manage.query();
                     self.encoder.resolve_query_set(
@@ -325,7 +325,7 @@ impl WgpuStream {
                         let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
                         Duration::from_secs_f64(delta as f64 * period)
                     };
-                    ClientProfile::from_future(resolve_fut)
+                    ProfileDuration::from_future(resolve_fut)
                 }
             }
             KernelTimestamps::Full { start_time } => {
@@ -334,7 +334,7 @@ impl WgpuStream {
                     fut.await;
                     start_time.elapsed()
                 };
-                ClientProfile::from_future(duration_fut)
+                ProfileDuration::from_future(duration_fut)
             }
             KernelTimestamps::Disabled => {
                 panic!("Must start a profile before stopping a profile.")

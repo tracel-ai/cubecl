@@ -178,7 +178,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 let tuner = TuneBenchmark::new(op, test_inputs.clone(), client.clone());
                 #[cfg(feature = "autotune-checks")]
                 checks_outputs.push(tuner.output_for_checks());
-                let profiles = tuner.make_profiles().map(|bench| (name, index, bench));
+                let profiles = tuner.profile().map(|bench| (name, index, bench));
                 tunable_profiles.push(profiles);
             }
 

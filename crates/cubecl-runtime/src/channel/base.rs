@@ -1,5 +1,5 @@
 use core::future::Future;
-use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
 use crate::{
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
@@ -67,12 +67,13 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     ///
     /// This will measure execution time either by measuring the 'full' execution time by synchronizing
     /// the execution at the start and the end of the profile, or 'device' time by using device timestamps.
+    /// This function will handle any required synchronization.
     ///
     /// Recursive profiling is not allowed and will panic.
     fn start_profile(&self);
 
-    /// End the profile and return a [`ClientProfile`].
+    /// End the profile and return a [`ProfileDuration`].
     ///
-    /// You can retrieve the Duration of the client profile asynchronously.
-    fn end_profile(&self) -> ClientProfile;
+    /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
+    fn end_profile(&self) -> ProfileDuration;
 }

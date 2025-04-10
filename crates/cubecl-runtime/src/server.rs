@@ -9,7 +9,7 @@ use crate::{
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -100,7 +100,7 @@ where
     fn start_profile(&mut self);
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self) -> ClientProfile;
+    fn end_profile(&mut self) -> ProfileDuration;
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).

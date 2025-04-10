@@ -5,7 +5,7 @@ use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::future;
-use cubecl_core::benchmark::ClientProfile;
+use cubecl_core::benchmark::ProfileDuration;
 use cubecl_core::{
     Feature, KernelId, MemoryConfiguration, WgpuCompilationOptions,
     compute::DebugInformation,
@@ -226,7 +226,7 @@ impl ComputeServer for WgpuServer {
         self.stream.start_profile();
     }
 
-    fn end_profile(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ProfileDuration {
         self.logger.profile_summary();
 
         // TODO: Deal with BS recursive profile thing...
@@ -235,7 +235,7 @@ impl ComputeServer for WgpuServer {
         self.duration_profiled = None;
 
         // Add in profiled duration if needed.
-        ClientProfile::from_future(async move {
+        ProfileDuration::from_future(async move {
             profile.resolve().await + duration_profiled.unwrap_or(Duration::from_secs(0))
         })
     }

@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, benchmark::ClientProfile};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::server::{BindingWithMeta, Bindings};
 use std::future::Future;
@@ -148,7 +148,7 @@ impl ComputeServer for DummyServer {
         self.timestamps.start();
     }
 
-    fn end_profile(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ProfileDuration {
         self.timestamps.stop()
     }
 }

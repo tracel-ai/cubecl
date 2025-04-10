@@ -9,37 +9,37 @@ use core::pin::Pin;
 use core::time::Duration;
 
 /// Result from profiling between two measurements. This can either be a duration or a future that resolves to a duration.
-pub enum ClientProfile {
+pub enum ProfileDuration {
     /// Client profile contains a full duration.
     Full(Duration),
     /// Client profile measures the device duration, and requires to be resolved.
     DeviceDuration(Pin<Box<dyn Future<Output = Duration> + Send + 'static>>),
 }
 
-impl ClientProfile {
-    /// Create a new `ClientProfile` straight from a duration.
+impl ProfileDuration {
+    /// Create a new `ProfileDuration` straight from a duration.
     pub fn from_duration(duration: Duration) -> Self {
-        ClientProfile::Full(duration)
+        ProfileDuration::Full(duration)
     }
 
-    /// Create a new `ClientProfile` from a future that resolves to a duration.
+    /// Create a new `ProfileDuration` from a future that resolves to a duration.
     pub fn from_future(future: impl Future<Output = Duration> + Send + 'static) -> Self {
-        ClientProfile::DeviceDuration(Box::pin(future))
+        ProfileDuration::DeviceDuration(Box::pin(future))
     }
 
     /// The method used to measure the execution time.
     pub fn timing_method(&self) -> TimingMethod {
         match self {
-            ClientProfile::Full(_) => TimingMethod::Full,
-            ClientProfile::DeviceDuration(_) => TimingMethod::DeviceOnly,
+            ProfileDuration::Full(_) => TimingMethod::Full,
+            ProfileDuration::DeviceDuration(_) => TimingMethod::DeviceOnly,
         }
     }
 
     /// Resolve the actual duration of the profile, possibly by waiting for the future to complete.
     pub async fn resolve(self) -> Duration {
         match self {
-            ClientProfile::Full(duration) => duration,
-            ClientProfile::DeviceDuration(future) => future.await,
+            ProfileDuration::Full(duration) => duration,
+            ProfileDuration::DeviceDuration(future) => future.await,
         }
     }
 }
@@ -70,9 +70,9 @@ impl Display for TimingMethod {
 #[derive(new, Debug, Clone)]
 pub struct BenchmarkDurations {
     /// How these durations were measured.
-    timing_method: TimingMethod,
+    pub timing_method: TimingMethod,
     /// All durations of the run, in the order they were benchmarked
-    durations: Vec<Duration>,
+    pub durations: Vec<Duration>,
 }
 
 impl BenchmarkDurations {
@@ -85,23 +85,20 @@ impl BenchmarkDurations {
     }
 
     /// Construct from a list of profiles.
-    pub async fn from_profiles(profiles: Vec<ClientProfile>) -> Self {
-        let timing_method = profiles
-            .first()
-            .expect("need at least 1 profile")
-            .timing_method();
+    pub async fn from_profiles(profiles: Vec<ProfileDuration>) -> Self {
+        let mut durations = Vec::new();
+        let mut types = Vec::new();
 
-        if profiles
-            .iter()
-            .any(|profile| profile.timing_method() != timing_method)
-        {
+        for profile in profiles {
+            types.push(profile.timing_method());
+            durations.push(profile.resolve().await);
+        }
+
+        let timing_method = *types.first().expect("need at least 1 profile");
+        if types.iter().any(|&t| t != timing_method) {
             panic!("all profiles must use the same timing method");
         }
 
-        let mut durations = Vec::new();
-        for profile in profiles {
-            durations.push(profile.resolve().await);
-        }
         Self {
             timing_method,
             durations,
@@ -249,19 +246,19 @@ pub trait Benchmark {
 
     /// Start measuring the computation duration.
     #[cfg(feature = "std")]
-    fn profile(&self, args: Self::Args) -> ClientProfile {
+    fn profile(&self, args: Self::Args) -> ProfileDuration {
         self.profile_full(args)
     }
 
-    /// Start measuring the computation duration. Use the full duration irregardlesss of whether
+    /// Start measuring the computation duration. Use the full duration irregardless of whether
     /// device duration is available or not.
     #[cfg(feature = "std")]
-    fn profile_full(&self, args: Self::Args) -> ClientProfile {
+    fn profile_full(&self, args: Self::Args) -> ProfileDuration {
         self.sync();
         let start_time = std::time::Instant::now();
         self.execute(args);
         self.sync();
-        ClientProfile::from_duration(start_time.elapsed())
+        ProfileDuration::from_duration(start_time.elapsed())
     }
 
     /// Run the benchmark a number of times.

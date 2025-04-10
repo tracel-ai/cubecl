@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
-use cubecl_common::benchmark::ClientProfile;
+use cubecl_common::benchmark::ProfileDuration;
 
 use super::{AutotuneError, Tunable};
 
@@ -44,7 +44,7 @@ impl<
     }
 
     /// Benchmark how long this operation takes for a number of samples.
-    pub fn make_profiles(self) -> Result<Vec<ClientProfile>, AutotuneError> {
+    pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
         let operation = self.operation;
         // If the inner operation need autotuning as well, we need to call it before. This will
         // recurse and keep calling operations until a leaf operation tunes, and so on. This effectively
