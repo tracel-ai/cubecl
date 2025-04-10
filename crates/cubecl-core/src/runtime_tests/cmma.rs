@@ -633,6 +633,9 @@ macro_rules! testgen_cmma {
         #[test]
         fn test_cmma_strided() {
             let client = TestRuntime::client(&Default::default());
+            #[cfg(feature = "is_hip")]
+            let cube_dimensions = CubeDim::new(32, 1, 1);
+            #[cfg(not(feature = "is_hip"))]
             let cube_dimensions = CubeDim::new(16, 16, 1);
             cubecl_core::runtime_tests::cmma::test_cmma_strided::<TestRuntime>(
                 client,
