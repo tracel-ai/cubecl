@@ -11,7 +11,7 @@ use crate::matmul::components::MatrixLayout;
 use crate::matmul::components::{MatmulConfigFactory, global::args::TensorMapArgs};
 use crate::matmul::components::{
     MatmulLaunch,
-    global::args::{InputsLaunch, TensorMapInputs},
+    global::args::{ConcreteInputsFactory, TensorMapInputs},
 };
 use crate::matmul::kernels::matmul::Algorithm;
 use crate::matmul::tests::test_utils::Sample;
