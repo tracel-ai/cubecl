@@ -3,7 +3,6 @@ use std::{future::Future, time::Duration};
 use super::WgpuResource;
 use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
-use crate::timestamps::KernelTimestamps;
 use alloc::sync::Arc;
 use cubecl_common::future;
 use cubecl_core::benchmark::ClientProfile;
@@ -46,14 +45,12 @@ impl WgpuServer {
         backend: wgpu::Backend,
     ) -> Self {
         let logger = DebugLogger::default();
-        let timestamps = KernelTimestamps::Disabled;
 
         let stream = WgpuStream::new(
             device.clone(),
             queue.clone(),
             memory_properties,
             memory_config,
-            timestamps,
             tasks_max,
         );
 

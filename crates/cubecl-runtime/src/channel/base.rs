@@ -63,13 +63,16 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&self);
 
-    /// Wait for the completion of every task in the server.
+    /// Start a profile on the server. This allows you to profile kernels.
     ///
-    /// Returns the (approximate) total amount of GPU work done since the last sync.
+    /// This will measure execution time either by measuring the 'full' execution time by synchronizing
+    /// the execution at the start and the end of the profile, or 'device' time by using device timestamps.
+    ///
+    /// Recursive profiling is not allowed and will panic.
     fn start_profile(&self);
 
-    /// Wait for the completion of every task in the server.
+    /// End the profile and return a [`ClientProfile`].
     ///
-    /// Returns the (approximate) total amount of GPU work done since the last sync.
+    /// You can retrieve the Duration of the client profile asynchronously.
     fn end_profile(&self) -> ClientProfile;
 }

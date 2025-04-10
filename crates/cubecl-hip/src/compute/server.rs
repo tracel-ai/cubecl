@@ -284,13 +284,13 @@ impl ComputeServer for HipServer {
     }
 
     fn start_profile(&mut self) {
-        burn_common::future::block_on(self.sync());
+        cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.start();
     }
 
     fn end_profile(&mut self) -> ClientProfile {
         self.logger.profile_summary();
-        burn_common::future::block_on(self.sync());
+        cubecl_common::future::block_on(self.sync());
         self.ctx.timestamps.stop()
     }
 
@@ -321,7 +321,7 @@ impl HipContext {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            timestamps: KernelTimestamps::new(),
+            timestamps: KernelTimestamps::default(),
             compilation_options,
         }
     }
@@ -519,10 +519,6 @@ impl HipServer {
     /// Create a new hip server.
     pub(crate) fn new(mut ctx: HipContext) -> Self {
         let logger = DebugLogger::default();
-        if logger.profile_level().is_some() {
-            ctx.timestamps.enable();
-        }
-
         Self { ctx, logger }
     }
 

@@ -1,13 +1,24 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     benchmark::ClientProfile,
+    future,
     server::{Binding, Bindings, Handle},
 };
-use std::{future::Future, num::NonZero, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
+use web_time::{Duration, Instant};
+use wgpu::QuerySet;
+
+use super::{mem_manager::WgpuMemManager, poll::WgpuPoll};
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
-use wgpu::ComputePipeline;
+use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Device { query_set: QuerySet, init: bool },
+    Full { start_time: Instant },
+    Disabled,
+}
 
 #[derive(Debug)]
 pub struct WgpuStream {
@@ -31,7 +42,6 @@ impl WgpuStream {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        timestamps: KernelTimestamps,
         tasks_max: usize,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
@@ -49,7 +59,7 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
-            timestamps,
+            timestamps: KernelTimestamps::Disabled,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -250,20 +260,50 @@ impl WgpuStream {
             );
         }
 
-        // Flush all commands to the queue. This isn't really needed, but this should mean
-        // new work after this will be run with less overlap.
-        self.flush();
-        self.timestamps.start(&self.device);
+        if self
+            .device
+            .features()
+            .contains(wgpu::Features::TIMESTAMP_QUERY)
+        {
+            // Flush all commands to the queue. This isn't really needed, but this should mean
+            // new work after this will be run with less overlap.
+            self.flush();
+
+            let query_set = self.device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            });
+            self.timestamps = KernelTimestamps::Device {
+                query_set,
+                init: false,
+            };
+        } else if !cfg!(target_family = "wasm") {
+            // On native platforms, fallback to measuring full time elapsed.
+            future::block_on(self.sync());
+            self.timestamps = KernelTimestamps::Full {
+                start_time: Instant::now(),
+            };
+        } else {
+            // On WASM, there's not much we can do here anymore. This should be very rare however,
+            // all modern GPU's support timestamp queries.
+            panic!(
+                "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
+            );
+        }
     }
 
     pub fn stop_profile(&mut self) -> ClientProfile {
         self.compute_pass = None;
 
-        match self.timestamps.stop() {
+        let timestamp = std::mem::replace(&mut self.timestamps, KernelTimestamps::Disabled);
+
+        match timestamp {
             KernelTimestamps::Device { query_set, init } => {
                 if !init {
-                    // If there's nothing written, logically the time is 0. Could use a ClientProfile::from_duration here,
-                    // but seems better to always return the same timing method.
+                    // If there was no work done between the start and stop of the profile, logically the
+                    // time should be 0. We could use a ClientProfile::from_duration here,
+                    // but it seems better to always return things as 'device' timing method.
                     ClientProfile::from_future(async move { Duration::from_secs(0) })
                 } else {
                     let (handle, resource) = self.mem_manage.query();

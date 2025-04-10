@@ -16,13 +16,11 @@ use crate::tune::{TuneBenchmark, TuneCache};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
 
-type MessageAndKey<K> = (K, AutotuneMessage);
-
 #[derive(Debug)]
 /// Executes autotune benchmarking and caching
 pub struct Tuner<K: AutotuneKey> {
     tune_cache: TuneCache<K>,
-    channel: (Sender<MessageAndKey<K>>, Receiver<MessageAndKey<K>>),
+    channel: (Sender<AutotuneMessage<K>>, Receiver<AutotuneMessage<K>>),
     pub(crate) autotuning: HashSet<K>,
 }
 
@@ -37,8 +35,9 @@ pub struct AutotuneOutcome {
     index: usize,
     computation: BenchmarkComputations,
 }
-enum AutotuneMessage {
+enum AutotuneMessage<K> {
     Done {
+        key: K,
         fastest_index: usize,
         #[cfg(autotune_persistent_cache)]
         checksum: String,
@@ -48,7 +47,7 @@ enum AutotuneMessage {
         autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
     },
     #[allow(dead_code)]
-    Pending,
+    Pending(K),
 }
 
 /// Error from running autotune.
@@ -89,12 +88,13 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Handle an autotune result message, see [`execute_autotune`]
-    fn handle_result(&mut self, key: K, msg: AutotuneMessage) {
+    fn handle_result(&mut self, msg: AutotuneMessage<K>) {
         match msg {
-            AutotuneMessage::Pending => {
+            AutotuneMessage::Pending(key) => {
                 self.tune_cache.mark_pending(key);
             }
             AutotuneMessage::Done {
+                key,
                 fastest_index,
                 #[cfg(autotune_persistent_cache)]
                 checksum,
@@ -119,8 +119,10 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Check if any autotuning results have come in asynchronously.
     pub fn handle_results(&mut self) {
-        while let Ok((key, msg)) = self.channel.1.try_recv() {
-            self.handle_result(key, msg);
+        // Handle any results that have come in. Note that execute_autotune pushes results to the channel immediately if possible.
+        // Since this function takes an &mut we know we have exclusive access, and no other threads are currently still adding results.
+        while let Ok(msg) = self.channel.1.try_recv() {
+            self.handle_result(msg);
         }
     }
 
@@ -151,6 +153,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let message = 'message: {
             if autotunables.len() == 1 {
                 break 'message AutotuneMessage::Done {
+                    key,
                     fastest_index: autotunables[0].0,
                     #[cfg(autotune_persistent_cache)]
                     checksum: tunables.compute_checksum(),
@@ -247,6 +250,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
 
                 AutotuneMessage::Done {
+                    key: key_clone,
                     fastest_index: result.index,
                     #[cfg(autotune_persistent_cache)]
                     checksum,
@@ -267,7 +271,8 @@ impl<K: AutotuneKey> Tuner<K> {
                     };
                     // On wasm, spawn the tuning as a detached task.
                     wasm_bindgen_futures::spawn_local(send_fut);
-                    AutotuneMessage::Pending
+                    // Mark the current tuning as pending.
+                    AutotuneMessage::Pending(key)
                 } else {
                     // On native, it is possible to run the tuning on a thread, which could help startup times,
                     // but might have two downsides:
@@ -282,7 +287,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // Note that this message will be processed straight away by handle_results.
         self.channel
             .0
-            .try_send((key, message))
+            .try_send(message)
             .expect("Loss message channel somehow");
     }
 }
