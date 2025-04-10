@@ -13,7 +13,7 @@ use cubecl_core::{
     Runtime, client::ComputeClient, frontend::TensorHandleRef, tensor_line_size_parallel,
 };
 
-use super::{Algorithm, select_kernel};
+use super::{Algorithm, select_kernel_concrete};
 
 /// Launch a matrix multiplication kernel.
 ///
@@ -202,14 +202,16 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         && TypeId::of::<MP::EI>() == TypeId::of::<f32>()
     {
         if tf32::is_supported(client) {
-            select_kernel::<ReplaceES<MP, tf32>, R, A>(client, lhs, rhs, out, problem, plane_dim)
+            select_kernel_concrete::<ReplaceES<MP, tf32>, R, A>(
+                client, lhs, rhs, out, problem, plane_dim,
+            )
         } else {
-            select_kernel::<ReplaceES<MP, half::f16>, R, A>(
+            select_kernel_concrete::<ReplaceES<MP, half::f16>, R, A>(
                 client, lhs, rhs, out, problem, plane_dim,
             )
         }
     } else {
-        select_kernel::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim)
+        select_kernel_concrete::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim)
     }
 }
 
@@ -280,11 +282,13 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     };
 
     if TypeId::of::<MP::EI>() == TypeId::of::<f32>() {
-        select_kernel::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
+        select_kernel_concrete::<(ReplaceES<MP, tf32>, TensorMapArgs), R, A>(
             client, lhs, rhs, out, problem, plane_dim,
         )
     } else {
-        select_kernel::<(MP, TensorMapArgs), R, A>(client, lhs, rhs, out, problem, plane_dim)
+        select_kernel_concrete::<(MP, TensorMapArgs), R, A>(
+            client, lhs, rhs, out, problem, plane_dim,
+        )
     }
 }
 
