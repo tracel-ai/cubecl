@@ -9,7 +9,7 @@ use crate::{convolution::algorithm::Algorithm, matmul::components::MatmulSelecti
 use crate::{convolution::base::ConvolutionLaunch, matmul::components::InputIdent};
 use crate::{
     convolution::{args::ConvInputsLaunch, base::ConvolutionConfigFactory},
-    matmul::components::global::args::{MatmulArgs, OutputLaunch},
+    matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs},
 };
 
 use super::test_utils::TestPrecision;
@@ -30,6 +30,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     P: TestPrecision,
     R: Runtime,
     Args::Input<P::EG>: ConvInputsLaunch,
+    Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
 
@@ -105,7 +106,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &selection,
         &problem,
     );
-    let output = <Output<Args, P::EG> as OutputLaunch>::create(
+    let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
         &out_handle,
         &selection,
         &problem.as_matmul_problem(),

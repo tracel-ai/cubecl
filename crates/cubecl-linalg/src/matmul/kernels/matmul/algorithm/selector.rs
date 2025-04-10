@@ -38,7 +38,8 @@ where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
+    let selection =
+        matmul_selection::<A::TileMatmul, MS::Precision, R>(client, &problem, plane_dim);
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
         tile_count: selection.tile_count,

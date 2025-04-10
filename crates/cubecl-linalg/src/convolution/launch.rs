@@ -4,7 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient, prelude::*, tensor_line_size_p
 use half::f16;
 
 use crate::matmul::{
-    components::global::args::{MatmulArgs, OutputLaunch},
+    components::global::args::{ConcreteOutputFactory, MatmulArgs},
     kernels::MatmulLaunchError,
 };
 use crate::{
@@ -49,6 +49,7 @@ pub fn launch_conv2d_nhwc<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
 ) -> Result<(), ConvLaunchError>
 where
     Input<Alg, MP>: ConvInputsLaunch,
+    Output<Alg, MP>: ConcreteOutputFactory,
 {
     let ConvolutionArgs {
         stride,
@@ -145,6 +146,7 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
 ) -> Result<(), ConvLaunchError>
 where
     Input<Alg, MP>: ConvInputsLaunch,
+    Output<Alg, MP>: ConcreteOutputFactory,
 {
     // Reshape out to (M, N)
     let out_shape = [out.shape[0..3].iter().product(), out.shape[3]];
@@ -165,8 +167,11 @@ where
     )?;
 
     let input = <Input<Alg, MP> as ConvInputsLaunch>::create(input, weight, &selection, &problem);
-    let output =
-        <Output<Alg, MP> as OutputLaunch>::create(&out, &selection, &problem.as_matmul_problem());
+    let output = <Output<Alg, MP> as ConcreteOutputFactory>::create(
+        &out,
+        &selection,
+        &problem.as_matmul_problem(),
+    );
     let bias = bias
         .as_ref()
         .map(|bias| bias.as_tensor_arg(problem.out_line_size));

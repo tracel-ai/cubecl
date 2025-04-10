@@ -1,8 +1,10 @@
-use crate::convolution::base::ConvolutionProblem;
 use crate::convolution::{
     algorithm::Algorithm, args::ConvInputsLaunch, tests::test_utils::TestPrecision,
 };
 use crate::matmul::components::{CompleteStageTiling, MatrixLayout};
+use crate::{
+    convolution::base::ConvolutionProblem, matmul::components::global::args::ConcreteOutputFactory,
+};
 use crate::{
     convolution::tests::convolution_test_launcher::test_convolution_algorithm,
     matmul::components::{
@@ -26,6 +28,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
     problem: ConvolutionSize,
 ) where
     Args::Input<P::EG>: ConvInputsLaunch,
+    Args::Output<P::EG>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
     let plane_dim = match client
