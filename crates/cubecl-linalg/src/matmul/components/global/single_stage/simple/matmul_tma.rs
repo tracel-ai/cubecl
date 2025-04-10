@@ -1,13 +1,12 @@
-use crate::matmul::components::global::GlobalMatmul;
-use crate::matmul::components::global::Quantization;
+use crate::matmul::components::InputIdent;
 use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
-use crate::matmul::components::stage::FullReader;
+use crate::matmul::components::global::{GlobalMatmul, load::TmaTiling};
+use crate::matmul::components::global::{Quantization, load::TmaReader};
 use crate::matmul::components::stage::StageMatmul;
 use crate::matmul::components::{Ident, MatmulPrecision};
-use crate::matmul::components::{InputIdent, stage::StridedTilingLayout};
 
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -36,8 +35,7 @@ impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
-    type Matmul<MP: MatmulPrecision> =
-        SimpleTmaMatmul<MP, SMM::Matmul<MP, StridedTilingLayout, StridedTilingLayout>>;
+    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
 }
 
 impl<SMM> MatmulConfigFactory for SimpleTmaMatmulFamily<SMM>
@@ -65,6 +63,14 @@ where
             return Err(MatmulAvailabilityError::TmaUnavailable);
         }
 
+        let ei_id = TypeId::of::<MP::EI>();
+        let es_id = TypeId::of::<MP::ES>();
+        let is_tf32 = ei_id == TypeId::of::<f32>() && es_id == TypeId::of::<tf32>();
+
+        if ei_id != es_id && !is_tf32 {
+            return Err(MatmulAvailabilityError::TmaUnavailable);
+        }
+
         if !client
             .properties()
             .feature_enabled(Feature::Tma(TmaFeature::Base))
@@ -82,7 +88,14 @@ where
         cube_count: &CubeCount,
         quantized: bool,
     ) -> Self::Config {
-        let smm_config = SMM::make_config(input, problem, cube_dim, cube_count, quantized);
+        let mut problem = problem.clone();
+
+        // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
+        // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
+        problem.lhs_line_size = 1;
+        problem.rhs_line_size = 1;
+
+        let smm_config = SMM::make_config(input, &problem, cube_dim, cube_count, quantized);
         let stage_shape = SMM::stage_shape(&smm_config);
 
         Config::new(
@@ -111,11 +124,7 @@ pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
 #[cube]
 impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
-    SMM: StageMatmul<
-            MP,
-            LhsReader = FullReader<MP::ES, StridedTilingLayout>,
-            RhsReader = FullReader<MP::ES, StridedTilingLayout>,
-        >,
+    SMM: StageMatmul<MP, LhsReader = TmaReader<MP>, RhsReader = TmaReader<MP>>,
 {
     type Config = Config<SMM::Config>;
     type LhsLoader = TmaLoader<MP, SMM::Config>;
@@ -145,8 +154,8 @@ where
             sync_units();
 
             // Start loading
-            Self::LhsLoader::fill_stage::<Barrier<MP::ES>>(&mut lhs_loader, &barrier, config);
-            Self::RhsLoader::fill_stage::<Barrier<MP::ES>>(&mut rhs_loader, &barrier, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
             if UNIT_POS == 0 {
                 let total_stage = config.tiling_dimensions(Ident::Rhs).total_size()

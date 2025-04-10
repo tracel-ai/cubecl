@@ -137,7 +137,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> AsyncLoadingJob<MP, ContiguousTilingL
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let jc = comptime!(this.job_config);
 
         let slice_index = this.unit_id + jc.total_units * task_id;
 

@@ -151,11 +151,11 @@ impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
 
 /// Commit an async tensor operation. Not sure how this works, poor docs. But you need to call it
 /// after a write, but not after reads.
-pub fn memcpy_async_tensor_commit() {
+pub fn tma_group_commit() {
     unexpanded!()
 }
 
-pub mod memcpy_async_tensor_commit {
+pub mod tma_group_commit {
     use cubecl_ir::TmaOps;
 
     use super::*;
@@ -166,11 +166,11 @@ pub mod memcpy_async_tensor_commit {
 }
 
 /// Wait until at most `max_pending` TMA copy operations are in flight.
-pub fn memcpy_async_tensor_wait(_max_pending: u32) {
+pub fn tma_group_wait(_max_pending: u32) {
     unexpanded!()
 }
 
-pub mod memcpy_async_tensor_wait {
+pub mod tma_group_wait {
     use cubecl_ir::TmaOps;
 
     use super::*;
@@ -192,14 +192,14 @@ pub mod memcpy_async_tensor_wait {
 /// copy_data(smem2);
 /// copy_data(smem3);
 /// copy_data(smem4);
-/// memcpy_async_tensor_wait_read(2);
+/// tma_wait_read(2);
 /// // reuse smem1 & smem2 while 3 and 4 are still pending
 /// ```
-pub fn memcpy_async_tensor_wait_read(_max_pending: u32) {
+pub fn tma_group_wait_read(_max_pending: u32) {
     unexpanded!()
 }
 
-pub mod memcpy_async_tensor_wait_read {
+pub mod tma_group_wait_read {
     use cubecl_ir::TmaOps;
 
     use super::*;
@@ -209,14 +209,14 @@ pub mod memcpy_async_tensor_wait_read {
     }
 }
 
-macro_rules! copy_tensor_to_global {
+macro_rules! tma_store {
     ($dim: literal, $($arg: expr),*) => {
         paste! {
             /// Copy a tile from a shared memory `src` to a global memory `dst`, with the provided
             /// offsets. Should be combined with [`memcpy_async_tensor_commit`] and
             /// [`memcpy_async_tensor_wait_read`].
             #[allow(unused)]
-            pub fn [<memcpy_async_tensor_to_global_ $dim d>]<E: CubePrimitive>(
+            pub fn [<tma_store_ $dim d>]<E: CubePrimitive>(
                 src: &Slice<Line<E>>,
                 dst: &mut TensorMap<E>,
                 $($arg: i32),*
@@ -224,7 +224,7 @@ macro_rules! copy_tensor_to_global {
                 unexpanded!()
             }
 
-            pub mod [<memcpy_async_tensor_to_global_ $dim d>] {
+            pub mod [<tma_store_ $dim d>] {
                 use cubecl_ir::{Instruction, TmaOps};
 
                 use super::*;
@@ -240,7 +240,7 @@ macro_rules! copy_tensor_to_global {
                     let dst = *dst.expand;
                     let coordinates = vec![$(*$arg.expand),*];
                     scope.register(Instruction::new(
-                        TmaOps::MemCopyAsyncTensorToGlobal {
+                        TmaOps::TmaStore {
                             source,
                             coordinates,
                         },
@@ -252,10 +252,10 @@ macro_rules! copy_tensor_to_global {
     };
 }
 
-copy_tensor_to_global!(2, y, x);
-copy_tensor_to_global!(3, z, y, x);
-copy_tensor_to_global!(4, w, z, y, x);
-copy_tensor_to_global!(5, v, w, z, y, x);
+tma_store!(2, y, x);
+tma_store!(3, z, y, x);
+tma_store!(4, w, z, y, x);
+tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {

@@ -18,15 +18,29 @@ pub enum TensorMapFormat {
         /// For CUDA, this must be a power of two and `<= 256` on each dimension.
         tile_size: Vec<u32>,
     },
-    /// Im2col indexing
+    /// Im2col indexing. Loads a "column" (not the same column as im2col) of pixels into shared
+    /// memory, with a certain offset (kernel position). The corners are the bounds to load pixels
+    /// from *at offset 0*, so the top left corner of the kernel. The offset is added to the
+    /// corner offsets, so a `(-1, -1)` corner will stop the bounding box at `(1, 1)` for kernel
+    /// offset `(2, 2)`.
     Im2col {
-        /// Pixel box lower corner. TODO: How does this work?
+        /// Pixel box lower corner. This is the logical upper left corner in the input tensor,
+        /// when offset is 0. The length of this value should equal the *spatial* dimensions of
+        /// the input tensor (i.e. `h, w` for an NHWC tensor). Should normally be set to `-padding`.
         pixel_box_lower_corner: Vec<i32>,
-        /// Pixel box upper corner. TODO: How does this work?
+        /// Pixel box top corner. This is the logical lower right corner in the input tensor,
+        /// when offset is 0. The length of this value should equal the *spatial* dimensions of
+        /// the input tensor (i.e. `h, w` for an NHWC tensor). Should normally be set to
+        /// `padding - kernel_size - 1` (where `kernel_size` accounts for dilation). This is not
+        /// equal to padding, it's equal to the bounding box for the *top left corner of the kernel*.
         pixel_box_upper_corner: Vec<i32>,
-        /// Channels per pixel
+        /// Channels to load per pixel, should be a multiple or divisor of the matmul tile size.
+        /// This is not the total number of channels in the tensor, but only the number loaded in
+        /// each load. Must be <= 256 and aligned to 16 bytes.
         channels_per_pixel: u32,
-        /// Pixels per column, aka kernel size
+        /// Pixels per column, equivalent to the `m`/`n` dimension of each tile in the matrix
+        /// multiplication. i.e. `NHW` for a 4D tensor.
+        /// Must be <= 256 and aligned to 16 bytes
         pixels_per_column: u32,
     },
     /// Wide im2col

@@ -107,7 +107,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job<MP> {
         stage: &mut Stage<MP::ES, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let jc = comptime!(this.job_config);
         let unit_position = this.unit_position_base + task_id * jc.unit_count;
 
         let line_read = tensor_reader.load_coalesced_in_stage::<G>(

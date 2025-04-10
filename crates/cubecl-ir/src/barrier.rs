@@ -29,10 +29,16 @@ pub enum BarrierOps {
         barrier: Variable,
         source: Variable,
     },
-    MemCopyAsyncTensorGlobalToShared {
+    TmaLoad {
         barrier: Variable,
         tensor_map: Variable,
         indices: Vec<Variable>,
+    },
+    TmaLoadIm2col {
+        barrier: Variable,
+        tensor_map: Variable,
+        indices: Vec<Variable>,
+        offsets: Vec<Variable>,
     },
     /// Arrives at the barrier (decrements barrier count)
     Arrive {
@@ -70,7 +76,7 @@ impl Display for BarrierOps {
                 write!(f, "mem_copy_async({barrier}, source: {source})",)
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
-            BarrierOps::MemCopyAsyncTensorGlobalToShared {
+            BarrierOps::TmaLoad {
                 barrier,
                 tensor_map,
                 indices,
@@ -80,9 +86,26 @@ impl Display for BarrierOps {
                     let _ = write!(s, "{it}, ");
                     s
                 });
+                write!(f, "tma_load::<{rank}>({barrier}, {tensor_map}, {indices})")
+            }
+            BarrierOps::TmaLoadIm2col {
+                barrier,
+                tensor_map,
+                indices,
+                offsets,
+            } => {
+                let rank = indices.len();
+                let indices = indices.iter().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
+                let offsets = offsets.iter().fold(String::new(), |mut s, it| {
+                    let _ = write!(s, "{it}, ");
+                    s
+                });
                 write!(
                     f,
-                    "mem_copy_async_bulk_global_to_shared::<{rank}>({barrier}, {tensor_map}, {indices})"
+                    "tma_load_im2col::<{rank}>({barrier}, {tensor_map}, indices: ({indices}), offsets: ({offsets}))"
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),

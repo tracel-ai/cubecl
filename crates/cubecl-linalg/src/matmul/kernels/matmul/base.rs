@@ -293,7 +293,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 }
 
 #[allow(clippy::result_large_err)]
-pub(crate) fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn matmul_cube_preparation<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,

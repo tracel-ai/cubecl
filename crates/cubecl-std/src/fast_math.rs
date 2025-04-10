@@ -8,12 +8,16 @@ use cubecl_core::prelude::*;
 ///
 /// Implementation based on ONNX:
 /// <https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/providers/cuda/shared_inc/fast_divmod.h>
-#[derive(CubeType, CubeLaunch)]
+#[derive(CubeType, CubeLaunch, Clone, Copy)]
 pub enum FastDivmod {
     Fast {
         divisor: u32,
         multiplier: u32,
         shift_right: u32,
+    },
+    PowerOfTwo {
+        shift: u32,
+        mask: u32,
     },
     Fallback {
         divisor: u32,
@@ -23,6 +27,13 @@ pub enum FastDivmod {
 impl<R: Runtime> FastDivmodArgs<'_, R> {
     pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: u32) -> Self {
         debug_assert!(divisor != 0);
+
+        if divisor.is_power_of_two() {
+            return FastDivmodArgs::PowerOfTwo {
+                shift: ScalarArg::new(divisor.trailing_zeros()),
+                mask: ScalarArg::new(divisor - 1),
+            };
+        }
 
         if !u64::is_supported(client) {
             return FastDivmodArgs::Fallback {
@@ -54,6 +65,7 @@ impl FastDivmod {
                 let t = u32::mul_hi(dividend, *multiplier);
                 (t + dividend) >> shift_right
             }
+            FastDivmod::PowerOfTwo { shift, .. } => dividend >> *shift,
             FastDivmod::Fallback { divisor } => dividend / divisor,
         }
     }
@@ -62,17 +74,19 @@ impl FastDivmod {
         let q = self.div(dividend);
         match self {
             FastDivmod::Fast { divisor, .. } => dividend - q * divisor,
+            FastDivmod::PowerOfTwo { mask, .. } => dividend & mask,
             FastDivmod::Fallback { divisor } => dividend % divisor,
         }
     }
 
     pub fn div_mod(&self, dividend: u32) -> (u32, u32) {
         let q = self.div(dividend);
-        let divisor = match self {
-            FastDivmod::Fast { divisor, .. } => *divisor,
-            FastDivmod::Fallback { divisor } => *divisor,
+        let r = match self {
+            FastDivmod::Fast { divisor, .. } => dividend - q * divisor,
+            FastDivmod::Fallback { divisor } => dividend - q * divisor,
+            FastDivmod::PowerOfTwo { mask, .. } => dividend & *mask,
         };
-        let r = dividend - q * divisor;
+
         (q, r)
     }
 }

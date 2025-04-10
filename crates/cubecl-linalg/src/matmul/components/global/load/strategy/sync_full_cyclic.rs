@@ -118,7 +118,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let jc = comptime!(this.job_config);
 
         let unit_position = this.unit_position_base + task_id * jc.jump_length;
 

@@ -105,7 +105,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let jc = comptime!(this.job_config);
         let nth_slice = jc.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]

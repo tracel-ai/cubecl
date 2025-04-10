@@ -23,6 +23,13 @@ pub enum BarrierOps<D: Dialect> {
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
+    TmaLoadIm2col {
+        barrier: Variable<D>,
+        smem_buffer: Variable<D>,
+        tensor_map: Variable<D>,
+        indices: Vec<Variable<D>>,
+        offsets: Vec<Variable<D>>,
+    },
     Arrive {
         barrier: Variable<D>,
         level: BarrierLevel,
@@ -56,6 +63,7 @@ impl<D: Dialect> BarrierOps<D> {
             BarrierOps::ArriveTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::MemCopyAsyncTensorGlobalToShared { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::TmaLoadIm2col { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ExpectTx { barrier, .. } => barrier.id().unwrap(),
         }
     }
@@ -147,13 +155,35 @@ cuda::memcpy_async({destination}, {source}, {source}_length * {size}, {barrier})
                 indices,
             } => {
                 let rank = indices.len();
+                let smem_ptr = smem_buffer.fmt_ptr();
                 let indices = indices.iter().rev().fold(String::new(), |mut s, it| {
                     let _ = write!(s, "{it}, ");
                     s
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared(&{smem_buffer}, &{tensor_map}, {indices} {barrier});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared({smem_ptr}, &{tensor_map}, {indices} {barrier});"
+                )
+            }
+            BarrierOps::TmaLoadIm2col {
+                barrier,
+                smem_buffer,
+                tensor_map,
+                indices,
+                offsets,
+            } => {
+                let rank = indices.len();
+                let smem_ptr = smem_buffer.fmt_ptr();
+                let args: Vec<_> = indices
+                    .iter()
+                    .rev()
+                    .map(|it| it.to_string())
+                    .chain(offsets.iter().rev().map(|it| it.to_string()))
+                    .collect();
+                writeln!(
+                    f,
+                    "tma_load_im2col_{rank}d(&{tensor_map}, {barrier}, {smem_ptr}, {});",
+                    args.join(", ")
                 )
             }
             BarrierOps::Arrive { barrier, .. } => {

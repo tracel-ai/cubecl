@@ -340,7 +340,7 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, source);
             }
-            BarrierOps::MemCopyAsyncTensorGlobalToShared {
+            BarrierOps::TmaLoad {
                 barrier,
                 tensor_map,
                 indices,
@@ -349,6 +349,21 @@ impl Optimizer {
                 visit_read(self, tensor_map);
                 for index in indices {
                     visit_read(self, index);
+                }
+            }
+            BarrierOps::TmaLoadIm2col {
+                barrier,
+                tensor_map,
+                indices,
+                offsets,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, tensor_map);
+                for index in indices {
+                    visit_read(self, index);
+                }
+                for offset in offsets {
+                    visit_read(self, offset);
                 }
             }
             BarrierOps::ArriveAndWait { barrier } => visit_read(self, barrier),
@@ -381,7 +396,7 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match tma_ops {
-            TmaOps::MemCopyAsyncTensorToGlobal {
+            TmaOps::TmaStore {
                 source,
                 coordinates,
             } => {

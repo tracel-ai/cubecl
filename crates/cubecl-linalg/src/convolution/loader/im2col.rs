@@ -4,9 +4,12 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use crate::matmul::components::{
-    Ident, InputIdent, MatmulPrecision,
-    stage::{ContiguousTilingLayout, FullReader, RowMajorTilingOrder},
+use crate::{
+    convolution::base::RuntimeArgs,
+    matmul::components::{
+        Ident, InputIdent, MatmulPrecision,
+        stage::{ContiguousTilingLayout, FullReader, RowMajorTilingOrder},
+    },
 };
 use crate::{
     convolution::{ConvGemmConfig, reader::im2col::Im2colReader},
@@ -26,23 +29,21 @@ pub struct SimpleIm2colLoader<MP: MatmulPrecision, G: ConvGemmConfig> {
 impl<MP: MatmulPrecision, G: ConvGemmConfig> SimpleIm2colLoader<MP, G> {
     pub fn new(
         tensor: VirtualTensor<MP::EI>,
-        shape_out_y: u32,
-        shape_out_x: u32,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: G,
     ) -> Self {
         let stage = Stage::new::<G::SmmConfig>(Ident::Lhs, config.to_smm_config());
-        let shape_batch = tensor.shape(0);
         let shape_channel = tensor.shape(3);
 
-        let shape_m = shape_batch * shape_out_y * shape_out_x;
-        let shape_k = shape_channel * config.kernel_size(0) * config.kernel_size(1);
+        let shape_m = runtime_args.size_m;
+        let shape_k = runtime_args.size_k;
 
         let tensor_view = Im2colReader::<MP::EI>::new(
             tensor,
-            shape_out_y,
-            shape_out_x,
+            runtime_args.out_h,
+            runtime_args.out_w,
             x_offset,
             y_offset,
             shape_k,

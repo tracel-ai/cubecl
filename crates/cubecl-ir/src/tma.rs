@@ -11,7 +11,7 @@ use super::Variable;
 #[operation(opcode_name = TmaOpCode)]
 /// Operations available on a barrier
 pub enum TmaOps {
-    MemCopyAsyncTensorToGlobal {
+    TmaStore {
         source: Variable,
         coordinates: Vec<Variable>,
     },
@@ -27,7 +27,7 @@ pub enum TmaOps {
 impl Display for TmaOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TmaOps::MemCopyAsyncTensorToGlobal {
+            TmaOps::TmaStore {
                 source,
                 coordinates,
             } => {
@@ -36,14 +36,14 @@ impl Display for TmaOps {
                     let _ = write!(s, ", {coord}");
                     s
                 });
-                write!(f, "memcpy_async_bulk_{rank}({source}{coords})")
+                write!(f, "tma_load::<{rank}>({source}{coords})")
             }
             TmaOps::CommitGroup => write!(f, "memcpy_async_bulk_commit_group()"),
             TmaOps::WaitGroup { max_pending } => {
-                write!(f, "memcpy_async_bulk_wait_group::<{max_pending}>()")
+                write!(f, "tma_wait_group::<{max_pending}>()")
             }
             TmaOps::WaitGroupRead { max_pending } => {
-                write!(f, "memcpy_async_bulk_wait_group_read::<{max_pending}>()")
+                write!(f, "tma_wait_group_read::<{max_pending}>()")
             }
         }
     }

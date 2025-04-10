@@ -163,6 +163,18 @@ pub struct ExpandElementTyped<T: CubeType> {
     pub(crate) _type: PhantomData<T>,
 }
 
+impl<T: CubeType> From<&ExpandElementTyped<T>> for ExpandElementTyped<T> {
+    fn from(value: &ExpandElementTyped<T>) -> Self {
+        value.clone()
+    }
+}
+
+impl<T: CubeType> From<&mut ExpandElementTyped<T>> for ExpandElementTyped<T> {
+    fn from(value: &mut ExpandElementTyped<T>) -> Self {
+        value.clone()
+    }
+}
+
 macro_rules! from_const {
     ($lit:ty) => {
         impl From<$lit> for ExpandElementTyped<$lit> {

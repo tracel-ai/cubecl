@@ -144,7 +144,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let jc = comptime!(this.job_config);
 
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(

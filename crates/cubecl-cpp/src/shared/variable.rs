@@ -459,6 +459,17 @@ impl<D: Dialect> Variable<D> {
             _ => None,
         }
     }
+
+    /// Format variable for a pointer argument. Slices and buffers are already pointers, so we
+    /// just leave them as is to avoid accidental double pointers
+    pub fn fmt_ptr(&self) -> String {
+        match self {
+            Variable::Slice { .. }
+            | Variable::GlobalInputArray(_, _)
+            | Variable::GlobalOutputArray(_, _) => format!("{self}"),
+            _ => format!("&{self}"),
+        }
+    }
 }
 
 impl<D: Dialect> FmtLeft for Variable<D> {

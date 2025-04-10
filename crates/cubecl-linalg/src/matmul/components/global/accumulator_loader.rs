@@ -11,8 +11,8 @@ use super::AccumulatorLoader;
 pub struct ZeroAccumulatorLoader;
 
 #[cube]
-impl<MP: MatmulPrecision, G: StageConfig> AccumulatorLoader<MP, G> for ZeroAccumulatorLoader {
-    fn fill_stage(_this: &mut Self, #[comptime] _config: G) {}
+impl<MP: MatmulPrecision> AccumulatorLoader<MP> for ZeroAccumulatorLoader {
+    fn fill_stage<S: StageConfig>(_this: &mut Self, #[comptime] _config: S) {}
 
     fn load<Tile: tile::TileMatmul<MP>>(
         _this: &mut Self,

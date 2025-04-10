@@ -130,14 +130,14 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
     }
 }
 
-macro_rules! tensor_map_copy_to_shared {
+macro_rules! tensor_map_load {
     ($dim: literal, $($arg: expr),*) => {
         paste! {
             impl<C: CubePrimitive> Barrier<C> {
                 /// Copy a tile from a global memory `source` to a shared memory `destination`, with
                 /// the provided offsets.
                 #[allow(unused, clippy::too_many_arguments)]
-                pub fn [<memcpy_async_tensor_to_shared_ $dim d>](
+                pub fn [<tma_load_ $dim d>](
                     &self,
                     source: &TensorMap<C>,
                     destination: &mut SliceMut<Line<C>>,
@@ -147,20 +147,20 @@ macro_rules! tensor_map_copy_to_shared {
                 }
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_memcpy_async_tensor_to_shared_ $dim d>](
+                pub fn [<__expand_tma_load_ $dim d>](
                     scope: &mut Scope,
                     expand: BarrierExpand<C>,
                     source: ExpandElementTyped<TensorMap<C>>,
                     destination: ExpandElementTyped<SliceMut<Line<C>>>,
                     $($arg: ExpandElementTyped<i32>),*
                 ) {
-                    expand.[<__expand_memcpy_async_tensor_to_shared_ $dim d_method>](scope, source, destination, $($arg),*);
+                    expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
                 }
             }
 
             impl<C: CubePrimitive> BarrierExpand<C> {
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_memcpy_async_tensor_to_shared_ $dim d_method>](
+                pub fn [<__expand_tma_load_ $dim d_method>](
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
@@ -171,7 +171,7 @@ macro_rules! tensor_map_copy_to_shared {
                     let source = *source.expand;
                     let destination = *destination.expand;
 
-                    let mem_copy = BarrierOps::MemCopyAsyncTensorGlobalToShared {
+                    let mem_copy = BarrierOps::TmaLoad {
                         barrier,
                         tensor_map: source,
                         indices: vec![$(*$arg.expand),*],
@@ -184,10 +184,72 @@ macro_rules! tensor_map_copy_to_shared {
     };
 }
 
-tensor_map_copy_to_shared!(2, y, x);
-tensor_map_copy_to_shared!(3, z, y, x);
-tensor_map_copy_to_shared!(4, w, z, y, x);
-tensor_map_copy_to_shared!(5, v, w, z, y, x);
+macro_rules! tensor_map_load_im2col {
+    ($dim: literal, $($arg: expr),*; $($offset: expr),*) => {
+        paste! {
+            impl<C: CubePrimitive> Barrier<C> {
+                /// Copy a tile from a global memory `source` to a shared memory `destination`, with
+                /// the provided offsets.
+                #[allow(unused, clippy::too_many_arguments)]
+                pub fn [<tma_load_im2col_ $dim d>](
+                    &self,
+                    source: &TensorMap<C>,
+                    destination: &mut SliceMut<Line<C>>,
+                    $($arg: i32,)*
+                    $($offset: u16),*
+                ) {
+                    unexpanded!()
+                }
+
+                #[allow(clippy::too_many_arguments)]
+                pub fn [<__expand_tma_load_im2col_ $dim d>](
+                    scope: &mut Scope,
+                    expand: BarrierExpand<C>,
+                    source: ExpandElementTyped<TensorMap<C>>,
+                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    $($arg: ExpandElementTyped<i32>,)*
+                    $($offset: ExpandElementTyped<u16>),*
+                ) {
+                    expand.[<__expand_tma_load_im2col_ $dim d_method>](scope, source, destination, $($arg),*, $($offset),*);
+                }
+            }
+
+            impl<C: CubePrimitive> BarrierExpand<C> {
+                #[allow(clippy::too_many_arguments)]
+                pub fn [<__expand_tma_load_im2col_ $dim d_method>](
+                    &self,
+                    scope: &mut Scope,
+                    source: ExpandElementTyped<TensorMap<C>>,
+                    destination: ExpandElementTyped<SliceMut<Line<C>>>,
+                    $($arg: ExpandElementTyped<i32>,)*
+                    $($offset: ExpandElementTyped<u16>),*
+                ) {
+                    let barrier = *self.elem;
+                    let source = *source.expand;
+                    let destination = *destination.expand;
+
+                    let mem_copy = BarrierOps::TmaLoadIm2col {
+                        barrier,
+                        tensor_map: source,
+                        indices: vec![$(*$arg.expand),*],
+                        offsets: vec![$(*$offset.expand),*],
+                    };
+
+                    scope.register(Instruction::new(mem_copy, destination));
+                }
+            }
+        }
+    };
+}
+
+tensor_map_load!(2, y, x);
+tensor_map_load!(3, z, y, x);
+tensor_map_load!(4, w, z, y, x);
+tensor_map_load!(5, v, w, z, y, x);
+
+tensor_map_load_im2col!(3, n, w, c; w_offset);
+tensor_map_load_im2col!(4, n, h, w, c; h_offset, w_offset);
+tensor_map_load_im2col!(5, n, d, h, w, c; d_offset, h_offset, w_offset);
 
 impl<C: CubePrimitive> Barrier<C> {
     /// Creates a barrier using a user defined comptime barrier level

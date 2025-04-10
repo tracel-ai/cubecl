@@ -97,6 +97,7 @@ impl<D: Dialect> Display for ComputeKernel<D> {
         // Program Scope -----------------------------------------------------
         D::compile_includes(f, &flags)?;
         D::compile_type_definitions(f, &self.items, &self.scalars, &flags)?;
+        D::compile_polyfills(f, &flags)?;
         D::compile_extensions(f, &self.extensions)?;
 
         // Kernel signature --------------------------------------------------

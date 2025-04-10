@@ -100,7 +100,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let input_ident = this.job_config.input_ident;
+        let input_ident = comptime!(this.job_config.input_ident);
 
         let window: Window<MP::EI> =
             tensor_reader.load_window_in_stage::<G>(task_id, input_ident, config);

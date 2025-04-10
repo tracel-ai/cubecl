@@ -114,7 +114,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Fill the accumulator with data
-    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,

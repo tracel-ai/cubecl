@@ -4,6 +4,7 @@ use cubecl_core::ir::Id;
 
 use crate::{
     Dialect,
+    cuda::ptx::TMA_LOAD_IM2COL,
     shared::{
         self, Binding, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectInstructions,
         DialectTypes, DialectWmmaCompiler, Elem, Flags, Instruction, Item, SharedMemory, Variable,
@@ -88,6 +89,13 @@ impl DialectTypes<Self> for CudaDialect {
             shared::type_info_definition::<Self>(f, flags.static_meta_length)?;
         }
         Self::compile_wmma_type_definitions(f)?;
+        Ok(())
+    }
+
+    fn compile_polyfills(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+        if flags.inst_tma_im2col {
+            writeln!(f, "{TMA_LOAD_IM2COL}")?;
+        }
         Ok(())
     }
 
