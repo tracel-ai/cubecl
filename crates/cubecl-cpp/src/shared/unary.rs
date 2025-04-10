@@ -244,11 +244,13 @@ impl<D: Dialect> Unary<D> for FindFirstSet {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
+            Elem::I32 => write!(f, "static_cast<{elem}>(__ffs({input}))"),
+            Elem::U32 => write!(f, "__ffs({input})"),
+            Elem::I64 => write!(f, "static_cast<{elem}>(__ffsll({input}))"),
+            Elem::U64 => write!(f, "__ffsll({input})"),
             _ => write!(f, "__ffs({}({input}))", Elem::<D>::U32,),
         }
     }
