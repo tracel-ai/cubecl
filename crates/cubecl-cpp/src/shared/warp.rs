@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::shared::{Component, Elem, FmtLeft};
 
-use super::{Dialect, Item, Variable};
+use super::{Dialect, IndexedVariable, Item, Variable};
 
 #[derive(Clone, Debug)]
 pub enum WarpInstruction<D: Dialect> {
@@ -68,10 +68,10 @@ impl<D: Dialect> Display for WarpInstruction<D> {
             WarpInstruction::ReduceMax { input, out } => reduce_comparison(f, input, out, "max"),
             WarpInstruction::ReduceMin { input, out } => reduce_comparison(f, input, out, "min"),
             WarpInstruction::All { input, out } => {
-                reduce_quantifier(f, input, out, D::compile_warp_all)
+                reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
             }
             WarpInstruction::Any { input, out } => {
-                reduce_quantifier(f, input, out, D::compile_warp_any)
+                reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedVariable<D>>)
             }
             WarpInstruction::Ballot { input, out } => {
                 assert_eq!(
@@ -259,7 +259,10 @@ fn reduce_with_loop<
     writeln!(f, "{} = plane_{}();", out.fmt_left(), out)
 }
 
-fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> std::fmt::Result>(
+fn reduce_quantifier<
+    D: Dialect,
+    Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedVariable<D>, &Variable<D>) -> std::fmt::Result,
+>(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
     out: &Variable<D>,
@@ -270,7 +273,7 @@ fn reduce_quantifier<D: Dialect, Q: Fn(&mut core::fmt::Formatter<'_>, &str) -> s
     for i in 0..input.item().vectorization {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        quantifier(f, &format!("{}", input.index(i)))?;
+        quantifier(f, &input.index(i), &out)?;
     }
     writeln!(f, "}};")
 }
