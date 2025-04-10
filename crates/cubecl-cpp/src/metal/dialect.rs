@@ -864,10 +864,19 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     },
                     _ => panic!("should be a fragment"),
                 };
-                writeln!(
-                    f,
-                    "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
-                )
+                let item = value.item();
+                if item.vectorization > 1 {
+                    let elem = item.elem;
+                    writeln!(
+                        f,
+                        "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value}), {stride}, 0, {transpose});"
+                    )
+                } else {
+                    writeln!(
+                        f,
+                        "simdgroup_load({frag}, {value}, {stride}, 0, {transpose});"
+                    )
+                }
             }
             WmmaInstruction::Execute {
                 frag_a: a,
