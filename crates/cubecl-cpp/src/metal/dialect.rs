@@ -893,7 +893,23 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 stride,
                 ..
             } => {
-                writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+                let item = output.item();
+                let mut reinterpret_cast = item.vectorization > 1;
+                let elem = match item.elem {
+                    Elem::BF16 => {
+                        reinterpret_cast = true;
+                        Elem::F16
+                    }
+                    _ => item.elem,
+                };
+                if reinterpret_cast {
+                    writeln!(
+                        f,
+                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output}), {stride});"
+                    )
+                } else {
+                    writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
+                }
             }
             WmmaInstruction::Cast { input, output } => {
                 let ty = match output {
