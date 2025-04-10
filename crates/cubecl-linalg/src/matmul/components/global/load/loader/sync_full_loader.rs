@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 
 use crate::matmul::components::global;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::strategy::LoadingJobConfig;
-use crate::matmul::components::global::load::{JobConfig, LoadingJob};
+use crate::matmul::components::global::load::LoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, single_stage};
 use crate::matmul::components::stage::FullReader;
@@ -78,7 +77,7 @@ impl<MP: MatmulPrecision, S: stage::StageConfig, L: SyncFullLoadingStrategy>
     }
 
     pub fn fill_stage(this: &mut Self, #[comptime] config: single_stage::Config<S>) {
-        let len = JobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&this.loading_job);
+        let len = L::Job::len(&this.loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<single_stage::Config<S>>(
                 &mut this.loading_job,

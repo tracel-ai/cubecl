@@ -54,15 +54,15 @@ impl CubeDispatch for NaturalDispatch {
     }
 
     fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0
+        cube_count.0.runtime()
     }
 
     fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1
+        cube_count.1.runtime()
     }
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2
+        cube_count.2.runtime()
     }
 }
 
@@ -83,15 +83,15 @@ impl CubeDispatch for TransposedDispatch {
     }
 
     fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1
+        cube_count.1.runtime()
     }
 
     fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0
+        cube_count.0.runtime()
     }
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2
+        cube_count.2.runtime()
     }
 }
 
@@ -114,15 +114,15 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
     }
 
     fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0
+        cube_count.0.runtime()
     }
 
     fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1
+        cube_count.1.runtime()
     }
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2
+        cube_count.2.runtime()
     }
 }
 
@@ -145,15 +145,15 @@ impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
     }
 
     fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1
+        cube_count.1.runtime()
     }
 
     fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0
+        cube_count.0.runtime()
     }
 
     fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2
+        cube_count.2.runtime()
     }
 }
 

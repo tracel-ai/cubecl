@@ -153,7 +153,7 @@ fn elected_writer(#[comptime] settings: ReduceParams) -> bool {
     } else if settings.use_planes {
         UNIT_POS_X == 0
     } else {
-        true
+        true.runtime()
     }
 }
 

@@ -29,14 +29,14 @@ impl TilewiseUnloading {
 
         let unit_step = config.plane_dim() * out_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
-        let unit_divide_writes = comptime!(tile_size % unit_step == 0);
+        let balanced_workload = comptime!(tile_size % unit_step == 0);
 
         #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {
             let unit_write = UNIT_POS_X * out_line_size + i * unit_step;
 
             #[allow(clippy::collapsible_else_if)]
-            if comptime!(unit_divide_writes) {
+            if comptime!(balanced_workload) {
                 let value = slice[unit_write / out_line_size];
                 write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
             } else {

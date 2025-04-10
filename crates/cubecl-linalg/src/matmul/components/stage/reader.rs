@@ -46,7 +46,10 @@ impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
 #[cube]
 impl<ES: Numeric, T: TilingLayout> Reader<ES> for FullReader<ES, T> {
     fn num_k_iterations<TC: TileConfig>(#[comptime] config: CommonStageConfig<TC>) -> u32 {
-        config.tiling_dimensions(Ident::Lhs).tile_count_col()
+        config
+            .tiling_dimensions(Ident::Lhs)
+            .tile_count_col()
+            .runtime()
     }
 
     fn read_tile<TC: TileConfig>(
@@ -98,7 +101,7 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
 impl<ES: Numeric, T: TilingLayout> Reader<ES> for BufferReader<ES, T> {
     fn num_k_iterations<TC: TileConfig>(#[comptime] _config: CommonStageConfig<TC>) -> u32 {
         // For now buffers are always assumed to have 1 k tile
-        1u32
+        1u32.runtime()
     }
 
     fn read_tile<TC: TileConfig>(

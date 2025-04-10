@@ -6,9 +6,7 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::Quantization;
-use crate::matmul::components::global::load::JobConfig;
 use crate::matmul::components::global::load::LoadingJob;
-use crate::matmul::components::global::load::strategy::LoadingJobConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::BufferReader;
 use crate::matmul::components::stage::Stage;
@@ -93,7 +91,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             BufferId::B => this.loading_job_b,
         };
 
-        let len = JobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&loading_job);
+        let len = L::Job::len(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<G>(
                 &mut loading_job,

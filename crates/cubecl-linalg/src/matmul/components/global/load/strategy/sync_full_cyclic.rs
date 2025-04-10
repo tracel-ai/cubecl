@@ -10,7 +10,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::{LoadingJob, LoadingJobConfig};
+use super::LoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the tensor view using all planes.
@@ -54,7 +54,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         let line_size = config.global_line_size(input_ident);
         let num_stage_elements = tiling.total_size();
         let jump_length = comptime!(config.num_planes() * config.plane_dim() * line_size);
-        let num_tasks = comptime!(num_stage_elements / jump_length);
+        let num_tasks_per_unit = comptime!(num_stage_elements / jump_length);
 
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
@@ -62,13 +62,11 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         Job::<MP> {
             unit_position_base,
             quantization,
-            job_config: comptime!(JobConfig {
-                num_tasks,
-                tile_num_elements,
-                jump_length,
-                line_size,
-                input_ident,
-            }),
+            num_tasks_per_unit,
+            tile_num_elements,
+            jump_length,
+            line_size,
+            input_ident,
         }
     }
 }
@@ -80,37 +78,19 @@ pub struct Job<MP: MatmulPrecision> {
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
-    job_config: JobConfig,
-}
-
-#[derive(Copy, Clone)]
-pub struct JobConfig {
-    num_tasks: u32,
+    num_tasks_per_unit: u32,
+    #[cube(comptime)]
     tile_num_elements: u32,
+    #[cube(comptime)]
     jump_length: u32,
+    #[cube(comptime)]
     line_size: u32,
+    #[cube(comptime)]
     input_ident: InputIdent,
-}
-
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, ContiguousTilingLayout<T>, Job<MP>>
-    for JobConfig
-{
-    fn len(job: &Job<MP>) -> u32 {
-        job.job_config.num_tasks
-    }
-
-    fn __expand_len(
-        _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP> as cubecl_core::prelude::CubeType>::ExpandType,
-    ) -> u32 {
-        job.job_config.num_tasks
-    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP> {
-    type LoadingJobConfig = JobConfig;
-
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -118,16 +98,14 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
+        let unit_position = this.unit_position_base + task_id * this.jump_length;
 
-        let unit_position = this.unit_position_base + task_id * jc.jump_length;
-
-        let nth_tile = unit_position / jc.tile_num_elements;
-        let pos_within_tile = unit_position % jc.tile_num_elements;
+        let nth_tile = unit_position / this.tile_num_elements;
+        let pos_within_tile = unit_position % this.tile_num_elements;
 
         let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::SmmConfig>(
             nth_tile,
-            comptime!(jc.input_ident.as_ident()),
+            comptime!(this.input_ident.as_ident()),
             comptime!(config.to_smm_config()),
         );
 
@@ -135,13 +113,17 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             tile_x,
             tile_y,
             pos_within_tile,
-            jc.input_ident,
+            this.input_ident,
             config,
         );
 
-        stage.as_slice_mut()[unit_position / jc.line_size] = match this.quantization {
+        stage.as_slice_mut()[unit_position / this.line_size] = match this.quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         };
+    }
+
+    fn len(this: &Self) -> comptime_type!(u32) {
+        this.num_tasks_per_unit
     }
 }

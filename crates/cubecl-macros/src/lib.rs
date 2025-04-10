@@ -174,6 +174,25 @@ pub fn comptime(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
+/// Mark the contents of this macro as compile time values, turning off all expansion for this code
+/// and using it verbatim
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #fn some_rust_function(a: u32) -> u32 {}
+/// #[cube]
+/// fn do_stuff(input: u32) -> u32 {
+///     let comptime_value = comptime! { some_rust_function(3) };
+///     input + comptime_value
+/// }
+/// ```
+#[proc_macro]
+pub fn comptime_type(input: TokenStream) -> TokenStream {
+    let tokens: proc_macro2::TokenStream = input.into();
+    quote![ #tokens ].into()
+}
+
 /// Insert a literal comment into the kernel source code.
 ///
 /// # Example

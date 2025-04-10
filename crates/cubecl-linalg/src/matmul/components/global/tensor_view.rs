@@ -243,7 +243,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let max_lines_in_window = if comptime!(check_h_bounds) {
             num_lines_in_window * u32::cast_from(view_h < shape_h)
         } else {
-            num_lines_in_window
+            num_lines_in_window.runtime()
         };
 
         // Window is clamped if partially out-of-bounds horizontally
