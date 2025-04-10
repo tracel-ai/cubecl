@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::{
-    SyncBufferLoadingStrategy, default_sync_buffer_load,
-};
+use crate::matmul::components::global::load::SyncBufferLoadingStrategy;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{ContiguousTilingLayout, Stage, TilingOrder};
@@ -21,7 +19,7 @@ pub struct LoadingStrategy<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
-impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
+impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: Ident) -> Result<(), InvalidConfigError> {
         let tiling_dimensions = config.tiling_dimensions(ident);
         let line_size = config.stage_line_size(ident);
@@ -58,35 +56,16 @@ impl<T: TilingOrder> LoadingValidation for LoadingStrategy<T> {
 }
 
 #[cube]
-impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
-    type TilingLayout = ContiguousTilingLayout<T>;
-    type Job<MP: MatmulPrecision> = Job<MP, T>;
+impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
+    type TilingLayout = ContiguousTilingLayout<TO>;
+    type Job<MP: MatmulPrecision> = Job<MP>;
 
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) {
-        default_sync_buffer_load::<Self, MP, G>(
-            tensor_reader,
-            stage,
-            quantization,
-            buffer_index,
-            input_ident,
-            config,
-        )
-    }
-
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) -> Job<MP, T> {
+    ) -> Job<MP> {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.stage_line_size(input_ident);
         let tile_size = tiling_dimensions.tile_size();
@@ -107,9 +86,8 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        Job::<MP, T> {
+        Job::<MP> {
             unit_position_base,
-            stage,
             quantization,
             job_config: comptime!(JobConfig {
                 num_tasks,
@@ -123,10 +101,9 @@ impl<T: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<T> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision, T: TilingOrder> {
+pub struct Job<MP: MatmulPrecision> {
     unit_position_base: u32,
 
-    stage: Stage<MP::ES, ContiguousTilingLayout<T>>,
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
@@ -142,27 +119,30 @@ pub struct JobConfig {
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJobConfig<MP, Job<MP, T>> for JobConfig {
-    fn len(job: &Job<MP, T>) -> u32 {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJobConfig<MP, ContiguousTilingLayout<TO>, Job<MP>>
+    for JobConfig
+{
+    fn len(job: &Job<MP>) -> u32 {
         job.job_config.num_tasks
     }
 
     fn __expand_len(
         _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP, T> as cubecl_core::prelude::CubeType>::ExpandType,
+        job: <Job<MP> as cubecl_core::prelude::CubeType>::ExpandType,
     ) -> u32 {
         job.job_config.num_tasks
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP> {
     type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let jc = comptime!(this.job_config);
@@ -190,7 +170,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
             InputIdent::Rhs => (jc.buffer_index.runtime(), unit_pos_in_buffer),
         };
 
-        let nth_tile = T::to_nth_tile::<G::SmmConfig>(
+        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
             tile_x,
             tile_y,
             tile_count_row,
@@ -209,7 +189,7 @@ impl<MP: MatmulPrecision, T: TilingOrder> LoadingJob<MP> for Job<MP, T> {
 
         let tile_start = nth_tile * jc.num_lines_per_tile;
         let tile_end = tile_start + jc.num_lines_per_tile;
-        let mut tile_slice = this.stage.as_slice_mut().slice_mut(tile_start, tile_end);
+        let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
         tile_slice[pos_within_tile / line_size] = match this.quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),

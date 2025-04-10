@@ -1,6 +1,5 @@
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::load::SyncFullLoadingStrategy;
-use crate::matmul::components::global::load::strategy::base::default_sync_full_load;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{GlobalConfig, LoadingValidation, Quantization};
 use crate::matmul::components::stage::{Stage, StridedTilingLayout};
@@ -40,24 +39,7 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
     type Job<MP: MatmulPrecision> = Job<MP>;
 
-    fn load_full<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] input_ident: InputIdent,
-        #[comptime] config: G,
-    ) {
-        default_sync_full_load::<Self, MP, G>(
-            tensor_reader,
-            stage,
-            quantization,
-            input_ident,
-            config,
-        )
-    }
-
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
@@ -72,7 +54,6 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 
         Job::<MP> {
             unit_position_base,
-            stage,
             quantization,
             job_config: comptime!(JobConfig {
                 num_tasks,
@@ -88,7 +69,6 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 pub struct Job<MP: MatmulPrecision> {
     unit_position_base: u32,
 
-    stage: Stage<MP::ES, StridedTilingLayout>,
     quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
@@ -103,7 +83,7 @@ pub struct JobConfig {
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision> LoadingJobConfig<MP, Job<MP>> for JobConfig {
+impl<MP: MatmulPrecision> LoadingJobConfig<MP, StridedTilingLayout, Job<MP>> for JobConfig {
     fn len(job: &Job<MP>) -> u32 {
         job.job_config.num_tasks
     }
@@ -117,13 +97,14 @@ impl<MP: MatmulPrecision> LoadingJobConfig<MP, Job<MP>> for JobConfig {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP> for Job<MP> {
+impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job<MP> {
     type LoadingJobConfig = JobConfig;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
+        stage: &mut Stage<MP::ES, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let jc = comptime!(this.job_config);
@@ -135,7 +116,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP> for Job<MP> {
             config,
         );
 
-        this.stage.as_slice_mut()[unit_position] = match this.quantization {
+        stage.as_slice_mut()[unit_position] = match this.quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         }

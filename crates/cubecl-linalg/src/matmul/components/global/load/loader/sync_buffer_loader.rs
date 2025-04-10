@@ -6,7 +6,9 @@ use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::GlobalConfig;
 use crate::matmul::components::global::LoadingValidation;
 use crate::matmul::components::global::Quantization;
+use crate::matmul::components::global::load::JobConfig;
 use crate::matmul::components::global::load::LoadingJob;
+use crate::matmul::components::global::load::strategy::LoadingJobConfig;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::stage::Stage;
 use crate::matmul::components::stage::TilingLayout;
@@ -23,21 +25,10 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision>: LoadingJob<MP>;
-
-    /// Immediately load the stage for the buffer identified by buffer_index.
-    fn load_buffer<MP: MatmulPrecision, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
+    type Job<MP: MatmulPrecision>: LoadingJob<MP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn job<MP: MatmulPrecision, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
@@ -47,9 +38,10 @@ pub trait SyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVali
 
 #[derive(Clone, CubeType)]
 pub struct SyncBufferLoader<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy> {
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
+    tensor_reader: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, L::TilingLayout>,
+    loading_job_a: L::Job<MP>,
+    loading_job_b: L::Job<MP>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -69,19 +61,16 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
-
         let stage = Stage::new::<G::SmmConfig>(input_ident.as_ident(), config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let loading_job_a = L::new_job::<MP, G>(quantization, 0u32, input_ident, config);
+        let loading_job_b = L::new_job::<MP, G>(quantization, 1u32, input_ident, config);
 
         SyncBufferLoader::<MP, G, L> {
-            tensor_view,
+            tensor_reader,
             stage,
-            quantization,
+            loading_job_a,
+            loading_job_b,
             input_ident,
             _config: PhantomData::<G>,
         }
@@ -95,17 +84,24 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.input_ident);
+        this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
-    pub fn fill_stage(this: &mut Self, #[comptime] buffer: BufferId, #[comptime] config: G) {
-        L::load_buffer::<MP, G>(
-            &this.tensor_view,
-            this.stage,
-            this.quantization,
-            buffer.to_index(),
-            this.input_ident,
-            config,
-        );
+    pub fn fill_stage(this: &mut Self, #[comptime] buffer_id: BufferId, #[comptime] config: G) {
+        let mut loading_job = match buffer_id {
+            BufferId::A => this.loading_job_a,
+            BufferId::B => this.loading_job_b,
+        };
+
+        let len = JobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&loading_job);
+        for task_id in 0..len {
+            L::Job::<MP>::execute_task::<G>(
+                &mut loading_job,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage,
+                config,
+            );
+        }
     }
 }

@@ -165,8 +165,8 @@ where
             }
 
             // Start loading
-            Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);

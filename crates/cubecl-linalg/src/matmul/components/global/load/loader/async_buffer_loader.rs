@@ -1,6 +1,7 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
-use crate::matmul::components::global::load::LoadingJob;
+use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
+use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
@@ -23,28 +24,15 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>>: LoadingJob<MP>;
-
-    /// Immediately load the stage for the buffer identified by buffer_index.
-    fn load_buffer<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        tensor_reader: &TensorReader<MP::EI>,
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
-        quantization: CubeOption<Quantization<MP>>,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: InputIdent,
-        #[comptime] config: G,
-    );
+    type Job<MP: MatmulPrecision>: AsyncLoadingJob<MP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn job<MP: MatmulPrecision, CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
-        stage: Stage<MP::ES, Self::TilingLayout>,
-        mechanism: CM,
+    fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
         quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
-    ) -> Self::Job<MP, CM>;
+    ) -> Self::Job<MP>;
 
     /// The barrier level at which the copy mechanism works
     fn barrier_level() -> BarrierLevel;
@@ -57,9 +45,10 @@ pub struct AsyncBufferLoader<
     CM: CopyMechanism<MP::ES>,
     L: AsyncBufferLoadingStrategy,
 > {
-    pub tensor_view: TensorReader<MP::EI>,
-    pub stage: Stage<MP::ES, L::TilingLayout>,
-    pub quantization: CubeOption<Quantization<MP>>,
+    tensor_reader: TensorReader<MP::EI>,
+    stage: Stage<MP::ES, L::TilingLayout>,
+    loading_job_a: L::Job<MP>,
+    loading_job_b: L::Job<MP>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -83,18 +72,18 @@ impl<
         #[comptime] input_ident: InputIdent,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
-        comptime! {
-            if quantization.is_some() {
-                todo!();
-            }
-        }
         let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
-        let tensor_view = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let loading_job_a =
+            L::new_job::<MP, CommonGlobalConfig<S>>(quantization, 0u32, input_ident, config);
+        let loading_job_b =
+            L::new_job::<MP, CommonGlobalConfig<S>>(quantization, 1u32, input_ident, config);
 
         AsyncBufferLoader::<MP, S, CM, L> {
-            tensor_view,
+            tensor_reader,
             stage,
-            quantization,
+            loading_job_a,
+            loading_job_b,
             input_ident,
             _phantom: PhantomData::<(S, CM)>,
         }
@@ -108,24 +97,31 @@ impl<
     }
 
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.input_ident);
+        this.tensor_reader.update_view(k_offset, this.input_ident);
     }
 
     pub fn fill_stage(
         this: &mut Self,
-        mechanism: CM,
-        #[comptime] buffer: BufferId,
+        mechanism: &CM,
+        #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        L::load_buffer::<MP, CM, CommonGlobalConfig<S>>(
-            &this.tensor_view,
-            this.stage,
-            mechanism,
-            this.quantization,
-            buffer.to_index(),
-            this.input_ident,
-            config,
-        );
+        let mut loading_job = match buffer_id {
+            BufferId::A => this.loading_job_a,
+            BufferId::B => this.loading_job_b,
+        };
+
+        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&loading_job);
+        for task_id in 0..len {
+            L::Job::<MP>::execute_task::<CM, CommonGlobalConfig<S>>(
+                &mut loading_job,
+                task_id,
+                &this.tensor_reader,
+                &mut this.stage,
+                mechanism,
+                config,
+            );
+        }
     }
 
     pub fn clear_stage(
