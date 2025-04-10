@@ -125,7 +125,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         if 1 == item.vectorization {
             return write!(f, "{}", item.elem);
         }
-        write!(f, "{}_{}", item.elem, item.vectorization)
+        if item.native {
+            // native types use the word form of types only
+            Self::compile_elem(f, &item.elem, true)?;
+            write!(f, "{}", item.vectorization)
+        } else {
+            write!(f, "{}_{}", item.elem, item.vectorization)
+        }
     }
 
     fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
