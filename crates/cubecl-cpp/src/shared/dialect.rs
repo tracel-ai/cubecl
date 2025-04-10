@@ -517,11 +517,13 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_leading_zeros_scalar<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: T,
-        _output: Elem<D>,
+        output: Elem<D>,
     ) -> std::fmt::Result {
         match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
+            Elem::I32 => write!(f, "static_cast<{output}>(__clz({input}))"),
+            Elem::U32 => write!(f, "__clz({input})"),
+            Elem::I64 => write!(f, "static_cast<{output}>(__clzll({input}))"),
+            Elem::U64 => write!(f, "__clzll({input})"),
             elem => write!(
                 f,
                 "__clz({}) - {}",
