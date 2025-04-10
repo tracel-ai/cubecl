@@ -11,7 +11,9 @@ use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSele
 
 use super::Quantization;
 
-pub trait InputsLaunch: LaunchArg {
+/// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
+/// output (not fused).
+pub trait ConcreteInputsFactory: LaunchArg {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
@@ -20,7 +22,9 @@ pub trait InputsLaunch: LaunchArg {
     ) -> Self::RuntimeArg<'a, R>;
 }
 
-pub trait OutputLaunch: LaunchArg {
+/// Create the output runtime argument for a matmul kernel that works on concrete inputs and
+/// output (not fused).
+pub trait ConcreteOutputFactory: LaunchArg {
     fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
         selection: &MatmulSelection,
@@ -32,9 +36,9 @@ pub trait OutputLaunch: LaunchArg {
 /// Arguments for the matrix multiplication algorithm.
 pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<EI: Numeric>: InputsLaunch + CubeType;
+    type Input<EI: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
-    type Output<EO: Numeric>: OutputLaunch + CubeType;
+    type Output<EO: Numeric>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
     type State<EI: Numeric, EO: Numeric>: CubeType;
@@ -442,7 +446,7 @@ pub struct TensorInputs<EG: Numeric> {
     pub rhs: Tensor<Line<EG>>,
 }
 
-impl<EG: Numeric> InputsLaunch for TensorInputs<EG> {
+impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,
@@ -456,7 +460,7 @@ impl<EG: Numeric> InputsLaunch for TensorInputs<EG> {
     }
 }
 
-impl<EG: Numeric> OutputLaunch for Tensor<Line<EG>> {
+impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
     fn create<'a, R: Runtime>(
         out: &'a TensorHandleRef<'a, R>,
         _selection: &MatmulSelection,
@@ -638,7 +642,7 @@ pub struct TensorMapInputs<EG: Numeric> {
     pub rhs: TensorMap<EG>,
 }
 
-impl<EG: Numeric> InputsLaunch for TensorMapInputs<EG> {
+impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
     fn create<'a, R: Runtime>(
         lhs: &'a TensorHandleRef<'a, R>,
         rhs: &'a TensorHandleRef<'a, R>,

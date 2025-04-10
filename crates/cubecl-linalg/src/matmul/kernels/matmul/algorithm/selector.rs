@@ -4,11 +4,12 @@ use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Feature, Runtime, client::ComputeClient, ir::Elem, prelude::CubePrimitive};
 use cubecl_runtime::DeviceProperties;
 
+use crate::matmul::components::{InputRuntimeArg, OutputRuntimeArg};
 use crate::matmul::{
     components::{
         CompleteStageTiling, InputArg, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSize,
         MatmulSpec, OutputArg,
-        global::args::{InputsLaunch, OutputLaunch},
+        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
         stage::STAGE_BUFFERING,
         tile::TileMatmulFamily,
     },
@@ -22,12 +23,42 @@ pub(crate) const NUM_TENSOR_CORES_APPROX: u32 = 4;
 const NUM_PLANES_PER_TENSOR_CORES: u32 = 2;
 
 /// Select which kernel to launch for the given Algorithm.
+///
+/// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err)]
-pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn select_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: &TensorHandleRef<'_, R>,
     rhs: &TensorHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
+    problem: MatmulProblem,
+    plane_dim: u32,
+) -> Result<(), MatmulLaunchError>
+where
+    InputArg<MS>: ConcreteInputsFactory,
+    OutputArg<MS>: ConcreteOutputFactory,
+{
+    let selection = matmul_selection::<A::TileMatmul, MS, R>(client, &problem, plane_dim);
+    let config_input = CompleteStageTiling {
+        tile_shape: selection.tile_shape,
+        tile_count: selection.tile_count,
+    };
+
+    matmul_cube_preparation::<MS, R, A>(
+        client,
+        <InputArg<MS> as ConcreteInputsFactory>::create(lhs, rhs, &selection, &problem),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem),
+        problem,
+        (config_input, STAGE_BUFFERING),
+        selection,
+    )
+}
+
+/// Select which kernel to launch for the given Algorithm.
+pub fn select_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    input: InputRuntimeArg<'a, MS, R>,
+    output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
     plane_dim: u32,
 ) -> Result<(), MatmulLaunchError> {
@@ -40,8 +71,8 @@ pub fn select_kernel<MS: MatmulSpec, R: Runtime, A: Algorithm>(
 
     matmul_cube_preparation::<MS, R, A>(
         client,
-        <InputArg<MS> as InputsLaunch>::create(lhs, rhs, &selection, &problem),
-        <OutputArg<MS> as OutputLaunch>::create(out, &selection, &problem),
+        input,
+        output,
         problem,
         (config_input, STAGE_BUFFERING),
         selection,
