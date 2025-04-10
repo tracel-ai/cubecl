@@ -12,8 +12,8 @@ use wgpu::ComputePipeline;
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
-    pub timestamps: KernelTimestamps,
 
+    timestamps: KernelTimestamps,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     tasks_count: usize,
@@ -237,6 +237,13 @@ impl WgpuStream {
             }
             result
         }
+    }
+
+    pub fn start_measure(&mut self) {
+        // Flush all commands to the queue. This isn't really needed, but this should mean
+        // new work after this will be run with less overlap.
+        self.flush();
+        self.timestamps.start(&self.device);
     }
 
     pub fn stop_measure(&mut self) -> ClientProfile {

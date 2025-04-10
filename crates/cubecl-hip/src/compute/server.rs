@@ -11,9 +11,9 @@ use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -45,28 +45,6 @@ struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
-}
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
-}
-
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
-
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
-    }
-
-    fn disable(&mut self) {
-        *self = Self::Disabled;
-    }
 }
 
 unsafe impl Send for HipServer {}
@@ -303,6 +281,18 @@ impl ComputeServer for HipServer {
     fn sync(&mut self) -> impl Future<Output = ()> + 'static {
         self.logger.profile_summary();
         self.sync_stream_async()
+    }
+
+    fn start_measure(&mut self) {
+        // Wait for current work to be done.
+        burn_common::future::block_on(self.sync());
+        self.ctx.timestamps.start();
+    }
+
+    fn stop_measure(&mut self) -> ClientProfile {
+        self.logger.profile_summary();
+        burn_common::future::block_on(self.sync());
+        self.ctx.timestamps.stop()
     }
 
     fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {

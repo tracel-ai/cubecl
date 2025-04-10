@@ -223,18 +223,20 @@ where
         self.channel.memory_cleanup()
     }
 
-    /// When executing operation within the profile scope, you can call
-    /// [start_measurement](Self::start_measurement) and [stop_measurement](Self::stop_measurement) safely
-    /// even in multithreaded workloads.
+    /// Measure the execution time of some inner operations.
+    ///
+    /// Nb: this function will only allow one function at a time to be submitted when multithrading.
+    /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ClientProfile {
-        // Nb: This lock must not be held across async operations.
-        // we drop it at the end of this scope, so this is safe.
         let lock = &self.state.timestamp_lock;
-        let guard = lock.lock();
-        self.channel.start_measure();
-        func();
-        let ret = self.channel.stop_measure();
-        drop(guard);
-        ret
+
+        let profile = {
+            lock.lock();
+            self.channel.start_measure();
+            func();
+            self.channel.stop_measure()
+        };
+
+        profile
     }
 }

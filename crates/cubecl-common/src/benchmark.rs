@@ -273,7 +273,8 @@ pub trait Benchmark {
                     TimingMethod::Full => self.profile_full(args.clone()),
                     TimingMethod::DeviceOnly => self.profile(args.clone()),
                 };
-                durations.push(crate::future::block_on(profile.resolve()));
+                let duration = crate::future::block_on(profile.resolve());
+                durations.push(duration);
             }
 
             BenchmarkDurations {

@@ -224,7 +224,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn start_measure(&mut self) {
-        self.stream.timestamps.start(&self.device);
+        self.stream.start_measure();
     }
 
     fn stop_measure(&mut self) -> ClientProfile {

@@ -11,7 +11,7 @@ pub enum KernelTimestamps {
 impl KernelTimestamps {
     pub fn start(&mut self, device: &wgpu::Device) {
         if !matches!(self, Self::Disabled) {
-            panic!("Cannot recursively start timestamps currently");
+            panic!("Cannot recursively measure timestamps currently.");
         }
 
         if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
