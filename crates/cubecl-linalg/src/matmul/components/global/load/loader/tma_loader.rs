@@ -7,7 +7,7 @@ use cubecl_std::CubeOption;
 use crate::matmul::components::{
     InputIdent,
     global::{self, GlobalConfig, Quantization, single_stage, tensor_view::MappedTensorReader},
-    stage::{self, Stage, multi_buffer::FullReader},
+    stage::{self, FullReader, Stage},
 };
 use crate::matmul::components::{MatmulPrecision, MatrixLayout};
 use crate::matmul::components::{global::CopyMechanism, stage::StridedTilingLayout};

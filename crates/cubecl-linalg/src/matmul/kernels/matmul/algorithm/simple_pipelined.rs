@@ -6,7 +6,7 @@ use crate::matmul::components::{
     MatmulProblem, MatmulSelection,
     batch::{self, CubeCountDispatch, CubeDispatch},
     global::{self, load::async_full_cyclic},
-    stage::{self, ColMajorTilingOrder, RowMajorTilingOrder},
+    stage::{self, ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder},
     tile,
 };
 
@@ -21,7 +21,8 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul =
+        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimplePipelinedMatmulFamily<
         Self::StageMatmul,
         async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,

@@ -10,7 +10,7 @@ use crate::matmul::components::global::load::AsyncLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::{FullReader, FullReaderFamily};
+use crate::matmul::components::stage::{FullReader, FullReaderFamily};
 use crate::matmul::{
     components::{
         Ident, InvalidConfigError, MatmulConfigFactory, MatmulProblem,

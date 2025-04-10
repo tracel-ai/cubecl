@@ -5,7 +5,7 @@ use crate::matmul::components::{
         load::{BufferId, SyncBufferLoader, SyncBufferLoadingStrategy},
         output_loader::Unloader,
     },
-    stage::{StageMatmul, single_buffer::BufferReader},
+    stage::{BufferReader, StageMatmul},
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
@@ -21,7 +21,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, single_buffer::BufferReaderFamily},
+        stage::{self, BufferReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };

@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     InvalidConfigError,
-    stage::{self, StageMatmulFamily},
+    stage::{FullReaderFamily, StageMatmulFamily, plane_row_matmul::PlaneRowMatmulFamily},
     tile::{TileMatmulFamily, accelerated::Accelerated},
 };
 use cubecl_core::prelude::*;
@@ -41,7 +41,7 @@ pub struct ImplicitCmmaConv;
 
 impl Algorithm for ImplicitCmmaConv {
     type TileMatmul = Accelerated;
-    type StageMatmul = stage::multi_buffer::MultiBufferMatmulFamily<Self::TileMatmul>;
+    type StageMatmul = PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalConvolution = ImplicitGemmConvolutionFamily<Self::StageMatmul>;
     type Selection = ConvSelection;
     type Input = <Self::GlobalConvolution as ConvolutionConfigFactory>::Input;

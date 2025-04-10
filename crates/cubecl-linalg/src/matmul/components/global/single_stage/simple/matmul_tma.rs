@@ -4,8 +4,8 @@ use crate::matmul::components::global::ZeroAccumulatorLoader;
 use crate::matmul::components::global::load::TmaLoader;
 use crate::matmul::components::global::output_loader::Unloader;
 use crate::matmul::components::global::single_stage::Config;
+use crate::matmul::components::stage::FullReader;
 use crate::matmul::components::stage::StageMatmul;
-use crate::matmul::components::stage::multi_buffer::FullReader;
 use crate::matmul::components::{Ident, MatmulPrecision};
 use crate::matmul::components::{InputIdent, stage::StridedTilingLayout};
 
@@ -23,7 +23,7 @@ use crate::matmul::{
     components::{
         InvalidConfigError, MatmulConfigFactory, MatmulProblem,
         global::{GlobalConfig, GlobalMatmulFamily},
-        stage::{self, multi_buffer::FullReaderFamily},
+        stage::{self, FullReaderFamily},
     },
     kernels::MatmulAvailabilityError,
 };

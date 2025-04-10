@@ -14,8 +14,8 @@ use crate::matmul::components::{
         single_stage,
     },
     stage::{
-        self, ContiguousTilingLayout, RowMajorTilingOrder, StageMatmulFamily,
-        multi_buffer::{FullReader, FullReaderFamily},
+        self, ContiguousTilingLayout, FullReader, FullReaderFamily, RowMajorTilingOrder,
+        StageMatmulFamily,
     },
 };
 use crate::{
