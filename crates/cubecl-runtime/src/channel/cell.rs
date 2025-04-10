@@ -124,12 +124,12 @@ where
         self.server.borrow_mut().memory_cleanup();
     }
 
-    fn start_measure(&self) {
-        self.server.borrow_mut().start_measure()
+    fn start_profile(&self) {
+        self.server.borrow_mut().start_profile()
     }
 
-    fn stop_measure(&self) -> ClientProfile {
-        self.server.borrow_mut().stop_measure()
+    fn end_profile(&self) -> ClientProfile {
+        self.server.borrow_mut().end_profile()
     }
 }
 

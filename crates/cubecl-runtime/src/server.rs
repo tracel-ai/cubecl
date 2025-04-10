@@ -97,10 +97,10 @@ where
     fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
-    fn start_measure(&mut self);
+    fn start_profile(&mut self);
 
     /// Disable collecting timestamps.
-    fn stop_measure(&mut self) -> ClientProfile;
+    fn end_profile(&mut self) -> ClientProfile;
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).

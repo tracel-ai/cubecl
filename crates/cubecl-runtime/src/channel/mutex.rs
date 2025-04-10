@@ -117,11 +117,11 @@ where
         self.server.lock().memory_cleanup();
     }
 
-    fn start_measure(&self) {
-        self.server.lock().start_measure();
+    fn start_profile(&self) {
+        self.server.lock().start_profile();
     }
 
-    fn stop_measure(&self) -> ClientProfile {
-        self.server.lock().stop_measure()
+    fn end_profile(&self) -> ClientProfile {
+        self.server.lock().end_profile()
     }
 }

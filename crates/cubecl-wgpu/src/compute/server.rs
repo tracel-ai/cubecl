@@ -46,11 +46,7 @@ impl WgpuServer {
         backend: wgpu::Backend,
     ) -> Self {
         let logger = DebugLogger::default();
-        let mut timestamps = KernelTimestamps::Disabled;
-
-        if logger.profile_level().is_some() {
-            timestamps.start(&device);
-        }
+        let timestamps = KernelTimestamps::Disabled;
 
         let stream = WgpuStream::new(
             device.clone(),
@@ -169,14 +165,18 @@ impl ComputeServer for WgpuServer {
             None
         };
 
+        let currently_profiling = self.stream.is_profiling();
+
         if profile_level.is_some() {
-            let fut = self.stream.stop_measure();
-            let duration = future::block_on(fut.resolve());
-            if let Some(profiled) = &mut self.duration_profiled {
-                *profiled += duration;
-            } else {
-                self.duration_profiled = Some(duration);
+            // Add in current time if currently profiling.
+            if currently_profiling {
+                let profile = self.stream.stop_profile();
+                let duration = future::block_on(profile.resolve());
+                self.duration_profiled =
+                    Some(self.duration_profiled.unwrap_or_default() + duration);
             }
+
+            self.stream.start_profile();
         }
 
         // Start execution.
@@ -185,16 +185,13 @@ impl ComputeServer for WgpuServer {
 
         // If profiling, write out results.
         if let Some(level) = profile_level {
+            let profile = self.stream.stop_profile();
+            // Execute the task.
+            let duration = future::block_on(profile.resolve());
+
             let (name, kernel_id) = profile_info.unwrap();
 
-            // Execute the task.
-            let duration = future::block_on(self.stream.stop_measure().resolve());
-
-            if let Some(profiled) = &mut self.duration_profiled {
-                *profiled += duration;
-            } else {
-                self.duration_profiled = Some(duration);
-            }
+            self.duration_profiled = Some(self.duration_profiled.unwrap_or_default() + duration);
 
             let info = match level {
                 ProfileLevel::Basic | ProfileLevel::Medium => {
@@ -209,6 +206,11 @@ impl ComputeServer for WgpuServer {
                 }
             };
             self.logger.register_profiled(info, duration);
+
+            // Restart profile if currently profiling.
+            if currently_profiling {
+                self.stream.start_profile();
+            }
         }
     }
 
@@ -223,15 +225,15 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    fn start_measure(&mut self) {
-        self.stream.start_measure();
+    fn start_profile(&mut self) {
+        self.stream.start_profile();
     }
 
-    fn stop_measure(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ClientProfile {
         self.logger.profile_summary();
 
         // TODO: Deal with BS recursive profile thing...
-        let profile = self.stream.stop_measure();
+        let profile = self.stream.stop_profile();
         let duration_profiled = self.duration_profiled;
         self.duration_profiled = None;
 

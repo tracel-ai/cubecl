@@ -47,7 +47,7 @@ enum AutotuneMessage {
         #[cfg(feature = "autotune-checks")]
         autotune_checks: alloc::boxed::Box<dyn FnOnce() + Send>,
     },
-    #[allow(unused)]
+    #[allow(dead_code)]
     Pending,
 }
 

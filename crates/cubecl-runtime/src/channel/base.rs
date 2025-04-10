@@ -66,10 +66,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Wait for the completion of every task in the server.
     ///
     /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn start_measure(&self);
+    fn start_profile(&self);
 
     /// Wait for the completion of every task in the server.
     ///
     /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn stop_measure(&self) -> ClientProfile;
+    fn end_profile(&self) -> ClientProfile;
 }

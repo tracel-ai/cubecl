@@ -46,11 +46,10 @@ impl ClientProfile {
 
 /// How a benchmark's execution times are measured.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TimingMethod {
     /// Time measurements come from full timing of execution + sync
     /// calls.
-    #[default]
     Full,
     /// Time measurements come from hardware reported timestamps
     /// coming from a sync call.
@@ -68,22 +67,36 @@ impl Display for TimingMethod {
 
 /// Results of a benchmark run.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(new, Debug, Default, Clone)]
+#[derive(new, Debug, Clone)]
 pub struct BenchmarkDurations {
     /// How these durations were measured.
-    pub timing_method: TimingMethod,
+    timing_method: TimingMethod,
     /// All durations of the run, in the order they were benchmarked
-    pub durations: Vec<Duration>,
+    durations: Vec<Duration>,
 }
 
 impl BenchmarkDurations {
+    /// Construct from a list of durations.
+    pub fn from_durations(timing_method: TimingMethod, durations: Vec<Duration>) -> Self {
+        Self {
+            timing_method,
+            durations,
+        }
+    }
+
     /// Construct from a list of profiles.
     pub async fn from_profiles(profiles: Vec<ClientProfile>) -> Self {
-        // Assume all profiles were collected using the same timing method.
         let timing_method = profiles
             .first()
             .expect("need at least 1 profile")
             .timing_method();
+
+        if profiles
+            .iter()
+            .any(|profile| profile.timing_method() != timing_method)
+        {
+            panic!("all profiles must use the same timing method");
+        }
 
         let mut durations = Vec::new();
         for profile in profiles {
@@ -286,7 +299,7 @@ pub trait Benchmark {
 }
 
 /// Result of a benchmark run, with metadata
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct BenchmarkResult {
     /// Individual raw results of the run
     pub raw: BenchmarkDurations,

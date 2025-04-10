@@ -239,14 +239,24 @@ impl WgpuStream {
         }
     }
 
-    pub fn start_measure(&mut self) {
+    pub fn is_profiling(&self) -> bool {
+        !matches!(self.timestamps, KernelTimestamps::Disabled)
+    }
+
+    pub fn start_profile(&mut self) {
+        if self.is_profiling() {
+            panic!(
+                "Can't start a profile while one is running, recursive profiling is not supported."
+            );
+        }
+
         // Flush all commands to the queue. This isn't really needed, but this should mean
         // new work after this will be run with less overlap.
         self.flush();
         self.timestamps.start(&self.device);
     }
 
-    pub fn stop_measure(&mut self) -> ClientProfile {
+    pub fn stop_profile(&mut self) -> ClientProfile {
         self.compute_pass = None;
 
         match self.timestamps.stop() {
@@ -287,7 +297,7 @@ impl WgpuStream {
                 ClientProfile::from_future(duration_fut)
             }
             KernelTimestamps::Disabled => {
-                panic!("Must start a measurement before stopping.")
+                panic!("Must start a profile before stopping a profile.")
             }
         }
     }

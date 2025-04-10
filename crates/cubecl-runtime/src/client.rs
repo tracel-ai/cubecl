@@ -21,7 +21,8 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 #[derive(new, Debug)]
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
-    timestamp_lock: Mutex<()>,
+    profile_lock: Mutex<()>,
+
     info: Server::Info,
 }
 
@@ -228,15 +229,9 @@ where
     /// Nb: this function will only allow one function at a time to be submitted when multithrading.
     /// Recursive measurements are not allowed and will deadlock.
     pub fn profile(&self, func: impl FnOnce()) -> ClientProfile {
-        let lock = &self.state.timestamp_lock;
-
-        let profile = {
-            lock.lock();
-            self.channel.start_measure();
-            func();
-            self.channel.stop_measure()
-        };
-
-        profile
+        self.state.profile_lock.lock();
+        self.channel.start_profile();
+        func();
+        self.channel.end_profile()
     }
 }

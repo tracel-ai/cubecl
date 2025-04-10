@@ -112,10 +112,10 @@ where
                             server.memory_cleanup();
                         }
                         Message::StartMeasure => {
-                            server.start_measure();
+                            server.start_profile();
                         }
                         Message::StopMeasure(callback) => {
-                            callback.send(server.stop_measure()).await.unwrap();
+                            callback.send(server.end_profile()).await.unwrap();
                         }
                     };
                 }
@@ -269,14 +269,14 @@ where
             .unwrap()
     }
 
-    fn start_measure(&self) {
+    fn start_profile(&self) {
         self.state
             .sender
             .send_blocking(Message::StartMeasure)
             .unwrap();
     }
 
-    fn stop_measure(&self) -> ClientProfile {
+    fn end_profile(&self) -> ClientProfile {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender

@@ -283,34 +283,15 @@ impl ComputeServer for HipServer {
         self.sync_stream_async()
     }
 
-    fn start_measure(&mut self) {
-        // Wait for current work to be done.
+    fn start_profile(&mut self) {
         burn_common::future::block_on(self.sync());
         self.ctx.timestamps.start();
     }
 
-    fn stop_measure(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ClientProfile {
         self.logger.profile_summary();
         burn_common::future::block_on(self.sync());
         self.ctx.timestamps.stop()
-    }
-
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
-        self.logger.profile_summary();
-
-        let ctx = self.get_context();
-        ctx.sync();
-
-        let duration = match &mut ctx.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
@@ -321,16 +302,6 @@ impl ComputeServer for HipServer {
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Can't find resource"),
         )
-    }
-
-    fn enable_timestamps(&mut self) {
-        self.ctx.timestamps.enable();
-    }
-
-    fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
-        }
     }
 }
 
@@ -350,7 +321,7 @@ impl HipContext {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::new(),
             compilation_options,
         }
     }

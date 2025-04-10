@@ -529,13 +529,13 @@ impl ComputeServer for CudaServer {
         self.sync_stream_async()
     }
 
-    fn start_measure(&mut self) {
+    fn start_profile(&mut self) {
         // Wait for current work to be done.
         self.ctx.sync();
         self.ctx.timestamps.start();
     }
 
-    fn stop_measure(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ClientProfile {
         self.logger.profile_summary();
         self.ctx.sync();
         self.ctx.timestamps.stop()

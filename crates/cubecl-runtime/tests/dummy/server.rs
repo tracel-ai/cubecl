@@ -144,11 +144,11 @@ impl ComputeServer for DummyServer {
         self.memory_management.cleanup(true);
     }
 
-    fn start_measure(&mut self) {
+    fn start_profile(&mut self) {
         self.timestamps.start();
     }
 
-    fn stop_measure(&mut self) -> ClientProfile {
+    fn end_profile(&mut self) -> ClientProfile {
         self.timestamps.stop()
     }
 }
