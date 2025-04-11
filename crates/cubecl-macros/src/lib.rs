@@ -185,6 +185,9 @@ pub fn comptime(input: TokenStream) -> TokenStream {
 ///     input + 5   
 /// }
 /// ```
+///
+/// TODO: calling a trait method returning comptime_type from
+/// within another trait method does not work
 #[proc_macro]
 pub fn comptime_type(input: TokenStream) -> TokenStream {
     let tokens: proc_macro2::TokenStream = input.into();
