@@ -3,6 +3,8 @@ use crate::matmul::components::{
     stage::{self},
 };
 
+pub const PRECOMPUTE_JOB: bool = false;
+
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the pipelined global matmul
 pub struct CommonGlobalConfig<S: stage::StageConfig> {
@@ -75,6 +77,10 @@ impl<S: stage::StageConfig> super::GlobalConfig for CommonGlobalConfig<S> {
 
     fn check_k_bounds(&self) -> bool {
         self.check_k_bounds
+    }
+
+    fn precompute_job(&self) -> bool {
+        PRECOMPUTE_JOB
     }
 }
 

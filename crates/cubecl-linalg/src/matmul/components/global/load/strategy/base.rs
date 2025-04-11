@@ -1,9 +1,10 @@
 use crate::matmul::components::MatmulPrecision;
 use crate::matmul::components::global::tensor_view::TensorReader;
-use crate::matmul::components::global::{CopyMechanism, GlobalConfig};
+use crate::matmul::components::global::{CopyMechanism, GlobalConfig, Quantization};
 use crate::matmul::components::stage::{Stage, TilingLayout};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::CubeOption;
 
 #[cube]
 /// A loading job represents a group of loading tasks.
@@ -17,6 +18,7 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, TL>,
+        quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     );
 
