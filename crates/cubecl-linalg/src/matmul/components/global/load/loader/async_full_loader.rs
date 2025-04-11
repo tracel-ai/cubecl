@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
-use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
+use crate::matmul::components::global::load::AsyncLoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
@@ -120,7 +119,7 @@ impl<
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&this.loading_job);
+        let len = L::Job::task_count(&this.loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
                 &mut this.loading_job,

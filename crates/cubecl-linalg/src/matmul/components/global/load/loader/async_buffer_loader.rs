@@ -1,7 +1,6 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
-use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
-use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
+use crate::matmul::components::global::load::AsyncLoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
@@ -111,7 +110,7 @@ impl<
             BufferId::B => this.loading_job_b,
         };
 
-        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&loading_job);
+        let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, CommonGlobalConfig<S>>(
                 &mut loading_job,

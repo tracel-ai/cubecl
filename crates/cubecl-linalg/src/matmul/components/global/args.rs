@@ -823,14 +823,14 @@ impl MatmulArgs for TensorMapArgs {
         // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
         // anyways. Eventually the API should change to only calculate batch offset when necessary.
         // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+        0u32.runtime()
     }
 
     fn shape_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
         // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
         // anyways. Eventually the API should change to only calculate batch offset when necessary.
         // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+        0u32.runtime()
     }
 
     fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
@@ -841,14 +841,14 @@ impl MatmulArgs for TensorMapArgs {
         // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
         // anyways. Eventually the API should change to only calculate batch offset when necessary.
         // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+        0u32.runtime()
     }
 
     fn stride_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
         // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
         // anyways. Eventually the API should change to only calculate batch offset when necessary.
         // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+        0u32.runtime()
     }
 
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {

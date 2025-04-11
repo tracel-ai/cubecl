@@ -12,8 +12,6 @@ use cubecl_core::prelude::*;
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
-    type LoadingJobConfig: LoadingJobConfig<MP, TL, Self>;
-
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -21,12 +19,12 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
         stage: &mut Stage<MP::ES, TL>,
         #[comptime] config: G,
     );
+
+    fn task_count(this: &Self) -> comptime_type!(u32);
 }
 
 #[cube]
 pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
-    type LoadingJobConfig: AsyncLoadingJobConfig<MP, TL, Self>;
-
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -35,26 +33,6 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
         mechanism: &CM,
         #[comptime] config: G,
     );
+
+    fn task_count(this: &Self) -> comptime_type!(u32);
 }
-
-pub trait LoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: LoadingJob<MP, TL>> {
-    fn len(job: &LJ) -> u32;
-
-    fn __expand_len(
-        context: &mut cubecl::prelude::Scope,
-        job: <LJ as cubecl::prelude::CubeType>::ExpandType,
-    ) -> u32;
-}
-
-pub trait AsyncLoadingJobConfig<MP: MatmulPrecision, TL: TilingLayout, LJ: AsyncLoadingJob<MP, TL>>
-{
-    fn len(job: &LJ) -> u32;
-
-    fn __expand_len(
-        context: &mut cubecl::prelude::Scope,
-        job: <LJ as cubecl::prelude::CubeType>::ExpandType,
-    ) -> u32;
-}
-
-pub type JobConfig<MP, TL, Job> = <Job as LoadingJob<MP, TL>>::LoadingJobConfig;
-pub type AsyncJobConfig<MP, TL, Job> = <Job as AsyncLoadingJob<MP, TL>>::LoadingJobConfig;
