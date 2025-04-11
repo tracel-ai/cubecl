@@ -137,7 +137,6 @@ fn request_device(
         required_features: full_feat,
         required_limits: limits,
         memory_hints,
-        trace: wgpu::Trace::Off,
     };
 
     unsafe {
