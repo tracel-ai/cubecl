@@ -1,6 +1,5 @@
 use cubecl_common::CubeDim;
 use cubecl_ir::{Elem, Id, Item, Scope};
-use serde::{Deserialize, Serialize};
 
 use crate::{
     compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
@@ -32,7 +31,7 @@ pub struct KernelSettings {
     pub options: KernelOptions,
 }
 
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct KernelOptions {
     pub kernel_name: String,
     pub debug_symbols: bool,
