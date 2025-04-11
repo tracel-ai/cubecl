@@ -6,11 +6,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[cube]
-fn adsf() -> comptime_type!(f32) {
-    4.5f32
-}
-
-#[cube]
 /// A loading job represents a group of loading tasks.
 /// Each task is the smallest unit of loading work:
 /// one thread at one iteration, operating at a specific point within a read view.
@@ -25,7 +20,7 @@ pub trait LoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Copy + C
         #[comptime] config: G,
     );
 
-    fn len(this: &Self) -> comptime_type!(u32);
+    fn task_count(this: &Self) -> comptime_type!(u32);
 }
 
 #[cube]
@@ -39,5 +34,5 @@ pub trait AsyncLoadingJob<MP: MatmulPrecision, TL: TilingLayout>: CubeType + Cop
         #[comptime] config: G,
     );
 
-    fn len(this: &Self) -> comptime_type!(u32);
+    fn task_count(this: &Self) -> comptime_type!(u32);
 }

@@ -39,11 +39,9 @@ impl TilewiseUnloading {
             if comptime!(balanced_workload) {
                 let value = slice[unit_write / out_line_size];
                 write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
-            } else {
-                if unit_write < tile_size {
-                    let value = slice[unit_write / out_line_size];
-                    write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
-                }
+            } else if unit_write < tile_size {
+                let value = slice[unit_write / out_line_size];
+                write_view.write_coalesced::<ES, G>(tile_x, tile_y, unit_write, value, config);
             }
         }
     }

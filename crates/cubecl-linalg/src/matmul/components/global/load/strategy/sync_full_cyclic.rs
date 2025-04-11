@@ -123,7 +123,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         };
     }
 
-    fn len(this: &Self) -> comptime_type!(u32) {
+    fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks_per_unit
     }
 }

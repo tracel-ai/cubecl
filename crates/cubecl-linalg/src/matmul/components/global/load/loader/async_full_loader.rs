@@ -119,7 +119,7 @@ impl<
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        let len = L::Job::len(&this.loading_job);
+        let len = L::Job::task_count(&this.loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
                 &mut this.loading_job,

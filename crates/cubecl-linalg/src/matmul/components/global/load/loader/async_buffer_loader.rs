@@ -110,7 +110,7 @@ impl<
             BufferId::B => this.loading_job_b,
         };
 
-        let len = L::Job::len(&loading_job);
+        let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, CommonGlobalConfig<S>>(
                 &mut loading_job,

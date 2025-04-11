@@ -96,7 +96,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         );
     }
 
-    fn len(this: &Self) -> comptime_type!(u32) {
+    fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_slices
     }
 }

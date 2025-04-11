@@ -63,7 +63,6 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<T> {
         let tiling = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
 
-        // 16
         let num_lines_per_tile = comptime!(tiling.tile_size() / line_size);
 
         let nth_tile = UNIT_POS_Y;
@@ -115,25 +114,16 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
     ) {
         let pos_within_tile = task_id * comptime!(config.plane_dim()) + UNIT_POS_X;
 
-        #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_tasks % this.num_workers == 0) {
             Job::load_and_store_line::<TO, G>(this, pos_within_tile, tensor_reader, stage, config);
-        } else {
-            if pos_within_tile * this.line_size
-                < comptime!(config.tiling_dimensions(this.input_ident).tile_size())
-            {
-                Job::load_and_store_line::<TO, G>(
-                    this,
-                    pos_within_tile,
-                    tensor_reader,
-                    stage,
-                    config,
-                );
-            }
+        } else if pos_within_tile * this.line_size
+            < comptime!(config.tiling_dimensions(this.input_ident).tile_size())
+        {
+            Job::load_and_store_line::<TO, G>(this, pos_within_tile, tensor_reader, stage, config);
         }
     }
 
-    fn len(this: &Self) -> comptime_type!(u32) {
+    fn task_count(this: &Self) -> comptime_type!(u32) {
         comptime!(this.num_tasks.div_ceil(this.num_workers))
     }
 }

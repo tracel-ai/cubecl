@@ -91,7 +91,7 @@ impl<MP: MatmulPrecision, G: GlobalConfig, L: SyncBufferLoadingStrategy>
             BufferId::B => this.loading_job_b,
         };
 
-        let len = L::Job::len(&loading_job);
+        let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<G>(
                 &mut loading_job,

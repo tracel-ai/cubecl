@@ -9,7 +9,7 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::{CubeOption, div_ceil};
+use cubecl_std::CubeOption;
 
 use super::AsyncLoadingJob;
 
@@ -86,7 +86,7 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         };
 
         let unit_count = config.plane_dim() * config.num_planes();
-        let num_tasks_per_unit = comptime!(div_ceil(num_slices, unit_count));
+        let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         Job {
             num_tasks_per_unit,
@@ -167,7 +167,7 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         };
     }
 
-    fn len(this: &Self) -> comptime_type!(u32) {
+    fn task_count(this: &Self) -> comptime_type!(u32) {
         this.num_tasks_per_unit
     }
 }
