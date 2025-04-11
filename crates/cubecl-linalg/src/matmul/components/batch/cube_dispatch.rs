@@ -10,9 +10,9 @@ use crate::matmul::components::batch::shared::swizzle;
 pub trait CubeDispatch: Clone + Copy + 'static + Send + Sync + Debug + Hash + Eq {
     fn x_y_indices() -> (u32, u32);
     fn batch_index() -> u32;
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32;
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32;
-    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32;
+    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
+    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
+    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32);
 }
 
 pub trait CubeCountDispatch {
@@ -53,16 +53,16 @@ impl CubeDispatch for NaturalDispatch {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0.runtime()
+    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.0
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1.runtime()
+    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.1
     }
 
-    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2.runtime()
+    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.2
     }
 }
 
@@ -82,16 +82,16 @@ impl CubeDispatch for TransposedDispatch {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1.runtime()
+    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.1
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0.runtime()
+    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.0
     }
 
-    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2.runtime()
+    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.2
     }
 }
 
@@ -113,16 +113,16 @@ impl<const W: u32> CubeDispatch for SwizzleNaturalDispatch<W> {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0.runtime()
+    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.0
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1.runtime()
+    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.1
     }
 
-    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2.runtime()
+    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.2
     }
 }
 
@@ -144,16 +144,16 @@ impl<const W: u32> CubeDispatch for SwizzleTransposedDispatch<W> {
         CUBE_POS_Z
     }
 
-    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.1.runtime()
+    fn max_x(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.1
     }
 
-    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.0.runtime()
+    fn max_y(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.0
     }
 
-    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> u32 {
-        cube_count.2.runtime()
+    fn max_batches(#[comptime] cube_count: (u32, u32, u32)) -> comptime_type!(u32) {
+        cube_count.2
     }
 }
 

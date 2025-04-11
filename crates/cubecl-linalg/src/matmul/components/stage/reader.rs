@@ -13,7 +13,9 @@ use cubecl_core::prelude::*;
 
 #[cube]
 pub trait Reader<ES: Numeric>: CubeType + Send + Sync + 'static {
-    fn num_k_iterations<TC: TileConfig>(#[comptime] config: CommonStageConfig<TC>) -> u32;
+    fn num_k_iterations<TC: TileConfig>(
+        #[comptime] config: CommonStageConfig<TC>,
+    ) -> comptime_type!(u32);
 
     fn read_tile<TC: TileConfig>(
         this: &Self,
@@ -45,11 +47,10 @@ impl<ES: Numeric, T: TilingLayout> FullReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> Reader<ES> for FullReader<ES, T> {
-    fn num_k_iterations<TC: TileConfig>(#[comptime] config: CommonStageConfig<TC>) -> u32 {
-        config
-            .tiling_dimensions(Ident::Lhs)
-            .tile_count_col()
-            .runtime()
+    fn num_k_iterations<TC: TileConfig>(
+        #[comptime] config: CommonStageConfig<TC>,
+    ) -> comptime_type!(u32) {
+        config.tiling_dimensions(Ident::Lhs).tile_count_col()
     }
 
     fn read_tile<TC: TileConfig>(
@@ -99,9 +100,11 @@ impl<ES: Numeric, T: TilingLayout> BufferReader<ES, T> {
 
 #[cube]
 impl<ES: Numeric, T: TilingLayout> Reader<ES> for BufferReader<ES, T> {
-    fn num_k_iterations<TC: TileConfig>(#[comptime] _config: CommonStageConfig<TC>) -> u32 {
+    fn num_k_iterations<TC: TileConfig>(
+        #[comptime] _config: CommonStageConfig<TC>,
+    ) -> comptime_type!(u32) {
         // For now buffers are always assumed to have 1 k tile
-        1u32.runtime()
+        1u32
     }
 
     fn read_tile<TC: TileConfig>(
