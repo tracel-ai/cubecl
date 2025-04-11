@@ -142,7 +142,7 @@ fn request_device(
 
     unsafe {
         wgpu_adapter
-            .create_device_from_hal(device, &descriptor)
+            .create_device_from_hal(device, &descriptor, None)
             .expect("Failed to create wgpu device")
     }
 }

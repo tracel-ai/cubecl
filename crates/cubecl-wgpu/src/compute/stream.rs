@@ -336,9 +336,7 @@ impl WgpuStream {
             None => {
                 #[cfg(not(target_family = "wasm"))]
                 {
-                    if let Err(e) = self.device.poll(wgpu::PollType::Wait) {
-                        log::warn!("wgpu: requested wait timed out before the submission was completed during sync. ({e})")
-                    }
+                    self.device.poll(wgpu::MaintainBase::Wait);
                     Box::pin(async move {})
                 }
 
@@ -467,9 +465,7 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = device.poll(wgpu::PollType::WaitForSubmissionIndex(index)) {
-                            log::warn!("wgpu: requested wait timed out before the submission was completed during sync. ({e})")
-                        }
+                        device.poll(wgpu::MaintainBase::WaitForSubmissionIndex(index));
                         *tasks_count_submitted = 0;
                     }
                 }

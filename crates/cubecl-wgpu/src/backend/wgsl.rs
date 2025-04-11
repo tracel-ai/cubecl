@@ -4,6 +4,7 @@ use cubecl_core::{
     ir::{Elem, UIntKind},
 };
 use cubecl_runtime::DeviceProperties;
+use wgpu::DeviceDescriptor;
 
 use crate::WgslCompiler;
 
@@ -22,26 +23,54 @@ pub fn bindings(repr: &<WgslCompiler as Compiler>::Representation) -> Vec<(usize
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
-    adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            label: None,
-            required_features: adapter.features(),
-            required_limits: limits,
-            // The default is MemoryHints::Performance, which tries to do some bigger
-            // block allocations. However, we already batch allocations, so we
-            // can use MemoryHints::MemoryUsage to lower memory usage.
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            trace: wgpu::Trace::Off,
-        })
-        .await
-        .map_err(|err| {
-            format!(
-                "Unable to request the device with the adapter {:?}, err {:?}",
-                adapter.get_info(),
-                err
+    #[cfg(not(all(feature = "msl", target_os = "macos")))]
+    {
+        adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: None,
+                    required_features: adapter.features(),
+                    required_limits: limits,
+                    // The default is MemoryHints::Performance, which tries to do some bigger
+                    // block allocations. However, we already batch allocations, so we
+                    // can use MemoryHints::MemoryUsage to lower memory usage.
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                },
+                None,
             )
-        })
-        .unwrap()
+            .await
+            .map_err(|err| {
+                format!(
+                    "Unable to request the device with the adapter {:?}, err {:?}",
+                    adapter.get_info(),
+                    err
+                )
+            })
+            .unwrap()
+    }
+    #[cfg(all(feature = "msl", target_os = "macos"))]
+    {
+        adapter
+            .request_device(&DeviceDescriptor {
+                label: None,
+                required_features: adapter.features(),
+                required_limits: limits,
+                // The default is MemoryHints::Performance, which tries to do some bigger
+                // block allocations. However, we already batch allocations, so we
+                // can use MemoryHints::MemoryUsage to lower memory usage.
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(|err| {
+                format!(
+                    "Unable to request the device with the adapter {:?}, err {:?}",
+                    adapter.get_info(),
+                    err
+                )
+            })
+            .unwrap()
+    }
 }
 
 pub fn register_wgsl_features(
