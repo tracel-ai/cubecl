@@ -104,7 +104,7 @@ where
     type LhsReader = RL;
     type RhsReader = RR;
     type Accumulator = Sequence<TMM::Accumulator>;
-    type LhsTile = TMM::Lhs;
+    type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = RhsTile<TMM::Rhs>;
 
     fn execute(
@@ -159,8 +159,11 @@ where
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
         let tmm_config = config.to_tmm_config();
+        let mut lhs = Sequence::new();
+        lhs.push(TMM::allocate_lhs(tmm_config));
+
         (
-            TMM::allocate_lhs(tmm_config),
+            lhs,
             match config.buffering() {
                 StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
                 StageBuffering::Double => RhsTile::new_Double((
@@ -258,7 +261,7 @@ where
     fn execute_single_buffer<SEL: StageEventListener>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut TMM::Lhs,
+        lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
         rhs_fragment: &mut TMM::Rhs,
         acc: &mut <Self as StageMatmul<MP>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<MP>>::Config,
@@ -271,6 +274,8 @@ where
         let acc_total_iterations = comptime![k_iterations * acc_iterations];
 
         let mut k_iter = comptime![0u32];
+
+        let lhs_fragment = lhs_fragment.index_mut(0);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
@@ -330,7 +335,7 @@ where
     fn execute_double_buffer<SEL: StageEventListener>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut TMM::Lhs,
+        lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut <Self as StageMatmul<MP>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<MP>>::Config,
@@ -343,6 +348,7 @@ where
         let acc_total_iterations = comptime![k_iterations * num_accumulators];
 
         let mut k_iter = comptime![0u32];
+        let lhs_fragment = lhs_fragment.index_mut(0);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
