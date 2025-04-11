@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        CopyMechanism, GlobalConfig, LoadingValidation,
         load::AsyncBufferLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
@@ -9,9 +9,8 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::{CubeOption, div_ceil};
 
-use super::{AsyncLoadingJob, AsyncLoadingJobConfig};
+use super::AsyncLoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
@@ -30,17 +29,10 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        comptime! {
-            if quantization.is_some() {
-                panic!("Quantization not supported on async loaders.")
-            }
-        }
-
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
@@ -86,18 +78,16 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
         };
 
         let unit_count = config.plane_dim() * config.num_planes();
-        let num_tasks = comptime!(div_ceil(num_slices, unit_count));
+        let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         Job {
-            job_config: comptime!(JobConfig {
-                num_tasks,
-                unit_count,
-                num_slices_buffer_offset,
-                input_ident,
-                slice_buffer_offset,
-                slice_length,
-                num_slices,
-            }),
+            num_tasks_per_unit,
+            unit_count,
+            num_slices_buffer_offset,
+            input_ident,
+            slice_buffer_offset,
+            slice_length,
+            num_slices,
         }
     }
 
@@ -109,37 +99,23 @@ impl AsyncBufferLoadingStrategy for LoadingStrategy {
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
     #[cube(comptime)]
-    job_config: JobConfig,
-}
-
-#[derive(Clone, Copy)]
-pub struct JobConfig {
-    num_tasks: u32,
+    num_tasks_per_unit: u32,
+    #[cube(comptime)]
     unit_count: u32,
+    #[cube(comptime)]
     num_slices_buffer_offset: u32,
+    #[cube(comptime)]
     input_ident: InputIdent,
+    #[cube(comptime)]
     slice_buffer_offset: u32,
+    #[cube(comptime)]
     slice_length: u32,
+    #[cube(comptime)]
     num_slices: u32,
-}
-
-impl<MP: MatmulPrecision> AsyncLoadingJobConfig<MP, StridedTilingLayout, Job> for JobConfig {
-    fn len(job: &Job) -> u32 {
-        job.job_config.num_tasks
-    }
-
-    fn __expand_len(
-        _context: &mut cubecl_core::prelude::Scope,
-        job: <Job as cubecl_core::prelude::CubeType>::ExpandType,
-    ) -> u32 {
-        job.job_config.num_tasks
-    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
-    type LoadingJobConfig = JobConfig;
-
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -148,40 +124,42 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let jc = comptime!(this.job_config);
+        let nth_slice_in_buffer = this.unit_count * task_id + UNIT_POS;
 
-        let nth_slice_in_buffer = jc.unit_count * task_id + UNIT_POS;
-
-        let nth_slice = nth_slice_in_buffer + jc.num_slices_buffer_offset;
+        let nth_slice = nth_slice_in_buffer + this.num_slices_buffer_offset;
 
         let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(nth_slice, jc.input_ident, config);
+            tensor_reader.load_window_in_stage::<G>(nth_slice, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 stage,
                 nth_slice,
-                comptime!(jc.input_ident.as_ident()),
+                comptime!(this.input_ident.as_ident()),
                 config.to_smm_config(),
             );
 
-        let start = jc.slice_buffer_offset;
+        let start = this.slice_buffer_offset;
         let limit = select(
-            jc.slice_buffer_offset < window.size,
-            jc.slice_buffer_offset,
+            this.slice_buffer_offset < window.size,
+            this.slice_buffer_offset,
             window.size,
         );
-        let end = start + Min::min(window.size - limit, jc.slice_length);
+        let end = start + Min::min(window.size - limit, this.slice_length);
 
         let src = window.slice.slice(start, end);
         let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(jc.num_slices % jc.unit_count == 0) {
+        if comptime!(this.num_slices % this.unit_count == 0) {
             CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
         } else {
-            if nth_slice_in_buffer < jc.num_slices {
+            if nth_slice_in_buffer < this.num_slices {
                 CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
             }
         };
+    }
+
+    fn task_count(this: &Self) -> comptime_type!(u32) {
+        this.num_tasks_per_unit
     }
 }

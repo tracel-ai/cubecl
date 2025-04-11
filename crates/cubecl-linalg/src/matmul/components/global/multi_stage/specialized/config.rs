@@ -1,6 +1,6 @@
 use crate::matmul::components::{
     Ident, MatmulConfig, MatrixLayout, TilingDimensions,
-    global::{self, GlobalConfig},
+    global::{self, GlobalConfig, PRECOMPUTE_JOB},
     stage::{self},
 };
 
@@ -76,6 +76,10 @@ impl<S: stage::StageConfig> global::GlobalConfig for Config<S> {
 
     fn check_k_bounds(&self) -> bool {
         self.check_k_bounds
+    }
+
+    fn precompute_job(&self) -> bool {
+        PRECOMPUTE_JOB
     }
 }
 

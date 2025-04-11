@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
-use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
+use crate::matmul::components::global::load::AsyncLoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{CopyMechanism, GlobalConfig, LoadingValidation};
 use crate::matmul::components::global::{Quantization, single_stage};
@@ -12,8 +11,8 @@ use crate::matmul::components::{Ident, InputIdent, MatmulPrecision, global};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
 /// A strategy for fully and asynchronously loading a stage.
@@ -26,7 +25,6 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP>;
@@ -44,7 +42,7 @@ pub struct AsyncLoader<
 > {
     tensor_reader: TensorReader<MP::EI>,
     stage: Stage<MP::ES, L::TilingLayout>,
-    loading_job: L::Job<MP>,
+    loading_job: CubeOption<L::Job<MP>>,
     #[cube(comptime)]
     ident: InputIdent,
     #[cube(comptime)]
@@ -75,7 +73,11 @@ impl<
         }
 
         let mut stage = Stage::new::<G::SmmConfig>(ident.as_ident(), config.to_smm_config());
-        let loading_job = L::new_job::<MP, G>(quantization, ident, config);
+
+        let loading_job = match config.precompute_job() {
+            true => CubeOption::new_Some(L::new_job::<MP, G>(ident, config)),
+            false => CubeOption::new_None(),
+        };
 
         match ident {
             InputIdent::Lhs =>
@@ -120,10 +122,15 @@ impl<
         mechanism: &CM,
         #[comptime] config: single_stage::Config<S>,
     ) {
-        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&this.loading_job);
+        let mut loading_job = match this.loading_job {
+            CubeOption::Some(loading_job) => loading_job,
+            CubeOption::None => L::new_job::<MP, single_stage::Config<S>>(this.ident, config),
+        };
+
+        let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, single_stage::Config<S>>(
-                &mut this.loading_job,
+                &mut loading_job,
                 task_id,
                 &this.tensor_reader,
                 &mut this.stage,

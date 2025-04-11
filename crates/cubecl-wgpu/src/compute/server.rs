@@ -94,11 +94,10 @@ impl WgpuServer {
             ));
         }
         let compile = self.logger.debug(compile);
-        // TODO This is usefull while working purely on the compiler without the runtime part
-        // Also the errors are printed nicely which is no the case when this is the runtime
+        // /!\ Do not delete the following commented code.
+        // This is usefull while working on the metal compiler.
+        // Also the errors are printed nicely which is not the case when this is the runtime
         // that does it.
-        // We can delete this once the compiler is mature and hopefully we can make the runtime
-        // to pretty print the compilation error.
         // println!("SOURCE:\n{}", compile.source);
         // {
         //     // Write shader in metal file then compile it for error
@@ -117,7 +116,6 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-
         let pipeline = self.create_pipeline(compile, mode);
         self.pipelines.insert(kernel_id.clone(), pipeline.clone());
 

@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        CopyMechanism, GlobalConfig, LoadingValidation,
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
@@ -9,9 +9,8 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::CubeOption;
 
-use super::{AsyncLoadingJob, AsyncLoadingJobConfig};
+use super::AsyncLoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without modification,  
@@ -32,16 +31,9 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        comptime! {
-            if quantization.is_some() {
-                panic!("Quantization not supported on async loaders.")
-            }
-        }
-
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
@@ -51,10 +43,8 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         };
 
         Job {
-            job_config: comptime!(JobConfig {
-                num_slices,
-                input_ident,
-            }),
+            num_slices,
+            input_ident,
         }
     }
 
@@ -66,32 +56,13 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
 #[derive(CubeType, Clone, Copy)]
 pub struct Job {
     #[cube(comptime)]
-    job_config: JobConfig,
-}
-
-#[derive(Clone, Copy)]
-pub struct JobConfig {
     num_slices: u32,
+    #[cube(comptime)]
     input_ident: InputIdent,
-}
-
-impl<MP: MatmulPrecision> AsyncLoadingJobConfig<MP, StridedTilingLayout, Job> for JobConfig {
-    fn len(job: &Job) -> u32 {
-        job.job_config.num_slices
-    }
-
-    fn __expand_len(
-        _context: &mut cubecl_core::prelude::Scope,
-        job: <Job as cubecl_core::prelude::CubeType>::ExpandType,
-    ) -> u32 {
-        job.job_config.num_slices
-    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
-    type LoadingJobConfig = JobConfig;
-
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
@@ -100,15 +71,13 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let input_ident = comptime!(this.job_config.input_ident);
-
         let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(task_id, input_ident, config);
+            tensor_reader.load_window_in_stage::<G>(task_id, this.input_ident, config);
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 stage,
                 task_id,
-                comptime!(input_ident.as_ident()),
+                comptime!(this.input_ident.as_ident()),
                 config.to_smm_config(),
             );
 
@@ -117,5 +86,9 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
             &window.slice.try_cast_unchecked(),
             &mut destination,
         );
+    }
+
+    fn task_count(this: &Self) -> comptime_type!(u32) {
+        this.num_slices
     }
 }

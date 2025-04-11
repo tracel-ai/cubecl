@@ -8,7 +8,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use super::{LoadingJob, LoadingJobConfig};
+use super::LoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all the tensor view using all planes,
@@ -37,10 +37,9 @@ impl LoadingValidation for LoadingStrategy {
 #[cube]
 impl SyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job<MP>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
@@ -48,77 +47,59 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
         let line_size = config.global_line_size(input_ident);
         let num_stage_lines = tiling.total_size() / line_size;
         let unit_count = config.num_planes() * config.plane_dim();
-        let num_tasks = comptime!(num_stage_lines / unit_count);
+        let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
         let unit_position_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        Job::<MP> {
+        Job {
             unit_position_base,
-            quantization,
-            job_config: comptime!(JobConfig {
-                num_tasks,
-                unit_count,
-                line_size,
-                input_ident
-            }),
+            num_tasks_per_unit,
+            unit_count,
+            line_size,
+            input_ident,
         }
     }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision> {
+pub struct Job {
     unit_position_base: u32,
 
-    quantization: CubeOption<Quantization<MP>>,
-
     #[cube(comptime)]
-    job_config: JobConfig,
-}
-
-#[derive(Copy, Clone)]
-pub struct JobConfig {
-    num_tasks: u32,
+    num_tasks_per_unit: u32,
+    #[cube(comptime)]
     unit_count: u32,
+    #[cube(comptime)]
     line_size: u32,
+    #[cube(comptime)]
     input_ident: InputIdent,
 }
 
-impl<MP: MatmulPrecision> LoadingJobConfig<MP, StridedTilingLayout, Job<MP>> for JobConfig {
-    fn len(job: &Job<MP>) -> u32 {
-        job.job_config.num_tasks
-    }
-
-    fn __expand_len(
-        _context: &mut cubecl_core::prelude::Scope,
-        job: <Job<MP> as cubecl_core::prelude::CubeType>::ExpandType,
-    ) -> u32 {
-        job.job_config.num_tasks
-    }
-}
-
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job<MP> {
-    type LoadingJobConfig = JobConfig;
-
+impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, StridedTilingLayout>,
+        quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
-        let jc = comptime!(this.job_config);
-        let unit_position = this.unit_position_base + task_id * jc.unit_count;
+        let unit_position = this.unit_position_base + task_id * this.unit_count;
 
         let line_read = tensor_reader.load_coalesced_in_stage::<G>(
-            unit_position * jc.line_size,
-            jc.input_ident,
+            unit_position * this.line_size,
+            this.input_ident,
             config,
         );
 
-        stage.as_slice_mut()[unit_position] = match this.quantization {
+        stage.as_slice_mut()[unit_position] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         }
+    }
+
+    fn task_count(this: &Self) -> comptime_type!(u32) {
+        this.num_tasks_per_unit
     }
 }

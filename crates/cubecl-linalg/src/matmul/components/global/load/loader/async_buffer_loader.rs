@@ -1,7 +1,6 @@
 use super::BufferId;
 use crate::matmul::components::global::base::GlobalConfig;
-use crate::matmul::components::global::load::strategy::AsyncLoadingJobConfig;
-use crate::matmul::components::global::load::{AsyncJobConfig, AsyncLoadingJob};
+use crate::matmul::components::global::load::AsyncLoadingJob;
 use crate::matmul::components::global::tensor_view::TensorReader;
 use crate::matmul::components::global::{
     CommonGlobalConfig, CopyMechanism, LoadingValidation, Quantization,
@@ -14,8 +13,8 @@ use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[cube]
 /// A strategy for asynchronously loading a buffer (partial stage), either eagerly or as a deferred job.
@@ -28,7 +27,6 @@ pub trait AsyncBufferLoadingStrategy: 'static + Send + Sync + Clone + LoadingVal
 
     /// Returns the job with preliminary calculations done.
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] ident: InputIdent,
         #[comptime] config: G,
@@ -47,8 +45,7 @@ pub struct AsyncBufferLoader<
 > {
     tensor_reader: TensorReader<MP::EI>,
     stage: Stage<MP::ES, L::TilingLayout>,
-    loading_job_a: L::Job<MP>,
-    loading_job_b: L::Job<MP>,
+    loading_job: CubeOption<(L::Job<MP>, L::Job<MP>)>,
     #[cube(comptime)]
     input_ident: InputIdent,
     #[cube(comptime)]
@@ -72,18 +69,26 @@ impl<
         #[comptime] input_ident: InputIdent,
         #[comptime] config: CommonGlobalConfig<S>,
     ) -> Self {
+        comptime! {
+            if quantization.is_some() {
+                todo!();
+            }
+        }
+
         let stage = Stage::new::<S>(input_ident.as_ident(), config.to_smm_config());
         let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
-        let loading_job_a =
-            L::new_job::<MP, CommonGlobalConfig<S>>(quantization, 0u32, input_ident, config);
-        let loading_job_b =
-            L::new_job::<MP, CommonGlobalConfig<S>>(quantization, 1u32, input_ident, config);
+        let loading_job = match config.precompute_job() {
+            true => CubeOption::new_Some((
+                L::new_job::<MP, CommonGlobalConfig<S>>(0u32, input_ident, config),
+                L::new_job::<MP, CommonGlobalConfig<S>>(1u32, input_ident, config),
+            )),
+            false => CubeOption::new_None(),
+        };
 
         AsyncBufferLoader::<MP, S, CM, L> {
             tensor_reader,
             stage,
-            loading_job_a,
-            loading_job_b,
+            loading_job,
             input_ident,
             _phantom: PhantomData::<(S, CM)>,
         }
@@ -106,12 +111,22 @@ impl<
         #[comptime] buffer_id: BufferId,
         #[comptime] config: CommonGlobalConfig<S>,
     ) {
-        let mut loading_job = match buffer_id {
-            BufferId::A => this.loading_job_a,
-            BufferId::B => this.loading_job_b,
+        let mut loading_job = match this.loading_job {
+            CubeOption::Some(job) => match buffer_id {
+                BufferId::A => job.0,
+                BufferId::B => job.1,
+            },
+            CubeOption::None => match buffer_id {
+                BufferId::A => {
+                    L::new_job::<MP, CommonGlobalConfig<S>>(0u32, this.input_ident, config)
+                }
+                BufferId::B => {
+                    L::new_job::<MP, CommonGlobalConfig<S>>(1u32, this.input_ident, config)
+                }
+            },
         };
 
-        let len = AsyncJobConfig::<MP, L::TilingLayout, L::Job<MP>>::len(&loading_job);
+        let len = L::Job::task_count(&loading_job);
         for task_id in 0..len {
             L::Job::<MP>::execute_task::<CM, CommonGlobalConfig<S>>(
                 &mut loading_job,

@@ -83,7 +83,10 @@ pub mod config {
 
     use crate::{
         convolution::ConvGemmConfig,
-        matmul::components::{MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig},
+        matmul::components::{
+            MatmulConfig, MatrixLayout, TilingDimensions, global::GlobalConfig,
+            global::PRECOMPUTE_JOB,
+        },
     };
 
     use super::*;
@@ -146,6 +149,10 @@ pub mod config {
 
         fn check_k_bounds(&self) -> bool {
             self.matmul.check_k_bounds()
+        }
+
+        fn precompute_job(&self) -> bool {
+            PRECOMPUTE_JOB
         }
     }
 

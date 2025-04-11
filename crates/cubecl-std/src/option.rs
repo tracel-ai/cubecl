@@ -26,6 +26,13 @@ impl<T: CubeType> CubeOption<T> {
     pub fn is_none(&self) -> bool {
         !self.is_some()
     }
+
+    pub fn unwrap_or(self, fallback: T) -> T {
+        match self {
+            CubeOption::Some(val) => val,
+            CubeOption::None => fallback,
+        }
+    }
 }
 
 impl<T: CubeType> CubeOptionExpand<T> {
@@ -45,6 +52,13 @@ impl<T: CubeType> CubeOptionExpand<T> {
 
     pub fn is_none(&self) -> bool {
         !self.is_some()
+    }
+
+    pub fn unwrap_or(self, fallback: T::ExpandType) -> T::ExpandType {
+        match self {
+            CubeOptionExpand::Some(val) => val,
+            CubeOptionExpand::None => fallback,
+        }
     }
 }
 

@@ -169,4 +169,6 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
+
+    fn precompute_job(&self) -> bool;
 }

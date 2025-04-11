@@ -174,6 +174,26 @@ pub fn comptime(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
+/// Makes the function return a compile time value
+/// Useful in a cube trait to have a part of the trait return comptime values
+///
+/// # Example
+/// ```ignored
+/// #use cubecl_macros::cube;
+/// #[cube]
+/// fn do_stuff(#[comptime] input: u32) -> comptime_type!(u32) {
+///     input + 5   
+/// }
+/// ```
+///
+/// TODO: calling a trait method returning comptime_type from
+/// within another trait method does not work
+#[proc_macro]
+pub fn comptime_type(input: TokenStream) -> TokenStream {
+    let tokens: proc_macro2::TokenStream = input.into();
+    quote![ #tokens ].into()
+}
+
 /// Insert a literal comment into the kernel source code.
 ///
 /// # Example

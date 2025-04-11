@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use super::{
-    ArgMax, ArgMin, MaxAbs, Mean, Prod, ReduceCoordinate, ReduceFamily, ReduceInstruction,
-    ReduceRequirements, SharedAccumulator, Sum,
+    ArgMax, ArgMin, Max, MaxAbs, Mean, Min, Prod, ReduceCoordinate, ReduceFamily,
+    ReduceInstruction, ReduceRequirements, SharedAccumulator, Sum,
 };
 
 #[derive(Debug, CubeType, Clone)]
@@ -15,6 +15,8 @@ pub enum ReduceFn {
     MaxAbs(MaxAbs),
     ArgMax(ArgMax),
     ArgMin(ArgMin),
+    Max(Max),
+    Min(Min),
 }
 
 #[derive_cube_comptime]
@@ -25,6 +27,8 @@ pub enum ReduceFnConfig {
     MaxAbs,
     ArgMax,
     ArgMin,
+    Max,
+    Min,
 }
 
 impl ReduceFamily for ReduceFn {
@@ -101,6 +105,8 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
             ReduceFn::MaxAbs(..) => comptime![false],
             ReduceFn::ArgMax(..) => comptime![true],
             ReduceFn::ArgMin(..) => comptime![true],
+            ReduceFn::Max(..) => comptime![false],
+            ReduceFn::Min(..) => comptime![false],
         };
         ReduceRequirements {
             coordinates: comptime! {coordinates},
@@ -115,6 +121,8 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
             ReduceFnConfig::MaxAbs => ReduceFn::new_MaxAbs(MaxAbs {}),
             ReduceFnConfig::ArgMax => ReduceFn::new_ArgMax(ArgMax {}),
             ReduceFnConfig::ArgMin => ReduceFn::new_ArgMin(ArgMin {}),
+            ReduceFnConfig::Max => ReduceFn::new_Max(Max {}),
+            ReduceFnConfig::Min => ReduceFn::new_Min(Min {}),
         }
     }
 
@@ -126,6 +134,8 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
             ReduceFn::MaxAbs(maxabs) => MaxAbs::null_input(maxabs, line_size),
             ReduceFn::ArgMax(argmax) => ArgMax::null_input(argmax, line_size),
             ReduceFn::ArgMin(argmin) => ArgMin::null_input(argmin, line_size),
+            ReduceFn::Max(max) => Max::null_input(max, line_size),
+            ReduceFn::Min(min) => Min::null_input(min, line_size),
         }
     }
 
@@ -177,6 +187,22 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                 DynamicAccumulatorItem::<In> {
                     elements,
                     args: CubeOption::new_Some(args),
+                }
+            }
+            ReduceFn::Max(max) => {
+                let elements = Max::null_accumulator(max, line_size);
+
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
+                }
+            }
+            ReduceFn::Min(min) => {
+                let elements = Min::null_accumulator(min, line_size);
+
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
                 }
             }
         }
@@ -263,6 +289,22 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                     args: CubeOption::new_Some(args),
                 }
             }
+            ReduceFn::Max(max) => {
+                let elements =
+                    Max::reduce(max, &accumulator.elements, item, coordinate, use_planes);
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
+                }
+            }
+            ReduceFn::Min(min) => {
+                let elements =
+                    Min::reduce(min, &accumulator.elements, item, coordinate, use_planes);
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
+                }
+            }
         }
     }
 
@@ -322,6 +364,20 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                     args: CubeOption::new_Some(args),
                 }
             }
+            ReduceFn::Max(max) => {
+                let elements = Max::fuse_accumulators(max, lhs.elements, rhs.elements);
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
+                }
+            }
+            ReduceFn::Min(min) => {
+                let elements = Min::fuse_accumulators(min, lhs.elements, rhs.elements);
+                DynamicAccumulatorItem::<In> {
+                    elements,
+                    args: CubeOption::new_None(),
+                }
+            }
         }
     }
 
@@ -355,6 +411,12 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                 (accumulator.elements, accumulator.args.unwrap()),
                 shape_axis_reduce,
             ),
+            ReduceFn::Max(max) => {
+                Max::merge_line::<Out>(max, accumulator.elements, shape_axis_reduce)
+            }
+            ReduceFn::Min(min) => {
+                Min::merge_line::<Out>(min, accumulator.elements, shape_axis_reduce)
+            }
         }
     }
 
@@ -388,6 +450,12 @@ impl<In: Numeric> ReduceInstruction<In> for ReduceFn {
                 (accumulator.elements, accumulator.args.unwrap()),
                 shape_axis_reduce,
             ),
+            ReduceFn::Max(max) => {
+                Max::to_output_perpendicular::<Out>(max, accumulator.elements, shape_axis_reduce)
+            }
+            ReduceFn::Min(min) => {
+                Min::to_output_perpendicular::<Out>(min, accumulator.elements, shape_axis_reduce)
+            }
         }
     }
 }

@@ -8,15 +8,15 @@ use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 // TODO Add to test framework.
 /// Return the item with the maximum absolute value.
 #[derive(Debug, CubeType, Clone)]
-pub struct MaxAbs;
+pub struct Min;
 
-impl ReduceFamily for MaxAbs {
+impl ReduceFamily for Min {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
+impl<In: Numeric> ReduceInstruction<In> for Min {
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
     type Config = ();
@@ -26,10 +26,10 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
     }
 
     fn from_config(_config: Self::Config) -> Self {
-        MaxAbs {}
+        Min {}
     }
     fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
-        Line::empty(line_size).fill(In::min_value())
+        Line::empty(line_size).fill(In::max_value())
     }
 
     fn null_accumulator(this: &Self, #[comptime] line_size: u32) -> Self::AccumulatorItem {
@@ -52,15 +52,14 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
-            let candidate_item = plane_max(Line::abs(item));
+            let candidate_item = plane_min(item);
             select_many(
-                accumulator.greater_than(candidate_item),
+                accumulator.less_than(candidate_item),
                 *accumulator,
                 candidate_item,
             )
         } else {
-            let item_abs = Line::abs(item);
-            select_many(accumulator.greater_than(item_abs), *accumulator, item_abs)
+            select_many(accumulator.less_than(item), *accumulator, item)
         }
     }
 
@@ -69,7 +68,7 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
-        select_many(lhs.greater_than(rhs), lhs, rhs)
+        select_many(lhs.less_than(rhs), lhs, rhs)
     }
 
     fn merge_line<Out: Numeric>(
@@ -77,13 +76,13 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut max = In::min_value();
+        let mut min = In::max_value();
         #[unroll]
         for k in 0..accumulator.size() {
             let candidate = accumulator[k];
-            max = select(candidate > max, candidate, max);
+            min = select(candidate < min, candidate, min);
         }
-        Out::cast_from(max)
+        Out::cast_from(min)
     }
 
     fn to_output_perpendicular<Out: Numeric>(
