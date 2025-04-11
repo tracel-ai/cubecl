@@ -54,7 +54,7 @@ impl<In: Numeric> ReduceInstruction<In> for Min {
         if use_planes {
             let candidate_item = plane_min(item);
             select_many(
-                accumulator.greater_than(candidate_item),
+                accumulator.less_than(candidate_item),
                 *accumulator,
                 candidate_item,
             )
@@ -68,7 +68,7 @@ impl<In: Numeric> ReduceInstruction<In> for Min {
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
-        lhs + rhs
+        select_many(lhs.less_than(rhs), lhs, rhs)
     }
 
     fn merge_line<Out: Numeric>(
@@ -76,12 +76,13 @@ impl<In: Numeric> ReduceInstruction<In> for Min {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut sum = In::from_int(0);
+        let mut min = In::max_value();
         #[unroll]
         for k in 0..accumulator.size() {
-            sum += accumulator[k];
+            let candidate = accumulator[k];
+            min = select(candidate < min, candidate, min);
         }
-        Out::cast_from(sum)
+        Out::cast_from(min)
     }
 
     fn to_output_perpendicular<Out: Numeric>(

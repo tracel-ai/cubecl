@@ -28,6 +28,7 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
     fn from_config(_config: Self::Config) -> Self {
         Max {}
     }
+
     fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
         Line::empty(line_size).fill(In::min_value())
     }
@@ -68,7 +69,7 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
         lhs: Self::AccumulatorItem,
         rhs: Self::AccumulatorItem,
     ) -> Self::AccumulatorItem {
-        lhs + rhs
+        select_many(lhs.greater_than(rhs), lhs, rhs)
     }
 
     fn merge_line<Out: Numeric>(
@@ -76,12 +77,13 @@ impl<In: Numeric> ReduceInstruction<In> for Max {
         accumulator: Self::AccumulatorItem,
         _shape_axis_reduce: u32,
     ) -> Out {
-        let mut sum = In::from_int(0);
+        let mut max = In::min_value();
         #[unroll]
         for k in 0..accumulator.size() {
-            sum += accumulator[k];
+            let candidate = accumulator[k];
+            max = select(candidate > max, candidate, max);
         }
-        Out::cast_from(sum)
+        Out::cast_from(max)
     }
 
     fn to_output_perpendicular<Out: Numeric>(
