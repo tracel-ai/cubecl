@@ -6,17 +6,17 @@ use crate::instructions::ReduceRequirements;
 use super::{ReduceCoordinate, ReduceFamily, ReduceInstruction};
 
 // TODO Add to test framework.
-/// Return the item with the maximum absolute value.
+/// Return the item with the maximum value.
 #[derive(Debug, CubeType, Clone)]
-pub struct MaxAbs;
+pub struct Max;
 
-impl ReduceFamily for MaxAbs {
+impl ReduceFamily for Max {
     type Instruction<In: Numeric> = Self;
     type Config = ();
 }
 
 #[cube]
-impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
+impl<In: Numeric> ReduceInstruction<In> for Max {
     type AccumulatorItem = Line<In>;
     type SharedAccumulator = SharedMemory<Line<In>>;
     type Config = ();
@@ -26,8 +26,9 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
     }
 
     fn from_config(_config: Self::Config) -> Self {
-        MaxAbs {}
+        Max {}
     }
+
     fn null_input(_this: &Self, #[comptime] line_size: u32) -> Line<In> {
         Line::empty(line_size).fill(In::min_value())
     }
@@ -52,15 +53,14 @@ impl<In: Numeric> ReduceInstruction<In> for MaxAbs {
         #[comptime] use_planes: bool,
     ) -> Self::AccumulatorItem {
         if use_planes {
-            let candidate_item = plane_max(Line::abs(item));
+            let candidate_item = plane_max(item);
             select_many(
                 accumulator.greater_than(candidate_item),
                 *accumulator,
                 candidate_item,
             )
         } else {
-            let item_abs = Line::abs(item);
-            select_many(accumulator.greater_than(item_abs), *accumulator, item_abs)
+            select_many(accumulator.greater_than(item), *accumulator, item)
         }
     }
 
