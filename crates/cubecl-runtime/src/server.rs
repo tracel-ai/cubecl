@@ -9,7 +9,7 @@ use crate::{
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::{fmt::Debug, future::Future};
-use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 use cubecl_ir::Elem;
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -90,11 +90,6 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> impl Future<Output = ()> + Send + 'static;
 
-    /// Wait for the completion of every task in the server.
-    ///
-    /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + Send + 'static;
-
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
 
@@ -102,10 +97,10 @@ where
     fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
-    fn enable_timestamps(&mut self);
+    fn start_profile(&mut self);
 
     /// Disable collecting timestamps.
-    fn disable_timestamps(&mut self);
+    fn end_profile(&mut self) -> ProfileDuration;
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).

@@ -84,7 +84,6 @@ impl<K: AutotuneKey> TuneCache<K> {
                 ),
             };
             cache.load();
-
             cache
         }
 
@@ -150,6 +149,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }

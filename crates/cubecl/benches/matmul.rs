@@ -3,7 +3,7 @@ use cubecl::prelude::*;
 use cubecl_linalg::matmul::components::MatmulPrecision;
 use cubecl_linalg::matmul::{self, AsyncLoadingStrategy};
 
-use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
@@ -46,8 +46,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+        self.client.profile(|| self.execute(args))
     }
 }
 

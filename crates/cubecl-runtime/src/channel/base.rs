@@ -1,5 +1,5 @@
 use core::future::Future;
-use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
 
 use crate::{
     server::{Binding, BindingWithMeta, Bindings, ComputeServer, CubeCount, Handle},
@@ -57,20 +57,23 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> impl Future<Output = ()> + Send;
 
-    /// Wait for the completion of every task in the server.
-    ///
-    /// Returns the (approximate) total amount of GPU work done since the last sync.
-    fn sync_elapsed(&self) -> impl Future<Output = TimestampsResult> + Send;
-
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&self);
 
-    /// Enable collecting timestamps.
-    fn enable_timestamps(&self);
+    /// Start a profile on the server. This allows you to profile kernels.
+    ///
+    /// This will measure execution time either by measuring the 'full' execution time by synchronizing
+    /// the execution at the start and the end of the profile, or 'device' time by using device timestamps.
+    /// This function will handle any required synchronization.
+    ///
+    /// Recursive profiling is not allowed and will panic.
+    fn start_profile(&self);
 
-    /// Disable collecting timestamps.
-    fn disable_timestamps(&self);
+    /// End the profile and return a [`ProfileDuration`].
+    ///
+    /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
+    fn end_profile(&self) -> ProfileDuration;
 }
