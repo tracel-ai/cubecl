@@ -117,10 +117,18 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_tasks % this.num_workers == 0) {
             Job::load_and_store_line::<TO, G>(this, pos_within_tile, tensor_reader, stage, config);
-        } else if pos_within_tile * this.line_size
-            < comptime!(config.tiling_dimensions(this.input_ident).tile_size())
-        {
-            Job::load_and_store_line::<TO, G>(this, pos_within_tile, tensor_reader, stage, config);
+        } else {
+            if pos_within_tile * this.line_size
+                < comptime!(config.tiling_dimensions(this.input_ident).tile_size())
+            {
+                Job::load_and_store_line::<TO, G>(
+                    this,
+                    pos_within_tile,
+                    tensor_reader,
+                    stage,
+                    config,
+                );
+            }
         }
     }
 
