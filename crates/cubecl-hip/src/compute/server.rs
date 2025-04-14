@@ -25,6 +25,7 @@ use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
 
+#[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 
 #[derive(Debug)]
