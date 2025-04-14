@@ -16,4 +16,4 @@ cubecl = { path = "../../crates/cubecl", version = "0.5.0" }
 half = { workspace = true }
 
 sum_things = { path = "../sum_things" }
-wgpu = { version = "24.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "25.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }

@@ -621,13 +621,14 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 indices,
             } => {
                 let rank = indices.len();
+                let smem_ptr = smem_buffer.fmt_ptr();
                 let indices = indices.iter().rev().fold(String::new(), |mut s, it| {
                     let _ = write!(s, "{it}, ");
                     s
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} &{smem_buffer});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr});"
                 )
             }
         }
@@ -728,7 +729,7 @@ impl<D: Dialect> Remainder<D> {
         let floor = |elem| {
             let prefix = match elem {
                 Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F162 | Elem::BF162 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F162 | Elem::BF162 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
             format!("{prefix}floor")
