@@ -108,7 +108,7 @@ impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
         }
     }
 
-    pub fn fill<L: AccumulatorLoader<MP, S>, S: StageConfig>(
+    pub fn fill<L: AccumulatorLoader<MP>, S: StageConfig>(
         &mut self,
         loader: &mut L,
         #[comptime] config: CommonStageConfig<TMM::Config>,
