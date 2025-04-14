@@ -74,10 +74,15 @@ impl<T: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<T> {
         );
 
         Job {
+            //0,0
             tile,
+            //0
             previous_tiles_offset,
+            //16
             num_tasks: num_lines_per_tile,
+            //32
             num_workers: config.plane_dim(),
+            //4
             line_size,
             input_ident,
         }
@@ -122,9 +127,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
                 config,
             );
         } else {
-            if pos_within_tile * this.line_size
-                < comptime!(config.tiling_dimensions(this.input_ident).tile_size())
-            {
+            if pos_within_tile < this.num_tasks {
                 Job::load_and_store_line::<MP, TO, G>(
                     this,
                     pos_within_tile,

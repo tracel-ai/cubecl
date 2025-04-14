@@ -123,11 +123,14 @@ impl<T: TilingOrder> TilingLayout for ContiguousTilingLayout<T> {
         #[comptime] ident: Ident,
         #[comptime] config: S,
     ) -> Tile<ES> {
+        // 4
         let line_size = config.line_size(ident);
         let tiling_dimensions = config.tiling_dimensions(ident);
         let matrix_layout = config.matrix_layout(ident);
 
+        // 1
         let tile_count_x = tiling_dimensions.tile_count_row();
+        // 1
         let tile_count_y = tiling_dimensions.tile_count_col();
 
         let (tile_shape_x, tile_shape_y, length) = match matrix_layout {

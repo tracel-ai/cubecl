@@ -22,6 +22,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, T> {
     pub fn new<S: StageConfig>(#[comptime] ident: Ident, #[comptime] config: S) -> Stage<ES, T> {
         let line_size = config.line_size(ident);
 
+        // 64 / 4 = 16
         let smem = SharedMemory::new_lined(
             comptime!(config.tiling_dimensions(ident).total_size() / line_size),
             line_size,
