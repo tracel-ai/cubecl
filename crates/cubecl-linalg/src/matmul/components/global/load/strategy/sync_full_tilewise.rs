@@ -133,6 +133,8 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
+        let jc = this.job_config;
+
         let pos_within_tile = task_id * comptime!(config.plane_dim()) + UNIT_POS_X;
 
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
@@ -146,7 +148,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let offset = this.offset_base + pos_within_tile;
 
         stage.as_slice_mut()[offset] = match this.quantization {
-            CubeOption::Some(quantization) => quantization.dequantize(line_read),
+            CubeOption::Some(quantization) => quantization.dequantize(line_read, jc.input_ident),
             CubeOption::None => Line::cast_from(line_read),
         }
     }

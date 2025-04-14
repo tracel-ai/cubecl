@@ -31,7 +31,6 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
         let target_size = size_of::<T>();
         let (optimized_line_size, load_many) =
             comptime!(optimize_line_size(source_size, line_size, target_size));
-
         match comptime!(optimized_line_size) {
             Some(line_size) => ReinterpretSlice::<S, T> {
                 slice: slice.with_line_size(line_size),
@@ -52,6 +51,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 // panic!("HELLO {} {}", amount, self.line_size);
+
                 let first = index * amount;
                 let mut line = Line::empty(comptime!(amount * self.line_size));
                 #[unroll]
@@ -59,7 +59,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
                     let elem = self.slice[first + k];
                     #[unroll]
                     for j in 0..self.line_size {
-                        line[k + j] = elem[j];
+                        line[k * self.line_size + j] = elem[j];
                     }
                 }
                 T::reinterpret(line)

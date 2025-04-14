@@ -7,9 +7,9 @@ use cubecl_std::{
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
-use crate::matmul::components::{self, MatmulPrecision, MatmulProblem, MatmulSelection};
+use crate::matmul::components::{self, Ident, MatmulPrecision, MatmulProblem, MatmulSelection};
 
-use super::Quantization;
+use super::{GlobalConfig, Quantization};
 
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
@@ -121,7 +121,10 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// It is the responsibility of the caller to ensure it is safe to call this function.
     /// That is, when a matmul is indeed quantized. Else, it will most likely results in
     /// out-of-bound memory access.
-    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP>;
+    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
+        state: &Self::State<MP::EI, MP::EO>,
+        #[comptime] config: G,
+    ) -> Quantization<MP>;
 }
 
 #[derive(Clone, Copy)]
@@ -598,30 +601,33 @@ impl MatmulArgs for TensorArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
-        // TODO Currently I assume that buffer_len = metadata_len + len.
-        //      That is, all the data within the tensors are contiguous and there are no hole
-        //      in the stride pattern. In particular, I believe this could cause issues with fusion.
+    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
+        state: &Self::State<MP::EI, MP::EO>,
+        #[comptime] config: G,
+    ) -> Quantization<MP> {
+        // TODO Currently, this assume that the scaling is always the last value in the buffer.
+        //      Also, in burn the scaling is presently fix to f32, hence the extra conversions.
 
-        // Quantization::<MP> {
-        //     scaling: MP::ES::cast_from(Self::shape_lhs(state, 0)),
-        // }
         let (lhs, rhs, _) = *state;
         unsafe {
-            let scaling_lhs = ReinterpretSlice::<MP::EI, f32>::new(
-                // (*lhs).slice(Self::len_lhs(state), 4 * Self::buffer_len_lhs(state)),
-                (*lhs).to_slice(),
-                (*lhs).line_size(),
-            )
-            .read(2u32);
-            let scaling_rhs = ReinterpretSlice::<MP::EI, f32>::new(
-                // (*rhs).slice(Self::len_rhs(state), 4 * Self::buffer_len_rhs(state)),
-                (*rhs).to_slice(),
-                (*rhs).line_size(),
-            )
-            .read(2u32);
+            let buffer_len_lhs = Self::buffer_len_lhs(state);
+            let line_size_lhs = config.global_line_size(Ident::Lhs);
+            let reinterpreted_len_lhs = buffer_len_lhs * line_size_lhs / 4;
+
+            let scaling_lhs =
+                ReinterpretSlice::<MP::EI, f32>::new((*lhs).to_slice(), (*lhs).line_size())
+                    .read(reinterpreted_len_lhs - 1);
+            let buffer_len_rhs = Self::buffer_len_rhs(state);
+            let line_size_rhs = config.global_line_size(Ident::Rhs);
+            let reinterpreted_len_rhs = buffer_len_rhs * line_size_rhs / 4;
+
+            let scaling_rhs =
+                ReinterpretSlice::<MP::EI, f32>::new((*rhs).to_slice(), (*rhs).line_size())
+                    .read(reinterpreted_len_rhs - 1);
+
             Quantization::<MP> {
-                scaling: MP::ES::cast_from(scaling_rhs * scaling_rhs),
+                scaling_lhs: MP::ES::cast_from(scaling_lhs),
+                scaling_rhs: MP::ES::cast_from(scaling_rhs),
             }
         }
     }
@@ -899,7 +905,10 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { (*state.2).buffer_len() }
     }
 
-    fn quantization<MP: MatmulPrecision>(_state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
+    fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
+        state: &Self::State<MP::EI, MP::EO>,
+        #[comptime] config: G,
+    ) -> Quantization<MP> {
         todo!("Quantized TMA not yet supported")
     }
 }
