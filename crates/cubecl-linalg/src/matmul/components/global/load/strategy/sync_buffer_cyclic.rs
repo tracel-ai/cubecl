@@ -145,7 +145,14 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             InputIdent::Rhs => (this.buffer_index.runtime(), unit_pos_in_buffer),
         };
 
-        let nth_tile = TO::to_nth_tile(tile_x, tile_y, tile_count_row, tile_count_col);
+        let nth_tile = TO::to_nth_tile::<G::SmmConfig>(
+            tile_x,
+            tile_y,
+            tile_count_row,
+            tile_count_col,
+            comptime!(this.input_ident.as_ident()),
+            config.to_smm_config(),
+        );
 
         let line_read = tensor_reader.load_coalesced_in_tile::<G>(
             tile_x,

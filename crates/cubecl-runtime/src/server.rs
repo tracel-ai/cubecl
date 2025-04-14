@@ -275,6 +275,7 @@ pub struct TensorMapMeta {
     /// Strides of the backing tensor
     pub strides: Vec<usize>,
     /// Element stride, usually 1 but may be 2 for complex tensors
+    /// For im2col, this is equivalent to the kernel stride
     pub elem_stride: Vec<usize>,
     /// Interleave mode
     pub interleave: TensorMapInterleave,

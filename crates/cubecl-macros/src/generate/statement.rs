@@ -10,6 +10,7 @@ impl Statement {
             Statement::Local { variable, init } => {
                 let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
+                let test = format!("{init:?}");
                 let is_mut = variable.is_mut || init.as_deref().map(is_mut_owned).unwrap_or(false);
                 let mutable = variable.is_mut.then(|| quote![mut]);
                 let is_const = init
@@ -61,7 +62,11 @@ impl Statement {
                         let name_str = name.to_string();
                         let init_var = if cfg!(debug_symbols) || context.debug_symbols {
                             let debug_var = frontend_type("debug_var_expand");
-                            quote![#debug_var(context, #name_str, __init)]
+
+                            quote![
+                                #test;
+                                #debug_var(context, #name_str, __init)
+                            ]
                         } else {
                             quote![__init]
                         };

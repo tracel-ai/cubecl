@@ -406,7 +406,7 @@ impl ComputeServer for CudaServer {
                     )
                     .expect("Failed to find resource");
                 let device_ptr = resource.ptr as *mut c_void;
-                assert!(
+                debug_assert!(
                     device_ptr as usize % 16 == 0,
                     "Tensor pointer must be 16 byte aligned"
                 );
@@ -423,14 +423,14 @@ impl ComputeServer for CudaServer {
                     .collect();
                 let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
-                assert!(
+                debug_assert!(
                     strides.iter().all(|it| it % 16 == 0),
                     "Strides must be 16 byte aligned"
                 );
 
                 match &map.format {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
-                        assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
+                        debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
                         lib.cuTensorMapEncodeTiled(
@@ -456,15 +456,23 @@ impl ComputeServer for CudaServer {
                         channels_per_pixel,
                         pixels_per_column,
                     } => unsafe {
+                        debug_assert_eq!(pixel_box_lower_corner.len(), map.rank - 2);
+                        debug_assert_eq!(pixel_box_upper_corner.len(), map.rank - 2);
+
+                        let lower_corner: Vec<_> =
+                            pixel_box_lower_corner.iter().rev().copied().collect();
+                        let upper_corner: Vec<_> =
+                            pixel_box_upper_corner.iter().rev().copied().collect();
+
                         lib.cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
-                            resource.as_binding(),
+                            device_ptr,
                             shape.as_ptr(),
                             strides.as_ptr(),
-                            pixel_box_lower_corner.as_ptr(),
-                            pixel_box_upper_corner.as_ptr(),
+                            lower_corner.as_ptr(),
+                            upper_corner.as_ptr(),
                             *channels_per_pixel,
                             *pixels_per_column,
                             elem_stride.as_ptr(),

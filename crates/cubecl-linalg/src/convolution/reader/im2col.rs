@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::{convolution::ConvGemmConfig, matmul::components::Ident};
 
@@ -22,8 +22,8 @@ pub struct Im2colReader<E: Numeric> {
     pub shape_x: u32,
     pub shape_channel: u32,
 
-    pub shape_out_y: u32,
-    pub shape_out_x: u32,
+    pub shape_out_y: FastDivmod,
+    pub shape_out_x: FastDivmod,
 
     pub shape_m: u32,
     pub shape_k: u32,
@@ -34,8 +34,8 @@ impl<E: Numeric> Im2colReader<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         tensor: VirtualTensor<E>,
-        shape_out_y: u32,
-        shape_out_x: u32,
+        shape_out_y: FastDivmod,
+        shape_out_x: FastDivmod,
         x_offset: u32,
         y_offset: u32,
         shape_k: u32,
@@ -109,10 +109,8 @@ impl<E: Numeric> Im2colReader<E> {
         let view_m = view_tile_m + load_m;
         let view_k = view_tile_k + load_k;
 
-        let out_x = view_m % self.shape_out_x;
-        let rem = view_m / self.shape_out_x;
-        let out_y = rem % self.shape_out_y;
-        let batch = rem / self.shape_out_y;
+        let (out_nh, out_x) = self.shape_out_x.div_mod(view_m);
+        let (batch, out_y) = self.shape_out_y.div_mod(out_nh);
 
         let kernel_w = config.kernel_size(1);
 

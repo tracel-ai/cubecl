@@ -221,7 +221,7 @@ where
         }
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,

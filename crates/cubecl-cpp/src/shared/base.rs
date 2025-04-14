@@ -73,6 +73,7 @@ pub struct Flags {
     pub op_pipeline: bool,
     pub inst_fast_math: bool,
     pub inst_tma: bool,
+    pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
@@ -160,6 +161,7 @@ impl<D: Dialect> CppCompiler<D> {
                 .fp_math_mode
                 .contains(FastMath::ReducedPrecision),
             inst_tma: self.flags.inst_tma,
+            inst_tma_im2col: self.flags.inst_tma_im2col,
             use_grid_constants: self.compilation_options.grid_constants,
             // TODO: At some point we should only pass dymamic meta if tensors are present,
             // not if only arrays are present. For now, leave like this
@@ -462,7 +464,7 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
-                gpu::BarrierOps::MemCopyAsyncTensorGlobalToShared {
+                gpu::BarrierOps::TmaLoad {
                     barrier,
                     tensor_map,
                     indices,
@@ -473,6 +475,29 @@ impl<D: Dialect> CppCompiler<D> {
                             smem_buffer: self.compile_variable(out.unwrap()),
                             tensor_map: self.compile_variable(tensor_map),
                             indices: indices
+                                .into_iter()
+                                .map(|it| self.compile_variable(it))
+                                .collect(),
+                        },
+                    ));
+                }
+                gpu::BarrierOps::TmaLoadIm2col {
+                    barrier,
+                    tensor_map,
+                    indices,
+                    offsets,
+                } => {
+                    self.flags.inst_tma_im2col = true;
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::TmaLoadIm2col {
+                            barrier: self.compile_variable(barrier),
+                            smem_buffer: self.compile_variable(out.unwrap()),
+                            tensor_map: self.compile_variable(tensor_map),
+                            indices: indices
+                                .into_iter()
+                                .map(|it| self.compile_variable(it))
+                                .collect(),
+                            offsets: offsets
                                 .into_iter()
                                 .map(|it| self.compile_variable(it))
                                 .collect(),
@@ -532,7 +557,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Tma(tma_ops) => {
                 self.flags.inst_tma = true;
                 match tma_ops {
-                    gpu::TmaOps::MemCopyAsyncTensorToGlobal {
+                    gpu::TmaOps::TmaStore {
                         source,
                         coordinates,
                     } => {
