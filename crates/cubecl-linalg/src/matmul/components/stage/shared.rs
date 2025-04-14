@@ -76,6 +76,8 @@ impl<T: TileConfig> CommonStageConfig<T> {
 }
 
 #[derive(CubeType)]
+/// Wrapper over a sequence of tile matmul accumulators
+/// Enables indexing at 2d coordinates
 pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
     sequence: Sequence<TMM::Accumulator>,
     #[cube(comptime)]

@@ -14,7 +14,7 @@ use crate::{
     matmul::components::{
         InputIdent, InvalidConfigError, MatmulSelection,
         global::args::TensorMapArgs,
-        stage::{FullReaderFamily, plane_row_matmul::PlaneRowMatmulFamily},
+        stage::{FullReaderFamily, plane_matmul::PlaneMatmulFamily},
         tile::TileMatmulFamily,
     },
     tensor::{TensorHandle, into_contiguous_pitched},
@@ -31,7 +31,7 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
 
 impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
     type TileMatmul = TMM;
-    type StageMatmul = PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

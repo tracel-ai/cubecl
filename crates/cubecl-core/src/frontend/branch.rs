@@ -261,15 +261,6 @@ pub fn for_expand<I: Numeric>(
     }
 }
 
-pub fn for_expand2<I: Numeric>(
-    scope: &mut Scope,
-    range: impl Iterable<I>,
-    unroll: bool,
-    body: impl FnMut(&mut Scope, ExpandElementTyped<I>),
-    body2: impl FnMut(&mut Scope, I),
-) {
-}
-
 pub fn if_expand(scope: &mut Scope, runtime_cond: ExpandElement, block: impl FnOnce(&mut Scope)) {
     let comptime_cond = runtime_cond.as_const().map(|it| it.as_bool());
     match comptime_cond {

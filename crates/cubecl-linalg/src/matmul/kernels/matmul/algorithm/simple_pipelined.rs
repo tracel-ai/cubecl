@@ -22,7 +22,7 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul =
-        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+        stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily>;
     type GlobalMatmul = global::single_stage::simple::SimplePipelinedMatmulFamily<
         Self::StageMatmul,
         async_full_cyclic::LoadingStrategy<ColMajorTilingOrder>,

@@ -17,11 +17,11 @@ use cubecl_core as cubecl;
 
 use super::shared::Accumulators;
 
-pub struct PlaneRowMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
+pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneRowMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulFamily<TMM, RF> {
     fn stage_shape(config: &Self::Config) -> MatmulSize {
         config.tiling.total_shape()
     }
@@ -33,12 +33,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneRowMatm
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneRowMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
+        PlaneMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory
-    for PlaneRowMatmulFamily<TMM, RF>
-{
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
     type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -84,7 +82,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct PlaneRowMatmul<
+pub struct PlaneMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: Reader<MP::ES>,
@@ -94,7 +92,7 @@ pub struct PlaneRowMatmul<
 }
 
 #[cube]
-impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneRowMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
@@ -185,7 +183,7 @@ where
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
-        let n = global_config.tiling_dimensions(Ident::Out).tile_count_col();
+        let shape_n = global_config.tiling_dimensions(Ident::Out).tile_count_col();
 
         let start = num_tile_lines * UNIT_POS_Y;
 
@@ -196,7 +194,7 @@ where
         let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
 
         // TODO generalize shape
-        let shape = (1u32, n);
+        let shape = (1u32, shape_n);
 
         // TODO iterate over m here
 
@@ -253,7 +251,7 @@ fn check_num_planes(
 type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
 
 #[cube]
-impl<MP, TMM, RL, RR> PlaneRowMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: TileMatmul<MP>,
@@ -332,7 +330,7 @@ where
                 comptime![n_iter += 1];
             }
 
-            // comptime![k_iter += 1];
+            comptime![k_iter += 1];
         }
 
         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));

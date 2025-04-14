@@ -22,7 +22,7 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul =
-        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+        stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::double_buffering::DoubleBufferingBarrierMatmulFamily<
         Self::StageMatmul,
         async_buffer_maximize_slice_length::LoadingStrategy,

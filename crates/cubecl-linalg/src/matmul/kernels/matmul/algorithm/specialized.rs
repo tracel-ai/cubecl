@@ -24,7 +24,7 @@ where
 {
     type TileMatmul = TMM;
     type StageMatmul =
-        stage::plane_row_matmul::PlaneRowMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+        stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::specialized::SpecializedMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<ColMajorTilingOrder>,
