@@ -40,11 +40,11 @@ pub(crate) struct HipContext {
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: KernelTimestamps,
     compilation_options: CompilationOptions,
-    #[cfg(feature = "cache-compilation")]
+    #[cfg(feature = "compilation-cache")]
     compilation_cache: Cache<String, CompilationCacheEntry>,
 }
 
-#[cfg(feature = "cache-compilation")]
+#[cfg(feature = "compilation-cache")]
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct CompilationCacheEntry {
     entrypoint_name: String,
@@ -335,7 +335,7 @@ impl HipContext {
             stream,
             timestamps: KernelTimestamps::default(),
             compilation_options,
-            #[cfg(feature = "cache-compilation")]
+            #[cfg(feature = "compilation-cache")]
             compilation_cache: Cache::new("hip/compilation", CacheOption::default()),
         }
     }
@@ -370,9 +370,9 @@ impl HipContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        #[cfg(feature = "cache-compilation")]
+        #[cfg(feature = "compilation-cache")]
         let name = kernel_id.stable_format();
-        #[cfg(feature = "cache-compilation")]
+        #[cfg(feature = "compilation-cache")]
         if let Some(entry) = self.compilation_cache.get(&name) {
             log::trace!("Using compilation cache");
             self.load_compiled_binary(
@@ -482,7 +482,7 @@ impl HipContext {
             );
         }
 
-        #[cfg(feature = "cache-compilation")]
+        #[cfg(feature = "compilation-cache")]
         self.compilation_cache
             .insert(
                 name,

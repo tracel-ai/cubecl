@@ -28,10 +28,10 @@ template = ["cubecl-core/template"]
 
 # Runtimes
 cuda = ["cubecl-cuda"]
-cuda-cache-compilation = ["cubecl-cuda?/cache-compilation"]
+cuda-compilation-cache = ["cubecl-cuda?/compilation-cache"]
 hip = ["cubecl-hip"]
 hip-intrinsic = ["cubecl-hip?/wmma-intrinsics"]
-hip-cache-compilation = ["cubecl-hip?/cache-compilation"]
+hip-compilation-cache = ["cubecl-hip?/compilation-cache"]
 wgpu = ["cubecl-wgpu"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 wgpu-cpp-msl = ["wgpu", "cubecl-wgpu/msl"]

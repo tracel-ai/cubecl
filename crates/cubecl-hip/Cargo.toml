@@ -17,11 +17,10 @@ default = [
     "cubecl-core/default",
     "cubecl-hip-sys/rocm__6_3_1",
     "is_hip",
-    "cache-compilation",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 wmma-intrinsics = []
-cache-compilation = ["cubecl-common/cache", "serde"]
+compilation-cache = ["cubecl-common/cache", "serde"]
 is_hip = []
 
 [dependencies]
