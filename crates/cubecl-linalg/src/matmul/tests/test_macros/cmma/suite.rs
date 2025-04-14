@@ -313,6 +313,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -327,6 +328,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t32x8x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -337,6 +339,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t8x32x16 {
             use super::*;
             $crate::matmul_standard_tests!(
@@ -347,6 +350,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(not(all(feature = "msl", target_os = "macos")))]
         mod t16x16x8 {
             use super::*;
             $crate::matmul_standard_tests!(

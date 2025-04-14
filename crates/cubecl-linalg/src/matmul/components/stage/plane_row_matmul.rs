@@ -332,7 +332,7 @@ where
                 comptime![n_iter += 1];
             }
 
-            comptime![k_iter += 1];
+            // comptime![k_iter += 1];
         }
 
         SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
