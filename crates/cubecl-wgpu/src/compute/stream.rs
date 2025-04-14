@@ -1,21 +1,30 @@
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
+    benchmark::ProfileDuration,
+    future,
     server::{Binding, Bindings, Handle},
 };
-use std::{future::Future, num::NonZero, pin::Pin, sync::Arc, time::Duration};
-use web_time::Instant;
+use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timestamps::KernelTimestamps};
-use cubecl_runtime::{
-    TimestampsError, TimestampsResult, memory_management::MemoryDeviceProperties,
-};
-use wgpu::ComputePipeline;
+use web_time::{Duration, Instant};
+use wgpu::QuerySet;
+
+use super::{mem_manager::WgpuMemManager, poll::WgpuPoll};
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use wgpu::{ComputePipeline, QuerySetDescriptor, QueryType};
+
+#[derive(Debug)]
+enum KernelTimestamps {
+    Device { query_set: QuerySet, init: bool },
+    Full { start_time: Instant },
+    Disabled,
+}
 
 #[derive(Debug)]
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
-    pub timestamps: KernelTimestamps,
 
+    timestamps: KernelTimestamps,
     sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     tasks_count: usize,
@@ -33,7 +42,6 @@ impl WgpuStream {
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
-        timestamps: KernelTimestamps,
         tasks_max: usize,
     ) -> Self {
         let poll = WgpuPoll::new(device.clone());
@@ -51,7 +59,7 @@ impl WgpuStream {
         Self {
             mem_manage,
             compute_pass: None,
-            timestamps,
+            timestamps: KernelTimestamps::Disabled,
             encoder: {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("CubeCL Tasks Encoder"),
@@ -111,7 +119,7 @@ impl WgpuStream {
             // Write out timestamps. The first compute pass writes both a start and end timestamp.
             // the second timestamp writes out only an end stamp.
             let timestamps =
-                if let KernelTimestamps::Native { query_set, init } = &mut self.timestamps {
+                if let KernelTimestamps::Device { query_set, init } = &mut self.timestamps {
                     let result = Some(wgpu::ComputePassTimestampWrites {
                         query_set,
                         beginning_of_pass_write_index: if !*init { Some(0) } else { None },
@@ -241,75 +249,95 @@ impl WgpuStream {
         }
     }
 
-    pub fn sync_elapsed(
-        &mut self,
-    ) -> Pin<Box<dyn Future<Output = TimestampsResult> + Send + 'static>> {
-        self.compute_pass = None;
+    pub fn is_profiling(&self) -> bool {
+        !matches!(self.timestamps, KernelTimestamps::Disabled)
+    }
 
-        enum TimestampMethod {
-            Buffer(Handle),
-            StartTime(Instant),
+    pub fn start_profile(&mut self) {
+        if self.is_profiling() {
+            panic!(
+                "Can't start a profile while one is running, recursive profiling is not supported."
+            );
         }
 
-        let method = match &mut self.timestamps {
-            KernelTimestamps::Native { query_set, init } => {
-                if !*init {
-                    let fut = self.sync();
+        if self
+            .device
+            .features()
+            .contains(wgpu::Features::TIMESTAMP_QUERY)
+        {
+            // Flush all commands to the queue. This isn't really needed, but this should mean
+            // new work after this will be run with less overlap.
+            self.flush();
 
-                    return Box::pin(async move {
-                        fut.await;
-                        Err(TimestampsError::Unavailable)
-                    });
+            let query_set = self.device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            });
+            self.timestamps = KernelTimestamps::Device {
+                query_set,
+                init: false,
+            };
+        } else if !cfg!(target_family = "wasm") {
+            // On native platforms, fallback to measuring full time elapsed.
+            future::block_on(self.sync());
+            self.timestamps = KernelTimestamps::Full {
+                start_time: Instant::now(),
+            };
+        } else {
+            // On WASM, there's not much we can do here anymore. This should be very rare however,
+            // all modern GPU's support timestamp queries.
+            panic!(
+                "Cannot profile on web assembly without timestamp_query feature as it requires blocking."
+            );
+        }
+    }
+
+    pub fn stop_profile(&mut self) -> ProfileDuration {
+        self.compute_pass = None;
+
+        let timestamp = std::mem::replace(&mut self.timestamps, KernelTimestamps::Disabled);
+
+        match timestamp {
+            KernelTimestamps::Device { query_set, init } => {
+                if !init {
+                    // If there was no work done between the start and stop of the profile, logically the
+                    // time should be 0. We could use a ProfileDuration::from_duration here,
+                    // but it seems better to always return things as 'device' timing method.
+                    ProfileDuration::from_future(async move { Duration::from_secs(0) })
                 } else {
                     let (handle, resource) = self.mem_manage.query();
                     self.encoder.resolve_query_set(
-                        query_set,
+                        &query_set,
                         0..2,
                         resource.buffer(),
                         resource.offset(),
                     );
-                    *init = false;
-                    TimestampMethod::Buffer(handle)
+                    let period = self.queue.get_timestamp_period() as f64 * 1e-9;
+                    let fut = self.read_buffers(vec![handle.binding()]);
+                    let resolve_fut = async move {
+                        let data = fut
+                            .await
+                            .remove(0)
+                            .chunks_exact(8)
+                            .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                            .collect::<Vec<_>>();
+                        let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
+                        Duration::from_secs_f64(delta as f64 * period)
+                    };
+                    ProfileDuration::from_future(resolve_fut)
                 }
             }
-            KernelTimestamps::Inferred { start_time } => {
-                let mut instant = Instant::now();
-                core::mem::swap(&mut instant, start_time);
-                TimestampMethod::StartTime(instant)
+            KernelTimestamps::Full { start_time } => {
+                let fut = self.sync();
+                let duration_fut = async move {
+                    fut.await;
+                    start_time.elapsed()
+                };
+                ProfileDuration::from_future(duration_fut)
             }
             KernelTimestamps::Disabled => {
-                let fut = self.sync();
-
-                return Box::pin(async move {
-                    fut.await;
-                    Err(TimestampsError::Disabled)
-                });
-            }
-        };
-
-        match method {
-            TimestampMethod::Buffer(handle) => {
-                let period = self.queue.get_timestamp_period() as f64 * 1e-9;
-                let fut = self.read_buffers(vec![handle.binding()]);
-                Box::pin(async move {
-                    let data = fut
-                        .await
-                        .remove(0)
-                        .chunks_exact(8)
-                        .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
-                        .collect::<Vec<_>>();
-                    let delta = u64::checked_sub(data[1], data[0]).unwrap_or(1);
-                    let duration = Duration::from_secs_f64(delta as f64 * period);
-                    Ok(duration)
-                })
-            }
-            TimestampMethod::StartTime(start_time) => {
-                let fut = self.sync();
-
-                Box::pin(async move {
-                    fut.await;
-                    Ok(start_time.elapsed())
-                })
+                panic!("Must start a profile before stopping a profile.")
             }
         }
     }

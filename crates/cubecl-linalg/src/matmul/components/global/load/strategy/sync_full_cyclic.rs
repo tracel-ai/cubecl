@@ -42,10 +42,9 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
 #[cube]
 impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job<MP>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
@@ -59,9 +58,8 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        Job::<MP> {
+        Job {
             unit_position_base,
-            quantization,
             num_tasks_per_unit,
             tile_num_elements,
             jump_length,
@@ -72,10 +70,8 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision> {
+pub struct Job {
     unit_position_base: u32,
-
-    quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
     num_tasks_per_unit: u32,
@@ -90,12 +86,13 @@ pub struct Job<MP: MatmulPrecision> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP> {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
@@ -117,7 +114,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
             config,
         );
 
-        stage.as_slice_mut()[unit_position / this.line_size] = match this.quantization {
+        stage.as_slice_mut()[unit_position / this.line_size] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         };

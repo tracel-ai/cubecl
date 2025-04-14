@@ -58,14 +58,13 @@ impl<TO: TilingOrder> LoadingValidation for LoadingStrategy<TO> {
 #[cube]
 impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<MP: MatmulPrecision> = Job<MP>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] buffer_index: u32,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
-    ) -> Job<MP> {
+    ) -> Job {
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.stage_line_size(input_ident);
         let tile_size = tiling_dimensions.tile_size();
@@ -86,9 +85,8 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
         let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
-        Job::<MP> {
+        Job {
             unit_position_base,
-            quantization,
             num_tasks,
             buffer_index,
             jump_length,
@@ -99,10 +97,8 @@ impl<TO: TilingOrder> SyncBufferLoadingStrategy for LoadingStrategy<TO> {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision> {
+pub struct Job {
     unit_position_base: u32,
-
-    quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
     num_tasks: u32,
@@ -117,12 +113,13 @@ pub struct Job<MP: MatmulPrecision> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job<MP> {
+impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout<TO>> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, ContiguousTilingLayout<TO>>,
+        quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
         let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
@@ -162,7 +159,7 @@ impl<MP: MatmulPrecision, TO: TilingOrder> LoadingJob<MP, ContiguousTilingLayout
         let tile_end = tile_start + this.num_lines_per_tile;
         let mut tile_slice = stage.as_slice_mut().slice_mut(tile_start, tile_end);
 
-        tile_slice[pos_within_tile / line_size] = match this.quantization {
+        tile_slice[pos_within_tile / line_size] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         }

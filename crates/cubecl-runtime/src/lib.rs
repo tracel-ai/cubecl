@@ -37,3 +37,7 @@ pub mod debug;
 
 /// TMA-related runtime types
 pub mod tma;
+
+/// Simple measuring for timestamps.
+#[cfg(feature = "std")]
+pub mod kernel_timestamps;

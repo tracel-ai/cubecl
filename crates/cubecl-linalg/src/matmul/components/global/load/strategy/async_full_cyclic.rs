@@ -3,14 +3,13 @@ use std::marker::PhantomData;
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
-        load::AsyncFullLoadingStrategy, tensor_view::TensorReader,
+        CopyMechanism, GlobalConfig, LoadingValidation, load::AsyncFullLoadingStrategy,
+        tensor_view::TensorReader,
     },
     stage::{ContiguousTilingLayout, Stage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::CubeOption;
 
 use super::AsyncLoadingJob;
 
@@ -44,16 +43,9 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for LoadingStrategy<TO> {
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        comptime! {
-            if   quantization.is_some() {
-                panic!("Quantization not supported on async loaders.")
-            }
-        }
-
         let stage_dim = config.tiling_dimensions(input_ident);
         let total_units = config.plane_dim() * config.num_planes();
         let line_size = config.global_line_size(input_ident);

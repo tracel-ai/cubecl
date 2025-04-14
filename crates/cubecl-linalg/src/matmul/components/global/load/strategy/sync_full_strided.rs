@@ -37,10 +37,9 @@ impl LoadingValidation for LoadingStrategy {
 #[cube]
 impl SyncFullLoadingStrategy for LoadingStrategy {
     type TilingLayout = StridedTilingLayout;
-    type Job<MP: MatmulPrecision> = Job<MP>;
+    type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Self::Job<MP> {
@@ -52,9 +51,8 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 
         let unit_position_base = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
 
-        Job::<MP> {
+        Job {
             unit_position_base,
-            quantization,
             num_tasks_per_unit,
             unit_count,
             line_size,
@@ -64,10 +62,8 @@ impl SyncFullLoadingStrategy for LoadingStrategy {
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct Job<MP: MatmulPrecision> {
+pub struct Job {
     unit_position_base: u32,
-
-    quantization: CubeOption<Quantization<MP>>,
 
     #[cube(comptime)]
     num_tasks_per_unit: u32,
@@ -80,12 +76,13 @@ pub struct Job<MP: MatmulPrecision> {
 }
 
 #[cube]
-impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job<MP> {
+impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<MP::EI>,
         stage: &mut Stage<MP::ES, StridedTilingLayout>,
+        quantization: &CubeOption<Quantization<MP>>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
@@ -96,7 +93,7 @@ impl<MP: MatmulPrecision> LoadingJob<MP, StridedTilingLayout> for Job<MP> {
             config,
         );
 
-        stage.as_slice_mut()[unit_position] = match this.quantization {
+        stage.as_slice_mut()[unit_position] = match quantization {
             CubeOption::Some(quantization) => quantization.dequantize(line_read),
             CubeOption::None => Line::cast_from(line_read),
         }

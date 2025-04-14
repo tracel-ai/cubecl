@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        CopyMechanism, GlobalConfig, LoadingValidation,
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
@@ -9,7 +9,6 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::CubeOption;
 
 use super::AsyncLoadingJob;
 
@@ -32,16 +31,9 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        comptime! {
-            if quantization.is_some() {
-                panic!("Quantization not supported on async loaders.")
-            }
-        }
-
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
 
