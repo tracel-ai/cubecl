@@ -23,8 +23,7 @@ where
     Dispatch: CubeDispatch + CubeCountDispatch,
 {
     type TileMatmul = TMM;
-    type StageMatmul =
-        stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
+    type StageMatmul = stage::plane_matmul::PlaneMatmulFamily<Self::TileMatmul, BufferReaderFamily>;
     type GlobalMatmul = global::multi_stage::specialized::SpecializedMatmulFamily<
         Self::StageMatmul,
         sync_buffer_cyclic::LoadingStrategy<ColMajorTilingOrder>,
