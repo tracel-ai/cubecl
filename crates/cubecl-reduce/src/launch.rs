@@ -128,7 +128,7 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, R: ReduceFamily, RA: ReduceArgs>
 }
 
 #[cube]
-fn get_reduce_index(#[comptime] params: ReduceParams) -> u32 {
+pub(crate) fn get_reduce_index(#[comptime] params: ReduceParams) -> u32 {
     if params.shared.is_some() {
         CUBE_POS
     } else if params.use_planes {
@@ -139,7 +139,7 @@ fn get_reduce_index(#[comptime] params: ReduceParams) -> u32 {
 }
 
 #[cube]
-fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
+pub(crate) fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
     match comptime!(params.line_mode) {
         LineMode::Parallel => output_size,
         LineMode::Perpendicular => output_size / params.line_size_input,
@@ -147,7 +147,7 @@ fn get_reduce_count(output_size: u32, #[comptime] params: ReduceParams) -> u32 {
 }
 
 #[cube]
-fn elected_writer(#[comptime] settings: ReduceParams) -> bool {
+pub(crate) fn elected_writer(#[comptime] settings: ReduceParams) -> bool {
     if settings.shared.is_some() {
         UNIT_POS == 0
     } else if settings.use_planes {

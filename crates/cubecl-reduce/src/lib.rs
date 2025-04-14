@@ -12,6 +12,7 @@
 
 pub mod args;
 pub mod instructions;
+pub mod multi;
 pub mod primitives;
 pub mod tune_key;
 
