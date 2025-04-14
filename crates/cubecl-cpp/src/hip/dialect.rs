@@ -32,8 +32,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
         f.write_str("#include <hip/hip_runtime.h>\n")?;
         if flags.elem_bf16 {
-            // "hip_bf16.h" triggers redefinition errors during compilation
-            f.write_str("#include <hip/hip_bfloat16.h>\n")?;
+            f.write_str("#include <hip/hip_bf16.h>\n")?;
         }
         if flags.elem_f16 {
             f.write_str("#include <hip/hip_fp16.h>\n")?;
@@ -62,7 +61,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn item_can_be_optimized() -> bool {
-        true
+        // for now deactivate support for half2 and bfloat162 because the HIP API lack support for it.
+        false
     }
 
     fn compile_type_definitions(
@@ -103,8 +103,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::F162 => f.write_str("__half2"),
                 shared::Elem::F32 => f.write_str("float"),
                 shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::BF16 => f.write_str("hip_bfloat16"),
-                shared::Elem::BF162 => f.write_str("hip_bfloat16"),
+                shared::Elem::BF16 => f.write_str("__hip_bfloat16"),
+                shared::Elem::BF162 => f.write_str("__hip_bfloat162"),
                 shared::Elem::TF32 => f.write_str("float"),
                 shared::Elem::I8 => f.write_str("int8"),
                 shared::Elem::I16 => f.write_str("int16"),
