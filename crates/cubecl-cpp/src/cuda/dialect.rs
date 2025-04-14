@@ -276,14 +276,12 @@ impl DialectInstructions<Self> for CudaDialect {
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: &T,
-        _out: &Variable<Self>,
     ) -> std::fmt::Result {
         write!(f, "__all_sync(-1, {input})")
     }
     fn compile_warp_any<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: &T,
-        _out: &Variable<Self>,
     ) -> std::fmt::Result {
         write!(f, "__any_sync(-1, {input})")
     }
@@ -291,7 +289,6 @@ impl DialectInstructions<Self> for CudaDialect {
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        _output: &Variable<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
     }

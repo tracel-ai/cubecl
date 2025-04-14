@@ -85,7 +85,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     "
 {out_fmt} = {{ "
                 )?;
-                D::compile_warp_ballot(f, input, out)?;
+                D::compile_warp_ballot(f, input)?;
                 writeln!(f, ", 0, 0, 0 }};")
             }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
@@ -261,7 +261,7 @@ fn reduce_with_loop<
 
 fn reduce_quantifier<
     D: Dialect,
-    Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedVariable<D>, &Variable<D>) -> std::fmt::Result,
+    Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedVariable<D>) -> std::fmt::Result,
 >(
     f: &mut core::fmt::Formatter<'_>,
     input: &Variable<D>,
@@ -273,7 +273,7 @@ fn reduce_quantifier<
     for i in 0..input.item().vectorization {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        quantifier(f, &input.index(i), out)?;
+        quantifier(f, &input.index(i))?;
     }
     writeln!(f, "}};")
 }

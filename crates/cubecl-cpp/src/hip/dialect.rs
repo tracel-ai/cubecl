@@ -218,27 +218,24 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: &T,
-        out: &Variable<Self>,
     ) -> std::fmt::Result {
-        let item = out.item();
+        let item = input.item();
         let elem = item.elem;
         write!(f, "static_cast<{elem}>(__all({input}))")
     }
     fn compile_warp_any<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
         input: &T,
-        out: &Variable<Self>,
     ) -> std::fmt::Result {
-        let item = out.item();
+        let item = input.item();
         let elem = item.elem;
         write!(f, "static_cast<{elem}>(__any({input}))")
     }
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        output: &Variable<Self>,
     ) -> std::fmt::Result {
-        let elem = output.elem();
+        let elem = input.elem();
         write!(f, "static_cast<{elem}>(__ballot({input}))")
     }
 }
