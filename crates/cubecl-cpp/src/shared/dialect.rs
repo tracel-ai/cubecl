@@ -84,6 +84,9 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
     ) -> std::fmt::Result;
+    fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
+        Ok(())
+    }
     /// Address space (for Metal dialect only).
     fn address_space_for_variable(_variable: &Variable<D>) -> String {
         "".to_string()

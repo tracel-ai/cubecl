@@ -8,8 +8,6 @@ pub struct ComputeRuntime<Device, Server: ComputeServer, Channel> {
     clients: spin::Mutex<Option<HashMap<Device, ComputeClient<Server, Channel>>>>,
 }
 
-pub use cubecl_common::benchmark::{TimestampsError, TimestampsResult};
-
 impl<Device, Server, Channel> Default for ComputeRuntime<Device, Server, Channel>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,

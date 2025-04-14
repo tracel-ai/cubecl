@@ -1,9 +1,8 @@
 use core::marker::PhantomData;
-use cubecl::prelude::*;
-use cubecl_linalg::matmul::components::MatmulPrecision;
-use cubecl_linalg::matmul::{self, AsyncLoadingStrategy};
+use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
 
-use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
@@ -46,8 +45,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+        self.client.profile(|| self.execute(args))
     }
 }
 
@@ -90,6 +89,8 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
     // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
     // run::<R, MP>(
     //     Default::default(),
@@ -112,10 +113,15 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-    // );
+    if client
+        .properties()
+        .feature_enabled(Feature::Tma(TmaFeature::Base))
+    {
+        run::<R, MP>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+        );
+    }
 }
 
 fn main() {
