@@ -234,7 +234,7 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        acc.fill::<L, Self::Config>(loader, config);
+        acc.fill::<L>(loader, config);
     }
 }
 
