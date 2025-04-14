@@ -97,6 +97,7 @@ fn matmul_cmma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
 ) -> Result<(), MatmulLaunchError> {
+    println!("HELLO FROM MATMUL CMMA REF NO CHECK");
     let rank = lhs.strides.len();
     let ei_elem = MP::EI::as_elem_native().expect("To be a native type");
     let eo_elem = MP::EO::as_elem_native().expect("To be a native type");
@@ -211,6 +212,7 @@ fn matmul_launch_kernel<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             )
         }
     } else {
+        println!("SELECTED KERNEL");
         select_kernel_concrete::<MP, R, A>(client, lhs, rhs, out, problem, plane_dim)
     }
 }

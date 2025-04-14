@@ -102,11 +102,17 @@ pub(crate) fn matmul<
     let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<EI, EO, Args>>(&mut out);
 
     if config.quantized() {
+        // let quantization = Args::quantization::<(EI, ES, EA, EO, Quantized)>(&state);
+
+        // if ABSOLUTE_POS == 0 {
+        //     out.write(0, Line::cast_from(quantization.scaling));
+        // }
         BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
             lhs,
             rhs,
             out,
             size_k,
+            // CubeOption::new_Some(quantization),
             CubeOption::new_Some(Args::quantization(&state)),
             config,
         );

@@ -599,30 +599,30 @@ impl MatmulArgs for TensorArgs {
     }
 
     fn quantization<MP: MatmulPrecision>(state: &Self::State<MP::EI, MP::EO>) -> Quantization<MP> {
-        let (lhs, rhs, _) = *state;
-        // comptime! {
-        //     if core::any::TypeId::of::<MP::EI>() != core::any::TypeId::of::<i8>() {
-        //         panic!("{}", core::any::type_name::<MP::EI>());
-        //     }
+        // TODO Currently I assume that buffer_len = metadata_len + len.
+        //      That is, all the data within the tensors are contiguous and there are no hole
+        //      in the stride pattern. In particular, I believe this could cause issues with fusion.
+
+        // Quantization::<MP> {
+        //     scaling: MP::ES::cast_from(Self::shape_lhs(state, 0)),
         // }
+        let (lhs, rhs, _) = *state;
         unsafe {
-            let scaling_lhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
-                (*lhs).slice(Self::len_lhs(state), Self::buffer_len_lhs(state)),
+            let scaling_lhs = ReinterpretSlice::<MP::EI, f32>::new(
+                // (*lhs).slice(Self::len_lhs(state), 4 * Self::buffer_len_lhs(state)),
+                (*lhs).to_slice(),
                 (*lhs).line_size(),
             )
-            .read(0);
-            let scaling_rhs = ReinterpretSlice::<MP::EI, MP::ES>::new(
-                (*rhs).slice(Self::len_rhs(state), Self::buffer_len_rhs(state)),
+            .read(2u32);
+            let scaling_rhs = ReinterpretSlice::<MP::EI, f32>::new(
+                // (*rhs).slice(Self::len_rhs(state), 4 * Self::buffer_len_rhs(state)),
+                (*rhs).to_slice(),
                 (*rhs).line_size(),
             )
-            .read(0);
+            .read(2u32);
             Quantization::<MP> {
-                scaling: scaling_lhs * scaling_rhs,
+                scaling: MP::ES::cast_from(scaling_rhs * scaling_rhs),
             }
-
-            // TODO Currently I assume that buffer_len = metadata_len + len.
-            //      That is, all the data within the tensors are contiguous and there are no hole
-            //      in the stride pattern.
         }
     }
 }
