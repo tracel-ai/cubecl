@@ -33,7 +33,7 @@ pub trait TileMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Contains RHS data that can be split across the units
     type Rhs: CubeType;
     /// Contains output data that can be split across the units
-    type Accumulator: CubeType;
+    type Accumulator: CubeType + Copy + Clone;
 
     /// Executes the matrix multiplication of LHS and RHS, adding the result to the output
     fn execute(

@@ -110,12 +110,12 @@ pub trait AccumulatorLoader<MP: MatmulPrecision, G: stage::StageConfig>:
 {
     fn fill_stage(this: &mut Self, #[comptime] config: G);
 
-    /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
+    /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
     fn load<Tile: tile::TileMatmul<MP>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
-        tile_n: u32,
+        nth_tile: u32,
         #[comptime] config: Tile::Config,
     );
 }

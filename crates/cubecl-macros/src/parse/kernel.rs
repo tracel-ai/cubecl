@@ -449,7 +449,7 @@ fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref: &mut bool, is_mut: &mut
     }
 }
 
-fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
+pub fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
     match ty {
         Type::Reference(reference) => {
             *is_ref = true;

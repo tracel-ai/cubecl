@@ -1,7 +1,9 @@
 use super::{StageBuffering, StageConfig};
 use crate::matmul::components::{
-    CompleteStageTiling, Ident, MatmulConfig, MatmulSize, MatrixLayout, TilingDimensions,
-    tile::TileConfig,
+    CompleteStageTiling, Ident, MatmulConfig, MatmulPrecision, MatmulSize, MatrixLayout,
+    TilingDimensions,
+    global::AccumulatorLoader,
+    tile::{TileConfig, TileMatmul},
 };
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -70,6 +72,68 @@ impl<T: TileConfig> CommonStageConfig<T> {
             quantized,
             buffering,
         }
+    }
+}
+
+#[derive(CubeType)]
+pub struct Accumulators<MP: MatmulPrecision, TMM: TileMatmul<MP>> {
+    sequence: Sequence<TMM::Accumulator>,
+    #[cube(comptime)]
+    pub shape: (u32, u32),
+}
+
+#[cube]
+impl<MP: MatmulPrecision, TMM: TileMatmul<MP>> Accumulators<MP, TMM> {
+    pub fn new(
+        #[comptime] shape: (u32, u32),
+        #[comptime] config: CommonStageConfig<TMM::Config>,
+    ) -> Accumulators<MP, TMM> {
+        let mut accumulators = Sequence::new();
+
+        #[unroll]
+        for _ in 0..shape.0 * shape.1 {
+            accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
+        }
+
+        Accumulators::<MP, TMM> {
+            sequence: accumulators,
+            shape,
+        }
+    }
+
+    pub fn zero(&mut self, #[comptime] config: CommonStageConfig<TMM::Config>) {
+        #[unroll]
+        for i in 0..config.tile_count().n {
+            TMM::zero_accumulator(self.sequence.index_mut(i), config.to_tmm_config());
+        }
+    }
+
+    pub fn fill<L: AccumulatorLoader<MP, S>, S: StageConfig>(
+        &mut self,
+        loader: &mut L,
+        #[comptime] config: CommonStageConfig<TMM::Config>,
+    ) {
+        #[unroll]
+        for i in 0..self.shape.0 * self.shape.1 {
+            let acc = self.sequence.index_mut(i);
+            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
+        }
+    }
+
+    pub fn get_at(
+        this: &Accumulators<MP, TMM>,
+        #[comptime] i: u32,
+        #[comptime] j: u32,
+    ) -> &TMM::Accumulator {
+        this.sequence.index(comptime!(i * this.shape.1 + j))
+    }
+
+    pub fn get_at_mut(
+        this: &mut Accumulators<MP, TMM>,
+        #[comptime] i: u32,
+        #[comptime] j: u32,
+    ) -> &mut TMM::Accumulator {
+        this.sequence.index_mut(comptime!(i * this.shape.1 + j))
     }
 }
 
