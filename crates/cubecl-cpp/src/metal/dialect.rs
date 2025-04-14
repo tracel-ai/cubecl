@@ -764,20 +764,25 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "simd_shuffle_down({var}, {offset})")
     }
 
-    fn compile_warp_all(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "simd_all({var})")
+    fn compile_warp_all<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "simd_all({input})")
     }
 
-    fn compile_warp_any(f: &mut std::fmt::Formatter<'_>, var: &str) -> std::fmt::Result {
-        write!(f, "simd_any({var})")
+    fn compile_warp_any<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: &T,
+    ) -> std::fmt::Result {
+        write!(f, "simd_any({input})")
     }
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
-        output: &Variable<Self>,
     ) -> std::fmt::Result {
-        let out_elem = output.item().elem;
+        let out_elem = input.item().elem;
         write!(f, "({out_elem})(uint64_t(simd_ballot({input})))")
     }
 }
