@@ -40,7 +40,7 @@ use std::path::PathBuf;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
-#[cfg(feature = "cache-ptx")]
+#[cfg(feature = "cache-compilation")]
 use cubecl_common::cache::{Cache, CacheOption};
 
 #[derive(Debug)]
@@ -55,7 +55,7 @@ pub(crate) struct CudaContext {
     stream: cudarc::driver::sys::CUstream,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
-    #[cfg(feature = "cache-ptx")]
+    #[cfg(feature = "cache-compilation")]
     ptx_cache: Cache<String, PtxCacheEntry>,
     timestamps: KernelTimestamps,
     pub(crate) arch: CudaArchitecture,
@@ -586,7 +586,7 @@ impl CudaContext {
             context,
             memory_management,
             module_names: HashMap::new(),
-            #[cfg(feature = "cache-ptx")]
+            #[cfg(feature = "cache-compilation")]
             ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
             stream,
             arch,
@@ -616,10 +616,10 @@ impl CudaContext {
         logger: &mut DebugLogger,
         mode: ExecutionMode,
     ) {
-        #[cfg(feature = "cache-ptx")]
+        #[cfg(feature = "cache-compilation")]
         let name = kernel_id.stable_format();
 
-        #[cfg(feature = "cache-ptx")]
+        #[cfg(feature = "cache-compilation")]
         if let Some(entry) = self.ptx_cache.get(&name) {
             log::trace!("Using PTX cache");
             self.load_ptx(
@@ -659,7 +659,7 @@ impl CudaContext {
             options.push("--use_fast_math");
         }
 
-        #[cfg(feature = "cache-ptx")]
+        #[cfg(feature = "cache-compilation")]
         let cluster_dim = compute_kernel.cluster_dim;
 
         let kernel_compiled = logger.debug(kernel_compiled);
@@ -684,7 +684,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        #[cfg(feature = "cache-ptx")]
+        #[cfg(feature = "cache-compilation")]
         self.ptx_cache
             .insert(
                 name,
