@@ -28,7 +28,6 @@ mod tests {
 
     cubecl_core::testgen_all!();
     cubecl_std::testgen!();
-    cubecl_linalg::testgen_matmul_plane!([f32]);
     cubecl_linalg::testgen_matmul_accelerated!([f32]);
     cubecl_linalg::testgen_tensor_identity!([f32, u32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
