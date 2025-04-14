@@ -126,10 +126,10 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
 }
 
 fn main() {
-    // #[cfg(feature = "wgpu")]
-    // {
-    //     run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
-    // }
+    #[cfg(feature = "wgpu")]
+    {
+        run_benches::<cubecl::wgpu::WgpuRuntime, f32>();
+    }
 
     #[cfg(feature = "wgpu-spirv")]
     {

@@ -385,6 +385,7 @@ macro_rules! matmul_standard_tests {
             );
         }
 
+        #[cfg(feature = "msl")]
         mod s16x16x1 {
             use super::*;
             $crate::matmul_standard_tests!(
