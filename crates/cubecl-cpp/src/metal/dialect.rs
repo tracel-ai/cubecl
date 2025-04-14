@@ -909,9 +909,11 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     )
                 } else {
                     writeln!(f, "simdgroup_store({frag}, {output}, {stride});")
-                }
+                }?;
+                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")
             }
             WmmaInstruction::Cast { input, output } => {
+                writeln!(f, "threadgroup_barrier(mem_flags::mem_none);")?;
                 let ty = match output {
                     Variable::WmmaFragment { frag, .. } => frag.elem,
                     _ => panic!("should be a fragment"),
@@ -921,6 +923,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         let addr_space = Self::address_space_for_variable(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
+
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{

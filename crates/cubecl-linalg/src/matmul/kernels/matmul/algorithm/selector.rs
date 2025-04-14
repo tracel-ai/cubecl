@@ -101,6 +101,8 @@ pub(crate) fn find_instruction_shape(
         (8, 32, 16)
     } else if supported(16, 16, 16) {
         (16, 16, 16)
+    } else if supported(8, 8, 8) {
+        (8, 8, 8)
     } else {
         (16, 16, 8)
     }
