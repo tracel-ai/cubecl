@@ -16,11 +16,9 @@ default = [
   "cubecl-common/default",
   "cubecl-core/default",
   "cubecl-hip-sys/rocm__6_3_2",
-  "is_hip",
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 wmma-intrinsics = []
-is_hip = []
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.5.0" }
