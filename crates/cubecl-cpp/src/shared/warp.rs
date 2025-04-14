@@ -273,7 +273,7 @@ fn reduce_quantifier<
     for i in 0..input.item().vectorization {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        quantifier(f, &input.index(i), &out)?;
+        quantifier(f, &input.index(i), out)?;
     }
     writeln!(f, "}};")
 }
