@@ -384,6 +384,8 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
 /// More than 4 stages would likely slow things down from code size
 /// Should test more to find the ideal value here, just using 4 because that's what cuDNN uses
 const NUM_STAGES_MAX: u32 = 4;
+/// I found that too many pipeline stages relative to k degrade performance
+const MIN_STAGES_PER_PIPELINE: u32 = 32;
 
 fn num_stages<R: Runtime, MP: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
@@ -410,7 +412,7 @@ fn num_stages<R: Runtime, MP: MatmulPrecision>(
 
     let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
 
-    let num_tiles_k = (problem.k as u32).div_ceil(stage_size.k);
+    let num_tiles_k = (problem.k as u32).div_ceil(stage_size.k) / MIN_STAGES_PER_PIPELINE;
 
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;
