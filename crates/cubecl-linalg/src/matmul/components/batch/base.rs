@@ -107,7 +107,6 @@ pub(crate) fn matmul<
             <BMM::Config as BatchConfig>::GmmConfig,
         >(&state, config.to_gmm_config());
 
-
         BMM::Matmul::<(EI, ES, EA, EO, Quantized)>::execute(
             lhs,
             rhs,
