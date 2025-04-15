@@ -33,9 +33,6 @@ pub enum Strategy {
     DoubleBuffering,
     DoubleBufferingBarrier,
     Specialized,
-    #[cfg(any(test, feature = "export_tests"))]
-    // Very slow, only use for testing.
-    PlaneMma,
     Naive,
     Tiling2D(Tiling2dConfig),
     #[default]
@@ -160,12 +157,6 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
         }
         Strategy::Specialized => {
             matmul::launch_ref::<R, MP, SpecializedAlgorithm<Accelerated>>(client, lhs, rhs, out)
-        }
-        #[cfg(any(test, feature = "export_tests"))]
-        Strategy::PlaneMma => {
-            matmul::launch_ref::<R, MP, SimpleAlgorithm<super::components::tile::plane::PlaneMma>>(
-                client, lhs, rhs, out,
-            )
         }
         Strategy::Tiling2D(config) => {
             // TODO Implement tiling2d with EI and EO

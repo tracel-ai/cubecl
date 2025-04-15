@@ -1,6 +1,9 @@
+use cubecl_core::benchmark::ProfileDuration;
 use cubecl_cpp::{
     CudaCompiler, cuda::arch::CudaArchitecture, formatter::format_cpp, shared::CompilationOptions,
 };
+
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use serde::{Deserialize, Serialize};
 
 use super::fence::{Fence, SyncStream};
@@ -18,7 +21,6 @@ use cubecl_core::{
 };
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     debug::{DebugLogger, ProfileLevel},
     storage::ComputeStorage,
@@ -35,7 +37,6 @@ use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::Instant;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -67,28 +68,6 @@ pub struct PtxCacheEntry {
     cube_dim: (u32, u32, u32),
     cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<i8>,
-}
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
-}
-
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
-
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
-    }
-
-    fn disable(&mut self) {
-        *self = Self::Disabled;
-    }
 }
 
 #[derive(Debug)]
@@ -427,7 +406,7 @@ impl ComputeServer for CudaServer {
                     )
                     .expect("Failed to find resource");
                 let device_ptr = resource.ptr as *mut c_void;
-                assert!(
+                debug_assert!(
                     device_ptr as usize % 16 == 0,
                     "Tensor pointer must be 16 byte aligned"
                 );
@@ -444,14 +423,14 @@ impl ComputeServer for CudaServer {
                     .collect();
                 let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
-                assert!(
+                debug_assert!(
                     strides.iter().all(|it| it % 16 == 0),
                     "Strides must be 16 byte aligned"
                 );
 
                 match &map.format {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
-                        assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
+                        debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
                         lib.cuTensorMapEncodeTiled(
@@ -477,15 +456,23 @@ impl ComputeServer for CudaServer {
                         channels_per_pixel,
                         pixels_per_column,
                     } => unsafe {
+                        debug_assert_eq!(pixel_box_lower_corner.len(), map.rank - 2);
+                        debug_assert_eq!(pixel_box_upper_corner.len(), map.rank - 2);
+
+                        let lower_corner: Vec<_> =
+                            pixel_box_lower_corner.iter().rev().copied().collect();
+                        let upper_corner: Vec<_> =
+                            pixel_box_upper_corner.iter().rev().copied().collect();
+
                         lib.cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
-                            resource.as_binding(),
+                            device_ptr,
                             shape.as_ptr(),
                             strides.as_ptr(),
-                            pixel_box_lower_corner.as_ptr(),
-                            pixel_box_upper_corner.as_ptr(),
+                            lower_corner.as_ptr(),
+                            upper_corner.as_ptr(),
                             *channels_per_pixel,
                             *pixels_per_column,
                             elem_stride.as_ptr(),
@@ -550,22 +537,16 @@ impl ComputeServer for CudaServer {
         self.sync_stream_async()
     }
 
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+    fn start_profile(&mut self) {
+        // Wait for current work to be done.
+        self.ctx.sync();
+        self.ctx.timestamps.start();
+    }
+
+    fn end_profile(&mut self) -> ProfileDuration {
         self.logger.profile_summary();
-
-        let ctx = self.get_context();
-        ctx.sync();
-
-        let duration = match &mut ctx.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
+        self.ctx.sync();
+        self.ctx.timestamps.stop()
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
@@ -584,16 +565,6 @@ impl ComputeServer for CudaServer {
 
     fn memory_cleanup(&mut self) {
         self.ctx.memory_management.cleanup(true);
-    }
-
-    fn enable_timestamps(&mut self) {
-        self.ctx.timestamps.enable();
-    }
-
-    fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
-        }
     }
 }
 
@@ -619,7 +590,7 @@ impl CudaContext {
             ptx_cache: Cache::new("cuda/ptx", CacheOption::default()),
             stream,
             arch,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::default(),
             compilation_options,
         }
     }
@@ -788,11 +759,8 @@ impl CudaContext {
 
 impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(mut ctx: CudaContext) -> Self {
+    pub(crate) fn new(ctx: CudaContext) -> Self {
         let logger = DebugLogger::default();
-        if logger.profile_level().is_some() {
-            ctx.timestamps.enable();
-        }
         Self { ctx, logger }
     }
 

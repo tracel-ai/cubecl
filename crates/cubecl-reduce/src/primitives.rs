@@ -60,7 +60,7 @@ impl ReduceRange {
         } else if params.use_planes {
             CUBE_DIM_X * params.line_size_input
         } else {
-            params.line_size_input
+            params.line_size_input.runtime()
         };
 
         ReduceRange {
@@ -97,7 +97,7 @@ impl ReduceRange {
         } else if params.use_planes {
             CUBE_DIM_X
         } else {
-            1_u32
+            1_u32.runtime()
         };
 
         ReduceRange {

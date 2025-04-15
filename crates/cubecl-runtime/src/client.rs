@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use crate::{
     DeviceProperties,
     channel::ComputeChannel,
@@ -9,7 +7,8 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, benchmark::TimestampsResult};
+use cubecl_common::{ExecutionMode, benchmark::ProfileDuration};
+use spin::Mutex;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
@@ -22,7 +21,8 @@ pub struct ComputeClient<Server: ComputeServer, Channel> {
 #[derive(new, Debug)]
 struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties<Server::Feature>,
-    timestamp_lock: async_lock::Mutex<()>,
+    profile_lock: Mutex<()>,
+
     info: Server::Info,
 }
 
@@ -55,7 +55,7 @@ where
         properties: DeviceProperties<Server::Feature>,
         info: Server::Info,
     ) -> Self {
-        let state = ComputeClientState::new(properties, async_lock::Mutex::new(()), info);
+        let state = ComputeClientState::new(properties, Mutex::new(()), info);
         Self {
             channel,
             state: Arc::new(state),
@@ -206,11 +206,6 @@ where
         self.channel.sync().await
     }
 
-    /// Wait for the completion of every task in the server.
-    pub async fn sync_elapsed(&self) -> TimestampsResult {
-        self.channel.sync_elapsed().await
-    }
-
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties<Server::Feature> {
         &self.state.properties
@@ -229,56 +224,16 @@ where
         self.channel.memory_cleanup()
     }
 
-    /// When executing operation within the profile scope, you can call
-    /// [sync_elapsed](Self::sync_elapsed) safely even in multithreaded workloads.
-    /// Creates a profiling scope that enables safe timing measurements in concurrent contexts.
+    /// Measure the execution time of some inner operations.
     ///
-    /// Operations executed within this scope can safely call [`sync_elapsed()`](Self::sync_elapsed)
-    /// to measure elapsed time, even in multithreaded environments. The measurements are
-    /// thread-safe and properly synchronized.
-    pub async fn profile<O, Fut, Func>(&self, func: Func) -> O
-    where
-        Fut: Future<Output = O>,
-        Func: FnOnce() -> Fut,
-    {
-        let lock = &self.state.timestamp_lock;
-        let guard = lock.lock().await;
-
-        self.channel.enable_timestamps();
-
-        // Reset the client's timestamp state.
-        self.sync_elapsed().await.ok();
-
-        // We can't simply receive a future, since we need to make sure the future doesn't start
-        // before the lock, which might be the case on `wasm`.
-        let fut = func();
-        let output = fut.await;
-
-        self.channel.disable_timestamps();
-
+    /// Nb: this function will only allow one function at a time to be submitted when multithrading.
+    /// Recursive measurements are not allowed and will deadlock.
+    pub fn profile(&self, func: impl FnOnce()) -> ProfileDuration {
+        let guard = self.state.profile_lock.lock();
+        self.channel.start_profile();
+        func();
+        let result = self.channel.end_profile();
         core::mem::drop(guard);
-        output
-    }
-
-    /// Enable timestamp collection on the server for performance profiling.
-    ///
-    /// This feature records precise timing data for server operations, which can be used
-    /// for performance analysis and benchmarking.
-    ///
-    /// # Warning
-    ///
-    /// This should only be used during development and benchmarking, not in production,
-    /// as it significantly impacts server throughput and performance. The overhead comes
-    /// from frequent timestamp collection and storage.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// server.enable_timestamps();
-    /// // Run your benchmarks/operations
-    /// let duration = server.sync_elapsed();
-    /// ```
-    pub fn enable_timestamps(&self) {
-        self.channel.enable_timestamps();
+        result
     }
 }

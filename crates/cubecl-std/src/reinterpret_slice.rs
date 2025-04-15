@@ -150,23 +150,25 @@ fn optimize_line_size(
     target_size: u32,
 ) -> (Option<u32>, Option<u32>) {
     let line_source_size = source_size * line_size;
-    if line_source_size < target_size {
-        if target_size % line_source_size != 0 {
-            panic!("incompatible number of bytes");
+    match line_source_size.cmp(&target_size) {
+        core::cmp::Ordering::Less => {
+            if target_size % line_source_size != 0 {
+                panic!("incompatible number of bytes");
+            }
+
+            let ratio = target_size / line_source_size;
+
+            (None, Some(ratio))
         }
+        core::cmp::Ordering::Greater => {
+            if line_source_size % target_size != 0 {
+                panic!("incompatible number of bytes");
+            }
+            let ratio = line_source_size / target_size;
 
-        let ratio = target_size / line_source_size;
-
-        (None, Some(ratio))
-    } else if line_source_size > target_size {
-        if line_source_size % target_size != 0 {
-            panic!("incompatible number of bytes");
+            (Some(line_size / ratio), None)
         }
-        let ratio = line_source_size / target_size;
-
-        (Some(line_size / ratio), None)
-    } else {
-        (None, None)
+        core::cmp::Ordering::Equal => (None, None),
     }
 }
 

@@ -15,11 +15,13 @@ use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-pub struct PlaneRowMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
+use super::shared::Accumulators;
+
+pub struct PlaneMatmulFamily<TMM: TileMatmulFamily, RF: ReaderFamily> {
     _phantom: PhantomData<(TMM, RF)>,
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneRowMatmulFamily<TMM, RF> {
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulFamily<TMM, RF> {
     fn stage_shape(config: &Self::Config) -> MatmulSize {
         config.tiling.total_shape()
     }
@@ -31,12 +33,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneRowMatm
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =
-        PlaneRowMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
+        PlaneMatmul<MP, TMM::Matmul<MP>, RF::Reader<MP::ES, TL>, RF::Reader<MP::ES, TR>>;
 }
 
-impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory
-    for PlaneRowMatmulFamily<TMM, RF>
-{
+impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory for PlaneMatmulFamily<TMM, RF> {
     type Input = (CompleteStageTiling, StageBuffering);
     type Config = CommonStageConfig<TMM::Config>;
 
@@ -82,7 +82,7 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> MatmulConfigFactory
 ///
 /// # Assumptions
 /// - There are as many planes as the stage size in m
-pub struct PlaneRowMatmul<
+pub struct PlaneMatmul<
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
     RL: Reader<MP::ES>,
@@ -92,7 +92,7 @@ pub struct PlaneRowMatmul<
 }
 
 #[cube]
-impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneRowMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> StageMatmul<MP> for PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: tile::TileMatmul<MP>,
@@ -103,8 +103,8 @@ where
 
     type LhsReader = RL;
     type RhsReader = RR;
-    type Accumulator = Sequence<TMM::Accumulator>;
-    type LhsTile = TMM::Lhs;
+    type Accumulator = Accumulators<MP, TMM>;
+    type LhsTile = Sequence<TMM::Lhs>;
     type RhsTile = RhsTile<TMM::Rhs>;
 
     fn execute(
@@ -159,8 +159,11 @@ where
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
         let tmm_config = config.to_tmm_config();
+        let mut lhs = Sequence::new();
+        lhs.push(TMM::allocate_lhs(tmm_config));
+
         (
-            TMM::allocate_lhs(tmm_config),
+            lhs,
             match config.buffering() {
                 StageBuffering::Single => RhsTile::new_Single(TMM::allocate_rhs(tmm_config)),
                 StageBuffering::Double => RhsTile::new_Double((
@@ -180,6 +183,7 @@ where
         let out_smem_line_size = global_config.stage_line_size(Ident::Out);
         let num_tile_lines =
             stage_config.tiling_dimensions(Ident::Out).tile_size() / out_smem_line_size;
+        let shape_n = global_config.tiling_dimensions(Ident::Out).tile_count_col();
 
         let start = num_tile_lines * UNIT_POS_Y;
 
@@ -189,48 +193,46 @@ where
         );
         let mut smem_slice = out_smem.slice_mut(start, start + num_tile_lines);
 
+        // TODO generalize shape
+        let shape = (1u32, shape_n);
+
+        // TODO iterate over m here
+
+        let mut n_iter = comptime![0u32];
+
         #[unroll]
-        for accumulator_iter in 0..acc.len() {
-            let accumulator = acc.index(accumulator_iter);
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..shape.1 {
+            let accumulator = Self::Accumulator::get_at(acc, 0u32, n_iter);
             TMM::read_accumulator(accumulator, &mut smem_slice, stage_config.to_tmm_config());
             SW::write::<MP::EO, G>(
                 out,
                 smem_slice.to_slice(),
                 UNIT_POS_Y,
-                accumulator_iter,
+                n_iter,
                 global_config,
             );
+
+            comptime![n_iter += 1];
         }
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let mut tmm_accumulators = Sequence::<TMM::Accumulator>::new();
-
-        #[unroll]
-        for _ in 0..config.tile_count().n {
-            tmm_accumulators.push(TMM::allocate_accumulator(config.to_tmm_config()));
-        }
-
-        tmm_accumulators
+        // TODO generalize shape
+        let shape = (1, config.tile_count().n);
+        Accumulators::<MP, TMM>::new(shape, config)
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        #[unroll]
-        for i in 0..config.tile_count().n {
-            TMM::zero_accumulator(acc.index_mut(i), config.to_tmm_config());
-        }
+        acc.zero(config);
     }
 
-    fn fill_accumulator<L: AccumulatorLoader<MP, Self::Config>>(
+    fn fill_accumulator<L: AccumulatorLoader<MP>>(
         loader: &mut L,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        #[unroll]
-        for i in 0..config.tile_count().n {
-            let acc = acc.index_mut(i);
-            L::load::<TMM>(loader, acc, i, config.to_tmm_config());
-        }
+        acc.fill::<L>(loader, config);
     }
 }
 
@@ -246,8 +248,10 @@ fn check_num_planes(
     Ok(())
 }
 
+type Acc<MP, S> = <S as StageMatmul<MP>>::Accumulator;
+
 #[cube]
-impl<MP, TMM, RL, RR> PlaneRowMatmul<MP, TMM, RL, RR>
+impl<MP, TMM, RL, RR> PlaneMatmul<MP, TMM, RL, RR>
 where
     MP: MatmulPrecision,
     TMM: TileMatmul<MP>,
@@ -258,23 +262,29 @@ where
     fn execute_single_buffer<SEL: StageEventListener>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut TMM::Lhs,
+        lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
         rhs_fragment: &mut TMM::Rhs,
-        acc: &mut <Self as StageMatmul<MP>>::Accumulator,
+        acc: &mut Acc<MP, Self>,
         #[comptime] config: <Self as StageMatmul<MP>>::Config,
         mut listener: SEL,
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
+        let (m_iterations, n_iterations) = acc.shape;
+        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
+
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        let acc_iterations = acc.len();
-        let acc_total_iterations = comptime![k_iterations * acc_iterations];
+        let acc_total_iterations = comptime![k_iterations * n_iterations];
 
         let mut k_iter = comptime![0u32];
+
+        let lhs_fragment = lhs_fragment.index_mut(0);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for _ in 0..k_iterations {
+            // TODO add loop over m here
+
             let tile_lhs = RL::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, k_iter, config);
             TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
             SEL::on_event(
@@ -285,14 +295,14 @@ where
                 }],
             );
 
-            let mut acc_iter = comptime![0u32];
+            let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..acc_iterations {
-                let current = comptime![k_iter * acc_iterations + acc_iter];
+            for _ in 0..n_iterations {
+                let current = comptime![k_iter * n_iterations + n_iter];
                 let rhs_tile_next =
-                    RR::read_tile::<TMM::Config>(rhs_reader, k_iter, acc_iter, config);
+                    RR::read_tile::<TMM::Config>(rhs_reader, k_iter, n_iter, config);
                 TMM::fill_rhs(&rhs_tile_next, rhs_fragment, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
@@ -302,7 +312,7 @@ where
                     }],
                 );
 
-                let accumulator = acc.index_mut(acc_iter);
+                let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, n_iter);
                 TMM::execute(
                     lhs_fragment,
                     rhs_fragment,
@@ -317,7 +327,7 @@ where
                     }],
                 );
 
-                comptime![acc_iter += 1];
+                comptime![n_iter += 1];
             }
 
             comptime![k_iter += 1];
@@ -330,7 +340,7 @@ where
     fn execute_double_buffer<SEL: StageEventListener>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut TMM::Lhs,
+        lhs_fragment: &mut <Self as StageMatmul<MP>>::LhsTile,
         rhs_fragments: &mut (TMM::Rhs, TMM::Rhs),
         acc: &mut <Self as StageMatmul<MP>>::Accumulator,
         #[comptime] config: <Self as StageMatmul<MP>>::Config,
@@ -338,11 +348,14 @@ where
     ) {
         SEL::on_event(&mut listener, StageEvent::Begin);
 
+        let (m_iterations, n_iterations) = acc.shape;
+        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
+
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        let num_accumulators = acc.len();
-        let acc_total_iterations = comptime![k_iterations * num_accumulators];
+        let acc_total_iterations = comptime![k_iterations * n_iterations];
 
         let mut k_iter = comptime![0u32];
+        let lhs_fragment = lhs_fragment.index_mut(0);
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
@@ -368,15 +381,15 @@ where
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
-                    current: k_iter * num_accumulators,
+                    current: k_iter * n_iterations,
                     total: acc_total_iterations
                 }),
             );
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 1..num_accumulators {
-                let current_computation = comptime![k_iter * num_accumulators + acc_iter];
+            for _ in 1..n_iterations {
+                let current_computation = comptime![k_iter * n_iterations + acc_iter];
                 let (current, next) = if comptime! {acc_iter % 2 == 0} {
                     (&mut rhs_fragments.0, &mut rhs_fragments.1)
                 } else {
@@ -398,7 +411,8 @@ where
                     }),
                 );
 
-                let accumulator = acc.index_mut(acc_iter);
+                let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
+
                 TMM::execute(lhs_fragment, current, accumulator, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
@@ -417,12 +431,12 @@ where
                 &mut rhs_fragments.1
             };
 
-            let accumulator = acc.index_mut(acc_iter);
+            let accumulator = Acc::<MP, Self>::get_at_mut(acc, 0u32, acc_iter);
             TMM::execute(lhs_fragment, last, accumulator, config.to_tmm_config());
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::TmmCompleted {
-                    current: k_iter * num_accumulators + acc_iter,
+                    current: k_iter * n_iterations + acc_iter,
                     total: acc_total_iterations
                 }),
             );

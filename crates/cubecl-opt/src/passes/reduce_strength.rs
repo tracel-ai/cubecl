@@ -117,17 +117,11 @@ impl OptimizerPass for ReduceStrength {
                         changes.inc();
                     }
                     Arithmetic::Modulo(op) if is_pow2(op.rhs) => {
-                        let (const_val, dyn_val) = match (op.lhs.as_const(), op.rhs.as_const()) {
-                            (None, Some(val)) => (val.as_u32(), op.lhs),
-                            (Some(val), None) => (val.as_u32(), op.rhs),
-                            _ => {
-                                new_ops.push(Instruction::new(Arithmetic::Div(op), inst.out()));
-                                continue;
-                            }
-                        };
+                        let const_val = op.rhs.as_const().unwrap().as_u32();
+
                         new_ops.push(Instruction::new(
                             Bitwise::BitwiseAnd(BinaryOperator {
-                                lhs: dyn_val,
+                                lhs: op.lhs,
                                 rhs: (const_val - 1).into(),
                             }),
                             inst.out(),

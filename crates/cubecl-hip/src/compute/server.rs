@@ -6,14 +6,15 @@ use crate::runtime::HipCompiler;
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
+use cubecl_common::benchmark::ProfileDuration;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_core::{KernelId, prelude::*};
 use cubecl_hip_sys::{HIP_SUCCESS, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::debug::{DebugLogger, ProfileLevel};
+use cubecl_runtime::kernel_timestamps::KernelTimestamps;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{TimestampsError, TimestampsResult};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -23,7 +24,6 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::Instant;
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -45,28 +45,6 @@ struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
-}
-
-#[derive(Debug)]
-enum KernelTimestamps {
-    Inferred { start_time: Instant },
-    Disabled,
-}
-
-impl KernelTimestamps {
-    fn enable(&mut self) {
-        if !matches!(self, Self::Disabled) {
-            return;
-        }
-
-        *self = Self::Inferred {
-            start_time: Instant::now(),
-        };
-    }
-
-    fn disable(&mut self) {
-        *self = Self::Disabled;
-    }
 }
 
 unsafe impl Send for HipServer {}
@@ -305,22 +283,15 @@ impl ComputeServer for HipServer {
         self.sync_stream_async()
     }
 
-    fn sync_elapsed(&mut self) -> impl Future<Output = TimestampsResult> + 'static {
+    fn start_profile(&mut self) {
+        cubecl_common::future::block_on(self.sync());
+        self.ctx.timestamps.start();
+    }
+
+    fn end_profile(&mut self) -> ProfileDuration {
         self.logger.profile_summary();
-
-        let ctx = self.get_context();
-        ctx.sync();
-
-        let duration = match &mut ctx.timestamps {
-            KernelTimestamps::Inferred { start_time } => {
-                let duration = start_time.elapsed();
-                *start_time = Instant::now();
-                Ok(duration)
-            }
-            KernelTimestamps::Disabled => Err(TimestampsError::Disabled),
-        };
-
-        async move { duration }
+        cubecl_common::future::block_on(self.sync());
+        self.ctx.timestamps.stop()
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
@@ -331,16 +302,6 @@ impl ComputeServer for HipServer {
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Can't find resource"),
         )
-    }
-
-    fn enable_timestamps(&mut self) {
-        self.ctx.timestamps.enable();
-    }
-
-    fn disable_timestamps(&mut self) {
-        if self.logger.profile_level().is_none() {
-            self.ctx.timestamps.disable();
-        }
     }
 }
 
@@ -360,7 +321,7 @@ impl HipContext {
             memory_management,
             module_names: HashMap::new(),
             stream,
-            timestamps: KernelTimestamps::Disabled,
+            timestamps: KernelTimestamps::default(),
             compilation_options,
         }
     }
@@ -556,12 +517,8 @@ impl HipContext {
 
 impl HipServer {
     /// Create a new hip server.
-    pub(crate) fn new(mut ctx: HipContext) -> Self {
+    pub(crate) fn new(ctx: HipContext) -> Self {
         let logger = DebugLogger::default();
-        if logger.profile_level().is_some() {
-            ctx.timestamps.enable();
-        }
-
         Self { ctx, logger }
     }
 

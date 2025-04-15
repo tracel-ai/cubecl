@@ -5,7 +5,7 @@ use crate::matmul::components::{
     Ident, InvalidConfigError, MatmulConfigFactory, MatmulPrecision, MatrixLayout,
     TilingDimensions,
     config::MatmulConfig,
-    stage::{self, StageWriter},
+    stage::{self, StageConfig, StageWriter},
     tile,
 };
 use cubecl_std::{
@@ -105,17 +105,15 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 #[cube]
 /// Input to the global matmul accumulator, responsible of filling the stage and providing a reader
 /// for it.
-pub trait AccumulatorLoader<MP: MatmulPrecision, G: stage::StageConfig>:
-    CubeType + 'static + Send + Sync
-{
-    fn fill_stage(this: &mut Self, #[comptime] config: G);
+pub trait AccumulatorLoader<MP: MatmulPrecision>: CubeType + 'static + Send + Sync {
+    fn fill_stage<S: StageConfig>(this: &mut Self, #[comptime] config: S);
 
-    /// Load accumulator for `tile_n`. Should call either `zero_accumulator` or `fill_accumulator`
+    /// Load accumulator for `nth_tile`. Should call either `zero_accumulator` or `fill_accumulator`
     /// for the underlying tile.
     fn load<Tile: tile::TileMatmul<MP>>(
         this: &mut Self,
         acc: &mut Tile::Accumulator,
-        tile_n: u32,
+        nth_tile: u32,
         #[comptime] config: Tile::Config,
     );
 }
@@ -171,4 +169,6 @@ pub trait GlobalConfig: MatmulConfig {
 
     /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
     fn check_k_bounds(&self) -> bool;
+
+    fn precompute_job(&self) -> bool;
 }

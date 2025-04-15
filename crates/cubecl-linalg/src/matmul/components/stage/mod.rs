@@ -1,4 +1,4 @@
-pub mod plane_row_matmul;
+pub mod plane_matmul;
 
 mod base;
 mod event_listener;

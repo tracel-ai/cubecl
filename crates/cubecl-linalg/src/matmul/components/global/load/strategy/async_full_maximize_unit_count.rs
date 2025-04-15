@@ -1,7 +1,7 @@
 use crate::matmul::components::{
     Ident, InputIdent, InvalidConfigError, MatmulPrecision, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, LoadingValidation, Quantization,
+        CopyMechanism, GlobalConfig, LoadingValidation,
         load::AsyncFullLoadingStrategy,
         tensor_view::{TensorReader, Window},
     },
@@ -9,9 +9,8 @@ use crate::matmul::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::CubeOption;
 
-use super::{AsyncLoadingJob, AsyncLoadingJobConfig};
+use super::AsyncLoadingJob;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per unit.
@@ -57,16 +56,9 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
     type Job<MP: MatmulPrecision> = Job;
 
     fn new_job<MP: MatmulPrecision, G: GlobalConfig>(
-        quantization: CubeOption<Quantization<MP>>,
         #[comptime] input_ident: InputIdent,
         #[comptime] config: G,
     ) -> Job {
-        comptime! {
-            if quantization.is_some() {
-                panic!("Quantization not supported on async loaders.")
-            }
-        }
-
         let matrix_layout = config.matrix_layout(input_ident);
         let tiling_dimensions = config.tiling_dimensions(input_ident);
         let line_size = config.global_line_size(input_ident);
@@ -93,10 +85,8 @@ impl AsyncFullLoadingStrategy for LoadingStrategy {
         Job {
             nth_slice,
             nth_segment,
-            job_config: comptime!(JobConfig {
-                segment_length,
-                input_ident
-            }),
+            segment_length,
+            input_ident,
         }
     }
 
@@ -110,32 +100,13 @@ pub struct Job {
     nth_slice: u32,
     nth_segment: u32,
     #[cube(comptime)]
-    job_config: JobConfig,
-}
-
-#[derive(Clone, Copy)]
-pub struct JobConfig {
     segment_length: u32,
+    #[cube(comptime)]
     input_ident: InputIdent,
-}
-
-impl<MP: MatmulPrecision> AsyncLoadingJobConfig<MP, StridedTilingLayout, Job> for JobConfig {
-    fn len(_job: &Job) -> u32 {
-        1
-    }
-
-    fn __expand_len(
-        _context: &mut cubecl_core::prelude::Scope,
-        _job: <Job as cubecl_core::prelude::CubeType>::ExpandType,
-    ) -> u32 {
-        1
-    }
 }
 
 #[cube]
 impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
-    type LoadingJobConfig = JobConfig;
-
     fn execute_task<CM: CopyMechanism<MP::ES>, G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
@@ -144,20 +115,18 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let jc = this.job_config;
-
         let mut destination: SliceMut<Line<MP::ES>> =
             StridedTilingLayout::nth_slice::<MP::ES, G::SmmConfig>(
                 stage,
                 this.nth_slice,
-                comptime!(jc.input_ident.as_ident()),
+                comptime!(this.input_ident.as_ident()),
                 config.to_smm_config(),
             );
 
         let window: Window<MP::EI> =
-            tensor_reader.load_window_in_stage::<G>(this.nth_slice, jc.input_ident, config);
-        let seg_start = Min::min(this.nth_segment * jc.segment_length, window.size);
-        let seg_end = Min::min((this.nth_segment + 1) * jc.segment_length, window.size);
+            tensor_reader.load_window_in_stage::<G>(this.nth_slice, this.input_ident, config);
+        let seg_start = Min::min(this.nth_segment * this.segment_length, window.size);
+        let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.size);
 
         let src_segment = window.slice.slice(seg_start, seg_end);
         let mut dest_segment = destination.slice_mut(seg_start, seg_end);
@@ -167,5 +136,9 @@ impl<MP: MatmulPrecision> AsyncLoadingJob<MP, StridedTilingLayout> for Job {
             &src_segment.try_cast_unchecked(),
             &mut dest_segment,
         );
+    }
+
+    fn task_count(_this: &Self) -> comptime_type!(u32) {
+        1
     }
 }

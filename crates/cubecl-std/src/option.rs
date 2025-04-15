@@ -26,6 +26,13 @@ impl<T: CubeType> CubeOption<T> {
     pub fn is_none(&self) -> bool {
         !self.is_some()
     }
+
+    pub fn unwrap_or(self, fallback: T) -> T {
+        match self {
+            CubeOption::Some(val) => val,
+            CubeOption::None => fallback,
+        }
+    }
 }
 
 impl<T: CubeType> CubeOptionExpand<T> {
@@ -46,6 +53,13 @@ impl<T: CubeType> CubeOptionExpand<T> {
     pub fn is_none(&self) -> bool {
         !self.is_some()
     }
+
+    pub fn unwrap_or(self, fallback: T::ExpandType) -> T::ExpandType {
+        match self {
+            CubeOptionExpand::Some(val) => val,
+            CubeOptionExpand::None => fallback,
+        }
+    }
 }
 
 // Manually implement CubeLaunch as the macro is currently not permissive enough.
@@ -53,6 +67,17 @@ impl<T: CubeType> CubeOptionExpand<T> {
 pub enum CubeOptionArgs<'a, T: CubeLaunch, R: Runtime> {
     Some(<T as LaunchArg>::RuntimeArg<'a, R>),
     None,
+}
+
+impl<'a, T: CubeLaunch, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
+    for CubeOptionArgs<'a, T, R>
+{
+    fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
+        match value {
+            Some(arg) => Self::Some(arg),
+            None => Self::None,
+        }
+    }
 }
 
 impl<T: CubeLaunch, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {

@@ -659,12 +659,12 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorMapInputs<EG> {
         let stage_n = selection.tile_count.n * selection.tile_shape.n;
         let stage_k = selection.tile_count.k * selection.tile_shape.k;
         let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_m, stage_k],
-            components::MatrixLayout::ColMajor => vec![1, stage_k, stage_m],
+            components::MatrixLayout::RowMajor => vec![1, stage_m, selection.tile_shape.k],
+            components::MatrixLayout::ColMajor => vec![1, stage_k, selection.tile_shape.m],
         };
         let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => vec![1, stage_k, stage_n],
-            components::MatrixLayout::ColMajor => vec![1, stage_n, stage_k],
+            components::MatrixLayout::RowMajor => vec![1, stage_k, selection.tile_shape.n],
+            components::MatrixLayout::ColMajor => vec![1, stage_n, selection.tile_shape.k],
         };
 
         let elem_size = size_of::<EG>();
@@ -825,36 +825,24 @@ impl MatmulArgs for TensorMapArgs {
         unsafe { *state.1 }
     }
 
-    fn shape_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn shape_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.0).shape(dim) }
     }
 
-    fn shape_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn shape_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { (*state.1).shape(dim) }
     }
 
     fn shape_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
         unsafe { &*state.2 }.shape(dim)
     }
 
-    fn stride_lhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn stride_lhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { &*state.0 }.stride(dim)
     }
 
-    fn stride_rhs<EI: Numeric, EO: Numeric>(_state: &Self::State<EI, EO>, _dim: u32) -> u32 {
-        // This is invalid on purpose, to allow for unified batch offset that's ignored for TMA
-        // anyways. Eventually the API should change to only calculate batch offset when necessary.
-        // Set to 0 to allow CUDA to remove the calculation entirely.
-        0u32
+    fn stride_rhs<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
+        unsafe { &*state.1 }.stride(dim)
     }
 
     fn stride_out<EI: Numeric, EO: Numeric>(state: &Self::State<EI, EO>, dim: u32) -> u32 {
@@ -906,8 +894,8 @@ impl MatmulArgs for TensorMapArgs {
     }
 
     fn quantization<MP: MatmulPrecision, G: GlobalConfig>(
-        state: &Self::State<MP::EI, MP::EO>,
-        #[comptime] config: G,
+        _state: &Self::State<MP::EI, MP::EO>,
+        #[comptime] _config: G,
     ) -> Quantization<MP> {
         todo!("Quantized TMA not yet supported")
     }

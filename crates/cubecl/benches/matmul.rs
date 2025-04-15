@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
-use cubecl::prelude::*;
-use cubecl_linalg::matmul::components::MatmulPrecision;
-use cubecl_linalg::matmul::{self, AsyncLoadingStrategy};
+use cubecl::{Feature, TmaFeature, prelude::*};
+use cubecl_linalg::matmul::SyncLoadingStrategy;
+use cubecl_linalg::matmul::{self, AsyncLoadingStrategy, components::MatmulPrecision};
 
-use cubecl::benchmark::{Benchmark, TimestampsResult, TimingMethod};
+use cubecl::benchmark::{Benchmark, TimingMethod};
 use cubecl::future;
 use cubecl_linalg::tensor::TensorHandle;
 
@@ -46,8 +46,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn sync_elapsed(&self) -> TimestampsResult {
-        future::block_on(self.client.sync_elapsed())
+    fn profile(&self, args: Self::Args) -> cubecl::benchmark::ProfileDuration {
+        self.client.profile(|| self.execute(args))
     }
 }
 
@@ -90,32 +90,39 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
 
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
+    let client = R::client(&Default::default());
+
     // run::<R, MP>(Default::default(), matmul::Strategy::DoubleBuffering);
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
-    // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Simple(SyncLoadingStrategy::Cyclic),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::Simple(SyncLoadingStrategy::Strided),
     // );
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
-    );
     // run::<R, MP>(
     //     Default::default(),
-    //     matmul::Strategy::Tiling2D(Default::default()),
+    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cyclic),
     // );
+    run::<R, MP>(
+        Default::default(),
+        matmul::Strategy::Tiling2D(Default::default()),
+    );
     // run::<R, MP>(
     //     Default::default(),
     //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Cooperative),
     // );
 
-    // run::<R, MP>(
-    //     Default::default(),
-    //     matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
-    // );
+    if client
+        .properties()
+        .feature_enabled(Feature::Tma(TmaFeature::Base))
+    {
+        run::<R, MP>(
+            Default::default(),
+            matmul::Strategy::SimpleBarrier(AsyncLoadingStrategy::Tma),
+        );
+    }
 }
 
 fn main() {
@@ -144,5 +151,9 @@ fn main() {
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, half::f16, half::f16)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::bf16, f32, f32)>();
         // run_benches::<cubecl::cuda::CudaRuntime, (i8, half::f16, f32, half::f16)>();
+    }
+    #[cfg(feature = "wgpu-msl")]
+    {
+        run_benches::<cubecl::wgpu::WgpuRuntime, half::f16>();
     }
 }

@@ -144,9 +144,10 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                     // - tune_1 save
                     // ```
                     let state = self.state.read();
-                    let state = state.as_ref().expect("Should be initialized");
-                    let tuner = state.get(id).expect("Should be initialized");
-
+                    let tuner = state
+                        .as_ref()
+                        .and_then(|s| s.get(id))
+                        .expect("Should be initialized");
                     tuner.execute_autotune(key.clone(), &inputs, operations, client);
                 } else {
                     // We're waiting for results to come in.
@@ -162,11 +163,13 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
 
         let fastest = {
             let mut state = self.state.write();
-            let state = state.as_mut().expect("Should be initialized");
-            let tuner = state.get_mut(id).expect("Should be initialized");
+            let tuner = state
+                .as_mut()
+                .and_then(|s| s.get_mut(id))
+                .expect("Should be initialized");
 
-            // Now read all results that have come in since.
-            tuner.resolve();
+            // Read all results that have come in since.
+            tuner.handle_results();
 
             // Check again what the fastest option is, new results might have come in.
             match tuner.fastest(&key) {
@@ -182,11 +185,10 @@ impl<AK: AutotuneKey + 'static, ID: Hash + PartialEq + Eq + Clone + Display> Loc
                     if run_autotune {
                         panic!("Should have at least started autotuning");
                     } else {
-                        // Another worker is responsible for running autotuning.
-                        // Let's execute the default index while we wait for the results.
+                        // We're still waiting for the results of the autotune task.
+                        // Let's execute the default index while we wait.
                         //
-                        // This should only happen on wasm since we can't block or trigger a new
-                        // context switch manually to prioritize finishing the autotune task.
+                        // This should only happen on wasm since we can't block waiting on the results there.
                         0
                     }
                 }
