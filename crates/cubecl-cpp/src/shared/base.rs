@@ -1018,7 +1018,9 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::LeadingZeros(self.compile_unary(op, out)))
             }
             gpu::Bitwise::FindFirstSet(op) => {
-                instructions.push(Instruction::FindFirstSet(self.compile_unary(op, out)))
+                let instruction = Instruction::FindFirstSet(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
         };
     }

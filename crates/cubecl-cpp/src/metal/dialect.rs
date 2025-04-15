@@ -16,8 +16,10 @@ use cubecl_core::{
 };
 
 use super::{
-    AddressSpace, Extension, arch::MetalArchitecture, extension::format_mulhi, format_erf,
-    format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
+    AddressSpace, Extension,
+    arch::MetalArchitecture,
+    extension::{format_ffs, format_mulhi},
+    format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,6 +52,7 @@ using namespace metal;
         for extension in extensions {
             match extension {
                 Extension::Erf(input, output) => format_erf::<Self>(f, input, output)?,
+                Extension::Ffs(elem) => format_ffs(f, elem)?,
                 Extension::MulHi(elem) => format_mulhi(f, elem)?,
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::NoExtension => {}
@@ -71,6 +74,25 @@ using namespace metal;
         match instruction {
             shared::Instruction::<Self>::Erf(instruction) => {
                 register_extension(Extension::Erf(instruction.input, instruction.out));
+            }
+            shared::Instruction::<Self>::FindFirstSet(instruction) => {
+                let input_elem = instruction.input.elem();
+                match input_elem {
+                    Elem::U32 | Elem::U64 => {
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    Elem::I32 => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U32));
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    Elem::I64 => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U64));
+                        register_extension(Extension::Ffs(instruction.input.elem()));
+                    }
+                    _ => {
+                        register_extension(Extension::Ffs(Elem::<Self>::U32));
+                    }
+                }
             }
             shared::Instruction::<Self>::HiMul(instruction) => {
                 register_extension(Extension::MulHi(instruction.out.elem()));
