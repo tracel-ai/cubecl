@@ -41,9 +41,22 @@ use super::base::{
     implicit_conv,
 };
 
-/// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
+/// Performs convolution at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
+///
+/// Uses multiple stages to prefetch as much data as can fit into shared memory, reducing the impact
+/// of memory latency. An example execution would look like this:
+///
+/// * Start loading stage 1, 2, 3, 4
+/// * Wait for stage 1
+/// * Execute with stage 1 data
+/// * Refill stage 1 with the data for stage 5
+/// * Wait for stage 2
+/// * Execute with stage 2 data
+/// * Refill stage 2 with the data for stage 6
+///
+/// Keep going until k is exhausted
 pub struct MultiStageTmaConvolution<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
     _cs: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -82,6 +95,8 @@ where
         #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
+        // Loop once for each full set of stages, then once for each stage in an inner loop,
+        // so the stage index is comptime. This is needed to make `Sequence` work.
         let num_loops = (num_loops + num_stages - 1) / num_stages;
 
         let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
@@ -93,11 +108,12 @@ where
 
         SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, smm_config);
 
-        let mut tiles = Sequence::<(SMM::LhsTile, SMM::RhsTile)>::new();
         let mut barriers = Sequence::<Barrier<MP::ES>>::new();
+        let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(smm_config);
 
         let mut stage = comptime![0u32];
 
+        // Create barriers and prefetch each stage
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..num_stages {
@@ -111,7 +127,6 @@ where
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
 
-            tiles.push(SMM::init_tile_inputs(smm_config));
             barriers.push(barrier);
 
             comptime![stage += 1];
@@ -122,33 +137,37 @@ where
 
             let mut stage = comptime![0u32];
 
+            // Loop through all stages
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..num_stages {
                 let k = k + stage;
                 let next_k = k + num_stages;
 
+                // Bounds check for k stage, for when `k_stages % num_stages != 0`
                 if k < k_range.1 {
                     let barrier = barriers.index(stage);
-                    let tiles = tiles.index_mut(stage);
 
                     let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, stage);
                     let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, stage);
 
+                    // Wait for load and execute matmul on this stage
                     barrier.wait();
                     SMM::execute(
                         lhs_stage_reader,
                         rhs_stage_reader,
-                        &mut tiles.0,
-                        &mut tiles.1,
+                        &mut tile_lhs,
+                        &mut tile_rhs,
                         acc,
                         config.to_smm_config(),
                     );
                     barrier.arrive();
 
+                    // Check if there's any stages left to load in the k dimension
                     if next_k < k_range.1 {
                         barrier.wait();
 
+                        // Refill stage and advance view
                         Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, stage, config);
                         Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, smm_config);
 
