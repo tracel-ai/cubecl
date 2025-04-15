@@ -30,6 +30,10 @@ impl<TMM: TileMatmulFamily, RF: ReaderFamily> StageMatmulFamily for PlaneMatmulF
         config.tiling.tile_count
     }
 
+    fn tile_shape(config: &Self::Config) -> MatmulSize {
+        config.tiling.tile_shape
+    }
+
     type LhsReader = RF;
     type RhsReader = RF;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> =

@@ -11,6 +11,7 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
 use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
@@ -69,7 +70,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
-        cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+        cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
@@ -85,6 +86,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
         let warp_size = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_WARP_SIZE).unwrap() as u32;
         let max_shared = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
             .unwrap() as usize;
+
         let max_threads =
             get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK).unwrap() as u32;
         let block_dim_x = get_attribute(device_ptr, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X).unwrap();

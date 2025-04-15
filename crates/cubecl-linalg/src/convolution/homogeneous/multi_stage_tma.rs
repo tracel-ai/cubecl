@@ -16,12 +16,12 @@ use crate::{
     matmul::{
         components::{
             EA, EI, EO, ES, Ident, InputRuntimeArg, InvalidConfigError, MatmulPrecision,
-            MatmulSpec, OutputRuntimeArg,
+            MatmulSize, MatmulSpec, OutputRuntimeArg,
             global::{
                 AccumulatorLoader, GlobalConfig, load::arrive_tma, output_loader::Unloader,
                 single_stage,
             },
-            stage::{FullReader, FullReaderFamily, StageMatmul, StageMatmulFamily},
+            stage::{FullReader, FullReaderFamily, StageConfig, StageMatmul, StageMatmulFamily},
         },
         kernels::MatmulAvailabilityError,
     },
@@ -44,13 +44,13 @@ use super::base::{
 /// Performs matrix multiplication at the global level, with each plane sharing the same responsibilities
 /// - All planes load data to the stage
 /// - All planes are used in the stage matmul computation
-pub struct SimpleTmaConvolution<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
+pub struct MultiStageTmaConvolution<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
     _cs: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM> Convolution<MP> for SimpleTmaConvolution<MP, SMM>
+impl<MP: MatmulPrecision, SMM> Convolution<MP> for MultiStageTmaConvolution<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
@@ -75,52 +75,92 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
+        let num_stages = config.num_stages();
+        let smm_config = config.to_smm_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = (num_loops + num_stages - 1) / num_stages;
 
         let total_stage_elems = config.tiling_dimensions(Ident::Rhs).total_size()
             + config.tiling_dimensions(Ident::Lhs).total_size();
 
         Self::AccumulatorLoader::fill_stage::<SMM::Config>(&mut acc_loader, config.to_smm_config());
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.to_smm_config());
 
         sync_units();
 
-        SMM::fill_accumulator::<Self::AccumulatorLoader>(
-            &mut acc_loader,
-            acc,
-            config.to_smm_config(),
-        );
+        SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, smm_config);
 
-        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let mut tiles = Sequence::<(SMM::LhsTile, SMM::RhsTile)>::new();
+        let mut barriers = Sequence::<Barrier<MP::ES>>::new();
 
-        for _ in 0..num_loops {
-            sync_units();
+        let mut stage = comptime![0u32];
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.to_smm_config());
+        #[unroll]
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..num_stages {
+            let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, stage, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, stage, smm_config);
 
             arrive_tma::<MP::ES>(&barrier, total_stage_elems);
 
-            barrier.wait();
-
-            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, 0u32);
-            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, 0u32);
-
-            SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                acc,
-                config.to_smm_config(),
-            );
-
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+
+            tiles.push(SMM::init_tile_inputs(smm_config));
+            barriers.push(barrier);
+
+            comptime![stage += 1];
+        }
+
+        for k in 0..num_loops {
+            let k = k * num_stages;
+
+            let mut stage = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..num_stages {
+                let k = k + stage;
+                let next_k = k + num_stages;
+
+                if k < k_range.1 {
+                    let barrier = barriers.index(stage);
+                    let tiles = tiles.index_mut(stage);
+
+                    let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, stage);
+                    let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, stage);
+
+                    barrier.wait();
+                    SMM::execute(
+                        lhs_stage_reader,
+                        rhs_stage_reader,
+                        &mut tiles.0,
+                        &mut tiles.1,
+                        acc,
+                        config.to_smm_config(),
+                    );
+                    barrier.arrive();
+
+                    if next_k < k_range.1 {
+                        barrier.wait();
+
+                        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, stage, config);
+                        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, smm_config);
+
+                        arrive_tma::<MP::ES>(barrier, total_stage_elems);
+
+                        Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
+                        Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+                    }
+                }
+
+                comptime![stage += 1];
+            }
         }
 
         sync_units();
@@ -140,7 +180,14 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, 1u32, config)
+        Self::LhsLoader::new(
+            lhs,
+            x_offset,
+            y_offset,
+            runtime_args,
+            config.num_stages(),
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -156,7 +203,7 @@ where
             y_offset,
             CubeOption::new_None(),
             runtime_args,
-            1u32,
+            config.num_stages(),
             config,
         )
     }
@@ -182,19 +229,19 @@ where
     }
 }
 
-pub struct SimpleTmaConvolutionFamily<SMM: StageMatmulFamily> {
+pub struct MultiStageTmaConvolutionFamily<SMM: StageMatmulFamily> {
     _smm: PhantomData<SMM>,
 }
 
-impl<SMM> ConvolutionFamily for SimpleTmaConvolutionFamily<SMM>
+impl<SMM> ConvolutionFamily for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
 {
     type Convolution<MP: MatmulPrecision> =
-        SimpleTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+        MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
 }
 
-impl<SMM> ConvolutionConfigFactory for SimpleTmaConvolutionFamily<SMM>
+impl<SMM> ConvolutionConfigFactory for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily,
 {
@@ -206,7 +253,7 @@ where
     }
 
     fn make_config<R: Runtime, MP: MatmulPrecision>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server, R::Channel>,
         input: Self::Input,
         problem: &ConvolutionProblem,
         cube_dim: &CubeDim,
@@ -227,6 +274,10 @@ where
             false,
         );
         let size = SMM::stage_shape(&smm_config);
+        let shape = SMM::tile_shape(&smm_config);
+
+        let num_stages =
+            num_stages::<R, MP>(client, &size, &shape, &problem, smm_config.num_planes());
 
         config::ConvolutionConfig::new(
             single_stage::Config::new(
@@ -246,7 +297,7 @@ where
             problem.stride,
             problem.dilation,
             problem.padding,
-            1,
+            num_stages,
         )
     }
 
@@ -267,7 +318,7 @@ where
 }
 
 impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
-    ConvolutionLaunch for SimpleTmaConvolutionFamily<SMM>
+    ConvolutionLaunch for MultiStageTmaConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -309,4 +360,45 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
             );
         }
     }
+}
+
+fn num_stages<R: Runtime, MP: MatmulPrecision>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    stage_size: &MatmulSize,
+    tile_size: &MatmulSize,
+    problem: &ConvolutionProblem,
+    num_planes: u32,
+) -> u32 {
+    let inputs_stage_size = stage_size.m * stage_size.k + stage_size.k * stage_size.n;
+    // u64 is the barrier, which is also in shared.
+    // Just to ensure we don't go over by a few bytes accidentally.
+    let inputs_stage_size_bytes =
+        inputs_stage_size * size_of::<MP::ES>() as u32 + size_of::<u64>() as u32;
+    let output_stage_size = tile_size.m * tile_size.n * num_planes;
+    let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
+
+    let max_smem = client
+        .properties()
+        .hardware_properties()
+        .max_shared_memory_size;
+
+    let max_stages = (max_smem as u32 - output_stage_size_bytes) / inputs_stage_size_bytes;
+
+    let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
+
+    let num_tiles_k = (problem.k as u32).div_ceil(stage_size.k);
+
+    while num_stages > num_tiles_k && num_stages > 1 {
+        num_stages /= 2;
+    }
+
+    num_stages
+}
+
+/// Returns the greatest power of two less than or equal to `self`, or 0 otherwise.
+pub const fn prev_power_of_two(n: u64) -> u64 {
+    // n = 0 gives highest_bit_set_idx = 0.
+    let highest_bit_set_idx = 63 - (n | 1).leading_zeros();
+    // Binary AND of highest bit with n is a no-op, except zero gets wiped.
+    (1 << highest_bit_set_idx) & n
 }
