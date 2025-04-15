@@ -321,6 +321,7 @@ impl DialectInstructions<Self> for CudaDialect {
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<Self>,
+        _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
     }

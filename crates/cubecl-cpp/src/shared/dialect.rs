@@ -627,6 +627,7 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
         input: &Variable<D>,
+        out_elem: &Elem<D>,
     ) -> std::fmt::Result;
 }
 
