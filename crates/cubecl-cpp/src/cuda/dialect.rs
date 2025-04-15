@@ -167,15 +167,17 @@ impl DialectTypes<Self> for CudaDialect {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        let align = match shared.align {
-            Some(alignment) => format!("alignas({alignment})"),
-            None => "".to_string(),
-        };
-        write!(f, "__shared__ {align}")
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        writeln!(
+            f,
+            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
+        )
     }
 }
 
@@ -214,6 +216,16 @@ extern \"C\" __global__ void "
         }
         f.write_str("\n)")?;
         //
+        Ok(())
+    }
+
+    fn compile_bindings_body(
+        f: &mut std::fmt::Formatter<'_>,
+        body: &shared::Body<Self>,
+    ) -> std::fmt::Result {
+        if !body.shared_memories.is_empty() {
+            writeln!(f, "extern __shared__ uint8 dynamic_shared_mem[];")?;
+        }
         Ok(())
     }
 }

@@ -193,11 +193,21 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         Ok(())
     }
 
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        _shared: &SharedMemory<Self>,
+        shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        write!(f, "__shared__")
+        let item = shared.item;
+        let index = shared.index;
+        let size = shared.size;
+        let alignment = shared
+            .align
+            .map(|align| format!("alignas({align})"))
+            .unwrap_or_default();
+        writeln!(
+            f,
+            "__shared__ {alignment} {item} shared_memory_{index}[{size}];",
+        )
     }
 }
 

@@ -187,11 +187,21 @@ struct alignas({alignment}) {item} {{"
         write!(f, "thread")
     }
 
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        _shared: &SharedMemory<Self>,
+        shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        write!(f, "threadgroup")
+        let item = shared.item;
+        let index = shared.index;
+        let size = shared.size;
+        let alignment = shared
+            .align
+            .map(|align| format!("alignas({align})"))
+            .unwrap_or_default();
+        writeln!(
+            f,
+            "threadgroup {alignment} {item} shared_memory_{index}[{size}];",
+        )
     }
 }
 

@@ -6,7 +6,7 @@ use cubecl_core::ir::Id;
 use crate::shared::FmtLeft;
 
 use super::{
-    Architecture, AtomicKind, Binding, Component, CubeIndexFlags, Elem, Flags, Fragment,
+    Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
     FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations,
     Variable, WarpInstruction, WmmaInstruction,
 };
@@ -87,7 +87,7 @@ pub trait DialectTypes<D: Dialect> {
         flags: &Flags,
     ) -> std::fmt::Result;
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn compile_shared_memory_qualifier(
+    fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
     ) -> std::fmt::Result;
@@ -111,6 +111,12 @@ pub trait DialectBindings<D: Dialect> {
         scalars: &[(Elem<D>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result;
+    fn compile_bindings_body(
+        _f: &mut std::fmt::Formatter<'_>,
+        _body: &Body<D>,
+    ) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 // Cube builtins dialect

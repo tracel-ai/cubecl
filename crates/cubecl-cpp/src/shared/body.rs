@@ -14,12 +14,21 @@ pub struct Body<D: Dialect> {
 
 impl<D: Dialect> Display for Body<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for shared in self.shared_memories.iter() {
-            let item = &shared.item;
-            let index = &shared.index;
-            let size = &shared.size;
-            D::compile_shared_memory_qualifier(f, shared)?;
-            writeln!(f, " {item} shared_memory_{index}[{size}];",)?;
+        D::compile_bindings_body(f, self)?;
+
+        // Put highest alignment at the front to reduce padding
+        let mut shared_memories = self.shared_memories.clone();
+        shared_memories.sort_by_key(|smem| smem.align.unwrap_or(smem.item.size() as u32));
+        shared_memories.reverse();
+
+        let mut shared_offset = 0u32;
+
+        for mut shared in shared_memories {
+            let align = shared.align.unwrap_or(shared.item.size() as u32);
+            let size_bytes = shared.size * shared.item.size() as u32;
+            shared.offset = shared_offset.next_multiple_of(align);
+            shared_offset = shared.offset + size_bytes;
+            D::compile_shared_memory_declaration(f, &shared)?;
         }
 
         for pipeline in self.pipelines.iter() {
