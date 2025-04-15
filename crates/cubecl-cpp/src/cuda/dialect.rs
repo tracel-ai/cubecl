@@ -224,7 +224,18 @@ extern \"C\" __global__ void "
         body: &shared::Body<Self>,
     ) -> std::fmt::Result {
         if !body.shared_memories.is_empty() {
-            writeln!(f, "extern __shared__ uint8 dynamic_shared_mem[];")?;
+            let max_align = body
+                .shared_memories
+                .iter()
+                .map(|smem| smem.align.unwrap_or(smem.item.size() as u32))
+                .max()
+                .unwrap();
+            // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
+            // with `extern __shared__ alignas` and doesn't properly parse it.
+            writeln!(
+                f,
+                "extern __shared__ __align__({max_align}) uint8 dynamic_shared_mem[];"
+            )?;
         }
         Ok(())
     }
