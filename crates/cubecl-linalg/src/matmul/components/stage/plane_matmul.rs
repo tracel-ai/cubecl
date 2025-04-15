@@ -378,6 +378,7 @@ where
 
         let mut k_iter = comptime![0u32];
         let lhs_fragment = lhs_fragment.index_mut(0);
+        let m_offset = UNIT_POS_Y * m_iterations;
 
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
@@ -393,7 +394,8 @@ where
             for _ in 0..m_iterations {
                 // TODO: likely better to load all LHS tiles first and iterate on n once for all of them
 
-                let tile_lhs = RL::read_tile::<TMM::Config>(lhs_reader, UNIT_POS_Y, k_iter, config);
+                let tile_lhs =
+                    RL::read_tile::<TMM::Config>(lhs_reader, m_offset + m_iter, k_iter, config);
                 TMM::fill_lhs(&tile_lhs, lhs_fragment, config.to_tmm_config());
                 SEL::on_event(
                     &mut listener,
