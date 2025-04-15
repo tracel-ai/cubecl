@@ -31,8 +31,7 @@ use cubecl_runtime::{
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUctx_st, CUmemorytype, CUtensorMap, CUtensorMapDataType,
-    CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
 };
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 use std::collections::HashMap;
@@ -171,7 +170,10 @@ impl CudaServer {
             };
 
             unsafe {
-                cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                cudarc::driver::sys::lib()
+                    .cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+                    .result()
+                    .unwrap();
             };
             result.push(data);
         }
@@ -273,7 +275,10 @@ impl ComputeServer for CudaServer {
         };
 
         unsafe {
-            cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+            cudarc::driver::sys::lib()
+                .cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+                .result()
+                .unwrap();
         }
 
         (handle, strides)
@@ -426,12 +431,14 @@ impl ComputeServer for CudaServer {
                     "Strides must be 16 byte aligned"
                 );
 
+                let lib = unsafe { cudarc::driver::sys::lib() };
+
                 match &map.format {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
-                        cuTensorMapEncodeTiled(
+                        lib.cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -462,7 +469,7 @@ impl ComputeServer for CudaServer {
                         let upper_corner: Vec<_> =
                             pixel_box_upper_corner.iter().rev().copied().collect();
 
-                        cuTensorMapEncodeIm2col(
+                        lib.cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.elem),
                             map.rank as u32,
@@ -663,11 +670,7 @@ impl CudaContext {
         let kernel_compiled = logger.debug(kernel_compiled);
 
         let ptx = unsafe {
-            let program = cudarc::nvrtc::result::create_program(
-                kernel_compiled.source,
-                Some(&kernel_compiled.entrypoint_name),
-            )
-            .unwrap();
+            let program = cudarc::nvrtc::result::create_program(kernel_compiled.source).unwrap();
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
                 let log_ptr = log_raw.as_ptr();

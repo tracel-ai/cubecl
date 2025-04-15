@@ -11,7 +11,6 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::ComputeStorage,
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
 use crate::{
     compute::{CudaContext, CudaServer, CudaStorage},
@@ -70,7 +69,7 @@ fn create_client(device: &CudaDevice, options: RuntimeOptions) -> ComputeClient<
     .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
-        cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
+        cudarc::driver::sys::lib().cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
     let storage = CudaStorage::new(stream);
