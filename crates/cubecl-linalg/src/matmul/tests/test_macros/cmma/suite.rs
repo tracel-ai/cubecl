@@ -12,6 +12,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     tile_shape: MatmulSize,
     tile_count: MatmulSize,
     problem: MatmulSize,
+    rows_per_plane: u32,
 ) {
     let client = R::client(&Default::default());
     let plane_dim = match client
@@ -42,6 +43,7 @@ pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
+        rows_per_plane,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -86,6 +88,7 @@ pub fn test_algo_tma<A: Algorithm, P: TestPrecision, R: Runtime>(
         tile_shape,
         tile_count,
         plane_dim,
+        rows_per_plane: 1,
     };
     let config_input = CompleteStageTiling {
         tile_shape: selection.tile_shape,
@@ -122,6 +125,18 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
+            );
+        }
+
+        #[test]
+        pub fn simple_coalesced_multi_rows() {
+            cubecl_linalg::matmul::tests::test_algo::<SimpleAlgorithm<TMM>, Precision, TestRuntime>(
+                (MatrixLayout::$lhs_layout, MatrixLayout::$rhs_layout),
+                $tile,
+                $stage,
+                $problem,
+                2,
             );
         }
 
@@ -136,6 +151,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -150,6 +166,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -164,6 +181,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -178,6 +196,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -192,6 +211,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -206,6 +226,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -220,6 +241,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -234,6 +256,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
 
@@ -248,6 +271,7 @@ macro_rules! matmul_standard_tests {
                 $tile,
                 $stage,
                 $problem,
+                1,
             );
         }
     };

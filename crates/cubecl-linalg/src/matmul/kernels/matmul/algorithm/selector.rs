@@ -113,7 +113,7 @@ pub(crate) fn find_instruction_shape(
 /// Maximizes tensor core usage unless doing so would significantly impair
 /// parallelization across SMs. It ensures the number of cubes is as close as
 /// possible to the available SMs.
-pub(crate) fn find_stage_size_m_n(
+pub(crate) fn find_stage_size(
     m: usize,
     n: usize,
     num_batches: usize,
@@ -191,7 +191,7 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
     // Going over 8 does not work well for now
     let virtual_tensor_cores = min(8, num_tensor_cores * NUM_PLANES_PER_TENSOR_CORES) as usize;
 
-    let stage_size_m_n = find_stage_size_m_n(
+    let stage_size = find_stage_size(
         problem.m,
         problem.n,
         problem.num_batches(),
@@ -205,17 +205,30 @@ pub fn matmul_selection<TMM: TileMatmulFamily, MP: MatmulPrecision, R: Runtime>(
         instruction_n,
     );
 
-    MatmulSelection {
+    const MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE: usize = 8;
+
+    let num_row_per_stage_m = stage_size * instruction_m;
+    let (rows_per_plane, stage_size_m, stage_size_n) =
+        if problem.m > num_row_per_stage_m * MINIMUM_STAGE_COUNT_FOR_MULTI_ROW_STAGE {
+            (2, stage_size * 2, stage_size)
+        } else {
+            (1, stage_size, stage_size)
+        };
+
+    let se = MatmulSelection {
         tile_shape: MatmulSize {
             m: instruction_m as u32,
             n: instruction_n as u32,
             k: instruction_k as u32,
         },
         tile_count: MatmulSize {
-            m: stage_size_m_n as u32,
-            n: stage_size_m_n as u32,
+            m: stage_size_m as u32,
+            n: stage_size_n as u32,
             k: 2,
         },
         plane_dim,
-    }
+        rows_per_plane,
+    };
+    println!("{se:?}");
+    se
 }

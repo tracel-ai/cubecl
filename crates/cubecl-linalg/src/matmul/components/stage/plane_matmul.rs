@@ -274,7 +274,7 @@ where
 
         let (m_iterations, n_iterations) = acc.shape;
         let k_iterations = comptime!(RL::num_k_iterations(config));
-        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
+        // assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
         let mut k_iter = comptime![0u32];
 
@@ -371,7 +371,7 @@ where
         SEL::on_event(&mut listener, StageEvent::Begin);
 
         let (m_iterations, n_iterations) = acc.shape;
-        assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
+        // assert!(m_iterations == 1, "Only m_iterations=1 supported for now");
 
         let k_iterations = comptime!(RL::num_k_iterations(config));
 
